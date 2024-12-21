@@ -47,6 +47,7 @@ except ImportError:
 
 from Extensions import Extensions
 from Websearch import search_the_web
+import xml.etree.ElementTree as ET
 
 # Configure logging
 logging.basicConfig(
@@ -735,21 +736,14 @@ class web_browsing(Extensions):
 
         The assistant will:
         - Plan the interaction steps needed
-        - Execute each step in sequence
-        - Handle any errors or unexpected states
+        - Execute each step in sequence with error recovery
+        - Handle retries with alternative approaches
         - Maintain session state throughout
         - Verify successful completion
 
         Args:
         url (str): Starting URL for the workflow
         task (str): Natural language description of what needs to be accomplished
-
-        Example Usage:
-        <execute>
-        <name>Interact with Webpage</name>
-        <url>https://example.com/login</url>
-        <task>Log in using credentials, navigate to the profile page, and update the bio field with 'AI Developer'</task>
-        </execute>
 
         Returns:
         str: Description of actions taken and results
@@ -758,12 +752,17 @@ class web_browsing(Extensions):
         if self.page is None:
             await self.navigate_to_url_with_playwright(url=url, headless=True)
 
-        # Use Think About It prompt to plan the interaction steps
+        # Build context of the current page state
+        current_page_content = await self.get_page_content()
+        current_url = self.page.url if self.page else "No page loaded"
+
+        # Use AI to plan interaction steps
         interaction_plan = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
                 "user_input": f"""Need to interact with a webpage to accomplish the following task:
+
 ### Starting URL
 {url}
 
@@ -771,82 +770,214 @@ class web_browsing(Extensions):
 {task}
 
 ### Current Page State
-Currently on: {self.page.url if self.page else 'No page loaded'}
+Currently on: {current_url}
 
-Analyze this task and determine:
-1. What steps are needed
-2. What selectors to use
-3. How to verify success
+### Page Content
+{current_page_content}
 
-In the <answer> block, respond with steps: prefix followed by sequence of commands in format:
-command|selector|value (if needed)
+Please analyze the task and provide the necessary interaction steps using the following XML format inside an <answer> block:
 
-Example formats:
-- click|#submit-button
-- fill|input[name='username']|myuser
-- select|#dropdown|option2
-- wait|.loaded-element
-- verify|selector|expected_text
-- screenshot|description
-- content|description
-""",
+<interaction>
+<step>
+    <operation>click|fill|select|wait|verify|screenshot|extract</operation>
+    <selector>CSS selector or XPath</selector>
+    <value>Value for fill/select operations if needed</value>
+    <retry>
+        <alternate_selector>Alternative selector if primary fails</alternate_selector>
+        <fallback_operation>Alternative operation type</fallback_operation>
+        <max_attempts>3</max_attempts>
+    </retry>
+</step>
+</interaction>
+
+Important Guidelines:
+1. Each <step> must include operation and selector
+2. Add <value> for fill/select operations
+3. Include <retry> blocks for critical steps
+4. Provide precise selectors using:
+- Unique IDs when available
+- Specific CSS selectors
+- XPath as last resort
+5. Consider page load timing
+6. Add verification steps after important actions
+
+Example:
+<interaction>
+<step>
+    <operation>fill</operation>
+    <selector>#email-input</selector>
+    <value>user@example.com</value>
+    <retry>
+        <alternate_selector>input[type='email']</alternate_selector>
+        <fallback_operation>fill</fallback_operation>
+        <max_attempts>3</max_attempts>
+    </retry>
+</step>
+</interaction>""",
+                "conversation_name": self.conversation_name,
                 "log_user_input": False,
-                "disable_commands": True,
                 "log_output": False,
+                "tts": False,
+                "analyze_user_input": False,
+                "disable_commands": True,
                 "browse_links": False,
                 "websearch": False,
-                "analyze_user_input": False,
-                "tts": False,
-                "conversation_name": self.conversation_name,
             },
         )
 
-        if not interaction_plan.startswith("steps:"):
-            return "Error: Unable to determine interaction steps."
-
-        steps = interaction_plan.replace("steps:", "").strip().split("\n")
-        results = []
-
+        # Parse interaction steps
         try:
+            root = ET.fromstring(interaction_plan)
+            steps = root.findall(".//step")
+            results = []
+
             for step in steps:
-                parts = step.strip().split("|")
-                command = parts[0]
-                selector = parts[1]
-                value = parts[2] if len(parts) > 2 else None
-
-                result = None
-                if command == "click":
-                    result = await self.click_element_with_playwright(selector)
-                elif command == "fill":
-                    result = await self.fill_input_with_playwright(selector, value)
-                elif command == "select":
-                    result = await self.select_option_with_playwright(selector, value)
-                elif command == "wait":
-                    result = await self.wait_for_selector_with_playwright(selector)
-                elif command == "verify":
-                    result = await self.assert_element_with_playwright(selector, value)
-                elif command == "screenshot":
-                    result = await self.analyze_page_visually(
-                        selector
-                    )  # using selector as description
-                elif command == "content":
-                    result = await self.get_page_content()
-                if result and result.startswith("Error"):
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {result}",
-                        conversation_name=self.conversation_name,
-                    )
-                    return f"Workflow failed at step '{step}': {result}"
-
-                results.append(result)
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Completed step: {result}",
-                    conversation_name=self.conversation_name,
+                operation = step.find("operation").text
+                selector = step.find("selector").text
+                value = (
+                    step.find("value").text if step.find("value") is not None else None
                 )
+                retry_info = step.find("retry")
 
-            return f"Successfully completed webpage interaction:\n" + "\n".join(results)
+                # Initialize retry parameters
+                max_attempts = 3
+                alternate_selector = None
+                fallback_operation = None
+
+                if retry_info is not None:
+                    alt_selector_elem = retry_info.find("alternate_selector")
+                    if alt_selector_elem is not None:
+                        alternate_selector = alt_selector_elem.text
+
+                    fallback_op_elem = retry_info.find("fallback_operation")
+                    if fallback_op_elem is not None:
+                        fallback_operation = fallback_op_elem.text
+
+                    max_attempts_elem = retry_info.find("max_attempts")
+                    if max_attempts_elem is not None:
+                        max_attempts = int(max_attempts_elem.text)
+
+                # Execute step with retries
+                attempt = 0
+                success = False
+                last_error = None
+
+                while attempt < max_attempts and not success:
+                    try:
+                        # Try primary operation
+                        if operation == "click":
+                            await self.click_element_with_playwright(selector)
+                        elif operation == "fill":
+                            await self.fill_input_with_playwright(selector, value)
+                        elif operation == "select":
+                            await self.select_option_with_playwright(selector, value)
+                        elif operation == "wait":
+                            await self.wait_for_selector_with_playwright(selector)
+                        elif operation == "verify":
+                            await self.assert_element_with_playwright(selector, value)
+                        elif operation == "screenshot":
+                            await self.take_screenshot_with_highlight_with_playwright(
+                                selector, value
+                            )
+                        elif operation == "extract":
+                            await self.extract_text_from_image_with_playwright(selector)
+
+                        success = True
+                        results.append(
+                            f"Successfully completed {operation} on {selector}"
+                        )
+
+                    except Exception as e:
+                        last_error = str(e)
+                        attempt += 1
+
+                        # Try alternate selector if available
+                        if (
+                            not success
+                            and alternate_selector
+                            and attempt < max_attempts
+                        ):
+                            try:
+                                if operation == "click":
+                                    await self.click_element_with_playwright(
+                                        alternate_selector
+                                    )
+                                elif operation == "fill":
+                                    await self.fill_input_with_playwright(
+                                        alternate_selector, value
+                                    )
+                                elif operation == "select":
+                                    await self.select_option_with_playwright(
+                                        alternate_selector, value
+                                    )
+                                elif operation == "wait":
+                                    await self.wait_for_selector_with_playwright(
+                                        alternate_selector
+                                    )
+                                elif operation == "verify":
+                                    await self.assert_element_with_playwright(
+                                        alternate_selector, value
+                                    )
+
+                                success = True
+                                results.append(
+                                    f"Successfully completed {operation} using alternate selector {alternate_selector}"
+                                )
+                                continue
+
+                            except Exception as alt_e:
+                                last_error = (
+                                    f"Alternative selector failed: {str(alt_e)}"
+                                )
+
+                        # Try fallback operation if available
+                        if (
+                            not success
+                            and fallback_operation
+                            and attempt < max_attempts
+                        ):
+                            try:
+                                if fallback_operation == "click":
+                                    await self.click_element_with_playwright(selector)
+                                elif fallback_operation == "fill":
+                                    await self.fill_input_with_playwright(
+                                        selector, value
+                                    )
+                                elif fallback_operation == "select":
+                                    await self.select_option_with_playwright(
+                                        selector, value
+                                    )
+                                elif fallback_operation == "wait":
+                                    await self.wait_for_selector_with_playwright(
+                                        selector
+                                    )
+                                elif fallback_operation == "verify":
+                                    await self.assert_element_with_playwright(
+                                        selector, value
+                                    )
+
+                                success = True
+                                results.append(
+                                    f"Successfully completed fallback operation {fallback_operation}"
+                                )
+                                continue
+
+                            except Exception as fallback_e:
+                                last_error = (
+                                    f"Fallback operation failed: {str(fallback_e)}"
+                                )
+
+                        # If on last attempt and still not successful
+                        if attempt == max_attempts and not success:
+                            error_msg = f"Failed to complete {operation} after {max_attempts} attempts. Last error: {last_error}"
+                            self.ApiClient.new_conversation_message(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                                conversation_name=self.conversation_name,
+                            )
+                            return error_msg
+
+            return "Successfully completed webpage interaction:\n" + "\n".join(results)
 
         except Exception as e:
             error_msg = f"Error during webpage interaction: {str(e)}"
