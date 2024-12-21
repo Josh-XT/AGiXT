@@ -824,7 +824,7 @@ class Interactions:
             formatted_prompt = formatted_prompt.replace(
                 self.outputs, f"http://localhost:7437/outputs/{self.agent.agent_id}"
             )
-        logging.info(f"Formatted Prompt: {formatted_prompt}")
+        # logging.info(f"Formatted Prompt: {formatted_prompt}")
         log_message = (
             user_input
             if user_input != "" and persist_context_in_history == False
@@ -844,8 +844,8 @@ class Interactions:
             error = ""
             for err in e:
                 error += f"{err.args}\n{err.name}\n{err.msg}\n"
-            logging.warning(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
-            logging.error(f"{self.agent.PROVIDER} Error: {error}")
+            # logging.warning(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
+            logging.error(f"{self.agent.PROVIDER} Error: {error} TOKENS: {tokens}")
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY][ERROR] Unable to generate response.",
