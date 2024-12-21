@@ -951,13 +951,7 @@ class Interactions:
                 self.response = re.sub(
                     r"<image src=(.*?)>", "", self.response, flags=re.DOTALL
                 )
-            if log_output:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=self.response,
-                )
-            else:
-                logging.info(f"{self.agent_name} Response: {self.response}")
+
             tts = False
             if "tts" in kwargs:
                 tts = str(kwargs["tts"]).lower() == "true"
@@ -1042,6 +1036,18 @@ class Interactions:
                             logging.warning(
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
+            if "<thinking>" in self.response:
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                self.response = self.process_thinking_tags(
+                    response=self.response, thinking_id=thinking_id, c=c
+                )
+            if log_output:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=self.response,
+                )
+        else:
+            logging.info(f"{self.agent_name} Response: {self.response}")
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
