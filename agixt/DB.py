@@ -814,7 +814,10 @@ if __name__ == "__main__":
     # Run migrations before creating tables
     if getenv("DATABASE_TYPE") == "sqlite":
         ensure_conversation_timestamps()
-        ensure_command_cascades()
+        try:
+            ensure_command_cascades()
+        except Exception as e:
+            logging.info("No command cascade constraints to update")
     # Create any missing tables
     Base.metadata.create_all(engine)
     logging.info("Database tables verified/created.")
