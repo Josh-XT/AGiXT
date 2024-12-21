@@ -18,7 +18,7 @@ class TaskMonitor:
     async def get_all_pending_tasks(self) -> list:
         """Get all pending tasks that are due"""
         session = get_session()
-        now = datetime.datetime.now()
+        now = datetime.now()
         tasks = (
             session.query(TaskItem)
             .options(joinedload(TaskItem.category))
