@@ -142,7 +142,7 @@ class Task:
                             user_id=self.user_id,
                         )
                         prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user. The user isn't exactly expecting your response, so greet them, be friendly, relate to the user with context available, and specifically follow up on the task as a new unprompted message to the user."
-                        response = await self.ApiClient.prompt_agent(
+                        response = self.ApiClient.prompt_agent(
                             agent_name=agent.name,
                             prompt_name="Think About It",
                             prompt_args={
