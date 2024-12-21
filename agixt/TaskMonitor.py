@@ -5,6 +5,7 @@ from DB import get_session, TaskItem
 from Task import Task
 from datetime import datetime
 from MagicalAuth import impersonate_user
+from sqlalchemy.orm import joinedload
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,23 +15,23 @@ class TaskMonitor:
     def __init__(self):
         self.running = False
 
-    async def get_all_pending_tasks(self) -> list:
-        """Get all pending tasks for all users"""
+    async def get_pending_tasks(self) -> list:
+        """Get all pending tasks that are due"""
         session = get_session()
-        now = datetime.now()
-        try:
-            tasks = (
-                session.query(TaskItem)
-                .filter(
-                    TaskItem.completed == False,
-                    TaskItem.scheduled == True,
-                    TaskItem.due_date <= now,
-                )
-                .all()
+        now = datetime.datetime.now()
+        tasks = (
+            session.query(TaskItem)
+            .options(joinedload(TaskItem.category))
+            .filter(
+                TaskItem.user_id == self.user_id,
+                TaskItem.completed == False,
+                TaskItem.scheduled == True,
+                TaskItem.due_date <= now,
             )
-            return tasks
-        finally:
-            session.close()
+            .all()
+        )
+        session.close()
+        return tasks
 
     async def process_tasks(self):
         """Process all pending tasks across users"""
