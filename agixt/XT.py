@@ -554,7 +554,29 @@ class AGiXT:
             )
             return result
         else:
-            return None
+        input_tokens = 0
+        output_tokens = 0
+        for message in prompt.messages:
+            if isinstance(message, dict) and "content" in message:
+                if isinstance(message["content"], list):
+                    for content_item in message["content"]:
+                        if "text" in content_item:
+                           input_tokens += get_tokens(content_item["text"])
+                elif isinstance(message["content"], str):
+                   input_tokens += get_tokens(message["content"])
+        if isinstance(response, str):
+            output_tokens = get_tokens(response)
+        else:
+            output_tokens = 0
+        try:
+            self.auth.increase_token_counts(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+        except Exception as e:
+            logging.warning(f"Error increasing token counts: {e}")
+
+        return response
 
     async def execute_chain(
         self,
