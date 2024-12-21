@@ -918,9 +918,13 @@ class Interactions:
                         "<answer>"
                     )[-1]
                     if "<thinking>" in answer_block:
-                        self.response = self.response.replace("</answer>", "")
+                        self.response = self.response.replace("</answer>", "").replace(
+                            "<answer>", ""
+                        )
                     elif "<execute>" in answer_block:
-                        self.response = self.response.replace("</answer>", "")
+                        self.response = self.response.replace("</answer>", "").replace(
+                            "<answer>", ""
+                        )
                     else:
                         break
 
