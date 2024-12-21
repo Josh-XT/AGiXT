@@ -160,7 +160,6 @@ class agixt_actions(Extensions):
         self.commands = {
             "Think Deeply": self.think_deeply,
             "Run Data Analysis": self.run_data_analysis,
-            "Search the Web": self.websearch,
             "Create Task Chain": self.create_task_chain,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
             "Generate Agent Helper Chain": self.generate_helper_chain,
@@ -306,33 +305,6 @@ class agixt_actions(Extensions):
                 "analyze_user_input": True,
                 "tts": False,
                 "conversation_name": self.conversation_name,
-            },
-        )
-
-    async def websearch(self, query: str, depth: str = "3"):
-        """
-        Search the web for information
-
-        Args:
-        query (str): The search query. Be as descriptive about what you're searching for as possible, it will be automatically broken up and searched for.
-        depth (int): The depth to search, default is 3
-
-        Returns:
-        str: The search results
-        """
-        return self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": query,
-                "websearch": True,
-                "websearch_depth": 3,
-                "conversation_name": self.conversation_name,
-                "disable_commands": True,
-                "analyze_user_input": False,
-                "log_user_input": False,
-                "log_output": False,
-                "tts": False,
             },
         )
 

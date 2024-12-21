@@ -15,11 +15,37 @@ from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from datetime import datetime
 from googleapiclient.discovery import build
+from MagicalAuth import impersonate_user, MagicalAuth
+from agixtsdk import AGiXTSDK
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+async def search_the_web(
+    query: str,
+    user_id: str,
+    agent_name: str,
+    conversation_name="AGiXT Terminal",
+):
+    token = impersonate_user(user_id=user_id)
+    auth = MagicalAuth(token=token)
+    user = auth.email
+    ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_API"), token=token)
+    c = Conversations(conversation_name=conversation_name, user=user)
+    conversaton_id = c.get_conversation_id()
+    websearch = Websearch(
+        agent=Agent(agent_name=agent_name, ApiClient=ApiClient, user=user),
+        user=user,
+        collection_number=conversaton_id,
+    )
+    text_content, link_list = await websearch.web_search(
+        query=query, conversation_id=conversaton_id
+    )
+    # return them together as markdown
+    return f"{text_content}\n\n{link_list}"
 
 
 class Websearch:
