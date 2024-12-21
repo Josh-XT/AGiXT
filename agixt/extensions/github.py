@@ -2395,6 +2395,131 @@ Focus on:
         except Exception as e:
             return f"Error reviewing pull request: {str(e)}"
 
+    async def handle_modifications(
+        self,
+        prompt: str,
+        modifications_xml: str,
+        repo_url: str,
+        repo_content: str,
+        issue_number: str,
+        repo_name: str,
+        issue_branch: str,
+        additional_context: str = "",
+    ) -> str:
+        # Parse modifications by file
+        modifications_blocks = re.findall(
+            r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
+        )
+        file_mod_map = {}
+        for block in modifications_blocks:
+            file_match = re.search(r"<file>(.*?)</file>", block, re.DOTALL)
+            if not file_match:
+                raise Exception("No <file> tag found in a modification block.")
+            file_path = file_match.group(1).strip()
+            # if it start with the repo name, remove that.
+            if file_path.startswith(repo_name):
+                file_path = file_path[len(repo_name) + 1 :]
+
+            # Wrap this single block with <modification> for use in modify_file_content
+            single_mod_xml = f"<modification>{block}</modification>"
+
+            if file_path not in file_mod_map:
+                file_mod_map[file_path] = []
+            file_mod_map[file_path].append(single_mod_xml)
+        # Initialize result variable
+        result = None
+
+        # Apply modifications file by file
+        has_error = False
+        results = []
+
+        for file_path, mods in file_mod_map.items():
+            combined_mods = "".join(mods)
+            try:
+                result = await self.modify_file_content(
+                    repo_url=repo_url,
+                    file_path=file_path,
+                    modification_commands=combined_mods,
+                    branch=issue_branch,
+                )
+                if result.startswith("Error:"):
+                    has_error = True
+                    # Run fix github issue with additional context of the retry prompt
+                    retry_prompt = f"""{prompt}
+Please provide new modification commands that:
+1. Only use existing functions/classes as targets
+2. Maintain the same intended functionality
+3. Use the correct syntax and indentation
+4. Only reference existing dependencies and functions
+5. Ensure the file path is correct
+6. Try something else, like a shorter target that will fit and match better
+7. Do not start target or content with a new line, they're exact replacements
+
+If multiple modifications are needed, repeat the <modification> block.
+
+The previous modification attempt failed. Here's what I found:
+
+{result}
+
+Original intended changes were:
+{combined_mods}
+
+Rewrite the modifications to fix the issue."""
+                    # Get new modifications from model
+                    new_modifications = self.ApiClient.prompt_agent(
+                        agent_name=self.agent_name,
+                        prompt_name="Think About It",
+                        prompt_args={
+                            "user_input": retry_prompt,
+                            "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                            "log_user_input": False,
+                            "disable_commands": True,
+                            "log_output": False,
+                            "browse_links": False,
+                            "websearch": False,
+                            "analyze_user_input": False,
+                            "tts": False,
+                            "conversation_name": self.conversation_name,
+                        },
+                    )
+                    # Try applying the new modifications
+                    try:
+                        result = await self.modify_file_content(
+                            repo_url=repo_url,
+                            file_path=file_path,
+                            modification_commands=new_modifications,
+                            branch=issue_branch,
+                        )
+                        if not result.startswith("Error:"):
+                            has_error = False
+                    except Exception as e:
+                        result = f"Error: {str(e)}"
+
+                results.append(result)
+            except Exception as e:
+                has_error = True
+                result = f"Error: {str(e)}"
+                results.append(result)
+
+        if has_error:
+            error_results = [r for r in results if r.startswith("Error:")]
+            error_message = "\n".join(error_results)
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nErrors: {error_message}",
+                conversation_name=self.conversation_name,
+            )
+            return f"Error applying modifications:\n{error_message}"
+        else:
+            # Combine all results into a single message
+            combined_results = "\n\n".join(results)
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nResults:\n{combined_results}",
+                conversation_name=self.conversation_name,
+            )
+            return f"Modifications applied successfully:\n{combined_results}"
+
     async def fix_github_issue(
         self,
         repo_org: str,
@@ -2532,110 +2657,34 @@ def verify_mfa(self, token: str):
             message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications to fix [#{issue_number}]({repo_url}/issues/{issue_number}).\n{modifications_xml}",
             conversation_name=self.conversation_name,
         )
-        # Parse modifications by file
-        modifications_blocks = re.findall(
-            r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
+        modifications = await self.handle_modifications(
+            prompt=prompt,
+            modifications_xml=modifications_xml,
+            repo_url=repo_url,
+            repo_content=repo_content,
+            issue_number=issue_number,
+            repo_name=repo_name,
+            issue_branch=issue_branch,
+            additional_context=additional_context,
         )
-        file_mod_map = {}
-        for block in modifications_blocks:
-            file_match = re.search(r"<file>(.*?)</file>", block, re.DOTALL)
-            if not file_match:
-                raise Exception("No <file> tag found in a modification block.")
-            file_path = file_match.group(1).strip()
-            # if it start with the repo name, remove that.
-            if file_path.startswith(repo_name):
-                file_path = file_path[len(repo_name) + 1 :]
-
-            # Wrap this single block with <modification> for use in modify_file_content
-            single_mod_xml = f"<modification>{block}</modification>"
-
-            if file_path not in file_mod_map:
-                file_mod_map[file_path] = []
-            file_mod_map[file_path].append(single_mod_xml)
-        # Initialize result variable
-        result = None
-
-        # Apply modifications file by file
-        has_error = False
-        results = []
-
-        for file_path, mods in file_mod_map.items():
-            combined_mods = "".join(mods)
-            try:
-                result = await self.modify_file_content(
-                    repo_url=repo_url,
-                    file_path=file_path,
-                    modification_commands=combined_mods,
-                    branch=issue_branch,
-                )
-                if result.startswith("Error:"):
-                    has_error = True
-                    # Run fix github issue with additional context of the retry prompt
-                    retry_prompt = f"""{prompt}
-Please provide new modification commands that:
-1. Only use existing functions/classes as targets
-2. Maintain the same intended functionality
-3. Use the correct syntax and indentation
-4. Only reference existing dependencies and functions
-5. Ensure the file path is correct
-6. Try something else, like a shorter target that will fit and match better
-7. Do not start target or content with a new line, they're exact replacements
-
-If multiple modifications are needed, repeat the <modification> block.
-
-The previous modification attempt failed. Here's what I found:
-
-{result}
-
-Original intended changes were:
-{combined_mods}
-
-Rewrite the modifications to fix the issue."""
-                    # Get new modifications from model
-                    new_modifications = self.ApiClient.prompt_agent(
-                        agent_name=self.agent_name,
-                        prompt_name="Think About It",
-                        prompt_args={
-                            "user_input": retry_prompt,
-                            "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
-                            "log_user_input": False,
-                            "disable_commands": True,
-                            "log_output": False,
-                            "browse_links": False,
-                            "websearch": False,
-                            "analyze_user_input": False,
-                            "tts": False,
-                            "conversation_name": self.conversation_name,
-                        },
-                    )
-                    # Try applying the new modifications
-                    try:
-                        result = await self.modify_file_content(
-                            repo_url=repo_url,
-                            file_path=file_path,
-                            modification_commands=new_modifications,
-                            branch=issue_branch,
-                        )
-                        if not result.startswith("Error:"):
-                            has_error = False
-                    except Exception as e:
-                        result = f"Error: {str(e)}"
-
-                results.append(result)
-            except Exception as e:
-                has_error = True
-                result = f"Error: {str(e)}"
-                results.append(result)
-
-        if has_error:
-            error_results = [r for r in results if r.startswith("Error:")]
-            error_message = "\n".join(error_results)
+        if modifications.startswith("Error"):
+            # Retry modifications with additional context
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nErrors: {error_message}",
+                message=f"[SUBACTIVITY][{self.activity_id}] Retrying modifications with a different approach.",
                 conversation_name=self.conversation_name,
             )
-            return f"Error applying modifications:\n{error_message}"
+            await self.handle_modifications(
+                prompt=prompt,
+                modifications_xml=modifications_xml,
+                repo_url=repo_url,
+                repo_content=repo_content,
+                issue_number=issue_number,
+                repo_name=repo_name,
+                issue_branch=issue_branch,
+                additional_context=f"{additional_context}\n\nPrevious modifications failed with error:\n{modifications}",
+            )
+
         # Check if a PR already exists for this branch
         open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
         if open_pulls.totalCount > 0:
