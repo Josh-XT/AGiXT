@@ -342,6 +342,7 @@ class Extensions:
 
     async def execute_command(self, command_name: str, command_args: dict = None):
         credentials = get_sso_credentials(user_id=self.user_id)
+        agixt_server = getenv("AGIXT_URI")
         injection_variables = {
             "user": self.user,
             "agent_name": self.agent_name,
@@ -355,6 +356,7 @@ class Extensions:
             "conversation_directory": os.path.join(
                 os.getcwd(), "WORKSPACE", self.agent_id, self.conversation_id
             ),
+            "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}/",
             **self.agent_config["settings"],
             **credentials,
         }
