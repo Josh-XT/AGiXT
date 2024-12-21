@@ -72,6 +72,13 @@ class TaskMonitor:
                         logger.error(
                             f"Error processing task {pending_task.id}: {str(e)}"
                         )
+                        # Delete the task
+                        session = get_session()
+                        try:
+                            session.delete(pending_task)
+                            session.commit()
+                        finally:
+                            session.close()
                 # Wait before next check
                 await asyncio.sleep(60)
             except Exception as e:
