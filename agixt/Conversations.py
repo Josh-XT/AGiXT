@@ -670,6 +670,74 @@ class Conversations:
         session.commit()
         session.close()
 
+    def get_message_by_id(self, message_id):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not conversation:
+            logging.info(f"No conversation found.")
+            session.close()
+            return
+        message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.id == message_id,
+            )
+            .first()
+        )
+
+        if not message:
+            logging.info(
+                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
+            )
+            session.close()
+            return
+        session.close()
+        return message.content
+
+    def get_last_agent_name(self):
+        # Get the last role in the conversation that isn't "user"
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        if not self.conversation_name:
+            self.conversation_name = "-"
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return "AGiXT"
+        message = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.role != "USER")
+            .filter(Message.role != "user")
+            .order_by(Message.timestamp.desc())
+            .first()
+        )
+        if not message:
+            session.close()
+            return "AGiXT"
+        session.close()
+        return message.role
+
     def delete_message_by_id(self, message_id):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
