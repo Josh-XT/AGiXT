@@ -730,88 +730,74 @@ def ensure_command_cascades():
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_command'"
             )
             if cursor.fetchone():
-                # Check the foreign key constraint on command_id
-                cursor.execute("PRAGMA foreign_key_list(agent_command)")
-                fk_info = cursor.fetchall()
-
-                # Find the foreign key constraint for command_id
-                command_id_fk = next(
-                    (fk for fk in fk_info if fk[3] == "command_id"), None
+                # Drop the existing foreign key constraint if it exists
+                cursor.execute(
+                    """
+                    DROP TRIGGER IF EXISTS agent_command_command_id_fk;
+                    """
                 )
 
-                if command_id_fk:
-                    if command_id_fk[5] != "CASCADE":
-                        logging.info(
-                            "Updating AgentCommand command_id foreign key constraint to CASCADE"
-                        )
-                        cursor.execute(
-                            """
-                            ALTER TABLE agent_command
-                            DROP CONSTRAINT IF EXISTS command_id_fk;
-                            """
-                        )
-                        cursor.execute(
-                            """
-                            ALTER TABLE agent_command
-                            ADD CONSTRAINT command_id_fk
-                            FOREIGN KEY (command_id) REFERENCES command(id) ON DELETE CASCADE;
-                            """
-                        )
-                else:
-                    logging.info(
-                        "Adding AgentCommand command_id foreign key constraint with CASCADE"
-                    )
-                    cursor.execute(
-                        """
-                        ALTER TABLE agent_command
-                        ADD CONSTRAINT command_id_fk
-                        FOREIGN KEY (command_id) REFERENCES command(id) ON DELETE CASCADE;
-                        """
-                    )
+                # Add the new foreign key constraint with CASCADE
+                cursor.execute(
+                    """
+                    CREATE TRIGGER agent_command_command_id_fk
+                    BEFORE INSERT ON agent_command
+                    FOR EACH ROW
+                    BEGIN
+                        SELECT CASE
+                            WHEN (SELECT id FROM command WHERE id = NEW.command_id) IS NULL
+                            THEN RAISE (ABORT, 'Foreign key violation: command_id does not exist in command table')
+                        END;
+                    END;
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TRIGGER agent_command_command_id_cascade
+                    AFTER DELETE ON command
+                    FOR EACH ROW
+                    BEGIN
+                        DELETE FROM agent_command WHERE command_id = OLD.id;
+                    END;
+                    """
+                )
 
             # Check if ChainStep table exists
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='chain_step'"
             )
             if cursor.fetchone():
-                # Check the foreign key constraint on target_command_id
-                cursor.execute("PRAGMA foreign_key_list(chain_step)")
-                fk_info = cursor.fetchall()
-
-                # Find the foreign key constraint for target_command_id
-                target_command_id_fk = next(
-                    (fk for fk in fk_info if fk[3] == "target_command_id"), None
+                # Drop the existing foreign key constraint if it exists
+                cursor.execute(
+                    """
+                    DROP TRIGGER IF EXISTS chain_step_target_command_id_fk;
+                    """
                 )
 
-                if target_command_id_fk:
-                    if target_command_id_fk[5] != "SET NULL":
-                        logging.info(
-                            "Updating ChainStep target_command_id foreign key constraint to SET NULL"
-                        )
-                        cursor.execute(
-                            """
-                            ALTER TABLE chain_step
-                            DROP CONSTRAINT IF EXISTS target_command_id_fk;
-                            """
-                        )
-                        cursor.execute(
-                            """
-                            ALTER TABLE chain_step
-                            ADD CONSTRAINT target_command_id_fk
-                            FOREIGN KEY (target_command_id) REFERENCES command(id) ON DELETE SET NULL;
-                            """
-                        )
-                else:
-                    logging.info(
-                        "Adding ChainStep target_command_id foreign key constraint with SET NULL"
-                    )
-                    cursor.execute(
-                        """
-                        ALTER TABLE chain_step
-                        ADD CONSTRAINT target_command_id_fk
-                        FOREIGN KEY (target_command_id) REFERENCES command(id) ON DELETE SET NULL;
-                        """
-                    )
+                # Add the new foreign key constraint with SET NULL
+                cursor.execute(
+                    """
+                    CREATE TRIGGER chain_step_target_command_id_fk
+                    BEFORE INSERT ON chain_step
+                    FOR EACH ROW
+                    BEGIN
+                        SELECT CASE
+                            WHEN NEW.target_command_id IS NOT NULL AND (SELECT id FROM command WHERE id = NEW.target_command_id) IS NULL
+                            THEN RAISE (ABORT, 'Foreign key violation: target_command_id does not exist in command table')
+                        END;
+                    END;
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TRIGGER chain_step_target_command_id_set_null
+                    AFTER DELETE ON command
+                    FOR EACH ROW
+                    BEGIN
+                        UPDATE chain_step SET target_command_id = NULL WHERE target_command_id = OLD.id;
+                    END;
+                    """
+                )
 
             conn.commit()
             logging.info("Command cascade constraints update completed")
