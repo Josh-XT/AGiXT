@@ -2719,9 +2719,12 @@ def verify_mfa(self, token: str):
         else:
             # No PR exists, create a new one
             pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
-            pr_body = pr_body.replace(
-                "<modification>", "```xml\n<modification>"
-            ).replace("</modification>", "</modification>\n```")
+            if "<modification>" in pr_body:
+                # Check if the characters before it are "```xml\n", if it isn't, add it.
+                if pr_body.find("```xml\n<modification>") == -1:
+                    pr_body = pr_body.replace(
+                        "<modification>", "```xml\n<modification>"
+                    ).replace("</modification>", "</modification>\n```")
             new_pr = repo.create_pull(
                 title=f"Fix #{issue_number}: {issue_title}",
                 body=pr_body,
@@ -2750,11 +2753,4 @@ Body:
 {pr_body}
 
 I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
-            # Check if <modification> tag is present in response
-            if "<modification>" in response:
-                # Check if the characters before it are "```xml\n", if it isn't, add it.
-                if response.find("```xml\n<modification>") == -1:
-                    response = response.replace(
-                        "<modification>", "```xml\n<modification>"
-                    ).replace("</modification>", "</modification>\n```")
             return response
