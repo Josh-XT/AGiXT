@@ -373,14 +373,13 @@ class Agent:
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
             return ""
-        if tokens == 0:
-            tokens = get_tokens(prompt)
+        input_tokens = get_tokens(prompt)
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
         output_tokens = get_tokens(answer)
         self.auth.increase_token_counts(
-            input_tokens=tokens, output_tokens=output_tokens
+            input_tokens=input_tokens, output_tokens=output_tokens
         )
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
@@ -392,14 +391,13 @@ class Agent:
             return ""
         if not self.VISION_PROVIDER:
             return ""
-        if tokens == 0:
-            tokens = get_tokens(prompt)
+        input_tokens = get_tokens(prompt)
         answer = await self.VISION_PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
         output_tokens = get_tokens(answer)
         self.auth.increase_token_counts(
-            input_tokens=tokens, output_tokens=output_tokens
+            input_tokens=input_tokens, output_tokens=output_tokens
         )
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
