@@ -1132,11 +1132,12 @@ class Interactions:
                         )
                         ext = Extensions(
                             agent_name=self.agent_name,
+                            agent_id=self.agent.agent_id,
                             agent_config=self.agent.AGENT_CONFIG,
                             conversation_name=conversation_name,
                             conversation_id=c.get_conversation_id(),
-                            agent_id=self.agent.agent_id,
                             ApiClient=self.ApiClient,
+                            api_key=self.ApiClient.headers["Authorization"],
                             user=self.user,
                         )
                         command_args["activity_id"] = thinking_id
