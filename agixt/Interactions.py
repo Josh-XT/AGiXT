@@ -920,9 +920,12 @@ class Interactions:
                     continue
                 else:
                     # We have an answer block and no new commands to process
-                    if "<thinking>" in self.response:
+                    answer_block = self.response.split("</answer>")[0].split(
+                        "<answer>"
+                    )[-1]
+                    if "<thinking>" in answer_block:
                         self.response = self.response.replace("</answer>", "")
-                    elif "<execute>" in self.response:
+                    elif "<execute>" in answer_block:
                         self.response = self.response.replace("</answer>", "")
                     else:
                         break
