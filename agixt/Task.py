@@ -152,6 +152,7 @@ class Task:
                                 "analyze_user_input": False,
                                 "log_user_input": False,
                                 "log_output": True,
+                                "tts": False,
                             },
                         )
                         logging.info(
