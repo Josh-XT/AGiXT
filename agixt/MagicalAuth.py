@@ -171,7 +171,7 @@ def impersonate_user(user_id: str):
     if not user:
         session.close()
         raise HTTPException(status_code=404, detail="User not found.")
-    user_id = user.id
+    user_id = str(user.id)
     email = user.email
     session.close()
     token = jwt.encode(
