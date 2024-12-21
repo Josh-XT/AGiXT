@@ -1505,6 +1505,34 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         Returns:
             Tuple of (start_line, end_line, indent_level)
         """
+        # Handle special cases for empty files or new files
+        if not file_lines:
+            if operation == "insert":
+                return 0, 0, 0
+            raise ValueError("Cannot find pattern in empty file")
+
+        # Handle numeric line number targets
+        if str(target).isdigit():
+            line_num = int(target)
+            if line_num <= len(file_lines):
+                return (
+                    line_num,
+                    line_num,
+                    (
+                        len(file_lines[line_num - 1])
+                        - len(file_lines[line_num - 1].lstrip())
+                        if line_num > 0
+                        else 0
+                    ),
+                )
+            elif operation == "insert":
+                # Allow insertion at end of file
+                return len(file_lines), len(file_lines), 0
+            else:
+                raise ValueError(
+                    f"Line number {line_num} exceeds file length {len(file_lines)}"
+                )
+
         # Split and clean target
         target_lines = [line.rstrip() for line in target.splitlines()]
         while target_lines and not target_lines[0].strip():
@@ -1519,10 +1547,18 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         target_base_indent = len(target_lines[0]) - len(target_lines[0].lstrip())
 
         # Special handling for insertions
-        if operation == "insert" and re.match(
-            r"^(\s*)(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_lines[0]
-        ):
-            return self._handle_insertion_point(file_lines, target_lines[0].lstrip())
+        if operation == "insert":
+            if re.match(
+                r"^(\s*)(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_lines[0]
+            ):
+                return self._handle_insertion_point(
+                    file_lines, target_lines[0].lstrip()
+                )
+            # If it's an insert operation and we can't find the target,
+            # suggest inserting at the end of the file
+            if len(file_lines) > 0:
+                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                return len(file_lines), len(file_lines), last_line_indent // 4
 
         # Try different indentation variations of the target
         target_variations = self._try_different_indentations(target)
@@ -1580,6 +1616,12 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         threshold = 0.7 if fuzzy_match else 0.9
 
         if best_match["score"] < threshold:
+            # For insert operations, if we can't find a good match,
+            # suggest inserting at the end of the file
+            if operation == "insert":
+                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                return len(file_lines), len(file_lines), last_line_indent // 4
+
             # Try one more time with aggressive normalization
             try:
                 return self._find_pattern_with_aggressive_normalization(
@@ -2049,25 +2091,25 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     if not branch:
                         branch = repo.default_branch
 
-                    # Find best matching file or create new one
+                    # Find best matching file or prepare for new file creation
                     best_match, match_score = self._find_best_matching_file(
                         repo, file_path, branch
                     )
 
+                    # Initialize file content and object
+                    file_content = ""
+                    file_content_obj = None
+
                     if best_match and match_score >= 0.8:
                         file_path = best_match
-                        file_content_obj = repo.get_contents(file_path, ref=branch)
-                        file_content = file_content_obj.decoded_content.decode("utf-8")
-                    elif parsed_mods and parsed_mods[0]["operation"] == "insert":
-                        # For insert operations on non-existent files, create the file
-                        file_content = ""
-                        file_content_obj = None
-                    else:
-                        if best_match:
-                            suggestion = f"\n\nDid you mean '{best_match}' (similarity: {match_score:.2f})?"
-                        else:
-                            suggestion = ""
-                        raise ValueError(f"File '{file_path}' not found.{suggestion}")
+                        try:
+                            file_content_obj = repo.get_contents(file_path, ref=branch)
+                            file_content = file_content_obj.decoded_content.decode(
+                                "utf-8"
+                            )
+                        except Exception:
+                            # File might have been deleted or moved
+                            pass
 
                     # Process modifications
                     original_content = file_content
@@ -2085,18 +2127,38 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 f"Content is required for {operation} operation"
                             )
 
+                        # For empty files or new files, handle differently
+                        if not modified_content and operation == "insert":
+                            modified_content = content
+                            has_changes = True
+                            continue
+
                         # Split content into lines while preserving empty lines
                         modified_lines = modified_content.splitlines(keepends=True)
 
-                        # Find target location
-                        start_line, end_line, indent_level = (
-                            self._find_pattern_boundaries(
-                                [line.rstrip("\n") for line in modified_lines],
-                                target,
-                                fuzzy_match=fuzzy_match,
-                                operation=operation,
+                        if not modified_lines and operation != "insert":
+                            # Can't perform replace or delete on empty file
+                            raise ValueError(
+                                f"Cannot perform {operation} on empty file"
                             )
-                        )
+
+                        # Find target location
+                        try:
+                            start_line, end_line, indent_level = (
+                                self._find_pattern_boundaries(
+                                    [line.rstrip("\n") for line in modified_lines],
+                                    target,
+                                    fuzzy_match=fuzzy_match,
+                                    operation=operation,
+                                )
+                            )
+                        except ValueError as e:
+                            if operation == "insert" and not modified_lines:
+                                # New file, just use the content
+                                modified_content = content
+                                has_changes = True
+                                continue
+                            raise e
 
                         # Apply modification
                         if content:
@@ -2110,7 +2172,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                             new_content = _indent_code_block(content, indent_level)
                             new_lines[start_line:end_line] = new_content
                             has_changes = True
-
                         elif operation == "insert" and content:
                             indent_level = _get_correct_indent_level(
                                 modified_lines, start_line
