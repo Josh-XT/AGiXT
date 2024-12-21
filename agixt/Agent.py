@@ -277,14 +277,16 @@ class Agent:
             self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:
             self.chunk_size = 256
+        self.agent_id = str(self.get_agent_id())
         self.extensions = Extensions(
             agent_name=self.agent_name,
+            agent_id=self.agent_id,
             agent_config=self.AGENT_CONFIG,
             ApiClient=ApiClient,
+            api_key=ApiClient.headers.get("Authorization"),
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
-        self.agent_id = str(self.get_agent_id())
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
 
