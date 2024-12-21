@@ -556,27 +556,26 @@ class Interactions:
 
         # Log only unique thoughts
         for thought in unique_thoughts.values():
-            tag_name = thought["tag_name"]
+            tag_name = str(thought["tag_name"]).lower()
             content = thought["content"]
+            content = re.sub(r"\. ", ".\n", content, count=1)
+            if content.startswith("1."):
+                # Remove the first 3 character of the string
+                content = content[3:]
+                content = re.sub(r"\. ", ".\n", content, count=1)
 
             # Create a unique identifier for this tag
             tag_identifier = f"{tag_name}:{content}"
 
             # Only log if we haven't seen this exact thought before
             if tag_identifier not in self._processed_tags:
-                test_content = re.sub(r"\. ", ".\n", content, count=1)
-                if test_content.startswith("1."):
-                    # Remove the first 3 character of the string
-                    content = test_content[3:]
-                    test_content = re.sub(r"\. ", ".\n", content, count=1)
-                else:
-                    content = test_content
                 # log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
-                if tag_name.startswith("think"):
+                if tag_name == "thinking":
                     log_message = f"[SUBACTIVITY][{thinking_id}][THOUGHT] {content}"
-                elif tag_name.startswith("reflect"):
+                elif tag_name == "reflection":
                     log_message = f"[SUBACTIVITY][{thinking_id}][REFLECTION] {content}"
-                log_message = f"[SUBACTIVITY][{thinking_id}] {content}"
+                else:
+                    log_message = f"[SUBACTIVITY][{thinking_id}] {content}"
                 c.log_interaction(role=self.agent_name, message=log_message)
                 self._processed_tags.add(tag_identifier)
 
