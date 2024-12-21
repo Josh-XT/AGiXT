@@ -905,7 +905,7 @@ class Interactions:
                         break  # No new content, stop processing
                 # If no answer block yet, try to get it
                 elif "</answer>" not in self.response:
-                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user."
+                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block."
                     response = await self.agent.inference(
                         prompt=new_prompt, tokens=tokens
                     )
@@ -918,10 +918,15 @@ class Interactions:
                         )
                     # After getting more response, let the loop continue to check for any new commands
                     continue
-
                 else:
                     # We have an answer block and no new commands to process
-                    break
+                    if "<thinking>" in self.response:
+                        self.response = self.response.replace("</answer>", "")
+                    elif "<execute>" in self.response:
+                        self.response = self.response.replace("</answer>", "")
+                    else:
+                        break
+
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
             if "<audio controls>" in self.response:
