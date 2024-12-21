@@ -80,6 +80,9 @@ def import_extensions():
     extension_settings_data = Extensions().get_extension_settings()
     session = get_session()
 
+    # Get existing extensions
+    existing_extensions = session.query(Extension).all()
+
     # Process each extension
     for extension_data in extensions_data:
         extension_name = extension_data["extension_name"]
@@ -95,6 +98,11 @@ def import_extensions():
             session.add(extension)
             session.flush()
             logging.info(f"Imported extension: {extension_name}")
+
+        # Get existing commands for this extension
+        existing_commands = (
+            session.query(Command).filter_by(extension_id=extension.id).all()
+        )
 
         # Process commands for this extension
         if "commands" in extension_data:
@@ -141,6 +149,16 @@ def import_extensions():
                                 f"Imported argument: {arg_name} for command: {command_name}"
                             )
 
+        # Delete commands that no longer exist
+        imported_command_names = [
+            command_data["friendly_name"]
+            for command_data in extension_data.get("commands", [])
+        ]
+        for existing_command in existing_commands:
+            if existing_command.name not in imported_command_names:
+                session.delete(existing_command)
+                logging.info(f"Deleted command: {existing_command.name}")
+
     # Process extension settings
     for extension_name, settings in extension_settings_data.items():
         extension = session.query(Extension).filter_by(name=extension_name).first()
@@ -179,6 +197,15 @@ def import_extensions():
                 logging.info(
                     f"Imported setting: {setting_name} for extension: {extension_name}"
                 )
+
+    # Delete extensions that no longer exist
+    imported_extension_names = [
+        extension_data["extension_name"] for extension_data in extensions_data
+    ]
+    for existing_extension in existing_extensions:
+        if existing_extension.name not in imported_extension_names:
+            session.delete(existing_extension)
+            logging.info(f"Deleted extension: {existing_extension.name}")
 
     try:
         session.commit()

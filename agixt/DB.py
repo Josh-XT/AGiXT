@@ -272,7 +272,7 @@ class AgentCommand(Base):
     )
     command_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("command.id"),
+        ForeignKey("command.id", ondelete="CASCADE"),
         nullable=False,
     )
     agent_id = Column(
@@ -410,7 +410,7 @@ class ChainStep(Base):
     )
     target_command_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("command.id", ondelete="SET NULL"),
+        ForeignKey("command.id", ondelete="CASCADE"),
     )
     target_prompt_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -713,9 +713,113 @@ def ensure_conversation_timestamps():
         raise
 
 
-# Add this near the top of your file, after imports
-if getenv("DATABASE_TYPE") == "sqlite":
-    ensure_conversation_timestamps()
+def ensure_command_cascades():
+    import sqlite3
+    import logging
+    from Globals import getenv
+
+    db_path = getenv("DATABASE_NAME") + ".db"
+    logging.info(f"Checking command cascade constraints in {db_path}")
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+
+            # Check if AgentCommand table exists
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_command'"
+            )
+            if cursor.fetchone():
+                # Check the foreign key constraint on command_id
+                cursor.execute("PRAGMA foreign_key_list(agent_command)")
+                fk_info = cursor.fetchall()
+
+                # Find the foreign key constraint for command_id
+                command_id_fk = next(
+                    (fk for fk in fk_info if fk[3] == "command_id"), None
+                )
+
+                if command_id_fk:
+                    if command_id_fk[5] != "CASCADE":
+                        logging.info(
+                            "Updating AgentCommand command_id foreign key constraint to CASCADE"
+                        )
+                        cursor.execute(
+                            """
+                            ALTER TABLE agent_command
+                            DROP CONSTRAINT IF EXISTS command_id_fk;
+                            """
+                        )
+                        cursor.execute(
+                            """
+                            ALTER TABLE agent_command
+                            ADD CONSTRAINT command_id_fk
+                            FOREIGN KEY (command_id) REFERENCES command(id) ON DELETE CASCADE;
+                            """
+                        )
+                else:
+                    logging.info(
+                        "Adding AgentCommand command_id foreign key constraint with CASCADE"
+                    )
+                    cursor.execute(
+                        """
+                        ALTER TABLE agent_command
+                        ADD CONSTRAINT command_id_fk
+                        FOREIGN KEY (command_id) REFERENCES command(id) ON DELETE CASCADE;
+                        """
+                    )
+
+            # Check if ChainStep table exists
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='chain_step'"
+            )
+            if cursor.fetchone():
+                # Check the foreign key constraint on target_command_id
+                cursor.execute("PRAGMA foreign_key_list(chain_step)")
+                fk_info = cursor.fetchall()
+
+                # Find the foreign key constraint for target_command_id
+                target_command_id_fk = next(
+                    (fk for fk in fk_info if fk[3] == "target_command_id"), None
+                )
+
+                if target_command_id_fk:
+                    if target_command_id_fk[5] != "SET NULL":
+                        logging.info(
+                            "Updating ChainStep target_command_id foreign key constraint to SET NULL"
+                        )
+                        cursor.execute(
+                            """
+                            ALTER TABLE chain_step
+                            DROP CONSTRAINT IF EXISTS target_command_id_fk;
+                            """
+                        )
+                        cursor.execute(
+                            """
+                            ALTER TABLE chain_step
+                            ADD CONSTRAINT target_command_id_fk
+                            FOREIGN KEY (target_command_id) REFERENCES command(id) ON DELETE SET NULL;
+                            """
+                        )
+                else:
+                    logging.info(
+                        "Adding ChainStep target_command_id foreign key constraint with SET NULL"
+                    )
+                    cursor.execute(
+                        """
+                        ALTER TABLE chain_step
+                        ADD CONSTRAINT target_command_id_fk
+                        FOREIGN KEY (target_command_id) REFERENCES command(id) ON DELETE SET NULL;
+                        """
+                    )
+
+            conn.commit()
+            logging.info("Command cascade constraints update completed")
+
+    except Exception as e:
+        logging.error(f"Migration error: {e}")
+        raise
+
 
 if __name__ == "__main__":
     logging.info("Connecting to database...")
@@ -724,6 +828,7 @@ if __name__ == "__main__":
     # Run migrations before creating tables
     if getenv("DATABASE_TYPE") == "sqlite":
         ensure_conversation_timestamps()
+        ensure_command_cascades()
     # Create any missing tables
     Base.metadata.create_all(engine)
     logging.info("Database tables verified/created.")
