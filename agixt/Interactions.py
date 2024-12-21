@@ -882,6 +882,11 @@ class Interactions:
             while True:
                 # Check if we have new commands to process
                 if self.response[processed_length:].strip().endswith("</output>"):
+                    if "<thinking>" in self.response:
+                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                        self.response = self.process_thinking_tags(
+                            response=self.response, thinking_id=thinking_id, c=c
+                        )
                     await self.execution_agent(conversation_name=conversation_name)
                     new_processed_length = len(self.response)
 
@@ -901,6 +906,11 @@ class Interactions:
                         break  # No new content, stop processing
                 # If no answer block yet, try to get it
                 elif "</answer>" not in self.response:
+                    if "<thinking>" in self.response:
+                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                        self.response = self.process_thinking_tags(
+                            response=self.response, thinking_id=thinking_id, c=c
+                        )
                     new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>' as long as there is a <answer> block present, otherwise, the final answer to the user should be within the <answer> block. to send the message to the user. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
                     response = await self.agent.inference(prompt=new_prompt)
                     self.response = f"{self.response}{response}"
@@ -927,7 +937,11 @@ class Interactions:
                         )
                     else:
                         break
-
+        if "<thinking>" in self.response:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+            self.response = self.process_thinking_tags(
+                response=self.response, thinking_id=thinking_id, c=c
+            )
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
             if "<audio controls>" in self.response:
