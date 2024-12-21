@@ -3,6 +3,7 @@ from Globals import getenv
 from agixtsdk import AGiXTSDK
 from MagicalAuth import MagicalAuth
 from Conversations import get_conversation_name_by_id
+from sqlalchemy.orm import joinedload
 import datetime
 import logging
 import asyncio
@@ -104,6 +105,7 @@ class Task:
         now = datetime.datetime.now()
         tasks = (
             session.query(TaskItem)
+            .options(joinedload(TaskItem.category))  # Eager load the category
             .filter(
                 TaskItem.user_id == self.user_id,
                 TaskItem.completed == False,
