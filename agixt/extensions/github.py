@@ -2634,10 +2634,6 @@ Rewrite the modifications to fix the issue."""
                         )
                     except Exception as e:
                         result = f"Error: {str(e)}"
-                    if "Error:" not in result:
-                        break
-            if "Error:" not in result:
-                break
             if "Error:" in result:
                 # If something went wrong, comment on the issue and exit
                 self.ApiClient.new_conversation_message(
