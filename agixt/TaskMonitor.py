@@ -15,7 +15,7 @@ class TaskMonitor:
     def __init__(self):
         self.running = False
 
-    async def get_pending_tasks(self) -> list:
+    async def get_all_pending_tasks(self) -> list:
         """Get all pending tasks that are due"""
         session = get_session()
         now = datetime.datetime.now()
