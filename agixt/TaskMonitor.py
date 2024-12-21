@@ -39,6 +39,9 @@ class TaskMonitor:
                 pending_tasks = await self.get_all_pending_tasks()
                 for pending_task in pending_tasks:
                     # Create task manager with impersonated user context
+                    logging.info(
+                        f"Processing task {pending_task.id} for user {pending_task.user_id}"
+                    )
                     task_manager = Task(
                         token=impersonate_user(user_id=pending_task.user_id)
                     )
