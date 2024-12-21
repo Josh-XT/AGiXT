@@ -2554,13 +2554,12 @@ def verify_mfa(self, token: str):
             file_mod_map[file_path].append(single_mod_xml)
         # Initialize result variable
         result = None
-        error_occurred = False
 
         # Apply modifications file by file
-        for file_path, mods in file_mod_map.items():
-            if error_occurred:
-                break
+        has_error = False
+        results = []
 
+        for file_path, mods in file_mod_map.items():
             combined_mods = "".join(mods)
             try:
                 result = await self.modify_file_content(
@@ -2569,14 +2568,10 @@ def verify_mfa(self, token: str):
                     modification_commands=combined_mods,
                     branch=issue_branch,
                 )
-            except Exception as e:
-                result = f"Error: {str(e)}"
-                error_occurred = True
-                continue
-
-            if result and result.startswith("Error:"):
-                # Run fix github issue with additional context of the retry prompt
-                retry_prompt = f"""{prompt}
+                if result.startswith("Error:"):
+                    has_error = True
+                    # Run fix github issue with additional context of the retry prompt
+                    retry_prompt = f"""{prompt}
 Please provide new modification commands that:
 1. Only use existing functions/classes as targets
 2. Maintain the same intended functionality
@@ -2596,64 +2591,51 @@ Original intended changes were:
 {combined_mods}
 
 Rewrite the modifications to fix the issue."""
-                # Get new modifications from the model with a timeout
-                new_modifications = self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
-                    prompt_name="Think About It",
-                    prompt_args={
-                        "user_input": retry_prompt,
-                        "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
-                        "log_user_input": False,
-                        "disable_commands": True,
-                        "log_output": False,
-                        "browse_links": False,
-                        "websearch": False,
-                        "analyze_user_input": False,
-                        "tts": False,
-                        "conversation_name": self.conversation_name,
-                    },
-                )
-                modifications_blocks = re.findall(
-                    r"<modification>(.*?)</modification>",
-                    new_modifications,
-                    re.DOTALL,
-                )
-                if modifications_blocks:
-                    file_mod_map[file_path] = []
-                    for block in modifications_blocks:
-                        # Wrap this single block with <modification> for use in modify_file_content
-                        single_mod_xml = f"<modification>{block}</modification>"
-                        file_mod_map[file_path].append(single_mod_xml)
-                    combined_mods = "".join(file_mod_map[file_path])
+                    # Get new modifications from model
+                    new_modifications = self.ApiClient.prompt_agent(
+                        agent_name=self.agent_name,
+                        prompt_name="Think About It",
+                        prompt_args={
+                            "user_input": retry_prompt,
+                            "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                            "log_user_input": False,
+                            "disable_commands": True,
+                            "log_output": False,
+                            "browse_links": False,
+                            "websearch": False,
+                            "analyze_user_input": False,
+                            "tts": False,
+                            "conversation_name": self.conversation_name,
+                        },
+                    )
+                    # Try applying the new modifications
                     try:
                         result = await self.modify_file_content(
                             repo_url=repo_url,
                             file_path=file_path,
-                            modification_commands=combined_mods,
+                            modification_commands=new_modifications,
                             branch=issue_branch,
                         )
+                        if not result.startswith("Error:"):
+                            has_error = False
                     except Exception as e:
                         result = f"Error: {str(e)}"
-            if "Error:" in result:
-                # If something went wrong, comment on the issue and exit
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=(
-                        f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nError: {result}"
-                    ),
-                    conversation_name=self.conversation_name,
-                )
-                return f"Error applying modifications: {result}"
-        if "Error:" in result:
-            # If something went wrong, comment on the issue and exit
+
+                results.append(result)
+            except Exception as e:
+                has_error = True
+                result = f"Error: {str(e)}"
+                results.append(result)
+
+        if has_error:
+            error_results = [r for r in results if r.startswith("Error:")]
+            error_message = "\n".join(error_results)
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=(
-                    f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nError: {result}\n### Combined Mods:\n{combined_mods}\n### File Mod Map:\n{file_mod_map}\n### Modifications Blocks:\n{modifications_blocks}"
-                ),
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nErrors: {error_message}",
                 conversation_name=self.conversation_name,
             )
-            return f"Error applying modifications: {result}"
+            return f"Error applying modifications:\n{error_message}"
         # Check if a PR already exists for this branch
         open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
         if open_pulls.totalCount > 0:
