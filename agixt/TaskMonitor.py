@@ -15,17 +15,23 @@ class TaskMonitor:
     def __init__(self):
         self.running = False
 
-    async def get_all_pending_tasks(self):
-        """Get all pending tasks across users"""
+    async def get_all_pending_tasks(self) -> list:
+        """Get all pending tasks for all users"""
         session = get_session()
-        pending_tasks = (
-            session.query(TaskItem)
-            .options(joinedload(TaskItem.user))
-            .filter(TaskItem.completed == False)
-            .all()
-        )
-        session.close()
-        return pending_tasks
+        now = datetime.now()
+        try:
+            tasks = (
+                session.query(TaskItem)
+                .filter(
+                    TaskItem.completed == False,
+                    TaskItem.scheduled == True,
+                    TaskItem.due_date <= now,
+                )
+                .all()
+            )
+            return tasks
+        finally:
+            session.close()
 
     async def process_tasks(self):
         """Process all pending tasks across users"""
