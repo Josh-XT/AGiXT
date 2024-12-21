@@ -1,5 +1,4 @@
 from typing import List, Union
-from requests.compat import urljoin
 import logging
 import subprocess
 import uuid
@@ -47,7 +46,7 @@ except ImportError:
     import pytesseract
 
 from Extensions import Extensions
-from Globals import getenv, get_output_url
+from Websearch import search_the_web
 
 # Configure logging
 logging.basicConfig(
@@ -55,147 +54,61 @@ logging.basicConfig(
 )
 
 
-class web_scraping(Extensions):
+class web_browsing(Extensions):
     """
-    The AGiXT Web Scraping extension enables you to interact with webpages using Playwright.
-    This includes scraping text and links, taking screenshots, interacting with page elements,
-    handling authentication flows, and more.
+    The AGiXT Web Browsing extension enables sophisticated web interaction and data extraction.
+    It provides high-level commands for:
+    - Automated web navigation and interaction workflows
+    - Structured data extraction and analysis
+    - Form filling and submission
+    - Authentication handling
+    - Screenshot and visual analysis
+    - Network request monitoring and manipulation
+
+    The extension uses Playwright for reliable cross-browser automation and adds
+    intelligent workflow management and error recovery on top.
     """
 
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
+        self.user_id = kwargs.get("user_id", "")
         self.conversation_name = kwargs.get("conversation_name", "")
         self.WORKING_DIRECTORY = kwargs.get(
             "conversation_directory", os.path.join(os.getcwd(), "WORKSPACE")
         )
         os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
         self.conversation_id = kwargs.get("conversation_id", "")
+        self.conversation_name = (
+            kwargs["conversation_name"] if "conversation_name" in kwargs else ""
+        )
+        self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
+        self.output_url = kwargs["output_url"] if "output_url" in kwargs else None
         self.commands = {
-            "Scrape Text with Playwright": self.scrape_text_with_playwright,
-            "Scrape Links with Playwright": self.scrape_links_with_playwright,
-            "Take Screenshot with Playwright": self.take_screenshot_with_playwright,
-            "Navigate to URL with Playwright": self.navigate_to_url_with_playwright,
-            "Click Element with Playwright": self.click_element_with_playwright,
-            "Fill Input with Playwright": self.fill_input_with_playwright,
-            "Select Option with Playwright": self.select_option_with_playwright,
-            "Check Checkbox with Playwright": self.check_checkbox_with_playwright,
-            "Handle MFA with Playwright": self.handle_mfa_with_playwright,
-            "Handle Popup with Playwright": self.handle_popup_with_playwright,
-            "Upload File with Playwright": self.upload_file_with_playwright,
-            "Download File with Playwright": self.download_file_with_playwright,
-            "Go Back with Playwright": self.go_back_with_playwright,
-            "Go Forward with Playwright": self.go_forward_with_playwright,
-            "Wait for Selector with Playwright": self.wait_for_selector_with_playwright,
-            "Extract Table with Playwright": self.extract_table_with_playwright,
-            "Assert Element with Playwright": self.assert_element_with_playwright,
-            "Evaluate JavaScript with Playwright": self.evaluate_javascript_with_playwright,
-            "Close Browser with Playwright": self.close_browser_with_playwright,
-            # Additional features
-            "Set Viewport with Playwright": self.set_viewport_with_playwright,
-            "Emulate Device with Playwright": self.emulate_device_with_playwright,
-            "Get Cookies with Playwright": self.get_cookies_with_playwright,
-            "Set Cookies with Playwright": self.set_cookies_with_playwright,
-            "Handle Dialog with Playwright": self.handle_dialog_with_playwright,
-            "Intercept Requests with Playwright": self.intercept_requests_with_playwright,
-            "Take Screenshot with Highlight with Playwright": self.take_screenshot_with_highlight_with_playwright,
-            "Extract Text from Image with Playwright": self.extract_text_from_image_with_playwright,
+            "Interact with Webpage": self.interact_with_webpage,
+            "Get Web Search Results": self.get_search_results,
         }
-        # Initialize Playwright attributes
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
         self.popup = None
 
-    async def scrape_text_with_playwright(self, url: str) -> str:
+    async def get_search_results(self, query: str) -> List[dict]:
         """
-        Scrape the text content of a webpage using Playwright
+        Get search results from a search engine
 
         Args:
-        url (str): The URL of the webpage to scrape
+        query (str): The search query
 
         Returns:
-        str: The text content of the webpage
+        str: The search results
         """
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                context = await browser.new_context()
-                page = await context.new_page()
-                await page.goto(url)
-                html_content = await page.content()
-                soup = BeautifulSoup(html_content, "html.parser")
-                for script in soup(["script", "style"]):
-                    script.extract()
-                text = soup.get_text()
-                lines = (line.strip() for line in text.splitlines())
-                chunks = (
-                    phrase.strip() for line in lines for phrase in line.split("  ")
-                )
-                text = "\n".join(chunk for chunk in chunks if chunk)
-                await browser.close()
-
-        except Exception as e:
-            text = f"Error: {str(e)}"
-        return text
-
-    async def scrape_links_with_playwright(self, url: str) -> Union[str, List[str]]:
-        """
-        Scrape the hyperlinks of a webpage using Playwright
-
-        Args:
-        url (str): The URL of the webpage to scrape
-
-        Returns:
-        Union[str, List[str]]: The hyperlinks of the webpage
-        """
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                context = await browser.new_context()
-                page = await context.new_page()
-                await page.goto(url)
-                html_content = await page.content()
-                soup = BeautifulSoup(html_content, "html.parser")
-                for script in soup(["script", "style"]):
-                    script.extract()
-                hyperlinks = [
-                    (link.text, urljoin(url, link["href"]))
-                    for link in soup.find_all("a", href=True)
-                ]
-                formatted_links = [
-                    f"{link_text} ({link_url})" for link_text, link_url in hyperlinks
-                ]
-                await browser.close()
-
-        except Exception as e:
-            formatted_links = f"Error: {str(e)}"
-        return formatted_links
-
-    async def take_screenshot_with_playwright(self, url: str):
-        """
-        Take a screenshot of a webpage using Playwright
-
-        Args:
-        url (str): The URL of the webpage to take a screenshot of
-
-        Returns:
-        str: The URL of the screenshot
-        """
-        path = os.path.join(self.WORKING_DIRECTORY, f"{uuid.uuid4()}.png")
-        output_url = get_output_url(path)
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                context = await browser.new_context()
-                page = await context.new_page()
-                await page.goto(url)
-                await page.screenshot(path=path, full_page=True, type="png")
-                await browser.close()
-            return output_url
-        except Exception as e:
-            logging.error(f"Playwright Error: {str(e)}")
-            return f"Error: {str(e)}"
+        return await search_the_web(
+            query=query,
+            user_id=self.user_id,
+            agent_name=self.agent_name,
+            conversation_name=self.conversation_name,
+        )
 
     async def navigate_to_url_with_playwright(
         self, url: str, headless: bool = True
@@ -810,3 +723,272 @@ class web_scraping(Extensions):
                 f"Error extracting text from image {image_selector}: {str(e)}"
             )
             return f"Error: {str(e)}"
+
+    async def interact_with_webpage(self, url: str, task: str):
+        """
+        Execute a complex web interaction workflow. This command should be used when:
+        - Navigating through multi-step web processes
+        - Filling out forms and clicking through pages
+        - Handling login flows or authentication
+        - Extracting information across multiple pages
+        - Automating web-based tasks
+
+        The assistant will:
+        - Plan the interaction steps needed
+        - Execute each step in sequence
+        - Handle any errors or unexpected states
+        - Maintain session state throughout
+        - Verify successful completion
+
+        Args:
+        url (str): Starting URL for the workflow
+        task (str): Natural language description of what needs to be accomplished
+
+        Example Usage:
+        <execute>
+        <name>Interact with Webpage</name>
+        <url>https://example.com/login</url>
+        <task>Log in using credentials, navigate to the profile page, and update the bio field with 'AI Developer'</task>
+        </execute>
+
+        Returns:
+        str: Description of actions taken and results
+        """
+        # First check if we have an active session
+        if self.page is None:
+            await self.navigate_to_url_with_playwright(url=url, headless=True)
+
+        # Use Think About It prompt to plan the interaction steps
+        interaction_plan = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": f"""Need to interact with a webpage to accomplish the following task:
+### Starting URL
+{url}
+
+### Task to Complete
+{task}
+
+### Current Page State
+Currently on: {self.page.url if self.page else 'No page loaded'}
+
+Analyze this task and determine:
+1. What steps are needed
+2. What selectors to use
+3. How to verify success
+
+In the <answer> block, respond with steps: prefix followed by sequence of commands in format:
+command|selector|value (if needed)
+
+Example formats:
+- click|#submit-button
+- fill|input[name='username']|myuser
+- select|#dropdown|option2
+- wait|.loaded-element
+- verify|selector|expected_text
+- screenshot|description
+- content|description
+""",
+                "log_user_input": False,
+                "disable_commands": True,
+                "log_output": False,
+                "browse_links": False,
+                "websearch": False,
+                "analyze_user_input": False,
+                "tts": False,
+                "conversation_name": self.conversation_name,
+            },
+        )
+
+        if not interaction_plan.startswith("steps:"):
+            return "Error: Unable to determine interaction steps."
+
+        steps = interaction_plan.replace("steps:", "").strip().split("\n")
+        results = []
+
+        try:
+            for step in steps:
+                parts = step.strip().split("|")
+                command = parts[0]
+                selector = parts[1]
+                value = parts[2] if len(parts) > 2 else None
+
+                result = None
+                if command == "click":
+                    result = await self.click_element_with_playwright(selector)
+                elif command == "fill":
+                    result = await self.fill_input_with_playwright(selector, value)
+                elif command == "select":
+                    result = await self.select_option_with_playwright(selector, value)
+                elif command == "wait":
+                    result = await self.wait_for_selector_with_playwright(selector)
+                elif command == "verify":
+                    result = await self.assert_element_with_playwright(selector, value)
+                elif command == "screenshot":
+                    result = await self.analyze_page_visually(
+                        selector
+                    )  # using selector as description
+                elif command == "content":
+                    result = await self.get_page_content()
+                if result and result.startswith("Error"):
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {result}",
+                        conversation_name=self.conversation_name,
+                    )
+                    return f"Workflow failed at step '{step}': {result}"
+
+                results.append(result)
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Completed step: {result}",
+                    conversation_name=self.conversation_name,
+                )
+
+            return f"Successfully completed webpage interaction:\n" + "\n".join(results)
+
+        except Exception as e:
+            error_msg = f"Error during webpage interaction: {str(e)}"
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                conversation_name=self.conversation_name,
+            )
+            return error_msg
+
+    async def get_page_content(self) -> str:
+        """
+        Get the content of the current page for analysis. This command should be used when:
+        - Needing to analyze text content of a page
+        - Extracting specific information from the current page
+        - Storing page content in memory for later reference
+        - Verifying page content after interactions
+
+        Returns:
+        str: The text content of the current page with structure preserved
+        """
+        try:
+            if self.page is None:
+                return "Error: No page loaded."
+
+            html_content = await self.page.content()
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.extract()
+
+            # Get text while preserving some structure
+            lines = []
+            for element in soup.find_all(
+                ["p", "h1", "h2", "h3", "h4", "h5", "h6", "div"]
+            ):
+                text = element.get_text().strip()
+                if text:
+                    lines.append(text)
+
+            content = "\n\n".join(lines)
+
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Retrieved current page content for analysis.",
+                conversation_name=self.conversation_name,
+            )
+
+            return content
+
+        except Exception as e:
+            error_msg = f"Error getting page content: {str(e)}"
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                conversation_name=self.conversation_name,
+            )
+            return error_msg
+
+    async def analyze_page_visually(self, description: str = "") -> str:
+        """
+        Take a screenshot of the current page and analyze it visually. This command should be used when:
+        - Verifying visual elements or layout
+        - Analyzing complex page structures
+        - Debugging interaction issues
+        - Checking for specific visual elements
+        - Verifying page state after interactions
+
+        Args:
+        description (str): Natural language description of what to look for or verify
+
+        Example Usage:
+        <execute>
+        <name>Analyze Page Visually</name>
+        <description>Check if the login form appears correctly with both username and password fields</description>
+        </execute>
+
+        Returns:
+        str: Analysis of the visual state of the page
+        """
+        try:
+            if self.page is None:
+                return "Error: No page loaded."
+
+            # Take screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            file_name = os.path.basename(screenshot_path)
+            output_url = f"{self.output_url}/{file_name}" if self.output_url else ""
+            # Get current URL for context
+            current_url = self.page.url
+
+            # Have the agent analyze the screenshot with the description as context
+            analysis = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": f"""Analyze this webpage screenshot in the context of this task:
+
+### Current URL
+{current_url}
+
+### Analysis Task
+{description if description else "Provide a general analysis of the page's visual state"}
+
+### Context
+The screenshot has been taken to verify the page state during web interaction.
+
+In your analysis, consider:
+1. The presence and state of key UI elements
+2. Any error messages or warnings
+3. The overall layout and structure
+4. Whether the page appears to be in the expected state
+""",
+                    "images": [output_url],
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
+
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Analyzed page visually: {analysis}",
+                conversation_name=self.conversation_name,
+            )
+
+            return analysis
+
+        except Exception as e:
+            error_msg = f"Error analyzing page visually: {str(e)}"
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                conversation_name=self.conversation_name,
+            )
+            return error_msg
