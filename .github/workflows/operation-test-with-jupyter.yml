@@ -33,7 +33,7 @@ on:
       additional-args:
         type: string
         description: additional args for nbconvert
-        default: "--log-level DEBUG"
+        default: "--log-level INFO"
       append-logs:
         type: boolean
         default: false
@@ -107,7 +107,7 @@ jobs:
           DATABASE_PORT: 5432
           DATABASE_NAME: postgres
           SCHEMA: ${{ inputs.auth-schema }}
-          LOG_LEVEL: DEBUG
+          LOG_LEVEL: INFO
           MFA_VERIFY: authenticator
           TZ: America/New_York
       service-under-test:
@@ -123,7 +123,7 @@ jobs:
           DATABASE_PORT: 5432
           DATABASE_NAME: postgres
           SCHEMA: ${{ inputs.auth-schema }}
-          LOG_LEVEL: DEBUG
+          LOG_LEVEL: INFO
           SENDGRID_API_KEY: ${{ inputs.sendgrid-api-key }}
           TESTMAIL_API_KEY: ${{ inputs.testmail-api-key }}
           TESTMAIL_NAMESPACE: ${{ inputs.testmail-namespace }}
