@@ -374,6 +374,23 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
+
+        try:
+            user_id = self.user_id
+            prompt_tokens = get_tokens(prompt)
+            completion_tokens = get_tokens(answer)
+            total_tokens = int(prompt_tokens) + int(completion_tokens)
+            logging.info(f"Input tokens: {prompt_tokens}")
+            logging.info(f"Completion tokens: {completion_tokens}")
+            logging.info(f"Total tokens: {total_tokens}")
+            if user_id:
+                MagicalAuth(token=None).increase_token_counts(
+                    input_tokens=prompt_tokens,
+                    output_tokens=completion_tokens,
+                )
+        except Exception as e:
+            logging.warning(f"Error increasing token counts: {e}")
+
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
