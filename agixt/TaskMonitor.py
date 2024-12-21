@@ -42,8 +42,27 @@ class TaskMonitor:
                     logging.info(
                         f"Processing task {pending_task.id} for user {pending_task.user_id}"
                     )
+                    logging.info(f"Task: {pending_task.title}")
+                    logging.info(f"Description: {pending_task.description}")
+                    logging.info(f"Due Date: {pending_task.due_date}")
+                    logging.info(f"Created At: {pending_task.created_at}")
+                    # Memory collection
+                    logging.info(f"Memory: {pending_task.memory_collection}")
+                    user_id = pending_task.user_id
+                    if not user_id:
+                        logging.error(
+                            f"Task {pending_task.id} does not have a user associated with it."
+                        )
+                        # Delete the task
+                        session = get_session()
+                        try:
+                            session.delete(pending_task)
+                            session.commit()
+                        finally:
+                            session.close()
+                        continue
                     task_manager = Task(
-                        token=impersonate_user(user_id=pending_task.user_id)
+                        token=impersonate_user(user_id=user_id),
                     )
                     try:
                         # Execute single task
@@ -52,7 +71,6 @@ class TaskMonitor:
                         logger.error(
                             f"Error processing task {pending_task.id}: {str(e)}"
                         )
-
                 # Wait before next check
                 await asyncio.sleep(60)
             except Exception as e:
