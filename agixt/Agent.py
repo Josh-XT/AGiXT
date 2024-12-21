@@ -20,8 +20,8 @@ from DB import (
 )
 from Providers import Providers
 from Extensions import Extensions
-from Globals import getenv, DEFAULT_SETTINGS, DEFAULT_USER
-from MagicalAuth import get_user_id, is_agixt_admin
+from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
+from MagicalAuth import MagicalAuth, impersonate_user, get_user_id
 from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
@@ -184,6 +184,8 @@ class Agent:
         user = user if user is not None else DEFAULT_USER
         self.user = user.lower()
         self.user_id = get_user_id(user=self.user)
+        token = impersonate_user(user_id=str(self.user_id))
+        self.auth = MagicalAuth(token=token)
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -368,24 +370,34 @@ class Agent:
         session.close()
         return config
 
-    async def inference(self, prompt: str, tokens: int = 0, images: list = []):
+    async def inference(self, prompt: str, images: list = []):
         if not prompt:
             return ""
+        input_tokens = get_tokens(prompt)
         answer = await self.PROVIDER.inference(
-            prompt=prompt, tokens=tokens, images=images
+            prompt=prompt, tokens=input_tokens, images=images
+        )
+        output_tokens = get_tokens(answer)
+        self.auth.increase_token_counts(
+            input_tokens=input_tokens, output_tokens=output_tokens
         )
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
         return answer
 
-    async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
+    async def vision_inference(self, prompt: str, images: list = []):
         if not prompt:
             return ""
         if not self.VISION_PROVIDER:
             return ""
+        input_tokens = get_tokens(prompt)
         answer = await self.VISION_PROVIDER.inference(
-            prompt=prompt, tokens=tokens, images=images
+            prompt=prompt, tokens=input_tokens, images=images
+        )
+        output_tokens = get_tokens(answer)
+        self.auth.increase_token_counts(
+            input_tokens=input_tokens, output_tokens=output_tokens
         )
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):

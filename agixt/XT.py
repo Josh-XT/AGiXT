@@ -1856,13 +1856,6 @@ class AGiXT:
             if not response:
                 response = "Unable to retrieve response."
                 logging.error(f"Error getting response: {response}")
-        try:
-            self.auth.increase_token_counts(
-                input_tokens=prompt_tokens,
-                output_tokens=completion_tokens,
-            )
-        except Exception as e:
-            logging.warning(f"Error increasing token counts: {e}")
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
         res_model = {
