@@ -23,7 +23,6 @@ class TaskMonitor:
             session.query(TaskItem)
             .options(joinedload(TaskItem.category))
             .filter(
-                TaskItem.user_id == self.user_id,
                 TaskItem.completed == False,
                 TaskItem.scheduled == True,
                 TaskItem.due_date <= now,
