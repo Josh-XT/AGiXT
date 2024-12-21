@@ -81,6 +81,7 @@ class Interactions:
         self.failures = 0
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
+        self._processed_commands = set()
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -865,20 +866,32 @@ class Interactions:
             )
 
         if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
+            self._processed_commands = set()
             processed_length = 0
-
-            # First handle any initial commands
-            if "<execute>" in self.response:
-                await self.execution_agent(conversation_name=conversation_name)
-                processed_length = len(self.response)
-            # Check if there are any different thinking tags in the response than there were before, add any that are new
-            if "<thinking>" in self.response:
-                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                self.response = self.process_thinking_tags(
-                    response=self.response, thinking_id=thinking_id, c=c
-                )
             # Then enter the main processing loop
             while True:
+                if "<thinking>" in self.response:
+                    thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                    self.response = self.process_thinking_tags(
+                        response=self.response, thinking_id=thinking_id, c=c
+                    )
+                # First handle any initial commands
+                if "<execute>" in self.response:
+                    await self.execution_agent(conversation_name=conversation_name)
+                    new_processed_length = len(self.response)
+                    if new_processed_length > processed_length:
+                        # Get continuation only if we got new content
+                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process..."
+                        command_response = await self.agent.inference(prompt=new_prompt)
+                        self.response = f"{self.response}{command_response}"
+                        processed_length = new_processed_length
+                    else:
+                        break
+                if "<thinking>" in self.response:
+                    thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                    self.response = self.process_thinking_tags(
+                        response=self.response, thinking_id=thinking_id, c=c
+                    )
                 # Check if we have new commands to process
                 if self.response[processed_length:].strip().endswith("</output>"):
                     if "<thinking>" in self.response:
@@ -905,22 +918,9 @@ class Interactions:
                         break  # No new content, stop processing
                 # If no answer block yet, try to get it
                 elif "</answer>" not in self.response:
-                    if "<thinking>" in self.response:
-                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                        self.response = self.process_thinking_tags(
-                            response=self.response, thinking_id=thinking_id, c=c
-                        )
-                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>' as long as there is a <answer> block present, otherwise, the final answer to the user should be within the <answer> block. to send the message to the user. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
+                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing?..."
                     response = await self.agent.inference(prompt=new_prompt)
                     self.response = f"{self.response}{response}"
-                    await self.execution_agent(conversation_name=conversation_name)
-                    # Check for new thinking tags after getting more response
-                    if "<thinking>" in self.response:
-                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                        self.response = self.process_thinking_tags(
-                            response=self.response, thinking_id=thinking_id, c=c
-                        )
-                    # After getting more response, let the loop continue to check for any new commands
                     continue
                 else:
                     # We have an answer block and no new commands to process
@@ -1137,8 +1137,19 @@ class Interactions:
         reformatted_response = self.response
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:
+                command_id = (
+                    f"{command_name}:{json.dumps(command_args, sort_keys=True)}"
+                )
+                # Skip if we've already processed this exact command
+                if command_id in self._processed_commands:
+                    logging.debug(f"Skipping duplicate command: {command_id}")
+                    continue
+
+                # Mark this command as processed
+                self._processed_commands.add(command_id)
                 logging.info(f"Command to execute: {command_name}")
                 logging.info(f"Command Args: {command_args}")
+
                 command_output = ""
                 if command_name.strip().lower() not in [
                     cmd.lower() for cmd in command_list
