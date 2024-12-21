@@ -1826,9 +1826,9 @@ class AGiXT:
                             conversation_name=self.conversation_name,
                         )
                         if mermaid_diagram:
-                            mermaid_diagram = mermaid_diagram.replace(
-                                "<answer>", ""
-                            ).replace("</answer>", "")
+                            mermaid_diagram = mermaid_diagram.split("<answer>")[
+                                -1
+                            ].split("</answer>")[0]
                             c.log_interaction(
                                 role=self.agent_name,
                                 message=f"[SUBACTIVITY][{thinking_id}] Generated diagram describing thoughts.\n{mermaid_diagram}",
