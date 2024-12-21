@@ -93,3 +93,8 @@ class TaskMonitor:
         """Stop the task monitoring service"""
         self.running = False
         logger.info("Task monitor service stopped.")
+
+
+if __name__ == "__main__":
+    monitor = TaskMonitor()
+    asyncio.run(monitor.start())
