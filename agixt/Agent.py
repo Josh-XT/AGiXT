@@ -371,9 +371,15 @@ class Agent:
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
             return ""
+            input_tokens = get_tokens(prompt)
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
+        output_tokens = get_tokens(answer)
+        if hasattr(self, "increase_token_counts"):
+            await self.increase_token_counts(
+                input_tokens=input_tokens, output_tokens=output_tokens
+            )
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
