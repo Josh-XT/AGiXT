@@ -2552,8 +2552,15 @@ def verify_mfa(self, token: str):
             if file_path not in file_mod_map:
                 file_mod_map[file_path] = []
             file_mod_map[file_path].append(single_mod_xml)
+        # Initialize result variable
+        result = None
+        error_occurred = False
+
         # Apply modifications file by file
         for file_path, mods in file_mod_map.items():
+            if error_occurred:
+                break
+
             combined_mods = "".join(mods)
             try:
                 result = await self.modify_file_content(
@@ -2563,10 +2570,11 @@ def verify_mfa(self, token: str):
                     branch=issue_branch,
                 )
             except Exception as e:
-                # If something went wrong, comment on the issue and exit
                 result = f"Error: {str(e)}"
+                error_occurred = True
+                continue
 
-            if result.startswith("Error:"):
+            if result and result.startswith("Error:"):
                 # Run fix github issue with additional context of the retry prompt
                 retry_prompt = f"""{prompt}
 Please provide new modification commands that:
