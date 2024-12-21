@@ -328,3 +328,37 @@ async def fork_conversation(
         conversation_name=fork.conversation_name, user=user
     ).fork_conversation(message_id=fork.message_id)
     return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/tts/{message_id}",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_tts(
+    conversation_id: str,
+    message_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=user)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    c = Conversations(conversation_name=conversation_name, user=user)
+    message = c.get_message_by_id(message_id=message_id)
+    conversation_id = c.get_conversation_id()
+    agent_name = c.get_last_agent_name()
+    XT = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=conversation_name,
+        collection_id=conversation_id,
+    )
+    tts_url = await XT.text_to_speech(text=message, log_output=False)
+    new_message = (
+        f'{message}\n<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
+    )
+    c.update_message_by_id(message_id=message_id, new_message=new_message)
+    return {"message": new_message}

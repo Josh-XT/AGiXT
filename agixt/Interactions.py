@@ -913,6 +913,7 @@ class Interactions:
                     new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>' as long as there is a <answer> block present, otherwise, the final answer to the user should be within the <answer> block. to send the message to the user. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
                     response = await self.agent.inference(prompt=new_prompt)
                     self.response = f"{self.response}{response}"
+                    await self.execution_agent(conversation_name=conversation_name)
                     # Check for new thinking tags after getting more response
                     if "<thinking>" in self.response:
                         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
@@ -951,13 +952,7 @@ class Interactions:
                 self.response = re.sub(
                     r"<image src=(.*?)>", "", self.response, flags=re.DOTALL
                 )
-            if log_output:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=self.response,
-                )
-            else:
-                logging.info(f"{self.agent_name} Response: {self.response}")
+
             tts = False
             if "tts" in kwargs:
                 tts = str(kwargs["tts"]).lower() == "true"
@@ -970,11 +965,12 @@ class Interactions:
                     try:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Generating audio response.",
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating audio response.",
                         )
-                        tts_response = await self.agent.text_to_speech(
-                            text=self.response
-                        )
+                        answer = self.response.split("</answer>")[0].split("<answer>")[
+                            -1
+                        ]
+                        tts_response = await self.agent.text_to_speech(text=answer)
                         if not str(tts_response).startswith("http"):
                             file_type = "wav"
                             file_name = f"{uuid.uuid4().hex}.{file_type}"
@@ -985,9 +981,10 @@ class Interactions:
                             with open(audio_path, "wb") as f:
                                 f.write(audio_data)
                             tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{file_name}" type="audio/wav"></audio>'
-                            c.log_interaction(
-                                role=self.agent_name, message=tts_response
-                            )
+                        self.response = f"{self.response}\n{tts_response}"
+                        if "</answer>" in self.response:
+                            self.response = self.response.replace("</answer>", "")
+                            self.response += "</answer>"
                     except Exception as e:
                         logging.warning(f"Failed to get TTS response: {e}")
             if disable_memory != True:
@@ -1014,7 +1011,7 @@ class Interactions:
                     if to_create_image:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Generating image.",
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating image.",
                         )
                         img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {self.response} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
                         image_generation_prompt = await self.agent.inference(
@@ -1032,14 +1029,26 @@ class Interactions:
                             generated_image = await self.agent.generate_image(
                                 prompt=image_generation_prompt
                             )
-                            c.log_interaction(
-                                role=self.agent_name,
-                                message=f"![Image generated by {self.agent_name}]({generated_image})",
-                            )
+                            self.response = f"{self.response}\n![Image generated by {self.agent_name}]({generated_image})"
+                            if "</answer>" in self.response:
+                                self.response = self.response.replace("</answer>", "")
+                                self.response += "</answer>"
                         except:
                             logging.warning(
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
+            if "<thinking>" in self.response:
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                self.response = self.process_thinking_tags(
+                    response=self.response, thinking_id=thinking_id, c=c
+                )
+            if log_output:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=self.response,
+                )
+        else:
+            logging.info(f"{self.agent_name} Response: {self.response}")
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):

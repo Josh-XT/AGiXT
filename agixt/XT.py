@@ -314,10 +314,6 @@ class AGiXT:
         Returns:
             str: URL of the generated audio
         """
-        self.conversation.log_interaction(
-            role=self.agent_name,
-            message=f"[ACTIVITY] Generating audio response.",
-        )
         tts_url = await self.agent.text_to_speech(text=text)
         if not str(tts_url).startswith("http"):
             file_type = "wav"
