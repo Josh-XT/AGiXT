@@ -286,6 +286,76 @@ class github(Extensions):
             logging.warning(f"Failed to format Python code with Black: {str(e)}")
             return content
 
+    def _is_js_or_ts_file(self, file_path: str) -> bool:
+        """
+        Check if a file is a JavaScript or TypeScript file based on its extension.
+
+        Args:
+            file_path (str): Path to the file
+
+        Returns:
+            bool: True if the file is a JS/TS file, False otherwise
+        """
+        return file_path.endswith((".js", ".jsx", ".ts", ".tsx"))
+
+    def _format_js_ts_code(self, content: str) -> str:
+        """
+        Format JavaScript or TypeScript code using Prettier.
+
+        Args:
+            content (str): JS/TS code content to format
+
+        Returns:
+            str: Formatted JS/TS code
+        """
+        try:
+            import subprocess
+            import tempfile
+            import os
+
+            # Create a temporary file to store the code
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".js", delete=False
+            ) as temp_file:
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+
+            try:
+                # Try to use local prettier installation first
+                result = subprocess.run(
+                    ["npx", "prettier", "--write", temp_file_path],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # If local prettier fails, install it globally and retry
+                try:
+                    subprocess.run(["npm", "install", "-g", "prettier"], check=True)
+                    result = subprocess.run(
+                        ["prettier", "--write", temp_file_path],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                except subprocess.CalledProcessError as e:
+                    logging.warning(
+                        f"Failed to format JS/TS code with Prettier: {str(e)}"
+                    )
+                    return content
+
+            # Read the formatted content
+            with open(temp_file_path, "r") as temp_file:
+                formatted_content = temp_file.read()
+
+            # Clean up temporary file
+            os.unlink(temp_file_path)
+
+            return formatted_content
+        except Exception as e:
+            logging.warning(f"Failed to format JS/TS code with Prettier: {str(e)}")
+            return content
+
     async def clone_repo(self, repo_url: str) -> str:
         """
         Clone a GitHub repository to the local workspace
@@ -2084,6 +2154,8 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     # Format Python files
                     if self._is_python_file(file_path):
                         modified_content = self._format_python_code(modified_content)
+                    elif self._is_js_or_ts_file(file_path):
+                        modified_content = self._format_js_ts_code(modified_content)
 
                     # Ensure final newline
                     if not modified_content.endswith("\n"):

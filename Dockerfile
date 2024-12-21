@@ -63,10 +63,8 @@ RUN pip install spacy==3.7.5 && \
     python -m spacy download en_core_web_sm && \
     pip install textacy==0.13.0
 
-# Install Playwright
-RUN npm install -g playwright && \
-    npx playwright install-deps && \
-    npx playwright install && \
+# Install Playwright, Prettier, and dependencies
+RUN npm install -g prettier && \
     playwright install-deps && \
     playwright install
 
