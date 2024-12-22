@@ -160,27 +160,6 @@ class web_browsing(Extensions):
             logging.error(f"Error clicking element {selector}: {str(e)}")
             return f"Error: {str(e)}"
 
-    async def fill_input_with_playwright(self, selector: str, text: str) -> str:
-        """
-        Fill an input field specified by a selector using Playwright
-
-        Args:
-        selector (str): The CSS selector of the input field
-        text (str): The text to fill into the input field
-
-        Returns:
-        str: Confirmation message
-        """
-        try:
-            if self.page is None:
-                return "Error: No page loaded. Please navigate to a URL first."
-            await self.page.fill(selector, text)
-            logging.info(f"Filled input {selector} with text '{text}'")
-            return f"Filled input {selector} with text '{text}'"
-        except Exception as e:
-            logging.error(f"Error filling input {selector}: {str(e)}")
-            return f"Error: {str(e)}"
-
     async def select_option_with_playwright(self, selector: str, value: str) -> str:
         """
         Select an option from a dropdown menu specified by a selector using Playwright
@@ -1167,12 +1146,7 @@ Please analyze the task and provide the necessary interaction steps using the fo
 
     async def get_page_content(self) -> str:
         """
-        Get the content of the current page with special focus on interactive elements.
-        Extracts and organizes:
-        - All clickable elements (links, buttons)
-        - Form inputs and their types
-        - Interactive elements and their selectors
-        - Other page content in structured format
+        Get the content of the current page with enhanced form detection
         """
         try:
             if self.page is None:
@@ -1191,197 +1165,283 @@ Please analyze the task and provide the necessary interaction steps using the fo
             # SECTION 1: Interactive Elements
             structured_content.append("\n=== INTERACTIVE ELEMENTS ===")
 
-            # 1.1 Links with their text and selectors
-            links = []
-            for link in soup.find_all("a", href=True):
-                try:
-                    text = self.get_text_safely(link)
-                    href = link.get("href", "")
-                    if text and href:
-                        # Build selector (try ID first, then other attributes)
-                        if link.get("id"):
-                            selector = f"#{link['id']}"
-                        elif link.get("class"):
-                            selector = f"a.{'.'.join(link['class'])}"
-                        else:
-                            # Create a selector based on text content
-                            selector = f"a[href='{href}']"
-                        links.append(f"Link: '{text}' -> Selector: '{selector}'")
-                except Exception as e:
-                    continue
-
-            if links:
-                structured_content.append("\nClickable Links:")
-                structured_content.extend(links)
-
-            # 1.2 Buttons with their text and selectors
-            buttons = []
-            for button in soup.find_all(
-                ["button", 'input[type="button"]', 'input[type="submit"]']
-            ):
-                try:
-                    text = self.get_text_safely(button) or button.get("value", "")
-                    if text:
-                        if button.get("id"):
-                            selector = f"#{button['id']}"
-                        elif button.get("class"):
-                            selector = f"button.{'.'.join(button['class'])}"
-                        else:
-                            selector = f"button:has-text('{text}')"
-                        buttons.append(f"Button: '{text}' -> Selector: '{selector}'")
-                except Exception as e:
-                    continue
-
-            if buttons:
-                structured_content.append("\nClickable Buttons:")
-                structured_content.extend(buttons)
-
-            # 1.3 Form Inputs with their details and selectors
+            # Form Detection and Analysis
             forms = soup.find_all("form")
-            form_sections = []
+            all_inputs = soup.find_all(["input", "select", "textarea"])
+            standalone_inputs = [
+                inp for inp in all_inputs if not inp.find_parent("form")
+            ]
 
+            # Process forms first
             for form in forms:
                 try:
                     form_info = []
-                    if form.get("id"):
-                        form_info.append(f"Form: #{form['id']}")
-                    elif form.get("name"):
-                        form_info.append(f"Form: {form['name']}")
+                    form_id = form.get("id", "")
+                    form_name = form.get("name", "")
+                    form_class = " ".join(form.get("class", []))
+                    form_action = form.get("action", "")
 
-                    # Extract all input fields with their selectors
+                    form_desc = "\nForm Details:"
+                    if form_id:
+                        form_desc += f"\n- ID: {form_id}"
+                    if form_name:
+                        form_desc += f"\n- Name: {form_name}"
+                    if form_class:
+                        form_desc += f"\n- Classes: {form_class}"
+                    if form_action:
+                        form_desc += f"\n- Action: {form_action}"
+
+                    form_info.append(form_desc)
+                    form_info.append("\nForm Inputs:")
+
+                    # Process all inputs within this form
                     for input_field in form.find_all(["input", "select", "textarea"]):
-                        try:
-                            field_type = input_field.get("type", "text")
-                            field_name = input_field.get("name", "")
-                            field_id = input_field.get("id", "")
-                            placeholder = input_field.get("placeholder", "")
+                        input_info = self._analyze_input_field(input_field, form_id)
+                        if input_info:
+                            form_info.append(input_info)
 
-                            # Build the most reliable selector
-                            if field_id:
-                                selector = f"#{field_id}"
-                            elif field_name:
-                                selector = f"[name='{field_name}']"
-                            elif placeholder:
-                                selector = f"[placeholder='{placeholder}']"
-                            else:
-                                continue  # Skip if we can't create a reliable selector
+                    structured_content.extend(form_info)
+                    structured_content.append("")  # Add spacing between forms
 
-                            # Build a descriptive string based on available attributes
-                            desc = f"Input: {field_type}"
-                            if field_name:
-                                desc += f" (name: {field_name})"
-                            if placeholder:
-                                desc += f" (placeholder: {placeholder})"
-                            desc += f" -> Selector: '{selector}'"
-
-                            # Additional details for specific input types
-                            if field_type == "select":
-                                options = []
-                                for option in input_field.find_all("option"):
-                                    option_text = self.get_text_safely(option)
-                                    if option_text:
-                                        options.append(option_text)
-                                if options:
-                                    desc += f"\n    Options: {', '.join(options)}"
-
-                            form_info.append(desc)
-                        except Exception as e:
-                            continue
-
-                    if form_info:
-                        form_sections.extend(form_info)
-                        form_sections.append("")  # Add spacing between forms
                 except Exception as e:
+                    logging.error(f"Error processing form: {str(e)}")
                     continue
 
-            if form_sections:
-                structured_content.append("\nForm Fields:")
-                structured_content.extend(form_sections)
+            # Process standalone inputs
+            if standalone_inputs:
+                structured_content.append("\nStandalone Inputs (Outside Forms):")
+                for input_field in standalone_inputs:
+                    input_info = self._analyze_input_field(input_field)
+                    if input_info:
+                        structured_content.append(input_info)
 
-            # 1.4 Other Interactive Elements (e.g., custom elements, clickable divs)
-            other_interactive = []
-            for element in soup.find_all(
-                class_=lambda x: x
-                and any(
-                    cls in str(x).lower()
-                    for cls in ["clickable", "button", "interactive", "dropdown"]
-                )
-            ):
-                try:
-                    if element.name in [
-                        "a",
-                        "button",
-                        "input",
-                    ]:  # Skip elements we've already processed
-                        continue
+            # Other interactive elements
+            structured_content.extend(self._get_other_interactive_elements(soup))
 
-                    text = self.get_text_safely(element)
-                    if text:
-                        if element.get("id"):
-                            selector = f"#{element['id']}"
-                        elif element.get("class"):
-                            selector = f".{'.'.join(element['class'])}"
-                        else:
-                            continue  # Skip if we can't create a reliable selector
-
-                        other_interactive.append(
-                            f"Interactive Element: '{text}' -> Selector: '{selector}'"
-                        )
-                except Exception as e:
-                    continue
-
-            if other_interactive:
-                structured_content.append("\nOther Interactive Elements:")
-                structured_content.extend(other_interactive)
-
-            # SECTION 2: Regular Content (for context)
-            structured_content.append("\n=== PAGE CONTENT ===")
-
-            # Headers
-            headers = []
-            for level in range(1, 7):
-                for header in soup.find_all(f"h{level}"):
-                    text = self.get_text_safely(header)
-                    if text:
-                        headers.append(f"{'#' * level} {text}")
-            if headers:
-                structured_content.append("\nHeaders:")
-                structured_content.extend(headers)
-
-            # Main content sections
-            main_content = soup.find("main") or soup.find("body")
-            if main_content:
-                content_sections = []
-                for element in main_content.find_all(["p", "article", "section"]):
-                    try:
-                        # Skip if element is part of already processed structures
-                        if element.find_parent("form") or element.find_parent("nav"):
-                            continue
-
-                        text = self.get_text_safely(element)
-                        if text and len(text) > 20:  # Filter out tiny text fragments
-                            text = " ".join(text.split())  # Normalize whitespace
-                            content_sections.append(text)
-                    except Exception as e:
-                        continue
-
-                if content_sections:
-                    structured_content.append("\nMain Content:")
-                    structured_content.extend(content_sections)
-
-            # Clean up and finalize content
-            final_content = "\n".join(filter(None, structured_content))
-            final_content = re.sub(r"\n\s*\n", "\n\n", final_content)
-            return final_content.strip()
+            return "\n".join(structured_content)
 
         except Exception as e:
             error_msg = f"Error extracting page content: {str(e)}"
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
-                conversation_name=self.conversation_name,
-            )
+            logging.error(error_msg)
             return error_msg
+
+    def _analyze_input_field(self, input_field, form_id=None) -> str:
+        """
+        Analyze a single input field and generate detailed information about it
+        """
+        try:
+            # Collect all relevant attributes
+            field_type = input_field.get("type", "text")
+            field_name = input_field.get("name", "")
+            field_id = input_field.get("id", "")
+            placeholder = input_field.get("placeholder", "")
+            field_class = " ".join(input_field.get("class", []))
+            aria_label = input_field.get("aria-label", "")
+            value = input_field.get("value", "")
+            required = input_field.get("required") is not None
+            readonly = input_field.get("readonly") is not None
+            disabled = input_field.get("disabled") is not None
+
+            # Build selectors list from most to least specific
+            selectors = []
+
+            # ID is most specific
+            if field_id:
+                selectors.append(f"#{field_id}")
+
+            # Name with form context
+            if field_name:
+                if form_id:
+                    selectors.append(f"#{form_id} [name='{field_name}']")
+                selectors.append(f"[name='{field_name}']")
+
+            # Placeholder text
+            if placeholder:
+                if form_id:
+                    selectors.append(f"#{form_id} [placeholder='{placeholder}']")
+                selectors.append(f"[placeholder='{placeholder}']")
+
+            # Aria label
+            if aria_label:
+                if form_id:
+                    selectors.append(f"#{form_id} [aria-label='{aria_label}']")
+                selectors.append(f"[aria-label='{aria_label}']")
+
+            # Class-based (least specific)
+            if field_class:
+                if form_id:
+                    selectors.append(f"#{form_id} .{field_class.replace(' ', '.')}")
+                selectors.append(f".{field_class.replace(' ', '.')}")
+
+            if not selectors:
+                return None
+
+            # Build comprehensive description
+            input_desc = [f"\nInput Field:"]
+            input_desc.append(f"- Type: {field_type}")
+
+            if field_id:
+                input_desc.append(f"- ID: {field_id}")
+            if field_name:
+                input_desc.append(f"- Name: {field_name}")
+            if placeholder:
+                input_desc.append(f"- Placeholder: {placeholder}")
+            if aria_label:
+                input_desc.append(f"- Aria Label: {aria_label}")
+            if field_class:
+                input_desc.append(f"- Classes: {field_class}")
+            if value:
+                input_desc.append(f"- Default Value: {value}")
+            if required:
+                input_desc.append("- Required: Yes")
+            if readonly:
+                input_desc.append("- Readonly: Yes")
+            if disabled:
+                input_desc.append("- Disabled: Yes")
+
+            input_desc.append("\nSelectors (in order of preference):")
+            for idx, selector in enumerate(selectors, 1):
+                input_desc.append(f"  {idx}. {selector}")
+
+            return "\n".join(input_desc)
+
+        except Exception as e:
+            logging.error(f"Error analyzing input field: {str(e)}")
+            return None
+
+    async def fill_input_with_playwright(self, selector: str, text: str) -> str:
+        """
+        Enhanced input filling with validation and error handling
+        """
+        try:
+            if self.page is None:
+                return "Error: No page loaded. Please navigate to a URL first."
+
+            # Take before screenshot
+            pre_fill_screenshot = os.path.join(
+                self.WORKING_DIRECTORY, f"pre_fill_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=pre_fill_screenshot)
+            pre_fill_screenshot_name = os.path.basename(pre_fill_screenshot)
+            current_url = self.page.url
+
+            # Wait for element with timeout
+            try:
+                element = await self.page.wait_for_selector(
+                    selector, state="visible", timeout=5000
+                )
+                if not element:
+                    raise Exception(f"Element not found: {selector}")
+            except Exception as wait_error:
+                # Take error screenshot
+                error_screenshot = os.path.join(
+                    self.WORKING_DIRECTORY, f"fill_error_{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=error_screenshot)
+                error_screenshot_name = os.path.basename(error_screenshot)
+
+                # Get page source for analysis
+                page_content = await self.get_page_content()
+
+                error_msg = (
+                    f"Failed to find input element: {selector}\n"
+                    f"Current URL: {current_url}\n"
+                    f"Pre-attempt Screenshot: {self.output_url}/{pre_fill_screenshot_name}\n"
+                    f"Error Screenshot: {self.output_url}/{error_screenshot_name}\n"
+                    f"Available form elements:\n{page_content}"
+                )
+                logging.error(error_msg)
+                return f"Error: {error_msg}"
+
+            # Try to fill the input
+            try:
+                # Clear existing value first
+                await element.evaluate('el => el.value = ""')
+
+                # Fill the input
+                await element.fill(text)
+
+                # Verify the input value
+                actual_value = await element.input_value()
+                if actual_value != text:
+                    raise Exception(
+                        f"Value mismatch - Expected: {text}, Got: {actual_value}"
+                    )
+
+            except Exception as fill_error:
+                # Take error screenshot
+                error_screenshot = os.path.join(
+                    self.WORKING_DIRECTORY, f"fill_error_{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=error_screenshot)
+                error_screenshot_name = os.path.basename(error_screenshot)
+
+                error_msg = (
+                    f"Failed to fill input: {str(fill_error)}\n"
+                    f"Current URL: {current_url}\n"
+                    f"Pre-attempt Screenshot: {self.output_url}/{pre_fill_screenshot_name}\n"
+                    f"Error Screenshot: {self.output_url}/{error_screenshot_name}"
+                )
+                logging.error(error_msg)
+                return f"Error: {error_msg}"
+
+            # Take after screenshot
+            post_fill_screenshot = os.path.join(
+                self.WORKING_DIRECTORY, f"post_fill_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=post_fill_screenshot)
+            post_fill_screenshot_name = os.path.basename(post_fill_screenshot)
+
+            success_msg = (
+                f"Successfully filled input {selector} with text '{text}'\n"
+                f"Current URL: {current_url}\n"
+                f"Before Screenshot: {self.output_url}/{pre_fill_screenshot_name}\n"
+                f"After Screenshot: {self.output_url}/{post_fill_screenshot_name}"
+            )
+            logging.info(success_msg)
+            return success_msg
+
+        except Exception as e:
+            error_msg = f"Unexpected error: {str(e)}"
+            logging.error(error_msg)
+            return f"Error: {error_msg}"
+
+    def _get_other_interactive_elements(self, soup) -> list:
+        """
+        Find other interactive elements on the page
+        """
+        interactive_elements = []
+
+        # Look for elements with interactive classes or roles
+        interactive_classes = ["button", "btn", "clickable", "interactive", "dropdown"]
+        interactive_roles = ["button", "link", "menuitem", "tab", "checkbox", "radio"]
+
+        for element in soup.find_all(
+            attrs={
+                "class": lambda x: x
+                and any(cls in str(x).lower() for cls in interactive_classes)
+            }
+        ):
+            if element.name not in [
+                "a",
+                "button",
+                "input",
+                "select",
+                "textarea",
+            ]:  # Skip standard form elements
+                text = self.get_text_safely(element)
+                if text:
+                    interactive_elements.append(f"\nInteractive Element:")
+                    interactive_elements.append(f"- Text: {text}")
+                    interactive_elements.append(f"- Type: {element.name}")
+                    if element.get("class"):
+                        interactive_elements.append(
+                            f"- Classes: {' '.join(element.get('class'))}"
+                        )
+                    if element.get("role"):
+                        interactive_elements.append(f"- Role: {element.get('role')}")
+
+        return interactive_elements
 
     async def analyze_page_visually(self, description: str = "") -> str:
         """
