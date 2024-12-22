@@ -1238,11 +1238,24 @@ Page Content:
 
         # Get detailed form field information
         form_fields = await self.get_form_fields()
-
+        # Extract just the selectors for validation
+        available_selectors = []
+        for line in form_fields.split("\n"):
+            if "  - " in line:  # Lines with selectors start with '  - '
+                selector = line.split("  - ")[-1].strip()
+                if (
+                    selector.startswith("#")  # ID selectors
+                    or selector.startswith("[name=")  # Name attributes
+                    or selector.startswith("[placeholder=")  # Placeholder attributes
+                    or selector == "button[type='submit']"  # Submit buttons
+                ):
+                    available_selectors.append(selector)
+        # Join selectors outside of f-string
+        selector_list = ", ".join(available_selectors)
         # Log detected form fields
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Detected form fields:\n{form_fields}",
+            message=f"[SUBACTIVITY][{self.activity_id}] Detected form fields:\n{form_fields}\nSelectors: \n{selector_list}",
             conversation_name=self.conversation_name,
         )
 
@@ -1251,7 +1264,10 @@ Page Content:
 
 URL: {current_url}
 
-AVAILABLE FORM FIELDS AND SELECTORS (ONLY USE THESE - DO NOT INVENT OR ASSUME ANY OTHERS):
+AVAILABLE SELECTORS YOU CAN USE (COPY EXACTLY):
+{selector_list}
+
+DETECTED FORM FIELDS:
 {form_fields}
 
 CURRENT PAGE CONTENT:
@@ -1259,6 +1275,13 @@ CURRENT PAGE CONTENT:
 
 TASK TO COMPLETE:
 {task}
+
+STRICT RULES - READ CAREFULLY:
+1. You may ONLY use selectors that are EXPLICITLY listed above
+2. Do NOT use complex class selectors
+3. Prefer simple selectors like #email, #name, button[type='submit']
+4. Each selector must be COPIED EXACTLY as shown
+5. If a field isn't listed above, you CANNOT use it
 
 IMPORTANT INSTRUCTIONS:
 1. You can ONLY use selectors that are explicitly listed above under "AVAILABLE FORM FIELDS AND SELECTORS"
@@ -1298,7 +1321,20 @@ Example of good interaction plan:
         <value>2000</value>
         <description>Wait for continue button to appear</description>
     </step>
-</interaction>"""
+</interaction>
+
+Example of CORRECT selectors:
+- #email
+- #name
+- button[type='submit']
+- [placeholder='Enter your email']
+Example of INCORRECT selectors:
+- Complex class selectors
+- Made up IDs
+- Modified selectors
+- Selectors not in the available list
+
+"""
 
         def extract_interaction_block(response: str) -> str:
             """Extract and clean the interaction XML block."""
