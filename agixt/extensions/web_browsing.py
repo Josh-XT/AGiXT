@@ -90,7 +90,6 @@ class web_browsing(Extensions):
         self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.commands = {
             "Interact with Webpage": self.interact_with_webpage,
-            "Get Web Search Results": self.get_search_results,
         }
         self.playwright = None
         self.browser = None
@@ -778,6 +777,21 @@ class web_browsing(Extensions):
 
         while attempt < max_attempts and not success:
             try:
+                # Take screenshot before operation
+                pre_op_screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"pre_op_{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=pre_op_screenshot_path, full_page=True)
+                pre_op_screenshot = os.path.basename(pre_op_screenshot_path)
+
+                # Log the current state before operation
+                current_url = self.page.url
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] About to perform: {operation} on [{current_url}]\n![Pre-Operation Screenshot]({self.output_url}/{pre_op_screenshot})",
+                    conversation_name=self.conversation_name,
+                )
+
                 # Try primary operation
                 if operation == "click":
                     await self.click_element_with_playwright(selector)
@@ -803,7 +817,31 @@ class web_browsing(Extensions):
                     )
                     await self.download_file_with_playwright(selector, download_path)
                     file_name = os.path.basename(download_path)
+
+                    # Log the download completion
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Downloaded file on [{current_url}]\nFile available at: {self.output_url}/{file_name}",
+                        conversation_name=self.conversation_name,
+                    )
                     return f"Downloaded file saved as: {self.output_url}/{file_name}"
+
+                # Take screenshot after operation
+                post_op_screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"post_op_{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=post_op_screenshot_path, full_page=True)
+                post_op_screenshot = os.path.basename(post_op_screenshot_path)
+
+                # Get updated URL after operation
+                new_url = self.page.url
+
+                # Log the completion of operation with before/after screenshots
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Completed {operation} operation\nStarted on: [{current_url}]\nEnded on: [{new_url}]\n![Post-Operation Screenshot]({self.output_url}/{post_op_screenshot})",
+                    conversation_name=self.conversation_name,
+                )
 
                 success = True
 
@@ -957,6 +995,7 @@ Page Content:
         - Verify successful completion
         - Log detailed subactivities for each interaction
         - Generate summaries of important page content
+        - Unless otherwise specified, the assistant prefers Brave for search.
 
         Args:
         url (str): Starting URL for the workflow
@@ -1022,11 +1061,11 @@ Page Content:
             prompt_args={
                 "user_input": f"""Need to interact with a webpage to accomplish the following task:
 
-    ### Starting URL
-    {url}
+### Starting URL
+{url}
 
-    ### Current URL
-    {current_url}
+### Current URL
+{current_url}
 
 ### Task to Complete
 {task}
