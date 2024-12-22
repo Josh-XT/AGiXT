@@ -1234,6 +1234,24 @@ Page Content:
                 return default
             return element.text.strip()
 
+        def extract_interaction_block(response: str) -> str:
+            """
+            Extract and clean the <interaction>...</interaction> XML block from an LLM response.
+            Raises ValueError if no <interaction> block is found.
+            """
+            match = re.search(r"<interaction>.*?</interaction>", response, re.DOTALL)
+            if not match:
+                raise ValueError("No <interaction> block found in response.")
+            xml_block = match.group(0).strip()
+
+            # Minor cleanups on whitespace
+            xml_block = re.sub(r"\s+<", "<", xml_block)
+            xml_block = re.sub(r">\s+", ">", xml_block)
+            xml_block = re.sub(r"\s+(?=</)", "", xml_block)
+            xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
+            return xml_block
+
+        # If we haven't initialized a Playwright page yet, do so now
         if self.page is None:
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
@@ -1242,35 +1260,46 @@ Page Content:
             )
             await self.navigate_to_url_with_playwright(url=url, headless=True)
 
-        # Get current page state
-        current_url = self.page.url
-        current_page_content = await self.get_page_content()
+        # We will keep track of how many times we've looped
+        iteration_count = 0
+        overall_results = []
+        max_iterations = 10
 
-        # Get detailed form field information
-        form_fields = await self.get_form_fields()
-        # Extract just the selectors for validation
-        available_selectors = []
-        for line in form_fields.split("\n"):
-            if "  - " in line:  # Lines with selectors start with '  - '
-                selector = line.split("  - ")[-1].strip()
-                if (
-                    selector.startswith("#")  # ID selectors
-                    or selector.startswith("[name=")  # Name attributes
-                    or selector.startswith("[placeholder=")  # Placeholder attributes
-                    or selector == "button[type='submit']"  # Submit buttons
-                ):
-                    available_selectors.append(selector)
-        # Join selectors outside of f-string
-        selector_list = ", ".join(available_selectors)
-        # Log detected form fields
-        self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Detected form fields:\n{form_fields}\nSelectors: \n{selector_list}",
-            conversation_name=self.conversation_name,
-        )
+        while iteration_count < max_iterations:
+            iteration_count += 1
 
-        # Create context that includes form field information
-        planning_context = f"""Current webpage state:
+            # Step 1: Gather current page info
+            current_url = self.page.url
+            current_page_content = await self.get_page_content()
+            form_fields = await self.get_form_fields()
+
+            # Extract just the relevant selectors from the form_fields string (for the prompt)
+            available_selectors = []
+            for line in form_fields.split("\n"):
+                if "  - " in line:  # lines containing '  - ' are selector lines
+                    selector = line.split("  - ")[-1].strip()
+                    # Only keep basic selectors from known attributes
+                    if (
+                        selector.startswith("#")
+                        or selector.startswith("[name=")
+                        or selector.startswith("[placeholder=")
+                        or selector == "button[type='submit']"
+                    ):
+                        available_selectors.append(selector)
+            selector_list = "\n".join(available_selectors)
+
+            # Log the form fields and selectors we see
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=(
+                    f"[SUBACTIVITY][{self.activity_id}] Iteration {iteration_count} on [{current_url}]\n\n"
+                    f"**DETECTED FORM FIELDS**:\n{form_fields}\n\n"
+                    f"**AVAILABLE SELECTORS** (you may ONLY use these):\n{selector_list}"
+                ),
+                conversation_name=self.conversation_name,
+            )
+            # Create context that includes form field information
+            planning_context = f"""Current webpage state:
 
 URL: {current_url}
 
@@ -1298,6 +1327,7 @@ IMPORTANT INSTRUCTIONS:
 2. Do not assume or invent selectors that aren't listed
 3. If a field you need isn't available, use the 'wait' operation to wait for it to appear
 4. Each step must use an element that currently exists on the page
+5. Only plan steps for the current page state! Do not try to plan ahead, you will be asked to plan the next steps on the next page.
 
 Generate an interaction plan using ONLY the available selectors above.
 
@@ -1343,180 +1373,211 @@ Example of INCORRECT selectors:
 - Made up IDs
 - Modified selectors
 - Selectors not in the available list
-
 """
 
-        def extract_interaction_block(response: str) -> str:
-            """Extract and clean the interaction XML block."""
-            # Find the interaction block
-            match = re.search(r"<interaction>.*?</interaction>", response, re.DOTALL)
-            if not match:
-                raise ValueError("No interaction block found in response")
+            # Step 3: Prompt the agent for the next plan
+            try:
+                raw_plan_response = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": planning_context,
+                        "conversation_name": self.conversation_name,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "tts": False,
+                        "analyze_user_input": False,
+                        "disable_commands": True,
+                        "browse_links": False,
+                        "websearch": False,
+                    },
+                )
 
-            xml_block = match.group(0).strip()
+                # Trim out everything but what's inside <answer>...</answer> if it exists
+                # This depends on how your "Think About It" prompt template is structured
+                if "<answer>" in raw_plan_response and "</answer>" in raw_plan_response:
+                    raw_plan_response = raw_plan_response.split("</answer>")[0].split(
+                        "<answer>"
+                    )[-1]
 
-            # Clean up whitespace
-            xml_block = re.sub(r"\s+<", "<", xml_block)
-            xml_block = re.sub(r">\s+", ">", xml_block)
-            xml_block = re.sub(r"\s+(?=</)", "", xml_block)
+                # Step 4: Extract the <interaction> block
+                interaction_xml = extract_interaction_block(raw_plan_response)
 
-            # Format for readability
-            xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
+            except Exception as e:
+                # If we fail to parse or get the plan, we'll stop
+                error_msg = f"Failed to parse an interaction plan on iteration {iteration_count}: {e}"
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                    conversation_name=self.conversation_name,
+                )
+                overall_results.append(error_msg)
+                break
 
-            return xml_block
+            # Step 5: Parse the XML plan and see if there's a "done" step
+            try:
+                root = ET.fromstring(interaction_xml)
+                steps = root.findall(".//step")
+                if not steps:
+                    # No steps means no plan, so let's stop
+                    msg = "No steps found in the agent's plan; stopping."
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] {msg}",
+                        conversation_name=self.conversation_name,
+                    )
+                    overall_results.append(msg)
+                    break
 
-        # Get and extract interaction plan
-        try:
-            raw_response = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": planning_context,
-                    "conversation_name": self.conversation_name,
-                    "log_user_input": False,
-                    "log_output": False,
-                    "tts": False,
-                    "analyze_user_input": False,
-                    "disable_commands": True,
-                    "browse_links": False,
-                    "websearch": False,
-                },
-            )
-            raw_response = raw_response.split("</answer>")[0].split("<answer>")[-1]
+                # Check if the first step is "done"
+                first_op = safe_get_text(steps[0].find("operation"))
+                if first_op.lower() == "done":
+                    msg = "Agent signaled that the task is complete."
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] {msg}",
+                        conversation_name=self.conversation_name,
+                    )
+                    overall_results.append(msg)
+                    break
 
-            # Extract and clean interaction XML
-            interaction_xml = extract_interaction_block(raw_response)
-
-            # Log the cleaned XML
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Executing interaction plan:\n```xml\n{interaction_xml}\n```",
-                conversation_name=self.conversation_name,
-            )
-
-            # Parse XML
-            root = ET.fromstring(interaction_xml)
-            steps = root.findall(".//step")
-
-            if not steps:
-                raise ValueError("No steps found in interaction plan")
-
-            # Execute each step
-            results = []
-            for step in steps:
-                try:
-                    # Safely get step elements with defaults
+                # Otherwise, we execute each step
+                for step in steps:
                     operation = safe_get_text(step.find("operation"))
-                    if not operation:
-                        raise ValueError("Operation is required")
-
                     selector = safe_get_text(step.find("selector"))
                     value = safe_get_text(step.find("value"))
                     description = safe_get_text(
-                        step.find("description"), "Executing step"
+                        step.find("description"), "No description"
                     )
 
-                    # Log step
+                    # Log the step
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}] Executing: {description}",
+                        message=(
+                            f"[SUBACTIVITY][{self.activity_id}] About to execute: "
+                            f"{operation.upper()} on [{current_url}]\n"
+                            f"Selector: {selector}\nValue: {value}\nDescription: {description}"
+                        ),
                         conversation_name=self.conversation_name,
                     )
 
-                    # Take before screenshot
-                    before_screenshot = os.path.join(
+                    # Before screenshot
+                    before_screenshot_path = os.path.join(
                         self.WORKING_DIRECTORY, f"before_{uuid.uuid4()}.png"
                     )
-                    await self.page.screenshot(path=before_screenshot, full_page=True)
-                    before_image = os.path.basename(before_screenshot)
+                    await self.page.screenshot(
+                        path=before_screenshot_path, full_page=True
+                    )
+                    before_image = os.path.basename(before_screenshot_path)
 
-                    # Execute step based on operation type
-                    if operation == "click":
-                        if not selector:
-                            raise ValueError("Selector required for click operation")
-                        await self.page.wait_for_selector(
-                            selector, state="visible", timeout=5000
+                    try:
+                        if operation == "click":
+                            if not selector:
+                                raise ValueError(
+                                    "No selector provided for click operation."
+                                )
+                            # Wait for the element to be visible
+                            await self.page.wait_for_selector(
+                                selector, state="visible", timeout=5000
+                            )
+                            await self.click_element_with_playwright(selector)
+                            await self.page.wait_for_load_state("networkidle")
+
+                        elif operation == "fill":
+                            if not selector:
+                                raise ValueError(
+                                    "No selector provided for fill operation."
+                                )
+                            if not value:
+                                raise ValueError(
+                                    "No value provided for fill operation."
+                                )
+                            await self.page.wait_for_selector(
+                                selector, state="visible", timeout=5000
+                            )
+                            await self.fill_input_with_playwright(selector, value)
+
+                        elif operation == "wait":
+                            # If value is numeric, treat as ms to wait; else treat as selector to wait for
+                            if value.isdigit():
+                                ms = int(value)
+                                await self.page.wait_for_timeout(ms)
+                            else:
+                                # Wait for an element to appear
+                                await self.wait_for_selector_with_playwright(
+                                    value or selector
+                                )
+
+                        elif operation == "verify":
+                            # Just ensure the selector is present
+                            await self.assert_element_with_playwright(selector, value)
+
+                        elif operation == "done":
+                            # Shouldn't get here if we check above, but just in case:
+                            overall_results.append("Agent indicated done.")
+                            break
+
+                        else:
+                            raise ValueError(f"Unknown operation '{operation}'.")
+
+                        # After screenshot
+                        after_screenshot_path = os.path.join(
+                            self.WORKING_DIRECTORY, f"after_{uuid.uuid4()}.png"
                         )
-                        await self.click_element_with_playwright(selector)
-                        await self.page.wait_for_load_state("networkidle")
-                        result = f"Clicked element: {selector}"
-
-                    elif operation == "fill":
-                        if not selector:
-                            raise ValueError("Selector required for fill operation")
-                        if not value:
-                            raise ValueError("Value required for fill operation")
-                        await self.page.wait_for_selector(
-                            selector, state="visible", timeout=5000
+                        await self.page.screenshot(
+                            path=after_screenshot_path, full_page=True
                         )
-                        await self.fill_input_with_playwright(selector, value)
-                        result = f"Filled input {selector} with value: {value}"
+                        after_image = os.path.basename(after_screenshot_path)
 
-                    elif operation == "wait":
-                        wait_time = int(value) if value.isdigit() else 2000
-                        await self.page.wait_for_timeout(wait_time)
-                        result = f"Waited for {wait_time}ms"
-                        if selector:
-                            await self.wait_for_selector_with_playwright(selector)
-                            result += f" and element: {selector}"
-
-                    elif operation == "verify":
-                        if not selector:
-                            raise ValueError("Selector required for verify operation")
-                        await self.page.wait_for_selector(
-                            selector, state="visible", timeout=5000
+                        # Log success
+                        success_msg = (
+                            f"Completed: {operation} - {description}\n"
+                            f"Before: ![Before]({self.output_url}/{before_image})\n"
+                            f"After: ![After]({self.output_url}/{after_image})"
                         )
-                        result = f"Verified element present: {selector}"
+                        self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{self.activity_id}] {success_msg}",
+                            conversation_name=self.conversation_name,
+                        )
+                        overall_results.append(success_msg)
 
-                    else:
-                        raise ValueError(f"Unknown operation: {operation}")
+                    except Exception as step_error:
+                        error_details = f"Error on step '{operation}' with selector '{selector}': {step_error}"
+                        self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_details}",
+                            conversation_name=self.conversation_name,
+                        )
+                        overall_results.append(error_details)
+                        # We can decide to either continue or break here
+                        break  # Typically break out of the step loop if there's an error
 
-                    # Take after screenshot
-                    after_screenshot = os.path.join(
-                        self.WORKING_DIRECTORY, f"after_{uuid.uuid4()}.png"
-                    )
-                    await self.page.screenshot(path=after_screenshot, full_page=True)
-                    after_image = os.path.basename(after_screenshot)
+            except Exception as parse_error:
+                error_msg = f"Error parsing steps on iteration {iteration_count}: {str(parse_error)}"
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                    conversation_name=self.conversation_name,
+                )
+                overall_results.append(error_msg)
+                break
 
-                    # Log result with before/after screenshots
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}] Completed: {description}\nResult: {result}\nBefore: ![Before]({self.output_url}/{before_image})\nAfter: ![After]({self.output_url}/{after_image})",
-                        conversation_name=self.conversation_name,
-                    )
+            # If we reached this point, we've executed all steps in the plan for this iteration.
+            # We continue the loop to fetch a new plan (if not done).
 
-                    results.append(result)
-
-                except Exception as step_error:
-                    error_msg = (
-                        f"Error executing step: {description}\nError: {str(step_error)}"
-                    )
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
-                        conversation_name=self.conversation_name,
-                    )
-                    raise  # Re-raise to handle in outer try-catch
-
-            return "Successfully completed all interactions:\n" + "\n".join(results)
-
-        except Exception as e:
-            error_msg = f"Error during webpage interaction: {str(e)}"
-
-            # Take error screenshot
-            error_screenshot = os.path.join(
-                self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
-            )
-            await self.page.screenshot(path=error_screenshot, full_page=True)
-            error_image = os.path.basename(error_screenshot)
-
+        else:
+            # If we exit the while loop because iteration_count == max_iterations
+            stop_msg = f"Reached maximum iterations ({max_iterations}) for this task."
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}\n![Error]({self.output_url}/{error_image})",
+                message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {stop_msg}",
                 conversation_name=self.conversation_name,
             )
+            overall_results.append(stop_msg)
 
-            return error_msg
+        # Return a joined summary of everything we did
+        return " \n".join(overall_results)
 
     def get_text_safely(self, element) -> str:
         """
