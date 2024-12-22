@@ -378,7 +378,7 @@ class long_term_memory(Extensions):
             )
             cursor.execute(
                 "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                ("created_at", datetime.datetime.now().isoformat()),
+                ("created_at", datetime.now().isoformat()),
             )
 
             conn.commit()
