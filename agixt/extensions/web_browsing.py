@@ -1221,82 +1221,51 @@ Page Content:
             )
             await self.navigate_to_url_with_playwright(url=url, headless=True)
 
-            # Take initial screenshot
-            screenshot_path = os.path.join(
-                self.WORKING_DIRECTORY, f"initial_{uuid.uuid4()}.png"
-            )
-            await self.page.screenshot(path=screenshot_path, full_page=True)
-            initial_screenshot = os.path.basename(screenshot_path)
-
-            # Get and summarize initial page content
-            initial_content = await self.get_page_content()
-            page_summary = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": f"""Please provide a concise summary of this page content that captures:
-1. The main purpose or topic of the page
-2. Any key information, data, or options present
-3. Available interaction elements (forms, buttons, etc.)
-4. Any error messages or important notices
-
-Page Content:
-{initial_content}""",
-                    "conversation_name": self.conversation_name,
-                    "log_user_input": False,
-                    "log_output": False,
-                    "tts": False,
-                    "analyze_user_input": False,
-                    "disable_commands": True,
-                    "browse_links": False,
-                    "websearch": False,
-                },
-            )
-
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page [{url}]\n![Initial Screenshot]({self.output_url}/{initial_screenshot})\n\n{page_summary}",
-                conversation_name=self.conversation_name,
-            )
-
-        # Build context of the current page state
-        current_page_content = await self.get_page_content()
+        # Get current page state
         current_url = self.page.url
+        current_page_content = await self.get_page_content()
 
-        # Use AI to plan interaction steps
+        # Get detailed form field information
+        form_fields = await self.get_form_fields()
+
+        # Create context that includes form field information
+        planning_context = f"""Current webpage state:
+
+URL: {current_url}
+
+DETECTED FORM FIELDS:
+{form_fields}
+
+PAGE CONTENT:
+{current_page_content}
+
+TASK TO COMPLETE:
+{task}
+
+Based on the above information, especially the detected form fields, generate an interaction plan.
+Use the EXACT field names and selectors found in the form fields section above.
+Do not invent or assume field names - only use what was detected.
+
+Provide the plan in this XML format:
+<interaction>
+<step>
+    <operation>click|fill|select|wait|verify|screenshot|extract|download</operation>
+    <selector>EXACT selector from form fields section</selector>
+    <value>Value to input if needed</value>
+    <description>Human-readable description</description>
+    <retry>
+        <alternate_selector>Alternative selector from form fields if available</alternate_selector>
+        <max_attempts>3</max_attempts>
+    </retry>
+</step>
+</interaction>"""
+
+        # Get interaction plan
         interaction_plan = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
-                "user_input": f"""Need to interact with a webpage to accomplish the following task:
-
-### Starting URL
-{url}
-
-### Current URL
-{current_url}
-
-### Task to Complete
-{task}
-
-### Page Content
-{current_page_content}
-
-Please analyze the task and provide the necessary interaction steps using the following XML format inside an <answer> block:
-
-<interaction>
-<step>
-    <operation>click|fill|select|wait|verify|screenshot|extract|download</operation>
-    <selector>CSS selector or XPath</selector>
-    <value>Value for fill/select operations if needed</value>
-    <description>Human-readable description of this step's purpose</description>
-    <retry>
-        <alternate_selector>Alternative selector if primary fails</alternate_selector>
-        <fallback_operation>Alternative operation type</fallback_operation>
-        <max_attempts>3</max_attempts>
-    </retry>
-</step>
-</interaction>""",
+                "user_input": planning_context,
                 "conversation_name": self.conversation_name,
                 "log_user_input": False,
                 "log_output": False,
@@ -1306,6 +1275,13 @@ Please analyze the task and provide the necessary interaction steps using the fo
                 "browse_links": False,
                 "websearch": False,
             },
+        )
+
+        # Log the planned interactions
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{self.activity_id}] Planned interactions based on detected form fields:\n{interaction_plan}",
+            conversation_name=self.conversation_name,
         )
 
         # Parse and execute interaction steps
@@ -1341,8 +1317,6 @@ Please analyze the task and provide the necessary interaction steps using the fo
 
         except Exception as e:
             error_msg = f"Error during webpage interaction: {str(e)}"
-
-            # Take error screenshot
             screenshot_path = os.path.join(
                 self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
             )
