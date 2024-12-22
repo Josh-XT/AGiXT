@@ -1334,83 +1334,151 @@ Please analyze the task and provide the necessary interaction steps using the fo
             return ""
 
     async def get_page_content(self) -> str:
-        """
-        Get the content of the current page with enhanced form detection
-        """
+        """Get enhanced page content with better button/link detection"""
         try:
             if self.page is None:
                 return "Error: No page loaded."
 
+            # First get standard page content
             html_content = await self.page.content()
             soup = BeautifulSoup(html_content, "html.parser")
-            structured_content = []
 
-            # Extract title safely
+            # Get button analysis
+            button_analysis = await self.analyze_button_presence()
+
+            # Combine all the content
+            content = ["=== PAGE CONTENT ANALYSIS ===\n"]
+
+            # Title
             if soup.title and soup.title.string:
-                title_text = soup.title.string.strip()
-                if title_text:
-                    structured_content.append(f"Page Title: {title_text}")
+                content.append(f"Title: {soup.title.string.strip()}\n")
 
-            # SECTION 1: Interactive Elements
-            structured_content.append("\n=== INTERACTIVE ELEMENTS ===")
+            # Current URL
+            content.append(f"URL: {self.page.url}\n")
 
-            # Form Detection and Analysis
-            forms = soup.find_all("form")
-            all_inputs = soup.find_all(["input", "select", "textarea"])
-            standalone_inputs = [
-                inp for inp in all_inputs if not inp.find_parent("form")
-            ]
+            # Clickable Elements Analysis
+            content.append("=== CLICKABLE ELEMENTS ===\n")
+            content.append(button_analysis)
+            content.append("\n")
 
-            # Process forms first
-            for form in forms:
-                try:
-                    form_info = []
-                    form_id = form.get("id", "")
-                    form_name = form.get("name", "")
-                    form_class = " ".join(form.get("class", []))
-                    form_action = form.get("action", "")
+            # Find all links with non-empty text
+            content.append("=== LINKS ===\n")
+            links = []
+            for link in soup.find_all("a", href=True):
+                text = self.get_text_safely(link)
+                if text:
+                    href = link["href"]
+                    classes = " ".join(link.get("class", []))
+                    selectors = []
 
-                    form_desc = "\nForm Details:"
-                    if form_id:
-                        form_desc += f"\n- ID: {form_id}"
-                    if form_name:
-                        form_desc += f"\n- Name: {form_name}"
-                    if form_class:
-                        form_desc += f"\n- Classes: {form_class}"
-                    if form_action:
-                        form_desc += f"\n- Action: {form_action}"
+                    if link.get("id"):
+                        selectors.append(f"#{link['id']}")
+                    if classes:
+                        selectors.append(f"a.{classes.replace(' ', '.')}")
+                    selectors.append(f"a[href='{href}']")
+                    if text:
+                        selectors.append(f"a:text('{text}')")
 
-                    form_info.append(form_desc)
-                    form_info.append("\nForm Inputs:")
+                    links.append(f"Link: {text}")
+                    links.append(f"  Href: {href}")
+                    links.append("  Selectors:")
+                    for idx, selector in enumerate(selectors, 1):
+                        links.append(f"    {idx}. {selector}")
+                    links.append("")
 
-                    # Process all inputs within this form
-                    for input_field in form.find_all(["input", "select", "textarea"]):
-                        input_info = self._analyze_input_field(input_field, form_id)
-                        if input_info:
-                            form_info.append(input_info)
+            content.extend(links)
 
-                    structured_content.extend(form_info)
-                    structured_content.append("")  # Add spacing between forms
+            # Forms Analysis
+            content.append("=== FORMS AND INPUTS ===\n")
+            forms = []
+            # Look for both explicit forms and implicit form groups
+            form_elements = soup.find_all(["form", 'div[role="form"]', "div.form"])
 
-                except Exception as e:
-                    logging.error(f"Error processing form: {str(e)}")
-                    continue
+            for form in form_elements:
+                form_id = form.get("id", "")
+                form_class = " ".join(form.get("class", []))
+                form_info = [
+                    f"Form{f' ID: {form_id}' if form_id else ''}{f' Class: {form_class}' if form_class else ''}"
+                ]
 
-            # Process standalone inputs
-            if standalone_inputs:
-                structured_content.append("\nStandalone Inputs (Outside Forms):")
-                for input_field in standalone_inputs:
-                    input_info = self._analyze_input_field(input_field)
-                    if input_info:
-                        structured_content.append(input_info)
+                # Get all inputs, including those styled as buttons
+                inputs = form.find_all(
+                    [
+                        "input",
+                        "button",
+                        "textarea",
+                        "select",
+                        'div[role="button"]',
+                        'span[role="button"]',
+                    ]
+                )
 
-            # Other interactive elements
-            structured_content.extend(self._get_other_interactive_elements(soup))
+                for input_elem in inputs:
+                    input_type = input_elem.get("type", "text")
+                    input_id = input_elem.get("id", "")
+                    input_name = input_elem.get("name", "")
+                    input_class = " ".join(input_elem.get("class", []))
+                    input_value = input_elem.get("value", "")
+                    placeholder = input_elem.get("placeholder", "")
 
-            return "\n".join(structured_content)
+                    selectors = []
+                    if input_id:
+                        selectors.append(f"#{input_id}")
+                    if input_name:
+                        selectors.append(f"[name='{input_name}']")
+                    if input_class:
+                        selectors.append(f".{input_class.replace(' ', '.')}")
+                    if placeholder:
+                        selectors.append(f"[placeholder='{placeholder}']")
+
+                    input_info = [
+                        f"  Input:",
+                        f"    Type: {input_type}",
+                    ]
+
+                    if input_id:
+                        input_info.append(f"    ID: {input_id}")
+                    if input_name:
+                        input_info.append(f"    Name: {input_name}")
+                    if placeholder:
+                        input_info.append(f"    Placeholder: {placeholder}")
+                    if input_value:
+                        input_info.append(f"    Value: {input_value}")
+
+                    input_info.append("    Selectors:")
+                    for idx, selector in enumerate(selectors, 1):
+                        input_info.append(f"      {idx}. {selector}")
+
+                    forms.extend(input_info)
+                forms.append("")  # Add spacing between forms
+
+            content.extend(forms)
+
+            # Interactive Elements (not already covered)
+            content.append("=== OTHER INTERACTIVE ELEMENTS ===\n")
+            other_elements = self._get_other_interactive_elements(soup)
+            content.extend(other_elements)
+
+            # Look for error messages or notifications
+            content.append("\n=== NOTIFICATIONS AND MESSAGES ===\n")
+            error_classes = ["error", "alert", "notification", "message", "toast"]
+            messages = []
+            for class_name in error_classes:
+                for elem in soup.find_all(
+                    class_=lambda x: x and class_name in x.lower()
+                ):
+                    text = self.get_text_safely(elem)
+                    if text:
+                        messages.append(f"{class_name.title()}: {text}")
+            if messages:
+                content.extend(messages)
+            else:
+                content.append("No notifications or messages found.")
+
+            return "\n".join(content)
 
         except Exception as e:
-            error_msg = f"Error extracting page content: {str(e)}"
+            error_msg = f"Error analyzing page content: {str(e)}"
             logging.error(error_msg)
             return error_msg
 
@@ -1582,40 +1650,195 @@ Please analyze the task and provide the necessary interaction steps using the fo
 
     def _get_other_interactive_elements(self, soup) -> list:
         """
-        Find other interactive elements on the page
+        Find other interactive elements on the page with enhanced detection
         """
         interactive_elements = []
 
-        # Look for elements with interactive classes or roles
-        interactive_classes = ["button", "btn", "clickable", "interactive", "dropdown"]
+        # Common interactive classes and attributes
+        interactive_classes = [
+            "button",
+            "btn",
+            "clickable",
+            "interactive",
+            "dropdown",
+            "register",
+            "signup",
+            "sign-up",
+            "login",
+            "submit",
+            "cta",
+            "call-to-action",
+        ]
         interactive_roles = ["button", "link", "menuitem", "tab", "checkbox", "radio"]
 
-        for element in soup.find_all(
-            attrs={
+        # Find elements by class, role, type, or other common button indicators
+        selectors = [
+            # By role
+            {"role": interactive_roles},
+            # By type
+            {"type": ["button", "submit"]},
+            # By class containing common button terms
+            {
                 "class": lambda x: x
                 and any(cls in str(x).lower() for cls in interactive_classes)
-            }
-        ):
-            if element.name not in [
-                "a",
-                "button",
-                "input",
-                "select",
-                "textarea",
-            ]:  # Skip standard form elements
-                text = self.get_text_safely(element)
-                if text:
-                    interactive_elements.append(f"\nInteractive Element:")
-                    interactive_elements.append(f"- Text: {text}")
-                    interactive_elements.append(f"- Type: {element.name}")
-                    if element.get("class"):
-                        interactive_elements.append(
-                            f"- Classes: {' '.join(element.get('class'))}"
-                        )
-                    if element.get("role"):
-                        interactive_elements.append(f"- Role: {element.get('role')}")
+            },
+            # Any element with onclick attribute
+            {"onclick": True},
+            # Any element with event listeners (data-* attributes)
+            {"data-action": True},
+            # Elements with specific tags that might be clickable
+            {"tag": ["button", "a", "div", "span"]},
+        ]
+
+        for selector in selectors:
+            if "tag" in selector:
+                elements = soup.find_all(selector["tag"])
+            else:
+                elements = soup.find_all(attrs=selector)
+
+            for element in elements:
+                try:
+                    # Skip if already processed
+                    if element.get("processed"):
+                        continue
+
+                    # Get text content
+                    text = self.get_text_safely(element)
+                    href = element.get("href", "")
+                    onclick = element.get("onclick", "")
+                    role = element.get("role", "")
+                    classes = " ".join(element.get("class", []))
+
+                    # Build selector based on available attributes
+                    selectors = []
+
+                    # ID is most specific
+                    if element.get("id"):
+                        selectors.append(f"#{element.get('id')}")
+
+                    # Role is next best
+                    if role:
+                        selectors.append(f"[role='{role}']")
+
+                    # Class-based selectors
+                    if classes:
+                        selectors.append(f".{classes.replace(' ', '.')}")
+
+                    # Type
+                    if element.get("type"):
+                        selectors.append(f"[type='{element.get('type')}']")
+
+                    # Text content for buttons/links
+                    if text:
+                        selectors.append(f"{element.name}:has-text('{text}')")
+
+                    # Only add if we have valid identifiers
+                    if text or href or onclick or role or classes:
+                        element_info = [f"\nInteractive Element:"]
+                        element_info.append(f"- Tag: {element.name}")
+                        if text:
+                            element_info.append(f"- Text: {text}")
+                        if role:
+                            element_info.append(f"- Role: {role}")
+                        if classes:
+                            element_info.append(f"- Classes: {classes}")
+                        if href:
+                            element_info.append(f"- Link: {href}")
+                        if onclick:
+                            element_info.append(f"- Has Click Handler: Yes")
+
+                        element_info.append("\nPossible Selectors:")
+                        for idx, selector in enumerate(selectors, 1):
+                            element_info.append(f"  {idx}. {selector}")
+
+                        interactive_elements.extend(element_info)
+                        element["processed"] = True
+
+                except Exception as e:
+                    logging.error(f"Error processing interactive element: {str(e)}")
+                    continue
 
         return interactive_elements
+
+    async def analyze_button_presence(self) -> str:
+        """
+        Specifically analyze the page for buttons and their clickability
+        """
+        try:
+            # Get all buttons using multiple methods
+            buttons = await self.page.evaluate(
+                """() => {
+                const getClickableElements = () => {
+                    const elements = [];
+                    // Direct button elements
+                    document.querySelectorAll('button').forEach(el => elements.push({
+                        tag: 'button',
+                        text: el.innerText,
+                        isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
+                        selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
+                    }));
+                    
+                    // Links that look like buttons
+                    document.querySelectorAll('a').forEach(el => elements.push({
+                        tag: 'a',
+                        text: el.innerText,
+                        href: el.href,
+                        isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
+                        selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
+                    }));
+                    
+                    // Div/span buttons
+                    document.querySelectorAll('div[role="button"], span[role="button"], div.button, div.btn').forEach(el => 
+                        elements.push({
+                            tag: el.tagName.toLowerCase(),
+                            text: el.innerText,
+                            isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
+                            selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
+                        })
+                    );
+                    
+                    // Additional button detection
+                    document.querySelectorAll('*').forEach(el => {
+                        if (el.onclick || 
+                            el.getAttribute('role') === 'button' || 
+                            el.className.toLowerCase().includes('button') ||
+                            el.className.toLowerCase().includes('btn') ||
+                            el.innerText.toLowerCase().includes('register') ||
+                            el.innerText.toLowerCase().includes('sign up')
+                        ) {
+                            elements.push({
+                                tag: el.tagName.toLowerCase(),
+                                text: el.innerText,
+                                isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
+                                selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
+                            });
+                        }
+                    });
+                    
+                    return elements;
+                };
+                return getClickableElements();
+            }"""
+            )
+
+            if buttons:
+                result = ["Found clickable elements:"]
+                for btn in buttons:
+                    if btn.get("isVisible", False):
+                        result.append(
+                            f"\n- {btn.get('text', 'Unnamed Button')} ({btn.get('tag', 'element')})"
+                        )
+                        if btn.get("selector"):
+                            result.append(f"  Selector: {btn['selector']}")
+                        if btn.get("href"):
+                            result.append(f"  Link: {btn['href']}")
+                return "\n".join(result)
+            else:
+                return "No clickable elements found on page"
+
+        except Exception as e:
+            logging.error(f"Error analyzing buttons: {str(e)}")
+            return f"Error analyzing buttons: {str(e)}"
 
     async def analyze_page_visually(self, description: str = "") -> str:
         """
