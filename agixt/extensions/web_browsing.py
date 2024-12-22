@@ -4,6 +4,7 @@ import subprocess
 import uuid
 import sys
 import os
+import re
 
 try:
     from bs4 import BeautifulSoup
@@ -1146,47 +1147,189 @@ Page Content:
 
     async def get_page_content(self) -> str:
         """
-        Get the content of the current page for analysis. This command should be used when:
-        - Needing to analyze text content of a page
-        - Extracting specific information from the current page
-        - Storing page content in memory for later reference
-        - Verifying page content after interactions
+        Get the content of the current page in a well-structured format using BeautifulSoup.
+        Extracts and organizes:
+        - Page title and headers
+        - Main content sections
+        - Navigation elements
+        - Forms and input fields
+        - Links and buttons
+        - Lists and tables
+        - Error messages and notifications
 
         Returns:
-        str: The text content of the current page with structure preserved
+        str: Structured text content of the current page
         """
         try:
             if self.page is None:
                 return "Error: No page loaded."
 
+            # Get the page HTML
             html_content = await self.page.content()
             soup = BeautifulSoup(html_content, "html.parser")
 
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.extract()
-
-            # Get text while preserving some structure
-            lines = []
+            # Remove unwanted elements
             for element in soup.find_all(
-                ["p", "h1", "h2", "h3", "h4", "h5", "h6", "div"]
+                ["script", "style", "meta", "link", "noscript"]
             ):
-                text = element.get_text().strip()
-                if text:
-                    lines.append(text)
+                element.decompose()
 
-            content = "\n\n".join(lines)
+            structured_content = []
 
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Retrieved current page content for analysis.",
-                conversation_name=self.conversation_name,
+            # Extract title
+            if soup.title:
+                structured_content.append(f"Page Title: {soup.title.string.strip()}")
+
+            # Extract headers hierarchically
+            headers = []
+            for level in range(1, 7):
+                for header in soup.find_all(f"h{level}"):
+                    text = header.get_text().strip()
+                    if text:
+                        headers.append(f"{'#' * level} {text}")
+            if headers:
+                structured_content.append("\nHeaders:")
+                structured_content.extend(headers)
+
+            # Extract main content
+            main_content = soup.find("main")
+            if not main_content:
+                main_content = soup.find("body")
+
+            # Extract forms and inputs
+            forms = soup.find_all("form")
+            if forms:
+                structured_content.append("\nForms and Inputs:")
+                for form in forms:
+                    form_info = []
+                    if form.get("id"):
+                        form_info.append(f"Form ID: {form['id']}")
+                    if form.get("action"):
+                        form_info.append(f"Action: {form['action']}")
+
+                    # Extract input fields
+                    inputs = form.find_all(["input", "select", "textarea"])
+                    for input_field in inputs:
+                        input_type = input_field.get("type", "text")
+                        input_name = input_field.get("name", "unnamed")
+                        input_id = input_field.get("id", "")
+                        field_info = f"- {input_type} field"
+                        if input_name != "unnamed":
+                            field_info += f" (name: {input_name})"
+                        if input_id:
+                            field_info += f" (id: {input_id})"
+                        form_info.append(field_info)
+
+                    structured_content.extend(form_info)
+
+            # Extract navigation elements
+            nav = soup.find_all(["nav", "menu"])
+            if nav:
+                structured_content.append("\nNavigation:")
+                for nav_elem in nav:
+                    links = nav_elem.find_all("a")
+                    for link in links:
+                        text = link.get_text().strip()
+                        if text:
+                            structured_content.append(f"- {text}")
+
+            # Extract lists
+            lists = main_content.find_all(["ul", "ol"]) if main_content else []
+            if lists:
+                structured_content.append("\nLists:")
+                for list_elem in lists:
+                    items = list_elem.find_all("li")
+                    for item in items:
+                        text = item.get_text().strip()
+                        if text:
+                            structured_content.append(f"• {text}")
+
+            # Extract tables
+            tables = soup.find_all("table")
+            if tables:
+                structured_content.append("\nTables:")
+                for table in tables:
+                    # Get table headers
+                    headers = []
+                    for th in table.find_all("th"):
+                        text = th.get_text().strip()
+                        if text:
+                            headers.append(text)
+                    if headers:
+                        structured_content.append(
+                            "Table Headers: " + " | ".join(headers)
+                        )
+
+                    # Get table rows
+                    for tr in table.find_all("tr"):
+                        row_data = []
+                        for td in tr.find_all("td"):
+                            text = td.get_text().strip()
+                            if text:
+                                row_data.append(text)
+                        if row_data:
+                            structured_content.append("Row: " + " | ".join(row_data))
+
+            # Extract error messages and notifications
+            error_messages = soup.find_all(
+                class_=lambda x: x
+                and (
+                    "error" in x.lower()
+                    or "alert" in x.lower()
+                    or "notification" in x.lower()
+                )
             )
+            if error_messages:
+                structured_content.append("\nMessages and Notifications:")
+                for msg in error_messages:
+                    text = msg.get_text().strip()
+                    if text:
+                        structured_content.append(f"! {text}")
 
-            return content
+            # Extract main content paragraphs and text
+            if main_content:
+                content_sections = []
+                for element in main_content.find_all(
+                    ["p", "article", "section", "div"]
+                ):
+                    # Skip if element is part of already processed structures
+                    if (
+                        element.find_parent("form")
+                        or element.find_parent("nav")
+                        or element.find_parent("table")
+                    ):
+                        continue
+
+                    text = element.get_text().strip()
+                    if text and len(text) > 20:  # Filter out tiny text fragments
+                        content_sections.append(text)
+
+                if content_sections:
+                    structured_content.append("\nMain Content:")
+                    structured_content.extend(content_sections)
+
+            # Extract any remaining important buttons
+            buttons = soup.find_all(
+                ["button", "a"], class_=lambda x: x and "btn" in x.lower()
+            )
+            if buttons:
+                structured_content.append("\nImportant Buttons:")
+                for button in buttons:
+                    text = button.get_text().strip()
+                    if text:
+                        structured_content.append(f"[Button] {text}")
+
+            # Clean up and finalize content
+            final_content = "\n".join(filter(None, structured_content))
+
+            # Remove excessive newlines and spaces
+            final_content = re.sub(r"\n\s*\n", "\n\n", final_content)
+            final_content = re.sub(r" +", " ", final_content)
+
+            return final_content.strip()
 
         except Exception as e:
-            error_msg = f"Error getting page content: {str(e)}"
+            error_msg = f"Error extracting page content: {str(e)}"
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
