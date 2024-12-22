@@ -86,6 +86,7 @@ class web_browsing(Extensions):
         self.api_key = kwargs["api_key"] if "api_key" in kwargs else None
         self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
         self.output_url = kwargs["output_url"] if "output_url" in kwargs else None
+        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.commands = {
             "Interact with Webpage": self.interact_with_webpage,
             "Get Web Search Results": self.get_search_results,
