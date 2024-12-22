@@ -1349,7 +1349,7 @@ Example of INCORRECT selectors:
             answer_match = raw_response.split("</answer>")[0].split("<answer>")[-1]
             if not answer_match:
                 answer_match = raw_response
-            interaction_xml = answer_match.group(1).strip()
+            interaction_xml = re.search(r"<interaction>.*</interaction>", answer_match)
 
             # Clean up XML
             interaction_xml = (
