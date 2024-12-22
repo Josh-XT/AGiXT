@@ -1375,7 +1375,7 @@ Example format:
 Provide ONLY the XML plan inside <answer> tags. Do not include any other text.""",
                     "conversation_name": self.conversation_name,
                     "log_user_input": False,
-                    "log_output": True,
+                    "log_output": False,
                     "tts": False,
                     "analyze_user_input": False,
                     "disable_commands": True,
