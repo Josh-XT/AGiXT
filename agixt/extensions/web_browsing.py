@@ -1227,6 +1227,8 @@ Page Content:
         Returns:
         str: Description of actions taken and results
         """
+        if not url.startswith("http"):
+            url = f"https://{url}"
 
         def safe_get_text(element, default="") -> str:
             """Safely get .text from XML element."""
