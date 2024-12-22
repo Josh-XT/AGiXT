@@ -1303,7 +1303,7 @@ STRICT RULES - READ CAREFULLY:
 4. Each selector must be COPIED EXACTLY as shown
 5. If a field isn't listed above, you CANNOT use it
 
-YOUR RESPONSE MUST BE IN THIS EXACT FORMAT:
+YOUR RESPONSE MUST BE IN THIS EXACT FORMAT - PUT THE XML INSIDE <answer> TAGS:
 <answer>
 <interaction>
     <step>
@@ -1344,16 +1344,24 @@ Example of INCORRECT selectors:
             },
         )
 
-        # Extract XML from between <answer> tags
+        # Extract XML from response
         try:
-            answer_match = raw_response.split("</answer>")[0].split("<answer>")[-1]
-            if not answer_match:
-                answer_match = raw_response
-            interaction_xml = re.search(r"<interaction>.*</interaction>", answer_match)
+            # Split on answer tags and take the content
+            response_parts = raw_response.split("</answer>")
+            if len(response_parts) > 0:
+                answer_content = response_parts[0].split("<answer>")[-1]
+            else:
+                answer_content = raw_response
 
-            # Clean up XML
+            # Find the interaction block
+            interaction_match = re.search(
+                r"<interaction>.*?</interaction>", answer_content, re.DOTALL
+            )
+            if not interaction_match:
+                raise ValueError("No interaction block found in response")
+
             interaction_xml = (
-                '<?xml version="1.0" encoding="UTF-8"?>\n' + interaction_xml
+                '<?xml version="1.0" encoding="UTF-8"?>\n' + interaction_match.group(0)
             )
 
             # Parse XML
