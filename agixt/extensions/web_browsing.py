@@ -1346,9 +1346,9 @@ Example of INCORRECT selectors:
 
         # Extract XML from between <answer> tags
         try:
-            answer_match = re.search(r"<answer>(.*?)</answer>", raw_response, re.DOTALL)
+            answer_match = raw_response.split("</answer>")[0].split("<answer>")[-1]
             if not answer_match:
-                raise ValueError("Response must be wrapped in <answer> tags")
+                answer_match = raw_response
             interaction_xml = answer_match.group(1).strip()
 
             # Clean up XML
