@@ -82,6 +82,8 @@ class web_browsing(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
+        self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
+        self.api_key = kwargs["api_key"] if "api_key" in kwargs else None
         self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
         self.output_url = kwargs["output_url"] if "output_url" in kwargs else None
         self.commands = {
@@ -106,7 +108,7 @@ class web_browsing(Extensions):
         """
         return await search_the_web(
             query=query,
-            user_id=self.user_id,
+            token=self.api_key,
             agent_name=self.agent_name,
             conversation_name=self.conversation_name,
         )
