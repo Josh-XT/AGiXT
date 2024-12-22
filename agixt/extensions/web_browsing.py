@@ -1242,23 +1242,30 @@ PAGE CONTENT:
 TASK TO COMPLETE:
 {task}
 
-Based on the above information, especially the detected form fields, generate an interaction plan.
-Use the EXACT field names and selectors found in the form fields section above.
-Do not invent or assume field names - only use what was detected.
+Based on the detected form fields above, generate an interaction plan using ONLY the exact field names 
+and selectors that were found in the form fields section.
 
-Provide the plan in this XML format:
+Your response must be valid XML in this exact format:
+<?xml version="1.0" encoding="UTF-8"?>
 <interaction>
-<step>
-    <operation>click|fill|select|wait|verify|screenshot|extract|download</operation>
-    <selector>EXACT selector from form fields section</selector>
-    <value>Value to input if needed</value>
-    <description>Human-readable description</description>
-    <retry>
-        <alternate_selector>Alternative selector from form fields if available</alternate_selector>
-        <max_attempts>3</max_attempts>
-    </retry>
-</step>
-</interaction>"""
+    <step>
+        <operation>click|fill|select|wait|verify|screenshot|extract|download</operation>
+        <selector>EXACT selector from form fields section</selector>
+        <value>Value to input if needed</value>
+        <description>Human-readable description</description>
+        <retry>
+            <alternate_selector>Alternative selector from form fields if available</alternate_selector>
+            <max_attempts>3</max_attempts>
+        </retry>
+    </step>
+</interaction>
+
+IMPORTANT:
+1. Use proper XML escaping for special characters (&amp; for &, &lt; for <, &gt; for >, &quot; for ", &apos; for ')
+2. Make sure all tags are properly closed
+3. Only use selectors that were actually detected in the form fields section
+4. Do not include any text outside of XML tags
+"""
 
         # Get interaction plan
         interaction_plan = self.ApiClient.prompt_agent(
@@ -1277,19 +1284,67 @@ Provide the plan in this XML format:
             },
         )
 
-        # Log the planned interactions
-        self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Planned interactions based on detected form fields:\n{interaction_plan}",
-            conversation_name=self.conversation_name,
-        )
+        def validate_and_fix_xml(xml_string):
+            """Helper function to validate and potentially fix common XML issues"""
+            # Remove any leading/trailing whitespace
+            xml_string = xml_string.strip()
+
+            # Ensure we have proper XML wrapper tags
+            if not xml_string.startswith("<?xml"):
+                xml_string = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_string
+
+            # If no interaction tags present, add them
+            if "<interaction>" not in xml_string:
+                if "<step>" in xml_string:
+                    xml_string = "<interaction>\n" + xml_string + "\n</interaction>"
+
+            # Replace any potentially problematic characters in text content
+            parts = xml_string.split("<")
+            for i in range(1, len(parts)):
+                tag_parts = parts[i].split(">", 1)
+                if len(tag_parts) > 1:
+                    tag = tag_parts[0]
+                    content = tag_parts[1]
+                    content = (
+                        content.replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;")
+                        .replace('"', "&quot;")
+                        .replace("'", "&apos;")
+                    )
+                    parts[i] = tag + ">" + content
+
+            xml_string = "<".join(parts)
+            return xml_string
 
         # Parse and execute interaction steps
         try:
-            root = ET.fromstring(interaction_plan)
-            steps = root.findall(".//step")
-            results = []
+            # Validate and fix XML before parsing
+            validated_xml = validate_and_fix_xml(interaction_plan)
 
+            # Log the validated XML for debugging
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Validated interaction plan:\n```xml\n{validated_xml}\n```",
+                conversation_name=self.conversation_name,
+            )
+
+            try:
+                root = ET.fromstring(validated_xml)
+            except ET.ParseError as xml_error:
+                error_msg = f"Invalid XML structure: {str(xml_error)}\nReceived plan:\n{validated_xml}"
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                    conversation_name=self.conversation_name,
+                )
+                return error_msg
+
+            steps = root.findall(".//step")
+            if not steps:
+                return "Error: No steps found in interaction plan"
+
+            results = []
             for step in steps:
                 result = await self.handle_step(step, self.page.url)
                 results.append(result)
