@@ -227,7 +227,7 @@ class web_browsing(Extensions):
             return f"Error: {str(e)}"
 
     async def click_element_with_playwright(self, selector: str) -> str:
-        """Click an element with proper scrolling and focus handling"""
+        """Enhanced click operation with multiple fallback strategies"""
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
@@ -235,54 +235,140 @@ class web_browsing(Extensions):
             current_url = self.page.url
             logging.info(f"Attempting to click element {selector} on {current_url}")
 
-            # First locate the element
-            element = await self.page.wait_for_selector(
-                selector, state="visible", timeout=5000
-            )
-            if not element:
-                raise Exception(f"Element not found: {selector}")
-
-            # Get element's location
-            element_box = await element.bounding_box()
-            if not element_box:
-                raise Exception(f"Could not get element position for {selector}")
-
-            # Take screenshot of the current view before scrolling
+            # Take screenshot of current state
             pre_scroll_name, _ = await self.take_verified_screenshot(
-                "pre_scroll", f"before scrolling to {selector}"
+                "pre_scroll", f"before attempting to click {selector}"
             )
 
-            # Scroll element into view and get its center
-            await element.scroll_into_view_if_needed()
+            # Try different selector strategies
+            strategies = [
+                # Direct selector
+                selector,
+                # Button or link with exact text
+                f"button:has-text('{selector}')",
+                f"a:has-text('{selector}')",
+                # Case-insensitive text match
+                f"button:has-text('{selector}'i)",
+                f"a:has-text('{selector}'i)",
+                # Elements with role=button and text
+                f"[role='button']:has-text('{selector}')",
+                # Div or span with text
+                f"div:has-text('{selector}')",
+                f"span:has-text('{selector}')",
+                # By aria-label
+                f"[aria-label='{selector}']",
+            ]
+
+            element = None
+            used_strategy = None
+
+            # Log all visible clickable elements for debugging
+            elements_debug = await self.page.evaluate(
+                """() => {
+                const getAllClickable = () => {
+                    const elements = [];
+                    document.querySelectorAll('button, a, [role="button"], [onclick], .btn, .button').forEach(el => {
+                        if (el.offsetWidth > 0 && el.offsetHeight > 0 && el.innerText.trim()) {
+                            elements.push({
+                                tag: el.tagName,
+                                text: el.innerText.trim(),
+                                classes: el.className,
+                                href: el.href || '',
+                                role: el.getAttribute('role') || '',
+                                id: el.id || ''
+                            });
+                        }
+                    });
+                    return elements;
+                };
+                return getAllClickable();
+            }"""
+            )
+
+            logging.info(f"Clickable elements found: {elements_debug}")
+
+            # Try each strategy
+            for strat in strategies:
+                try:
+                    logging.info(f"Trying selector strategy: {strat}")
+                    # First check if element exists
+                    element = await self.page.query_selector(strat)
+                    if element:
+                        # Check if element is visible
+                        is_visible = await element.is_visible()
+                        if is_visible:
+                            # Get element position
+                            box = await element.bounding_box()
+                            if box:
+                                used_strategy = strat
+                                break
+                except Exception as e:
+                    logging.info(f"Strategy {strat} failed: {str(e)}")
+                    continue
+
+            if not element or not used_strategy:
+                # Try JavaScript click as last resort
+                try:
+                    await self.page.evaluate(
+                        f"""
+                        const findAndClick = (text) => {{
+                            const elements = Array.from(document.querySelectorAll('button, a, [role="button"], [onclick], .btn, .button'));
+                            const element = elements.find(el => 
+                                el.innerText.trim().toLowerCase() === text.toLowerCase() ||
+                                el.value?.toLowerCase() === text.toLowerCase()
+                            );
+                            if (element) {{
+                                element.click();
+                                return true;
+                            }}
+                            return false;
+                        }};
+                        return findAndClick("{selector}");
+                    """
+                    )
+                    logging.info(f"Attempted JavaScript click for '{selector}'")
+
+                    # Take screenshot after JavaScript click attempt
+                    post_js_name, _ = await self.take_verified_screenshot(
+                        "post_js_click", f"after JavaScript click attempt on {selector}"
+                    )
+
+                    # Check if URL changed after JavaScript click
+                    new_url = self.page.url
+                    if new_url != current_url:
+                        return f"Successfully clicked element using JavaScript strategy. Navigation detected from {current_url} to {new_url}"
+
+                except Exception as js_error:
+                    logging.error(f"JavaScript click failed: {str(js_error)}")
+
+            if not element:
+                error_msg = f"Failed to find clickable element matching '{selector}'. Available elements: {elements_debug}"
+                logging.error(error_msg)
+                return f"Error: {error_msg}"
+
+            # Element found, proceed with click
             box = await element.bounding_box()
             center_x = box["x"] + box["width"] / 2
             center_y = box["y"] + box["height"] / 2
 
-            # Set viewport to ensure element is clearly visible
-            current_viewport = await self.page.viewport_size()
-            if current_viewport:
-                # Calculate viewport to center the element
-                new_scroll = max(0, center_y - (current_viewport["height"] / 2))
-                await self.page.evaluate(f"window.scrollTo(0, {new_scroll});")
+            # Scroll element into view
+            await element.scroll_into_view_if_needed()
 
-                # Wait a moment for scroll to complete
-                await self.page.wait_for_timeout(500)
-
-            # Take screenshot showing the element in view
+            # Take screenshot with element in view
             pre_click_name, _ = await self.take_verified_screenshot(
                 "pre_click", f"with {selector} in view"
             )
 
             # Highlight element temporarily for screenshot
             await self.page.evaluate(
-                """(selector) => {
-                const element = document.querySelector(selector);
-                if (element) {
+                f"""(selector) => {{
+                const element = document.querySelector("{used_strategy}");
+                if (element) {{
                     element.style.outline = '2px solid red';
-                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            }""",
-                selector,
+                    element.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                }}
+            }}""",
+                used_strategy,
             )
 
             # Take screenshot with highlight
@@ -292,13 +378,13 @@ class web_browsing(Extensions):
 
             # Remove highlight
             await self.page.evaluate(
-                """(selector) => {
-                const element = document.querySelector(selector);
-                if (element) {
+                f"""(selector) => {{
+                const element = document.querySelector("{used_strategy}");
+                if (element) {{
                     element.style.outline = '';
-                }
-            }""",
-                selector,
+                }}
+            }}""",
+                used_strategy,
             )
 
             # Click the element
@@ -316,7 +402,7 @@ class web_browsing(Extensions):
             new_url = self.page.url
 
             success_msg = (
-                f"Successfully clicked element {selector}\n"
+                f"Successfully clicked element {selector} using strategy: {used_strategy}\n"
                 f"Started on: [{current_url}]\n"
                 f"Ended on: [{new_url}]\n"
                 f"Element position: x={center_x}, y={center_y}\n"
