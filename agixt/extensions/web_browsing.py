@@ -1232,71 +1232,68 @@ Page Content:
         """
         logging.info(f"Raw interaction plan:\n{plan_text}")
 
-        # Try different patterns to extract XML
+        # 1) Look for the plan in <answer> ... </answer> or <interaction> ... </interaction>
+        #    Possibly also check ```xml code blocks.
         patterns = [
-            r"<answer>\s*(.*?)\s*</answer>",  # Standard <answer> tags
-            r"<interaction>\s*(.*?)\s*</interaction>",  # Direct <interaction> tags
-            r"```xml\s*(.*?)\s*```",  # XML in code blocks
-            r"```\s*(<.*?>.*?</.*?>)\s*```",  # Any XML in code blocks
+            r"<answer>\s*(.*?)\s*</answer>",
+            r"<interaction>\s*(.*?)\s*</interaction>",
+            r"```xml\s*(.*?)\s*```",
+            r"```\s*(<.*?>.*?</.*?>)\s*```",
         ]
 
-        xml_content = None
+        extracted_xml = None
         for pattern in patterns:
             match = re.search(pattern, plan_text, re.DOTALL)
             if match:
-                xml_content = match.group(1)
-                logging.info(f"Found XML using pattern {pattern}:\n{xml_content}")
+                extracted_xml = match.group(1).strip()
+                logging.info(f"Found XML using pattern '{pattern}':\n{extracted_xml}")
                 break
 
-        if not xml_content:
-            # If no XML found, try to construct it from the response
-            lines = plan_text.split("\n")
-            constructed_xml = []
-            in_step = False
+        if not extracted_xml:
+            # If we still don’t find anything, attempt a “manual construction” fallback
+            # similar to your code that tries to piece steps together line by line.
+            # For brevity, we skip showing that here. If you do that, at the end
+            # you must have a single root element.
+            raise ValueError("Could not extract valid XML from the plan text.")
 
-            for line in lines:
-                if "step" in line.lower() and ":" in line:
-                    if in_step:
-                        constructed_xml.append("</step>")
-                    constructed_xml.append("<step>")
-                    in_step = True
-                elif "operation" in line.lower() and ":" in line:
-                    op = line.split(":", 1)[1].strip().lower()
-                    constructed_xml.append(f"<operation>{op}</operation>")
-                elif "selector" in line.lower() and ":" in line:
-                    sel = line.split(":", 1)[1].strip()
-                    constructed_xml.append(f"<selector>{sel}</selector>")
-                elif "value" in line.lower() and ":" in line:
-                    val = line.split(":", 1)[1].strip()
-                    constructed_xml.append(f"<value>{val}</value>")
-                elif "description" in line.lower() and ":" in line:
-                    desc = line.split(":", 1)[1].strip()
-                    constructed_xml.append(f"<description>{desc}</description>")
+        # 2) Wrap the extracted XML in <interaction> if it doesn’t already have it
+        #    to ensure a single root.
+        if not extracted_xml.strip().startswith("<interaction>"):
+            # If the user’s plan is only steps or some partial structure, wrap it:
+            extracted_xml = f"<interaction>{extracted_xml}</interaction>"
 
-            if in_step:
-                constructed_xml.append("</step>")
+        # 3) Clean up invalid ampersands, leftover HTML entities, etc.
+        #    or any trailing text after the final </interaction>.
+        #    We do a simple “clip” from the start of <interaction> to the final </interaction>.
+        start_tag = "<interaction>"
+        end_tag = "</interaction>"
+        start_idx = extracted_xml.find(start_tag)
+        end_idx = extracted_xml.rfind(end_tag)
+        if start_idx == -1 or end_idx == -1:
+            raise ValueError(
+                "Could not locate <interaction> root tags in the extracted XML."
+            )
+        # Clip exactly to one root element
+        clipped_xml = extracted_xml[start_idx : end_idx + len(end_tag)]
 
-            if constructed_xml:
-                xml_content = f"<interaction>{''.join(constructed_xml)}</interaction>"
-                logging.info(f"Constructed XML from response:\n{xml_content}")
+        # Replace unescaped & with &amp; (common XML parse issue)
+        clipped_xml = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;)", "&amp;", clipped_xml)
 
-        if not xml_content:
-            raise Exception(f"Could not extract valid XML from response:\n{plan_text}")
-
-        # Clean up XML content
-        xml_content = xml_content.replace("&", "&amp;")
-        xml_content = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;)", "&amp;", xml_content)
-
+        # 4) Parse the clipped XML
         try:
-            root = ET.fromstring(xml_content)
-            # Verify we have valid steps
-            steps = root.findall(".//step")
-            if not steps:
-                raise Exception("No valid steps found in XML")
-            return root
+            root = ET.fromstring(clipped_xml)
         except ET.ParseError as e:
-            logging.error(f"XML Parse Error: {str(e)}\nContent:\n{xml_content}")
-            raise Exception(f"Failed to parse XML: {str(e)}")
+            logging.error(f"XML Parse Error: {str(e)}\nClipped XML:\n{clipped_xml}")
+            raise ValueError(f"Failed to parse XML: {str(e)}")
+
+        # Optionally verify it has <step> tags
+        steps = root.findall(".//step")
+        if not steps:
+            raise ValueError(
+                "No valid <step> elements found in the <interaction> plan."
+            )
+
+        return root
 
     async def interact_with_webpage(self, url: str, task: str):
         """
