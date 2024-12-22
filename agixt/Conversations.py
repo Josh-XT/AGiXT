@@ -119,14 +119,19 @@ class Conversations:
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
 
-        # Use a LEFT OUTER JOIN to get conversations and their messages
+        # Add notification check to the query
         conversations = (
-            session.query(Conversation)
+            session.query(
+                Conversation,
+                func.count(Message.id)
+                .filter(Message.notify == True)
+                .label("notification_count"),
+            )
             .outerjoin(Message, Message.conversation_id == Conversation.id)
             .filter(Conversation.user_id == user_id)
-            .filter(Message.id != None)  # Only get conversations with messages
+            .filter(Message.id != None)
+            .group_by(Conversation)
             .order_by(Conversation.updated_at.desc())
-            .distinct()
             .all()
         )
 
@@ -135,9 +140,40 @@ class Conversations:
                 "name": conversation.name,
                 "created_at": conversation.created_at,
                 "updated_at": conversation.updated_at,
+                "has_notifications": notification_count > 0,
             }
-            for conversation in conversations
+            for conversation, notification_count in conversations
         }
+        session.close()
+        return result
+
+    def get_notifications(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        # Get all messages with notify=True for this user's conversations
+        notifications = (
+            session.query(Message, Conversation)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .filter(Conversation.user_id == user_id, Message.notify == True)
+            .order_by(Message.timestamp.desc())
+            .all()
+        )
+
+        result = []
+        for message, conversation in notifications:
+            result.append(
+                {
+                    "conversation_id": str(conversation.id),
+                    "conversation_name": conversation.name,
+                    "message_id": str(message.id),
+                    "message": message.content,
+                    "role": message.role,
+                    "timestamp": message.timestamp,
+                }
+            )
+
         session.close()
         return result
 
@@ -160,6 +196,16 @@ class Conversations:
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
             session.add(conversation)
             session.commit()
+        else:
+            # Mark all notifications as read for this conversation
+            (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id, Message.notify == True
+                )
+                .update({"notify": False})
+            )
+        session.commit()
         offset = (page - 1) * limit
         messages = (
             session.query(Message)
