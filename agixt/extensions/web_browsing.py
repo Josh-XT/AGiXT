@@ -1261,6 +1261,33 @@ Page Content:
                     return True
             return False
 
+        def is_valid_selector(selector: str) -> bool:
+            """
+            Validate if a selector is stable and usable.
+            Rejects dynamic IDs and complex selectors.
+            """
+            if not selector:
+                return False
+
+            # Reject selectors with special characters that might be dynamic
+            if any(char in selector for char in ":|"):
+                return False
+
+            # Reject obviously dynamic React/framework IDs
+            if re.search(r"[rR]adix-|[rR]eact-|__next|:[A-Za-z0-9]", selector):
+                return False
+
+            # Only allow simple, stable selectors
+            valid_patterns = [
+                r"^#[\w-]+$",  # Simple IDs
+                r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
+                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
+                r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
+                r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
+            ]
+
+            return any(re.match(pattern, selector) for pattern in valid_patterns)
+
         # Initialize browser if needed and navigate to URL
         if not url.startswith("http"):
             url = "https://" + url
@@ -1276,8 +1303,9 @@ Page Content:
         max_iterations = 10
         iteration_count = 0
         results = []
-        last_url = None  # Track URL changes
-        attempt_history = []  # Track all attempts and their outcomes
+        last_url = None
+        attempt_history = []
+        primary_goal = task  # Store the original task
 
         while iteration_count < max_iterations:
             iteration_count += 1
@@ -1291,18 +1319,18 @@ Page Content:
             current_page_content = await self.get_page_content()
             form_fields = await self.get_form_fields()
 
-            # Extract available selectors
+            # Extract and validate available selectors
             available_selectors = []
             for line in form_fields.split("\n"):
                 if "  - " in line:
                     sel = line.split("  - ")[-1].strip()
-                    if (
-                        sel.startswith("#")
-                        or sel.startswith("[name=")
-                        or sel.startswith("[placeholder=")
-                        or sel == "button[type='submit']"
-                    ):
+                    if is_valid_selector(sel):
                         available_selectors.append(sel)
+
+            if not available_selectors:
+                # If no valid selectors found, wait briefly and retry
+                await self.page.wait_for_timeout(2000)
+                continue
 
             # Log current state
             state_msg = f"""Iteration {iteration_count}
@@ -1320,8 +1348,11 @@ Page Content:
                 conversation_name=self.conversation_name,
             )
 
-            # Create planning context with attempt history
+            # Create planning context with attempt history and strong goal focus
             planning_context = f"""Current webpage state:
+
+PRIMARY GOAL: {primary_goal}
+Focus ONLY on completing this goal. Ignore any unrelated UI elements or options.
 
 CURRENT PAGE URL: {current_url}
 
@@ -1334,34 +1365,31 @@ DETECTED FORM FIELDS:
 CURRENT PAGE CONTENT:
 {current_page_content}
 
-TASK TO COMPLETE:
-{task}
-
 PREVIOUS ATTEMPTS AND OUTCOMES:
 {os.linesep.join(attempt_history)}
 
 STRICT RULES - READ CAREFULLY:
-1. You may ONLY use selectors that are EXPLICITLY listed above
-2. Do NOT use complex class selectors
-3. Prefer simple selectors like #email, #name, button[type='submit']
-4. Each selector must be COPIED EXACTLY as shown
-5. If a field isn't listed above, you CANNOT use it
+1. You may ONLY use selectors from the available list above
+2. Stay focused on the primary goal - ignore unrelated UI elements
+3. Each selector must be COPIED EXACTLY as shown
+4. If a needed field isn't available, use 'wait'
+5. DO NOT try to use dynamic selectors containing ':', '|', or special characters
+6. DO NOT interact with theme toggles, language switches, or other auxiliary UI unless specifically part of the goal
 
 IMPORTANT INSTRUCTIONS:
-1. Provide ONLY ONE STEP for the current page state
-2. The step must use a selector that currently exists
-3. If needed elements aren't available yet, use a 'wait' operation
-4. If the task is complete, respond with a single 'done' operation
-5. If you can't proceed, explain why in the description
-6. DO NOT repeat actions that have failed
+1. Provide ONLY ONE STEP that directly progresses toward the PRIMARY GOAL
+2. If you can't find a valid selector for a needed element, use 'wait'
+3. If you've waited multiple times and still can't proceed, explain why
+4. If the PRIMARY GOAL is complete, use 'done'
+5. DO NOT get distracted by auxiliary UI elements
 
-YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
+YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 <interaction>
     <step>
         <operation>click|fill|wait|verify|done</operation>
         <selector>EXACT selector from available fields</selector>
         <value>Value if needed</value>
-        <description>Human-readable description</description>
+        <description>Human-readable description of how this advances the PRIMARY GOAL</description>
         <retry>
             <alternate_selector>Alternative if primary fails</alternate_selector>
             <max_attempts>3</max_attempts>
@@ -1393,11 +1421,26 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
                 steps = root.findall(".//step")
 
                 if not steps:
-                    results.append("No steps provided. Stopping.")
+                    results.append("No valid steps provided. Stopping.")
                     break
 
                 step = steps[0]  # Only take the first step
                 operation = safe_get_text(step.find("operation")).lower()
+                selector = safe_get_text(step.find("selector"))
+
+                # Validate the selector before proceeding
+                if operation != "done" and not is_valid_selector(selector):
+                    error_msg = (
+                        f"Invalid selector '{selector}'. Waiting for valid selectors..."
+                    )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        conversation_name=self.conversation_name,
+                    )
+                    attempt_history.append(error_msg)
+                    await self.page.wait_for_timeout(2000)
+                    continue
 
                 # Check for completion
                 if operation == "done":
@@ -1411,19 +1454,27 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
                     )
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
                     attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
-                    continue  # Skip to next iteration
+                    continue
 
                 # Execute the single step
-                selector = safe_get_text(step.find("selector"))
                 value = safe_get_text(step.find("value"))
                 description = safe_get_text(step.find("description"))
 
                 # Record this attempt before execution
                 attempt_record = f"Step {iteration_count}: {operation} on '{selector}' with value '{value}' - {description}"
+
+                # Additional wait for element stability
+                if operation in ["click", "fill"]:
+                    try:
+                        await self.page.wait_for_selector(selector, timeout=5000)
+                    except Exception as wait_error:
+                        attempt_record += f" -> Wait failed: {str(wait_error)}"
+                        attempt_history.append(attempt_record)
+                        continue
 
                 step_result = await self.handle_step(step, current_url)
 
@@ -1440,12 +1491,13 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
                     2. The page might need time to load
                     3. A different selector might be needed
                     4. The operation might need to be different
+                    Remember to stay focused on the PRIMARY GOAL: {primary_goal}
                     """
                     attempt_history.append(error_context)
 
                 # Wait for network and animations
                 await self.page.wait_for_load_state("networkidle", timeout=5000)
-                await self.page.wait_for_timeout(1000)  # Brief pause for animations
+                await self.page.wait_for_timeout(1000)
 
                 # Take a screenshot after step
                 screenshot_path = os.path.join(
@@ -1461,7 +1513,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
                 )
 
             except Exception as e:
-                error_msg = f"Error on iteration {iteration_count}: {str(e)}"
+                error_msg = f"Error on iteration {iteration_count}\n{str(e)}"
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
                     message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
@@ -1470,16 +1522,6 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
                 attempt_history.append(f"EXCEPTION: {error_msg}")
                 results.append(error_msg)
                 break
-
-        # Final status report
-        if iteration_count >= max_iterations:
-            final_msg = f"Reached maximum iterations ({max_iterations}). Task may be incomplete."
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {final_msg}",
-                conversation_name=self.conversation_name,
-            )
-            results.append(final_msg)
 
         return "\n".join(results)
 
