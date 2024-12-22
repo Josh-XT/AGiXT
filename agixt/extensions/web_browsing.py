@@ -1246,7 +1246,6 @@ Page Content:
         """
 
         def safe_get_text(element, default="") -> str:
-            """Safely get text from XML element with default value."""
             if element is None or element.text is None:
                 return default
             return element.text.strip()
@@ -1276,6 +1275,7 @@ Page Content:
 
         # Join selectors outside of f-string
         selector_list = ", ".join(available_selectors)
+
         # Log available selectors for debugging
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
@@ -1327,50 +1327,34 @@ Example of INCORRECT selectors:
 - Modified selectors
 - Selectors not in the available list"""
 
-        def validate_selector(selector: str, available_selectors: list) -> bool:
-            """Validate that a selector is in the available list."""
-            return selector in available_selectors
+        # Get interaction plan
+        raw_response = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": planning_context,
+                "conversation_name": self.conversation_name,
+                "log_user_input": False,
+                "log_output": False,
+                "tts": False,
+                "analyze_user_input": False,
+                "disable_commands": True,
+                "browse_links": False,
+                "websearch": False,
+            },
+        )
 
-        def extract_interaction_block(response: str) -> str:
-            """Extract and clean the interaction XML block."""
-            # Find the interaction block
-            match = re.search(r"<interaction>.*?</interaction>", response, re.DOTALL)
-            if not match:
-                raise ValueError("No interaction block found in response")
-
-            xml_block = match.group(0).strip()
-
-            # Clean up whitespace
-            xml_block = re.sub(r"\s+<", "<", xml_block)
-            xml_block = re.sub(r">\s+", ">", xml_block)
-            xml_block = re.sub(r"\s+(?=</)", "", xml_block)
-
-            # Format for readability
-            xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
-
-            return xml_block
-
-        # Get and validate interaction plan
+        # Extract XML from between <answer> tags
         try:
-            raw_response = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": planning_context,
-                    "conversation_name": self.conversation_name,
-                    "log_user_input": False,
-                    "log_output": False,
-                    "tts": False,
-                    "analyze_user_input": False,
-                    "disable_commands": True,
-                    "browse_links": False,
-                    "websearch": False,
-                },
-            )
-            raw_response = raw_response.split("</answer>")[0].split("<answer>")[-1]
+            answer_match = re.search(r"<answer>(.*?)</answer>", raw_response, re.DOTALL)
+            if not answer_match:
+                raise ValueError("Response must be wrapped in <answer> tags")
+            interaction_xml = answer_match.group(1).strip()
 
-            # Extract and clean interaction XML
-            interaction_xml = extract_interaction_block(raw_response)
+            # Clean up XML
+            interaction_xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n' + interaction_xml
+            )
 
             # Parse XML
             root = ET.fromstring(interaction_xml)
@@ -1379,12 +1363,12 @@ Example of INCORRECT selectors:
             if not steps:
                 raise ValueError("No steps found in interaction plan")
 
-            # Validate all selectors before executing any steps
+            # Validate all selectors before executing
             for step in steps:
                 selector = safe_get_text(step.find("selector"))
-                if selector and not validate_selector(selector, available_selectors):
+                if selector and selector not in available_selectors:
                     raise ValueError(
-                        f"Invalid selector '{selector}' - must be one of: {', '.join(available_selectors)}"
+                        f"Invalid selector '{selector}' - must be one of: {selector_list}"
                     )
 
             # Execute steps
@@ -1395,6 +1379,13 @@ Example of INCORRECT selectors:
                     selector = safe_get_text(step.find("selector"))
                     value = safe_get_text(step.find("value"))
                     description = safe_get_text(step.find("description"))
+
+                    # Log step
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Executing: {description}",
+                        conversation_name=self.conversation_name,
+                    )
 
                     if operation == "click":
                         await self.page.wait_for_selector(
@@ -1429,9 +1420,16 @@ Example of INCORRECT selectors:
                     for line in new_fields.split("\n"):
                         if "  - " in line:
                             selector = line.split("  - ")[-1].strip()
-                            new_selectors.append(selector)
+                            if (
+                                selector.startswith("#")
+                                or selector.startswith("[name=")
+                                or selector.startswith("[placeholder=")
+                                or selector == "button[type='submit']"
+                            ):
+                                new_selectors.append(selector)
 
                     available_selectors = new_selectors
+                    selector_list = ", ".join(available_selectors)
 
                 except Exception as step_error:
                     error_msg = f"Error in step '{description}': {str(step_error)}"
@@ -1447,7 +1445,13 @@ Example of INCORRECT selectors:
             return "Completed interactions:\n" + "\n".join(results)
 
         except Exception as e:
-            return f"Error: {str(e)}"
+            error_msg = f"Error during webpage interaction: {str(e)}"
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                conversation_name=self.conversation_name,
+            )
+            return error_msg
 
     def get_text_safely(self, element) -> str:
         """
