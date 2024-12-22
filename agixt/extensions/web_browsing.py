@@ -992,11 +992,11 @@ Page Content:
             await self.navigate_to_url_with_playwright(url=url, headless=True)
 
             # Take initial screenshot
-            screenshot_path = os.path.join(
-                self.WORKING_DIRECTORY, f"initial_{uuid.uuid4()}.png"
+            initial_screenshot_name, initial_screenshot_path = (
+                await self.take_verified_screenshot(
+                    "initial_page", f"after navigating to {url}"
+                )
             )
-            await self.page.screenshot(path=screenshot_path, full_page=True)
-            initial_screenshot = os.path.basename(screenshot_path)
 
             # Get and summarize initial page content
             initial_content = await self.get_page_content()
@@ -1023,9 +1023,15 @@ Page Content:
                 },
             )
 
+            screenshot_msg = (
+                f"\n![Initial Page]({self.output_url}/{initial_screenshot_name})"
+                if initial_screenshot_name
+                else "\nWarning: Failed to take initial screenshot"
+            )
+
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page [{url}]\n![Initial Screenshot]({self.output_url}/{initial_screenshot})\n\n{page_summary}",
+                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page [{url}]{screenshot_msg}\n\n{page_summary}",
                 conversation_name=self.conversation_name,
             )
 
@@ -1311,19 +1317,23 @@ Please analyze the task and provide the necessary interaction steps using the fo
 
     async def fill_input_with_playwright(self, selector: str, text: str) -> str:
         """
-        Enhanced input filling with validation and error handling
+        Enhanced input filling with verified screenshot handling
         """
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
 
-            # Take before screenshot
-            pre_fill_screenshot = os.path.join(
-                self.WORKING_DIRECTORY, f"pre_fill_{uuid.uuid4()}.png"
-            )
-            await self.page.screenshot(path=pre_fill_screenshot)
-            pre_fill_screenshot_name = os.path.basename(pre_fill_screenshot)
             current_url = self.page.url
+            logging.info(f"Attempting to fill input {selector} on {current_url}")
+
+            # Take before screenshot
+            pre_screenshot_name, pre_screenshot_path = (
+                await self.take_verified_screenshot(
+                    "pre_fill", f"before filling {selector}"
+                )
+            )
+            if not pre_screenshot_name:
+                return "Error: Failed to take pre-fill screenshot"
 
             # Wait for element with timeout
             try:
@@ -1334,11 +1344,13 @@ Please analyze the task and provide the necessary interaction steps using the fo
                     raise Exception(f"Element not found: {selector}")
             except Exception as wait_error:
                 # Take error screenshot
-                error_screenshot = os.path.join(
-                    self.WORKING_DIRECTORY, f"fill_error_{uuid.uuid4()}.png"
+                error_screenshot_name, error_screenshot_path = (
+                    await self.take_verified_screenshot(
+                        "error_fill", f"after element not found: {selector}"
+                    )
                 )
-                await self.page.screenshot(path=error_screenshot)
-                error_screenshot_name = os.path.basename(error_screenshot)
+                if not error_screenshot_name:
+                    error_screenshot_name = "Screenshot failed"
 
                 # Get page source for analysis
                 page_content = await self.get_page_content()
@@ -1346,7 +1358,7 @@ Please analyze the task and provide the necessary interaction steps using the fo
                 error_msg = (
                     f"Failed to find input element: {selector}\n"
                     f"Current URL: {current_url}\n"
-                    f"Pre-attempt Screenshot: {self.output_url}/{pre_fill_screenshot_name}\n"
+                    f"Pre-attempt Screenshot: {self.output_url}/{pre_screenshot_name}\n"
                     f"Error Screenshot: {self.output_url}/{error_screenshot_name}\n"
                     f"Available form elements:\n{page_content}"
                 )
@@ -1370,33 +1382,37 @@ Please analyze the task and provide the necessary interaction steps using the fo
 
             except Exception as fill_error:
                 # Take error screenshot
-                error_screenshot = os.path.join(
-                    self.WORKING_DIRECTORY, f"fill_error_{uuid.uuid4()}.png"
+                error_screenshot_name, error_screenshot_path = (
+                    await self.take_verified_screenshot(
+                        "error_fill", f"after fill failure: {selector}"
+                    )
                 )
-                await self.page.screenshot(path=error_screenshot)
-                error_screenshot_name = os.path.basename(error_screenshot)
+                if not error_screenshot_name:
+                    error_screenshot_name = "Screenshot failed"
 
                 error_msg = (
                     f"Failed to fill input: {str(fill_error)}\n"
                     f"Current URL: {current_url}\n"
-                    f"Pre-attempt Screenshot: {self.output_url}/{pre_fill_screenshot_name}\n"
+                    f"Pre-attempt Screenshot: {self.output_url}/{pre_screenshot_name}\n"
                     f"Error Screenshot: {self.output_url}/{error_screenshot_name}"
                 )
                 logging.error(error_msg)
                 return f"Error: {error_msg}"
 
             # Take after screenshot
-            post_fill_screenshot = os.path.join(
-                self.WORKING_DIRECTORY, f"post_fill_{uuid.uuid4()}.png"
+            post_screenshot_name, post_screenshot_path = (
+                await self.take_verified_screenshot(
+                    "post_fill", f"after successfully filling {selector}"
+                )
             )
-            await self.page.screenshot(path=post_fill_screenshot)
-            post_fill_screenshot_name = os.path.basename(post_fill_screenshot)
+            if not post_screenshot_name:
+                post_screenshot_name = "Screenshot failed"
 
             success_msg = (
                 f"Successfully filled input {selector} with text '{text}'\n"
                 f"Current URL: {current_url}\n"
-                f"Before Screenshot: {self.output_url}/{pre_fill_screenshot_name}\n"
-                f"After Screenshot: {self.output_url}/{post_fill_screenshot_name}"
+                f"Before Screenshot: {self.output_url}/{pre_screenshot_name}\n"
+                f"After Screenshot: {self.output_url}/{post_screenshot_name}"
             )
             logging.info(success_msg)
             return success_msg
