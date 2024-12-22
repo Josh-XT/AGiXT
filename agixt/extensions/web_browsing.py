@@ -1247,33 +1247,54 @@ Page Content:
 
 URL: {current_url}
 
-DETECTED FORM FIELDS:
+AVAILABLE FORM FIELDS AND SELECTORS (ONLY USE THESE - DO NOT INVENT OR ASSUME ANY OTHERS):
 {form_fields}
 
-PAGE CONTENT:
+CURRENT PAGE CONTENT:
 {current_page_content}
 
 TASK TO COMPLETE:
 {task}
 
-Based on the detected form fields above, generate an interaction plan using ONLY the exact field names 
-and selectors that were found in the form fields section.
+IMPORTANT INSTRUCTIONS:
+1. You can ONLY use selectors that are explicitly listed above under "AVAILABLE FORM FIELDS AND SELECTORS"
+2. Do not assume or invent selectors that aren't listed
+3. If a field you need isn't available, use the 'wait' operation to wait for it to appear
+4. Each step must use an element that currently exists on the page
 
-YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK IN THIS FORMAT INSIDE THE <answer> TAG:
+Generate an interaction plan using ONLY the available selectors above.
+
+YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS in the <answer> tag:
 <interaction>
     <step>
         <operation>click|fill|wait|verify</operation>
-        <selector>EXACT selector from form fields section</selector>
-        <value>Value to input if needed</value>
+        <selector>EXACT selector from available fields</selector>
+        <value>Value if needed</value>
         <description>Human-readable description</description>
     </step>
 </interaction>
 
-IMPORTANT:
-1. ONLY include the <interaction> block - no other tags or text inside of the <answer> tag
-2. Use exact selectors from the detected form fields
-3. Each step must have all four elements
-4. Keep XML formatting clean with no extra whitespace"""
+Follow these rules:
+1. Only use selectors that are EXPLICITLY listed in the form fields section
+2. Each step must check if needed elements exist before proceeding
+3. If a required field isn't available yet, add a wait step
+4. Verify each major state change
+
+Example of good interaction plan:
+<interaction>
+    <step>
+        <operation>fill</operation>
+        <selector>#email</selector>
+        <value>user@example.com</value>
+        <description>Fill in email field</description>
+    </step>
+    <step>
+        <operation>wait</operation>
+        <selector>#continue-button</selector>
+        <value>2000</value>
+        <description>Wait for continue button to appear</description>
+    </step>
+</interaction>"""
 
         def extract_interaction_block(response: str) -> str:
             """Extract and clean the interaction XML block."""
