@@ -9,8 +9,9 @@ except ImportError:
 
 import logging
 from Extensions import Extensions
-import os
 from datetime import datetime
+import re
+import os
 
 
 class long_term_memory(Extensions):
@@ -54,9 +55,25 @@ class long_term_memory(Extensions):
         os.makedirs(os.path.join(self.WORKING_DIRECTORY, "DB"), exist_ok=True)
 
     def get_connection(self, database_name: str):
-        db = os.path.join(self.WORKING_DIRECTORY, "DB", database_name)
+        """
+        Get a connection to a SQLite database, creating the DB directory if it doesn't exist.
+        Also ensures the database file exists before attempting connection.
+        """
+        db_dir = os.path.join(self.WORKING_DIRECTORY, "DB")
+        os.makedirs(db_dir, exist_ok=True)
+
+        db = os.path.join(db_dir, database_name)
         if not db.endswith(".db"):
             db += ".db"
+
+        # Create the database file if it doesn't exist
+        if not os.path.exists(db):
+            try:
+                open(db, "a").close()  # Create empty file
+            except Exception as e:
+                logging.error(f"Error creating database file {db}. Error: {str(e)}")
+                return None
+
         try:
             connection = sqlite3.connect(db)
             return connection
@@ -278,22 +295,100 @@ class long_term_memory(Extensions):
         </execute>
         """
         await self.init_master_database()
+
+        # Validate database name (basic sanitization)
+        if not name.replace("_", "").isalnum():
+            return "Invalid database name. Use only letters, numbers, and underscores."
+
         db_path = os.path.join(self.WORKING_DIRECTORY, "DB", f"{name}.db")
 
-        # Add to master database
+        # Add to master database first
         conn = self.get_connection(self.memories_db)
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO databases (name, description) VALUES (?, ?)",
-            (name, description),
-        )
-        conn.commit()
-        conn.close()
+        if not conn:
+            return "Failed to connect to master database"
 
-        # Create the new database
-        conn = sqlite3.connect(db_path)
-        conn.close()
-        return f"Created new memory database: {name}"
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO databases (name, description) VALUES (?, ?)",
+                (name, description),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return f"Database '{name}' already exists"
+        finally:
+            conn.close()
+
+        # Create and initialize the new database
+        conn = self.get_connection(name)
+        if not conn:
+            return f"Failed to create database: {name}"
+
+        cursor = conn.cursor()
+
+        # Create core schema tables
+        try:
+            # Metadata table for database information
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """
+            )
+
+            # Generic memories table for flexible storage
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    memory_type TEXT,
+                    tags TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_accessed TIMESTAMP,
+                    importance INTEGER DEFAULT 1,
+                    storage_format TEXT
+                )
+            """
+            )
+
+            # Memory relationships table
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_relationships (
+                    source_id INTEGER,
+                    target_id INTEGER,
+                    relationship_type TEXT,
+                    strength REAL DEFAULT 1.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (source_id) REFERENCES memories(id),
+                    FOREIGN KEY (target_id) REFERENCES memories(id),
+                    PRIMARY KEY (source_id, target_id, relationship_type)
+                )
+            """
+            )
+
+            # Store initial metadata
+            cursor.execute(
+                "INSERT INTO metadata (key, value) VALUES (?, ?)",
+                ("description", description),
+            )
+            cursor.execute(
+                "INSERT INTO metadata (key, value) VALUES (?, ?)",
+                ("created_at", datetime.datetime.now().isoformat()),
+            )
+
+            conn.commit()
+            return f"Created and initialized new memory database: {name}"
+
+        except Exception as e:
+            logging.error(f"Error initializing database schema: {str(e)}")
+            return f"Error initializing database schema: {str(e)}"
+        finally:
+            conn.close()
 
     async def list_memory_databases(self):
         """
@@ -568,32 +663,48 @@ In the <answer> block, provide the SQL query that will retrieve the information 
         Returns:
         str: Confirmation of what was stored and where it can be found
         """
+        if not content.strip():
+            return "Error: Cannot store empty memory content"
+
         # First get list of existing databases for context
         databases = await self.list_memory_databases()
 
-        # Use Think About It prompt for database selection and structure
+        # Use Think About It prompt for database selection and storage plan
         storage_plan = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
-                "user_input": f"""The assistant has chosen to store the following information in long-term memory:
-### Information to Store
+                "user_input": f"""Analyze this memory and determine how to store it:
+
+### Memory Content
 {content}
 
 ### Memory Type
 {memory_type}
 
-### Existing Memory Databases
+### Existing Databases
 {databases}
 
-Analyze this information and determine:
-1. What database should store this (existing or new)
-2. What table structure is needed
-3. How to store this information effectively
+You must return the storage instructions in the following XML format:
 
-Respond with store: prefix followed by either:
-- existing|database_name|table_structure|insert_data
-- new|database_name|description|table_structure|insert_data""",
+<storage>
+    <database>database_name</database>
+    <table_structure>
+        SQL CREATE TABLE statement if new table needed
+    </table_structure>
+    <data>
+        SQL INSERT statement(s) for the memory data
+    </data>
+    <tags>comma,separated,tags</tags>
+    <importance>1-5 numeric rating</importance>
+</storage>
+
+Important:
+- If using an existing database, use its current schema
+- Table structures should include proper columns for metadata
+- Each memory should have importance rating, creation timestamp
+- Tags help with categorization and retrieval
+- Data inserts should properly escape values""",
                 "log_user_input": False,
                 "disable_commands": True,
                 "log_output": False,
@@ -605,39 +716,77 @@ Respond with store: prefix followed by either:
             },
         )
 
-        if not storage_plan.startswith("store:"):
-            return "Error: Unable to determine how to store this information."
-
-        parts = storage_plan.replace("store:", "").strip().split("|")
-        storage_type = parts[0]
-
+        # Parse the storage plan XML
         try:
-            if storage_type == "new":
-                db_name, description, table_structure, insert_data = parts[1:]
-                # Create new database
-                await self.create_memory_database(name=db_name, description=description)
-            else:
-                db_name, table_structure, insert_data = parts[1:]
+            # Extract XML content between storage tags
+            storage_xml = re.search(
+                r"<storage>(.*?)</storage>", storage_plan, re.DOTALL
+            )
+            if not storage_xml:
+                return "Error: Invalid storage plan format - missing storage tags"
 
-            # Create table if needed and insert data
-            sql_statements = f"{table_structure}\n{insert_data}"
+            storage_content = storage_xml.group(1)
 
-            await self.query_memory_database(
-                database_name=db_name, query=sql_statements
+            # Extract individual elements
+            database = (
+                re.search(r"<database>(.*?)</database>", storage_content, re.DOTALL)
+                .group(1)
+                .strip()
+            )
+            table_structure = re.search(
+                r"<table_structure>(.*?)</table_structure>", storage_content, re.DOTALL
+            )
+            table_structure = (
+                table_structure.group(1).strip() if table_structure else None
+            )
+            data = (
+                re.search(r"<data>(.*?)</data>", storage_content, re.DOTALL)
+                .group(1)
+                .strip()
+            )
+            tags = (
+                re.search(r"<tags>(.*?)</tags>", storage_content, re.DOTALL)
+                .group(1)
+                .strip()
+            )
+            importance = int(
+                re.search(r"<importance>(.*?)</importance>", storage_content, re.DOTALL)
+                .group(1)
+                .strip()
             )
 
-            response = f"Successfully stored in long-term memory database '{db_name}'"
+            # Create new database if it doesn't exist
+            if databases == "No memory databases found" or database not in databases:
+                create_result = await self.create_memory_database(
+                    name=database,
+                    description=f"Memory database for storing {memory_type} type memories",
+                )
+                if "Error" in create_result:
+                    return create_result
+
+                # Create table structure if provided
+                if table_structure:
+                    await self.query_memory_database(
+                        database_name=database, query=table_structure
+                    )
+
+            # Store the memory data
+            result = await self.query_memory_database(
+                database_name=database, query=data
+            )
+
+            response = f"Successfully stored in database '{database}'"
 
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY] Added new information to long-term memory database '{db_name}'.\nStored Content: {content}",
+                message=f"[SUBACTIVITY] Added new memory to database '{database}'.\nContent: {content}\nTags: {tags}\nImportance: {importance}",
                 conversation_name=self.conversation_name,
             )
 
             return response
 
         except Exception as e:
-            error_msg = f"Error storing in long-term memory: {str(e)}"
+            error_msg = f"Error processing storage plan: {str(e)}"
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][ERROR] {error_msg}",
