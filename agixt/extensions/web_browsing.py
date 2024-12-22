@@ -1246,6 +1246,21 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
+        def is_repeat_failure(new_step, attempt_history):
+            """Check if this step was recently attempted and failed."""
+            operation = safe_get_text(new_step.find("operation")).lower()
+            selector = safe_get_text(new_step.find("selector"))
+            value = safe_get_text(new_step.find("value"))
+
+            # Look at last 3 attempts
+            recent_attempts = attempt_history[-3:]
+            for attempt in recent_attempts:
+                if f"{operation} on '{selector}'" in attempt and (
+                    "Error" in attempt or "fail" in attempt.lower()
+                ):
+                    return True
+            return False
+
         # Initialize browser if needed and navigate to URL
         if not url.startswith("http"):
             url = "https://" + url
@@ -1262,6 +1277,7 @@ Page Content:
         iteration_count = 0
         results = []
         last_url = None  # Track URL changes
+        attempt_history = []  # Track all attempts and their outcomes
 
         while iteration_count < max_iterations:
             iteration_count += 1
@@ -1290,14 +1306,13 @@ Page Content:
 
             # Log current state
             state_msg = f"""Iteration {iteration_count}
-URL: {current_url}
-URL Changed: {url_changed}
-Available Selectors:
-{os.linesep.join(available_selectors)}
+    URL: {current_url}
+    URL Changed: {url_changed}
+    Available Selectors:
+    {os.linesep.join(available_selectors)}
 
-Form Fields:
-{form_fields}
-"""
+    Form Fields:
+    {form_fields}"""
 
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
@@ -1305,7 +1320,7 @@ Form Fields:
                 conversation_name=self.conversation_name,
             )
 
-            # Create planning context
+            # Create planning context with attempt history
             planning_context = f"""Current webpage state:
 
 CURRENT PAGE URL: {current_url}
@@ -1322,6 +1337,9 @@ CURRENT PAGE CONTENT:
 TASK TO COMPLETE:
 {task}
 
+PREVIOUS ATTEMPTS AND OUTCOMES:
+{os.linesep.join(attempt_history)}
+
 STRICT RULES - READ CAREFULLY:
 1. You may ONLY use selectors that are EXPLICITLY listed above
 2. Do NOT use complex class selectors
@@ -1335,6 +1353,7 @@ IMPORTANT INSTRUCTIONS:
 3. If needed elements aren't available yet, use a 'wait' operation
 4. If the task is complete, respond with a single 'done' operation
 5. If you can't proceed, explain why in the description
+6. DO NOT repeat actions that have failed
 
 YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
 <interaction>
@@ -1385,9 +1404,44 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
                     results.append("Task completed successfully.")
                     break
 
+                # Check for repeated failed actions
+                if is_repeat_failure(step, attempt_history):
+                    error_msg = (
+                        "Preventing repeated failed action. Need a different approach."
+                    )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
+                        conversation_name=self.conversation_name,
+                    )
+                    attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
+                    continue  # Skip to next iteration
+
                 # Execute the single step
+                selector = safe_get_text(step.find("selector"))
+                value = safe_get_text(step.find("value"))
+                description = safe_get_text(step.find("description"))
+
+                # Record this attempt before execution
+                attempt_record = f"Step {iteration_count}: {operation} on '{selector}' with value '{value}' - {description}"
+
                 step_result = await self.handle_step(step, current_url)
+
+                # Record the outcome
+                attempt_record += f" -> Result: {step_result}"
+                attempt_history.append(attempt_record)
                 results.append(step_result)
+
+                # If the step failed, add additional context about why
+                if "Error" in step_result or "fail" in step_result.lower():
+                    error_context = f"""
+                    This step failed. Consider:
+                    1. The selector might not be visible or accessible
+                    2. The page might need time to load
+                    3. A different selector might be needed
+                    4. The operation might need to be different
+                    """
+                    attempt_history.append(error_context)
 
                 # Wait for network and animations
                 await self.page.wait_for_load_state("networkidle", timeout=5000)
@@ -1413,8 +1467,19 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS:
                     message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
                     conversation_name=self.conversation_name,
                 )
+                attempt_history.append(f"EXCEPTION: {error_msg}")
                 results.append(error_msg)
                 break
+
+        # Final status report
+        if iteration_count >= max_iterations:
+            final_msg = f"Reached maximum iterations ({max_iterations}). Task may be incomplete."
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {final_msg}",
+                conversation_name=self.conversation_name,
+            )
+            results.append(final_msg)
 
         return "\n".join(results)
 
