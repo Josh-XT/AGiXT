@@ -1188,7 +1188,7 @@ class Interactions:
                         logging.error(error_message)
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{thinking_id}][ERROR] Failed to execute command `{command_name}`.\n```json\n{json_args}```",
+                            message=f"[SUBACTIVITY][{thinking_id}][ERROR] Failed to execute command `{command_name}`.\n{error_message}",
                         )
                         command_output = error_message
                 # Format the command execution and output
