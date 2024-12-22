@@ -1240,11 +1240,11 @@ Page Content:
             if "  - " in line:  # Lines with selectors start with '  - '
                 selector = line.split("  - ")[-1].strip()
                 available_selectors.append(selector)
-
+        joined_selectors = ", ".join(available_selectors)
         # Log available selectors for debugging
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Available selectors:\n{', '.join(available_selectors)}",
+            message=f"[SUBACTIVITY][{self.activity_id}] Available selectors:\n{joined_selectors}",
             conversation_name=self.conversation_name,
         )
 
@@ -1257,7 +1257,7 @@ DETECTED FORM FIELDS:
 
 STRICT RULES - READ CAREFULLY:
 1. You may ONLY use selectors that are EXPLICITLY listed above after "Selectors (in order of reliability):"
-2. The exact selectors you can use are: {', '.join(available_selectors)}
+2. The exact selectors you can use are: {joined_selectors}
 3. DO NOT invent, modify, or assume any selectors - use them exactly as shown
 4. If a selector you need isn't listed above, you CANNOT use it
 5. Each step must use a selector from the list above
