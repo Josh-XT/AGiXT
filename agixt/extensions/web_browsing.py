@@ -226,208 +226,61 @@ class web_browsing(Extensions):
             logging.error(f"Error navigating to {url}: {str(e)}")
             return f"Error: {str(e)}"
 
-    async def click_element_with_playwright(self, selector: str) -> str:
-        """Enhanced click operation with multiple fallback strategies"""
+    async def click_element_with_playwright(self, selector_or_text: str) -> str:
+        """
+        Enhanced click operation that uses Playwright's locator strategies
+        instead of raw querySelector with invalid pseudo-selectors.
+
+        'selector_or_text' can be:
+        - A normal CSS selector (e.g. 'button#login')
+        - A "text=" style for direct text matching (Playwright syntax)
+        - A simplified text approach that we'll convert to "text=..."
+        """
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
 
             current_url = self.page.url
-            logging.info(f"Attempting to click element {selector} on {current_url}")
-
-            # Take screenshot of current state
-            pre_scroll_name, _ = await self.take_verified_screenshot(
-                "pre_scroll", f"before attempting to click {selector}"
+            logging.info(
+                f"Attempting to click element '{selector_or_text}' on {current_url}"
             )
 
-            # Try different selector strategies
-            strategies = [
-                # Direct selector
-                selector,
-                # Button or link with exact text
-                f"button:has-text('{selector}')",
-                f"a:has-text('{selector}')",
-                # Case-insensitive text match
-                f"button:has-text('{selector}'i)",
-                f"a:has-text('{selector}'i)",
-                # Elements with role=button and text
-                f"[role='button']:has-text('{selector}')",
-                # Div or span with text
-                f"div:has-text('{selector}')",
-                f"span:has-text('{selector}')",
-                # By aria-label
-                f"[aria-label='{selector}']",
-            ]
+            # Heuristic: If the user passes something that looks like "Login or Register" with spaces,
+            # we can try text= style. If they pass a normal CSS pattern, we leave it as is.
+            # Alternatively, you can require them to always pass "text=..." for text searches.
 
-            element = None
-            used_strategy = None
+            # If "text=" is not in the string and it doesn't look like a CSS (#, ., or [ ),
+            # treat it as a text-based locator:
+            if "text=" not in selector_or_text and not any(
+                sym in selector_or_text for sym in ("#", ".", "[", "=", ">", ":")
+            ):
+                # Convert to a text-based locator:
+                playwright_locator = f"text={selector_or_text}"
+            else:
+                # Already looks like a valid CSS or "text=" style:
+                playwright_locator = selector_or_text
 
-            # Log all visible clickable elements for debugging
-            elements_debug = await self.page.evaluate(
-                """() => {
-                const getAllClickable = () => {
-                    const elements = [];
-                    document.querySelectorAll('button, a, [role="button"], [onclick], .btn, .button').forEach(el => {
-                        if (el.offsetWidth > 0 && el.offsetHeight > 0 && el.innerText.trim()) {
-                            elements.push({
-                                tag: el.tagName,
-                                text: el.innerText.trim(),
-                                classes: el.className,
-                                href: el.href || '',
-                                role: el.getAttribute('role') || '',
-                                id: el.id || ''
-                            });
-                        }
-                    });
-                    return elements;
-                };
-                return getAllClickable();
-            }"""
-            )
+            # Use the Playwright locator
+            element = self.page.locator(playwright_locator)
 
-            logging.info(f"Clickable elements found: {elements_debug}")
+            # If there's a chance it doesn't exist, let's do a short wait:
+            await element.wait_for(state="visible", timeout=5000)
 
-            # Try each strategy
-            for strat in strategies:
-                try:
-                    logging.info(f"Trying selector strategy: {strat}")
-                    # First check if element exists
-                    element = await self.page.query_selector(strat)
-                    if element:
-                        # Check if element is visible
-                        is_visible = await element.is_visible()
-                        if is_visible:
-                            # Get element position
-                            box = await element.bounding_box()
-                            if box:
-                                used_strategy = strat
-                                break
-                except Exception as e:
-                    logging.info(f"Strategy {strat} failed: {str(e)}")
-                    continue
-
-            if not element or not used_strategy:
-                # Try JavaScript click as last resort
-                try:
-                    await self.page.evaluate(
-                        f"""
-                        const findAndClick = (text) => {{
-                            const elements = Array.from(document.querySelectorAll('button, a, [role="button"], [onclick], .btn, .button'));
-                            const element = elements.find(el => 
-                                el.innerText.trim().toLowerCase() === text.toLowerCase() ||
-                                el.value?.toLowerCase() === text.toLowerCase()
-                            );
-                            if (element) {{
-                                element.click();
-                                return true;
-                            }}
-                            return false;
-                        }};
-                        return findAndClick("{selector}");
-                    """
-                    )
-                    logging.info(f"Attempted JavaScript click for '{selector}'")
-
-                    # Take screenshot after JavaScript click attempt
-                    post_js_name, _ = await self.take_verified_screenshot(
-                        "post_js_click", f"after JavaScript click attempt on {selector}"
-                    )
-
-                    # Check if URL changed after JavaScript click
-                    new_url = self.page.url
-                    if new_url != current_url:
-                        return f"Successfully clicked element using JavaScript strategy. Navigation detected from {current_url} to {new_url}"
-
-                except Exception as js_error:
-                    logging.error(f"JavaScript click failed: {str(js_error)}")
-
-            if not element:
-                error_msg = f"Failed to find clickable element matching '{selector}'. Available elements: {elements_debug}"
-                logging.error(error_msg)
-                return f"Error: {error_msg}"
-
-            # Element found, proceed with click
-            box = await element.bounding_box()
-            center_x = box["x"] + box["width"] / 2
-            center_y = box["y"] + box["height"] / 2
-
-            # Scroll element into view
-            await element.scroll_into_view_if_needed()
-
-            # Take screenshot with element in view
-            pre_click_name, _ = await self.take_verified_screenshot(
-                "pre_click", f"with {selector} in view"
-            )
-
-            # Highlight element temporarily for screenshot
-            await self.page.evaluate(
-                f"""(selector) => {{
-                const element = document.querySelector("{used_strategy}");
-                if (element) {{
-                    element.style.outline = '2px solid red';
-                    element.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                }}
-            }}""",
-                used_strategy,
-            )
-
-            # Take screenshot with highlight
-            highlight_name, _ = await self.take_verified_screenshot(
-                "highlight", f"with {selector} highlighted"
-            )
-
-            # Remove highlight
-            await self.page.evaluate(
-                f"""(selector) => {{
-                const element = document.querySelector("{used_strategy}");
-                if (element) {{
-                    element.style.outline = '';
-                }}
-            }}""",
-                used_strategy,
-            )
-
-            # Click the element
+            # Now click:
             await element.click()
-
-            # Wait for any navigation or network activity
             await self.page.wait_for_load_state("networkidle")
 
-            # Take screenshot after click
-            post_click_name, _ = await self.take_verified_screenshot(
-                "post_click", f"after clicking {selector}"
+            # If we want to do screenshots or logs, do it here:
+            logging.info(
+                f"Clicked '{selector_or_text}' successfully. New URL: {self.page.url}"
             )
 
-            # Get new URL in case of navigation
-            new_url = self.page.url
-
-            success_msg = (
-                f"Successfully clicked element {selector} using strategy: {used_strategy}\n"
-                f"Started on: [{current_url}]\n"
-                f"Ended on: [{new_url}]\n"
-                f"Element position: x={center_x}, y={center_y}\n"
-                f"Screenshot progression:\n"
-                f"1. Before scrolling: {self.output_url}/{pre_scroll_name}\n"
-                f"2. Element in view: {self.output_url}/{pre_click_name}\n"
-                f"3. Element highlighted: {self.output_url}/{highlight_name}\n"
-                f"4. After click: {self.output_url}/{post_click_name}"
-            )
-
-            logging.info(success_msg)
-            return success_msg
+            return f"Successfully clicked '{selector_or_text}' (Playwright locator='{playwright_locator}')."
 
         except Exception as e:
-            error_msg = f"Error clicking element {selector}: {str(e)}"
+            error_msg = f"Error clicking '{selector_or_text}': {str(e)}"
             logging.error(error_msg)
-
-            # Take error screenshot
-            error_name, _ = await self.take_verified_screenshot(
-                "click_error", f"after click error on {selector}"
-            )
-
-            return (
-                f"Error: {error_msg}\nError Screenshot: {self.output_url}/{error_name}"
-            )
+            return f"Error: {error_msg}"
 
     async def select_option_with_playwright(self, selector: str, value: str) -> str:
         """
@@ -1882,79 +1735,91 @@ Provide ONLY the XML plan inside <answer> tags. Do not include any other text.""
 
     async def analyze_button_presence(self) -> str:
         """
-        Specifically analyze the page for buttons and their clickability
+        Analyzes the page for buttons or clickable elements by running
+        a JS snippet in the browser context. Defensively converts
+        className to string so it won't throw an error.
         """
         try:
-            # Get all buttons using multiple methods
+            if self.page is None:
+                return "Error: No page loaded."
+
+            # Evaluate a snippet in the browser context
             buttons = await self.page.evaluate(
                 """() => {
-                const getClickableElements = () => {
-                    const elements = [];
-                    // Direct button elements
-                    document.querySelectorAll('button').forEach(el => elements.push({
-                        tag: 'button',
-                        text: el.innerText,
-                        isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
-                        selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
-                    }));
-                    
-                    // Links that look like buttons
-                    document.querySelectorAll('a').forEach(el => elements.push({
-                        tag: 'a',
-                        text: el.innerText,
-                        href: el.href,
-                        isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
-                        selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
-                    }));
-                    
-                    // Div/span buttons
-                    document.querySelectorAll('div[role="button"], span[role="button"], div.button, div.btn').forEach(el => 
-                        elements.push({
-                            tag: el.tagName.toLowerCase(),
-                            text: el.innerText,
-                            isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
-                            selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
-                        })
-                    );
-                    
-                    // Additional button detection
-                    document.querySelectorAll('*').forEach(el => {
-                        if (el.onclick || 
-                            el.getAttribute('role') === 'button' || 
-                            el.className.toLowerCase().includes('button') ||
-                            el.className.toLowerCase().includes('btn') ||
-                            el.innerText.toLowerCase().includes('register') ||
-                            el.innerText.toLowerCase().includes('sign up')
-                        ) {
+                    function getClickableElements() {
+                        const elements = [];
+
+                        // Direct <button> elements
+                        document.querySelectorAll('button').forEach(el => {
+                            const className = String(el.className || ""); 
+                            elements.push({
+                                tag: 'button',
+                                text: el.innerText.trim(),
+                                isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
+                                selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
+                            });
+                        });
+
+                        // Links that look like buttons
+                        document.querySelectorAll('a').forEach(el => {
+                            const className = String(el.className || "");
+                            elements.push({
+                                tag: 'a',
+                                text: el.innerText.trim(),
+                                href: el.href,
+                                isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
+                                selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
+                            });
+                        });
+
+                        // Div/span with role="button" or .btn classes
+                        document.querySelectorAll('div[role="button"], span[role="button"], .btn, .button').forEach(el => {
+                            const className = String(el.className || "");
                             elements.push({
                                 tag: el.tagName.toLowerCase(),
-                                text: el.innerText,
-                                isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
-                                selector: el.id ? `#${el.id}` : (el.className ? `.${el.className.split(' ').join('.')}` : null)
+                                text: el.innerText.trim(),
+                                isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
+                                selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
                             });
-                        }
-                    });
-                    
-                    return elements;
-                };
-                return getClickableElements();
-            }"""
+                        });
+
+                        // Additional heuristics for onclick, certain keywords, etc.
+                        document.querySelectorAll('*').forEach(el => {
+                            const className = String(el.className || "");
+                            if (el.onclick || className.toLowerCase().includes('button') || className.toLowerCase().includes('btn')) {
+                                elements.push({
+                                    tag: el.tagName.toLowerCase(),
+                                    text: el.innerText.trim(),
+                                    isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
+                                    selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
+                                });
+                            }
+                        });
+
+                        return elements;
+                    }
+                    return getClickableElements();
+                }"""
             )
 
             if buttons:
                 result = ["Found clickable elements:"]
                 for btn in buttons:
                     if btn.get("isVisible", False):
-                        result.append(
-                            f"\n- {btn.get('text', 'Unnamed Button')} ({btn.get('tag', 'element')})"
-                        )
-                        if btn.get("selector"):
-                            result.append(f"  Selector: {btn['selector']}")
-                        if btn.get("href"):
-                            result.append(f"  Link: {btn['href']}")
+                        text = btn.get("text", "").strip()
+                        tag = btn.get("tag", "")
+                        href = btn.get("href", "")
+                        selector = btn.get("selector", "")
+
+                        line = f"- {text or 'Unnamed'} ({tag})"
+                        if selector:
+                            line += f"\n    Selector guess: {selector}"
+                        if href:
+                            line += f"\n    Link: {href}"
+                        result.append(line + "\n")
                 return "\n".join(result)
             else:
-                return "No clickable elements found on page"
+                return "No clickable elements found on page."
 
         except Exception as e:
             logging.error(f"Error analyzing buttons: {str(e)}")
