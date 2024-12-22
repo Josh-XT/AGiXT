@@ -98,15 +98,14 @@ class web_browsing(Extensions):
         self.popup = None
 
     async def take_verified_screenshot(
-        self, prefix: str, extra_logging: str = "", element_to_highlight: str = None
+        self, prefix: str, extra_logging: str = ""
     ) -> tuple[str, str]:
         """
-        Take and verify a screenshot, with optional element highlighting
+        Take and verify a screenshot, ensuring it was properly saved
 
         Args:
             prefix: String prefix for the screenshot filename
             extra_logging: Additional context to add to log messages
-            element_to_highlight: Optional CSS selector of element to highlight
 
         Returns:
             tuple: (filename, full_path) if successful, (None, None) if failed
@@ -119,51 +118,30 @@ class web_browsing(Extensions):
             # Wait for network idle
             await self.page.wait_for_load_state("networkidle")
 
-            # Get viewport and layout dimensions
+            # Get page dimensions
             dimensions = await self.page.evaluate(
                 """() => {
                 return {
-                    viewport: {
-                        width: window.innerWidth,
-                        height: window.innerHeight
-                    },
-                    layout: {
-                        width: Math.max(
-                            document.documentElement.scrollWidth,
-                            document.documentElement.clientWidth
-                        ),
-                        height: Math.max(
-                            document.documentElement.scrollHeight,
-                            document.documentElement.clientHeight
-                        )
-                    },
-                    scroll: {
-                        x: window.scrollX,
-                        y: window.scrollY
-                    }
+                    width: Math.max(
+                        document.documentElement.scrollWidth,
+                        document.documentElement.clientWidth
+                    ),
+                    height: Math.max(
+                        document.documentElement.scrollHeight,
+                        document.documentElement.clientHeight
+                    )
                 }
             }"""
             )
 
-            # If highlighting an element, get its position
-            if element_to_highlight:
-                element = await self.page.query_selector(element_to_highlight)
-                if element:
-                    box = await element.bounding_box()
-                    if box:
-                        # Ensure viewport includes element
-                        await element.scroll_into_view_if_needed()
-                        # Set scroll position to show context around element
-                        scroll_y = max(
-                            0, box["y"] - (dimensions["viewport"]["height"] / 4)
-                        )
-                        await self.page.evaluate(f"window.scrollTo(0, {scroll_y});")
+            # Set viewport to match content
+            await self.page.set_viewport_size(
+                {"width": dimensions["width"], "height": dimensions["height"]}
+            )
 
             # Take the screenshot
             await self.page.screenshot(
-                path=full_path,
-                full_page=False,  # Only capture current viewport
-                timeout=10000,
+                path=full_path, full_page=True, timeout=10000  # 10 second timeout
             )
 
             # Verify the screenshot was saved and has content
@@ -175,9 +153,7 @@ class web_browsing(Extensions):
                 raise Exception("Screenshot file is empty")
 
             logging.info(
-                f"Screenshot {filename} ({file_size} bytes) {extra_logging}\n"
-                f"Viewport: {dimensions['viewport']}\n"
-                f"Scroll position: {dimensions['scroll']}"
+                f"Successfully took screenshot {filename} ({file_size} bytes) {extra_logging}"
             )
             return filename, full_path
 
@@ -226,61 +202,34 @@ class web_browsing(Extensions):
             logging.error(f"Error navigating to {url}: {str(e)}")
             return f"Error: {str(e)}"
 
-    async def click_element_with_playwright(self, selector_or_text: str) -> str:
-        """
-        Enhanced click operation that uses Playwright's locator strategies
-        instead of raw querySelector with invalid pseudo-selectors.
-
-        'selector_or_text' can be:
-        - A normal CSS selector (e.g. 'button#login')
-        - A "text=" style for direct text matching (Playwright syntax)
-        - A simplified text approach that we'll convert to "text=..."
-        """
+    async def click_element_with_playwright(self, selector: str) -> str:
+        """Click an element with screenshot verification"""
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
 
-            current_url = self.page.url
-            logging.info(
-                f"Attempting to click element '{selector_or_text}' on {current_url}"
+            # Take before screenshot
+            before_name, _ = await self.take_verified_screenshot(
+                "pre_click", f"before clicking {selector}"
             )
 
-            # Heuristic: If the user passes something that looks like "Login or Register" with spaces,
-            # we can try text= style. If they pass a normal CSS pattern, we leave it as is.
-            # Alternatively, you can require them to always pass "text=..." for text searches.
-
-            # If "text=" is not in the string and it doesn't look like a CSS (#, ., or [ ),
-            # treat it as a text-based locator:
-            if "text=" not in selector_or_text and not any(
-                sym in selector_or_text for sym in ("#", ".", "[", "=", ">", ":")
-            ):
-                # Convert to a text-based locator:
-                playwright_locator = f"text={selector_or_text}"
-            else:
-                # Already looks like a valid CSS or "text=" style:
-                playwright_locator = selector_or_text
-
-            # Use the Playwright locator
-            element = self.page.locator(playwright_locator)
-
-            # If there's a chance it doesn't exist, let's do a short wait:
-            await element.wait_for(state="visible", timeout=5000)
-
-            # Now click:
-            await element.click()
+            await self.page.click(selector)
             await self.page.wait_for_load_state("networkidle")
 
-            # If we want to do screenshots or logs, do it here:
-            logging.info(
-                f"Clicked '{selector_or_text}' successfully. New URL: {self.page.url}"
+            # Take after screenshot
+            after_name, _ = await self.take_verified_screenshot(
+                "post_click", f"after clicking {selector}"
             )
 
-            return f"Successfully clicked '{selector_or_text}' (Playwright locator='{playwright_locator}')."
+            msg = f"Clicked element with selector {selector}"
+            if before_name and after_name:
+                msg += f"\n![Before Click]({self.output_url}/{before_name})\n![After Click]({self.output_url}/{after_name})"
 
+            logging.info(msg)
+            return msg
         except Exception as e:
-            error_msg = f"Error clicking '{selector_or_text}': {str(e)}"
-            logging.error(error_msg)
-            return f"Error: {error_msg}"
+            logging.error(f"Error clicking element {selector}: {str(e)}")
+            return f"Error: {str(e)}"
 
     async def select_option_with_playwright(self, selector: str, value: str) -> str:
         """
@@ -1079,75 +1028,6 @@ Page Content:
             )
             return error_msg
 
-    async def parse_interaction_plan(self, plan_text: str) -> ET.Element:
-        """
-        Parse the interaction plan with enhanced error handling and debugging
-        """
-        logging.info(f"Raw interaction plan:\n{plan_text}")
-
-        # 1) Look for the plan in <answer> ... </answer> or <interaction> ... </interaction>
-        #    Possibly also check ```xml code blocks.
-        patterns = [
-            r"<answer>\s*(.*?)\s*</answer>",
-            r"<interaction>\s*(.*?)\s*</interaction>",
-            r"```xml\s*(.*?)\s*```",
-            r"```\s*(<.*?>.*?</.*?>)\s*```",
-        ]
-
-        extracted_xml = None
-        for pattern in patterns:
-            match = re.search(pattern, plan_text, re.DOTALL)
-            if match:
-                extracted_xml = match.group(1).strip()
-                logging.info(f"Found XML using pattern '{pattern}':\n{extracted_xml}")
-                break
-
-        if not extracted_xml:
-            # If we still don’t find anything, attempt a “manual construction” fallback
-            # similar to your code that tries to piece steps together line by line.
-            # For brevity, we skip showing that here. If you do that, at the end
-            # you must have a single root element.
-            raise ValueError("Could not extract valid XML from the plan text.")
-
-        # 2) Wrap the extracted XML in <interaction> if it doesn’t already have it
-        #    to ensure a single root.
-        if not extracted_xml.strip().startswith("<interaction>"):
-            # If the user’s plan is only steps or some partial structure, wrap it:
-            extracted_xml = f"<interaction>{extracted_xml}</interaction>"
-
-        # 3) Clean up invalid ampersands, leftover HTML entities, etc.
-        #    or any trailing text after the final </interaction>.
-        #    We do a simple “clip” from the start of <interaction> to the final </interaction>.
-        start_tag = "<interaction>"
-        end_tag = "</interaction>"
-        start_idx = extracted_xml.find(start_tag)
-        end_idx = extracted_xml.rfind(end_tag)
-        if start_idx == -1 or end_idx == -1:
-            raise ValueError(
-                "Could not locate <interaction> root tags in the extracted XML."
-            )
-        # Clip exactly to one root element
-        clipped_xml = extracted_xml[start_idx : end_idx + len(end_tag)]
-
-        # Replace unescaped & with &amp; (common XML parse issue)
-        clipped_xml = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;)", "&amp;", clipped_xml)
-
-        # 4) Parse the clipped XML
-        try:
-            root = ET.fromstring(clipped_xml)
-        except ET.ParseError as e:
-            logging.error(f"XML Parse Error: {str(e)}\nClipped XML:\n{clipped_xml}")
-            raise ValueError(f"Failed to parse XML: {str(e)}")
-
-        # Optionally verify it has <step> tags
-        steps = root.findall(".//step")
-        if not steps:
-            raise ValueError(
-                "No valid <step> elements found in the <interaction> plan."
-            )
-
-        return root
-
     async def interact_with_webpage(self, url: str, task: str):
         """
         Execute a complex web interaction workflow. This command should be used when:
@@ -1174,55 +1054,35 @@ Page Content:
         Returns:
         str: Description of actions taken and results
         """
-        try:
-            if self.page is None:
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Navigating to [{url}]",
-                    conversation_name=self.conversation_name,
+        if self.page is None:
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Navigating to [{url}]",
+                conversation_name=self.conversation_name,
+            )
+            await self.navigate_to_url_with_playwright(url=url, headless=True)
+
+            # Take initial screenshot
+            initial_screenshot_name, initial_screenshot_path = (
+                await self.take_verified_screenshot(
+                    "initial_page", f"after navigating to {url}"
                 )
-                await self.navigate_to_url_with_playwright(url=url, headless=True)
+            )
 
-            # Get current state
-            current_url = self.page.url
-            current_content = await self.get_page_content()
-            button_analysis = await self.analyze_button_presence()
-
-            # Get interaction plan
-            plan_response = self.ApiClient.prompt_agent(
+            # Get and summarize initial page content
+            initial_content = await self.get_page_content()
+            page_summary = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
-                    "user_input": f"""Analyze this page and provide EXACT steps to accomplish the task.
-Return the steps in XML format as shown in the example.
-
-Current URL: {current_url}
-Task to accomplish: {task}
+                    "user_input": f"""Please provide a concise summary of this page content that captures:
+1. The main purpose or topic of the page
+2. Any key information, data, or options present
+3. Available interaction elements (forms, buttons, etc.)
+4. Any error messages or important notices
 
 Page Content:
-{current_content}
-
-Button Analysis:
-{button_analysis}
-
-Example format:
-<answer>
-<interaction>
-<step>
-    <operation>click</operation>
-    <selector>Register</selector>
-    <description>Click the Register button</description>
-</step>
-<step>
-    <operation>fill</operation>
-    <selector>#email</selector>
-    <value>test@example.com</value>
-    <description>Fill in email address</description>
-</step>
-</interaction>
-</answer>
-
-Provide ONLY the XML plan inside <answer> tags. Do not include any other text.""",
+{initial_content}""",
                     "conversation_name": self.conversation_name,
                     "log_user_input": False,
                     "log_output": False,
@@ -1234,58 +1094,113 @@ Provide ONLY the XML plan inside <answer> tags. Do not include any other text.""
                 },
             )
 
-            # Parse the interaction plan
-            root = await self.parse_interaction_plan(plan_response)
+            screenshot_msg = (
+                f"\n![Initial Page]({self.output_url}/{initial_screenshot_name})"
+                if initial_screenshot_name
+                else "\nWarning: Failed to take initial screenshot"
+            )
+
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page [{url}]{screenshot_msg}\n\n{page_summary}",
+                conversation_name=self.conversation_name,
+            )
+
+        # Build context of the current page state
+        current_page_content = await self.get_page_content()
+        current_url = self.page.url
+
+        # Use AI to plan interaction steps
+        interaction_plan = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": f"""Need to interact with a webpage to accomplish the following task:
+
+### Starting URL
+{url}
+
+### Current URL
+{current_url}
+
+### Task to Complete
+{task}
+
+### Page Content
+{current_page_content}
+
+Please analyze the task and provide the necessary interaction steps using the following XML format inside an <answer> block:
+
+<interaction>
+<step>
+    <operation>click|fill|select|wait|verify|screenshot|extract|download</operation>
+    <selector>CSS selector or XPath</selector>
+    <value>Value for fill/select operations if needed</value>
+    <description>Human-readable description of this step's purpose</description>
+    <retry>
+        <alternate_selector>Alternative selector if primary fails</alternate_selector>
+        <fallback_operation>Alternative operation type</fallback_operation>
+        <max_attempts>3</max_attempts>
+    </retry>
+</step>
+</interaction>""",
+                "conversation_name": self.conversation_name,
+                "log_user_input": False,
+                "log_output": False,
+                "tts": False,
+                "analyze_user_input": False,
+                "disable_commands": True,
+                "browse_links": False,
+                "websearch": False,
+            },
+        )
+
+        # Parse and execute interaction steps
+        try:
+            root = ET.fromstring(interaction_plan)
             steps = root.findall(".//step")
-
             results = []
+
             for step in steps:
-                try:
-                    operation = step.find("operation").text.strip()
-                    selector = step.find("selector").text.strip()
-                    description = step.find("description").text.strip()
-                    value = (
-                        step.find("value").text.strip()
-                        if step.find("value") is not None
-                        else None
-                    )
-
-                    # Log step details
-                    logging.info(f"Executing step: {description}")
-                    logging.info(f"Operation: {operation}")
-                    logging.info(f"Selector: {selector}")
-                    logging.info(f"Value: {value}")
-
-                    # Execute step
-                    if operation == "click":
-                        result = await self.click_element_with_playwright(selector)
-                    elif operation == "fill":
-                        result = await self.fill_input_with_playwright(selector, value)
-                    elif operation == "select":
-                        result = await self.select_option_with_playwright(
-                            selector, value
-                        )
-                    else:
-                        raise Exception(f"Unknown operation: {operation}")
-
-                    results.append(result)
-
-                    if "Error:" in result:
-                        return "\n".join(results)
-
-                    await self.page.wait_for_load_state("networkidle")
-
-                except Exception as step_error:
-                    error_msg = f"Error executing step: {str(step_error)}"
-                    logging.error(error_msg)
-                    results.append(error_msg)
+                result = await self.handle_step(step, self.page.url)
+                results.append(result)
+                if "Error" in result:
                     return "\n".join(results)
 
-            return "Successfully completed interaction:\n" + "\n".join(results)
+            final_message = "Successfully completed webpage interaction:\n" + "\n".join(
+                results
+            )
+
+            # Take final screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"final_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            final_screenshot = os.path.basename(screenshot_path)
+
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed all web interactions for task: {task} on [{self.page.url}]\n![Final Screenshot]({self.output_url}/{final_screenshot})",
+                conversation_name=self.conversation_name,
+            )
+
+            return final_message
 
         except Exception as e:
             error_msg = f"Error during webpage interaction: {str(e)}"
-            logging.error(error_msg)
+
+            # Take error screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            error_screenshot = os.path.basename(screenshot_path)
+
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg} on [{self.page.url}]\n![Error Screenshot]({self.output_url}/{error_screenshot})",
+                conversation_name=self.conversation_name,
+            )
             return error_msg
 
     def get_text_safely(self, element) -> str:
@@ -1307,151 +1222,83 @@ Provide ONLY the XML plan inside <answer> tags. Do not include any other text.""
             return ""
 
     async def get_page_content(self) -> str:
-        """Get enhanced page content with better button/link detection"""
+        """
+        Get the content of the current page with enhanced form detection
+        """
         try:
             if self.page is None:
                 return "Error: No page loaded."
 
-            # First get standard page content
             html_content = await self.page.content()
             soup = BeautifulSoup(html_content, "html.parser")
+            structured_content = []
 
-            # Get button analysis
-            button_analysis = await self.analyze_button_presence()
-
-            # Combine all the content
-            content = ["=== PAGE CONTENT ANALYSIS ===\n"]
-
-            # Title
+            # Extract title safely
             if soup.title and soup.title.string:
-                content.append(f"Title: {soup.title.string.strip()}\n")
+                title_text = soup.title.string.strip()
+                if title_text:
+                    structured_content.append(f"Page Title: {title_text}")
 
-            # Current URL
-            content.append(f"URL: {self.page.url}\n")
+            # SECTION 1: Interactive Elements
+            structured_content.append("\n=== INTERACTIVE ELEMENTS ===")
 
-            # Clickable Elements Analysis
-            content.append("=== CLICKABLE ELEMENTS ===\n")
-            content.append(button_analysis)
-            content.append("\n")
+            # Form Detection and Analysis
+            forms = soup.find_all("form")
+            all_inputs = soup.find_all(["input", "select", "textarea"])
+            standalone_inputs = [
+                inp for inp in all_inputs if not inp.find_parent("form")
+            ]
 
-            # Find all links with non-empty text
-            content.append("=== LINKS ===\n")
-            links = []
-            for link in soup.find_all("a", href=True):
-                text = self.get_text_safely(link)
-                if text:
-                    href = link["href"]
-                    classes = " ".join(link.get("class", []))
-                    selectors = []
+            # Process forms first
+            for form in forms:
+                try:
+                    form_info = []
+                    form_id = form.get("id", "")
+                    form_name = form.get("name", "")
+                    form_class = " ".join(form.get("class", []))
+                    form_action = form.get("action", "")
 
-                    if link.get("id"):
-                        selectors.append(f"#{link['id']}")
-                    if classes:
-                        selectors.append(f"a.{classes.replace(' ', '.')}")
-                    selectors.append(f"a[href='{href}']")
-                    if text:
-                        selectors.append(f"a:text('{text}')")
+                    form_desc = "\nForm Details:"
+                    if form_id:
+                        form_desc += f"\n- ID: {form_id}"
+                    if form_name:
+                        form_desc += f"\n- Name: {form_name}"
+                    if form_class:
+                        form_desc += f"\n- Classes: {form_class}"
+                    if form_action:
+                        form_desc += f"\n- Action: {form_action}"
 
-                    links.append(f"Link: {text}")
-                    links.append(f"  Href: {href}")
-                    links.append("  Selectors:")
-                    for idx, selector in enumerate(selectors, 1):
-                        links.append(f"    {idx}. {selector}")
-                    links.append("")
+                    form_info.append(form_desc)
+                    form_info.append("\nForm Inputs:")
 
-            content.extend(links)
+                    # Process all inputs within this form
+                    for input_field in form.find_all(["input", "select", "textarea"]):
+                        input_info = self._analyze_input_field(input_field, form_id)
+                        if input_info:
+                            form_info.append(input_info)
 
-            # Forms Analysis
-            content.append("=== FORMS AND INPUTS ===\n")
-            forms = []
-            # Look for both explicit forms and implicit form groups
-            form_elements = soup.find_all(["form", 'div[role="form"]', "div.form"])
+                    structured_content.extend(form_info)
+                    structured_content.append("")  # Add spacing between forms
 
-            for form in form_elements:
-                form_id = form.get("id", "")
-                form_class = " ".join(form.get("class", []))
-                form_info = [
-                    f"Form{f' ID: {form_id}' if form_id else ''}{f' Class: {form_class}' if form_class else ''}"
-                ]
+                except Exception as e:
+                    logging.error(f"Error processing form: {str(e)}")
+                    continue
 
-                # Get all inputs, including those styled as buttons
-                inputs = form.find_all(
-                    [
-                        "input",
-                        "button",
-                        "textarea",
-                        "select",
-                        'div[role="button"]',
-                        'span[role="button"]',
-                    ]
-                )
+            # Process standalone inputs
+            if standalone_inputs:
+                structured_content.append("\nStandalone Inputs (Outside Forms):")
+                for input_field in standalone_inputs:
+                    input_info = self._analyze_input_field(input_field)
+                    if input_info:
+                        structured_content.append(input_info)
 
-                for input_elem in inputs:
-                    input_type = input_elem.get("type", "text")
-                    input_id = input_elem.get("id", "")
-                    input_name = input_elem.get("name", "")
-                    input_class = " ".join(input_elem.get("class", []))
-                    input_value = input_elem.get("value", "")
-                    placeholder = input_elem.get("placeholder", "")
+            # Other interactive elements
+            structured_content.extend(self._get_other_interactive_elements(soup))
 
-                    selectors = []
-                    if input_id:
-                        selectors.append(f"#{input_id}")
-                    if input_name:
-                        selectors.append(f"[name='{input_name}']")
-                    if input_class:
-                        selectors.append(f".{input_class.replace(' ', '.')}")
-                    if placeholder:
-                        selectors.append(f"[placeholder='{placeholder}']")
-
-                    input_info = [
-                        f"  Input:",
-                        f"    Type: {input_type}",
-                    ]
-
-                    if input_id:
-                        input_info.append(f"    ID: {input_id}")
-                    if input_name:
-                        input_info.append(f"    Name: {input_name}")
-                    if placeholder:
-                        input_info.append(f"    Placeholder: {placeholder}")
-                    if input_value:
-                        input_info.append(f"    Value: {input_value}")
-
-                    input_info.append("    Selectors:")
-                    for idx, selector in enumerate(selectors, 1):
-                        input_info.append(f"      {idx}. {selector}")
-
-                    forms.extend(input_info)
-                forms.append("")  # Add spacing between forms
-
-            content.extend(forms)
-
-            # Interactive Elements (not already covered)
-            content.append("=== OTHER INTERACTIVE ELEMENTS ===\n")
-            other_elements = self._get_other_interactive_elements(soup)
-            content.extend(other_elements)
-
-            # Look for error messages or notifications
-            content.append("\n=== NOTIFICATIONS AND MESSAGES ===\n")
-            error_classes = ["error", "alert", "notification", "message", "toast"]
-            messages = []
-            for class_name in error_classes:
-                for elem in soup.find_all(
-                    class_=lambda x: x and class_name in x.lower()
-                ):
-                    text = self.get_text_safely(elem)
-                    if text:
-                        messages.append(f"{class_name.title()}: {text}")
-            if messages:
-                content.extend(messages)
-            else:
-                content.append("No notifications or messages found.")
-
-            return "\n".join(content)
+            return "\n".join(structured_content)
 
         except Exception as e:
-            error_msg = f"Error analyzing page content: {str(e)}"
+            error_msg = f"Error extracting page content: {str(e)}"
             logging.error(error_msg)
             return error_msg
 
@@ -1623,207 +1470,40 @@ Provide ONLY the XML plan inside <answer> tags. Do not include any other text.""
 
     def _get_other_interactive_elements(self, soup) -> list:
         """
-        Find other interactive elements on the page with enhanced detection
+        Find other interactive elements on the page
         """
         interactive_elements = []
 
-        # Common interactive classes and attributes
-        interactive_classes = [
-            "button",
-            "btn",
-            "clickable",
-            "interactive",
-            "dropdown",
-            "register",
-            "signup",
-            "sign-up",
-            "login",
-            "submit",
-            "cta",
-            "call-to-action",
-        ]
+        # Look for elements with interactive classes or roles
+        interactive_classes = ["button", "btn", "clickable", "interactive", "dropdown"]
         interactive_roles = ["button", "link", "menuitem", "tab", "checkbox", "radio"]
 
-        # Find elements by class, role, type, or other common button indicators
-        selectors = [
-            # By role
-            {"role": interactive_roles},
-            # By type
-            {"type": ["button", "submit"]},
-            # By class containing common button terms
-            {
+        for element in soup.find_all(
+            attrs={
                 "class": lambda x: x
                 and any(cls in str(x).lower() for cls in interactive_classes)
-            },
-            # Any element with onclick attribute
-            {"onclick": True},
-            # Any element with event listeners (data-* attributes)
-            {"data-action": True},
-            # Elements with specific tags that might be clickable
-            {"tag": ["button", "a", "div", "span"]},
-        ]
-
-        for selector in selectors:
-            if "tag" in selector:
-                elements = soup.find_all(selector["tag"])
-            else:
-                elements = soup.find_all(attrs=selector)
-
-            for element in elements:
-                try:
-                    # Skip if already processed
-                    if element.get("processed"):
-                        continue
-
-                    # Get text content
-                    text = self.get_text_safely(element)
-                    href = element.get("href", "")
-                    onclick = element.get("onclick", "")
-                    role = element.get("role", "")
-                    classes = " ".join(element.get("class", []))
-
-                    # Build selector based on available attributes
-                    selectors = []
-
-                    # ID is most specific
-                    if element.get("id"):
-                        selectors.append(f"#{element.get('id')}")
-
-                    # Role is next best
-                    if role:
-                        selectors.append(f"[role='{role}']")
-
-                    # Class-based selectors
-                    if classes:
-                        selectors.append(f".{classes.replace(' ', '.')}")
-
-                    # Type
-                    if element.get("type"):
-                        selectors.append(f"[type='{element.get('type')}']")
-
-                    # Text content for buttons/links
-                    if text:
-                        selectors.append(f"{element.name}:has-text('{text}')")
-
-                    # Only add if we have valid identifiers
-                    if text or href or onclick or role or classes:
-                        element_info = [f"\nInteractive Element:"]
-                        element_info.append(f"- Tag: {element.name}")
-                        if text:
-                            element_info.append(f"- Text: {text}")
-                        if role:
-                            element_info.append(f"- Role: {role}")
-                        if classes:
-                            element_info.append(f"- Classes: {classes}")
-                        if href:
-                            element_info.append(f"- Link: {href}")
-                        if onclick:
-                            element_info.append(f"- Has Click Handler: Yes")
-
-                        element_info.append("\nPossible Selectors:")
-                        for idx, selector in enumerate(selectors, 1):
-                            element_info.append(f"  {idx}. {selector}")
-
-                        interactive_elements.extend(element_info)
-                        element["processed"] = True
-
-                except Exception as e:
-                    logging.error(f"Error processing interactive element: {str(e)}")
-                    continue
+            }
+        ):
+            if element.name not in [
+                "a",
+                "button",
+                "input",
+                "select",
+                "textarea",
+            ]:  # Skip standard form elements
+                text = self.get_text_safely(element)
+                if text:
+                    interactive_elements.append(f"\nInteractive Element:")
+                    interactive_elements.append(f"- Text: {text}")
+                    interactive_elements.append(f"- Type: {element.name}")
+                    if element.get("class"):
+                        interactive_elements.append(
+                            f"- Classes: {' '.join(element.get('class'))}"
+                        )
+                    if element.get("role"):
+                        interactive_elements.append(f"- Role: {element.get('role')}")
 
         return interactive_elements
-
-    async def analyze_button_presence(self) -> str:
-        """
-        Analyzes the page for buttons or clickable elements by running
-        a JS snippet in the browser context. Defensively converts
-        className to string so it won't throw an error.
-        """
-        try:
-            if self.page is None:
-                return "Error: No page loaded."
-
-            # Evaluate a snippet in the browser context
-            buttons = await self.page.evaluate(
-                """() => {
-                    function getClickableElements() {
-                        const elements = [];
-
-                        // Direct <button> elements
-                        document.querySelectorAll('button').forEach(el => {
-                            const className = String(el.className || ""); 
-                            elements.push({
-                                tag: 'button',
-                                text: el.innerText.trim(),
-                                isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
-                                selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
-                            });
-                        });
-
-                        // Links that look like buttons
-                        document.querySelectorAll('a').forEach(el => {
-                            const className = String(el.className || "");
-                            elements.push({
-                                tag: 'a',
-                                text: el.innerText.trim(),
-                                href: el.href,
-                                isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
-                                selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
-                            });
-                        });
-
-                        // Div/span with role="button" or .btn classes
-                        document.querySelectorAll('div[role="button"], span[role="button"], .btn, .button').forEach(el => {
-                            const className = String(el.className || "");
-                            elements.push({
-                                tag: el.tagName.toLowerCase(),
-                                text: el.innerText.trim(),
-                                isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
-                                selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
-                            });
-                        });
-
-                        // Additional heuristics for onclick, certain keywords, etc.
-                        document.querySelectorAll('*').forEach(el => {
-                            const className = String(el.className || "");
-                            if (el.onclick || className.toLowerCase().includes('button') || className.toLowerCase().includes('btn')) {
-                                elements.push({
-                                    tag: el.tagName.toLowerCase(),
-                                    text: el.innerText.trim(),
-                                    isVisible: (el.offsetWidth > 0 && el.offsetHeight > 0),
-                                    selector: el.id ? '#' + el.id : (className ? '.' + className.split(' ').join('.') : null)
-                                });
-                            }
-                        });
-
-                        return elements;
-                    }
-                    return getClickableElements();
-                }"""
-            )
-
-            if buttons:
-                result = ["Found clickable elements:"]
-                for btn in buttons:
-                    if btn.get("isVisible", False):
-                        text = btn.get("text", "").strip()
-                        tag = btn.get("tag", "")
-                        href = btn.get("href", "")
-                        selector = btn.get("selector", "")
-
-                        line = f"- {text or 'Unnamed'} ({tag})"
-                        if selector:
-                            line += f"\n    Selector guess: {selector}"
-                        if href:
-                            line += f"\n    Link: {href}"
-                        result.append(line + "\n")
-                return "\n".join(result)
-            else:
-                return "No clickable elements found on page."
-
-        except Exception as e:
-            logging.error(f"Error analyzing buttons: {str(e)}")
-            return f"Error analyzing buttons: {str(e)}"
 
     async def analyze_page_visually(self, description: str = "") -> str:
         """
