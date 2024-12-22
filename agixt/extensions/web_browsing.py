@@ -729,6 +729,217 @@ class web_browsing(Extensions):
             )
             return f"Error: {str(e)}"
 
+    async def handle_step(self, step, current_url):
+        """
+        Handle execution of a single interaction step with screenshots and logging
+        """
+        operation = step.find("operation").text
+        selector = step.find("selector").text
+        description = step.find("description").text
+        value = step.find("value").text if step.find("value") is not None else None
+        retry_info = step.find("retry")
+
+        # Take screenshot before action
+        screenshot_path = os.path.join(
+            self.WORKING_DIRECTORY, f"before_{uuid.uuid4()}.png"
+        )
+        await self.page.screenshot(path=screenshot_path, full_page=True)
+        before_screenshot = os.path.basename(screenshot_path)
+
+        # Log step with current URL and before screenshot
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{self.activity_id}] {description} on [{current_url}]\n![Before Screenshot]({self.output_url}/{before_screenshot})",
+            conversation_name=self.conversation_name,
+        )
+
+        # Initialize retry parameters
+        max_attempts = 3
+        alternate_selector = None
+        fallback_operation = None
+
+        if retry_info is not None:
+            alt_selector_elem = retry_info.find("alternate_selector")
+            if alt_selector_elem is not None:
+                alternate_selector = alt_selector_elem.text
+
+            fallback_op_elem = retry_info.find("fallback_operation")
+            if fallback_op_elem is not None:
+                fallback_operation = fallback_op_elem.text
+
+            max_attempts_elem = retry_info.find("max_attempts")
+            if max_attempts_elem is not None:
+                max_attempts = int(max_attempts_elem.text)
+
+        # Execute step with retries
+        attempt = 0
+        success = False
+        last_error = None
+
+        while attempt < max_attempts and not success:
+            try:
+                # Try primary operation
+                if operation == "click":
+                    await self.click_element_with_playwright(selector)
+                    await self.page.wait_for_load_state("networkidle")
+                elif operation == "fill":
+                    await self.fill_input_with_playwright(selector, value)
+                elif operation == "select":
+                    await self.select_option_with_playwright(selector, value)
+                elif operation == "wait":
+                    await self.wait_for_selector_with_playwright(selector)
+                elif operation == "verify":
+                    await self.assert_element_with_playwright(selector, value)
+                elif operation == "screenshot":
+                    await self.take_screenshot_with_highlight_with_playwright(
+                        selector, value
+                    )
+                elif operation == "extract":
+                    await self.extract_text_from_image_with_playwright(selector)
+                elif operation == "download":
+                    # New operation to handle file downloads
+                    download_path = os.path.join(
+                        self.WORKING_DIRECTORY, value or f"download_{uuid.uuid4()}"
+                    )
+                    await self.download_file_with_playwright(selector, download_path)
+                    file_name = os.path.basename(download_path)
+                    return f"Downloaded file saved as: {self.output_url}/{file_name}"
+
+                success = True
+
+                # Take screenshot after successful action
+                screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"after_{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=screenshot_path, full_page=True)
+                after_screenshot = os.path.basename(screenshot_path)
+
+                # Get updated URL and page content
+                current_url = self.page.url
+                new_content = await self.get_page_content()
+
+                # Generate page summary
+                page_summary = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": f"""Please provide a concise summary of this page content that captures:
+1. The main purpose or topic of the page
+2. Any key information, data, or options present
+3. Available interaction elements (forms, buttons, etc.)
+4. Any error messages or important notices
+
+Page Content:
+{new_content}""",
+                        "conversation_name": self.conversation_name,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "tts": False,
+                        "analyze_user_input": False,
+                        "disable_commands": True,
+                        "browse_links": False,
+                        "websearch": False,
+                    },
+                )
+
+                # Log successful operation with after screenshot and updated URL
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed: {description} on [{current_url}]\n![After Screenshot]({self.output_url}/{after_screenshot})\n\n{page_summary}",
+                    conversation_name=self.conversation_name,
+                )
+
+                return "Success"
+
+            except Exception as e:
+                last_error = str(e)
+                attempt += 1
+
+                # Try alternate selector if available
+                if not success and alternate_selector and attempt < max_attempts:
+                    try:
+                        if operation == "click":
+                            await self.click_element_with_playwright(alternate_selector)
+                            await self.page.wait_for_load_state("networkidle")
+                        elif operation == "fill":
+                            await self.fill_input_with_playwright(
+                                alternate_selector, value
+                            )
+                        elif operation == "select":
+                            await self.select_option_with_playwright(
+                                alternate_selector, value
+                            )
+                        elif operation == "wait":
+                            await self.wait_for_selector_with_playwright(
+                                alternate_selector
+                            )
+                        elif operation == "verify":
+                            await self.assert_element_with_playwright(
+                                alternate_selector, value
+                            )
+
+                        success = True
+
+                        # Take screenshot after successful alternate action
+                        screenshot_path = os.path.join(
+                            self.WORKING_DIRECTORY, f"after_alt_{uuid.uuid4()}.png"
+                        )
+                        await self.page.screenshot(path=screenshot_path, full_page=True)
+                        after_screenshot = os.path.basename(screenshot_path)
+
+                        # Get updated URL and content
+                        current_url = self.page.url
+                        new_content = await self.get_page_content()
+                        page_summary = self.ApiClient.prompt_agent(
+                            agent_name=self.agent_name,
+                            prompt_name="Think About It",
+                            prompt_args={
+                                "user_input": f"""Please provide a concise summary of this page content that captures:
+1. The main purpose or topic of the page
+2. Any key information, data, or options present
+3. Available interaction elements (forms, buttons, etc.)
+4. Any error messages or important notices
+
+Page Content:
+{new_content}""",
+                                "conversation_name": self.conversation_name,
+                                "log_user_input": False,
+                                "log_output": False,
+                                "tts": False,
+                                "analyze_user_input": False,
+                                "disable_commands": True,
+                                "browse_links": False,
+                                "websearch": False,
+                            },
+                        )
+
+                        # Log successful alternate operation
+                        self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed with alternate selector: {description} on [{current_url}]\n![After Screenshot]({self.output_url}/{after_screenshot})\n\n{page_summary}",
+                            conversation_name=self.conversation_name,
+                        )
+                        return "Success"
+
+                    except Exception as alt_e:
+                        last_error = f"Alternative selector failed: {str(alt_e)}"
+
+        if not success:
+            error_msg = f"Failed to complete {operation} after {max_attempts} attempts. Last error: {last_error}"
+            # Take error screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            error_screenshot = os.path.basename(screenshot_path)
+
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg} on [{current_url}]\n![Error Screenshot]({self.output_url}/{error_screenshot})",
+                conversation_name=self.conversation_name,
+            )
+            return error_msg
+
     async def interact_with_webpage(self, url: str, task: str):
         """
         Execute a complex web interaction workflow. This command should be used when:
@@ -754,7 +965,6 @@ class web_browsing(Extensions):
         Returns:
         str: Description of actions taken and results
         """
-        # First check if we have an active session
         if self.page is None:
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
@@ -762,6 +972,14 @@ class web_browsing(Extensions):
                 conversation_name=self.conversation_name,
             )
             await self.navigate_to_url_with_playwright(url=url, headless=True)
+
+            # Take initial screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"initial_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            initial_screenshot = os.path.basename(screenshot_path)
+
             # Get and summarize initial page content
             initial_content = await self.get_page_content()
             page_summary = self.ApiClient.prompt_agent(
@@ -786,15 +1004,16 @@ Page Content:
                     "websearch": False,
                 },
             )
+
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page.\n{page_summary}",
+                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page [{url}]\n![Initial Screenshot]({self.output_url}/{initial_screenshot})\n\n{page_summary}",
                 conversation_name=self.conversation_name,
             )
 
         # Build context of the current page state
         current_page_content = await self.get_page_content()
-        current_url = self.page.url if self.page else "No page loaded"
+        current_url = self.page.url
 
         # Use AI to plan interaction steps
         interaction_plan = self.ApiClient.prompt_agent(
@@ -803,14 +1022,14 @@ Page Content:
             prompt_args={
                 "user_input": f"""Need to interact with a webpage to accomplish the following task:
 
-### Starting URL
-{url}
+    ### Starting URL
+    {url}
+
+    ### Current URL
+    {current_url}
 
 ### Task to Complete
 {task}
-
-### Current Page State
-Currently on: {current_url}
 
 ### Page Content
 {current_page_content}
@@ -819,39 +1038,13 @@ Please analyze the task and provide the necessary interaction steps using the fo
 
 <interaction>
 <step>
-    <operation>click|fill|select|wait|verify|screenshot|extract</operation>
+    <operation>click|fill|select|wait|verify|screenshot|extract|download</operation>
     <selector>CSS selector or XPath</selector>
     <value>Value for fill/select operations if needed</value>
     <description>Human-readable description of this step's purpose</description>
     <retry>
         <alternate_selector>Alternative selector if primary fails</alternate_selector>
         <fallback_operation>Alternative operation type</fallback_operation>
-        <max_attempts>3</max_attempts>
-    </retry>
-</step>
-</interaction>
-
-Important Guidelines:
-1. Each <step> must include operation, selector, and description
-2. Add <value> for fill/select operations
-3. Include <retry> blocks for critical steps
-4. Provide precise selectors using:
-- Unique IDs when available
-- Specific CSS selectors
-- XPath as last resort
-5. Consider page load timing
-6. Add verification steps after important actions
-
-Example:
-<interaction>
-<step>
-    <operation>fill</operation>
-    <selector>#email-input</selector>
-    <value>user@example.com</value>
-    <description>Filling in the email address field</description>
-    <retry>
-        <alternate_selector>input[type='email']</alternate_selector>
-        <fallback_operation>fill</fallback_operation>
         <max_attempts>3</max_attempts>
     </retry>
 </step>
@@ -867,280 +1060,50 @@ Example:
             },
         )
 
-        # Parse interaction steps
+        # Parse and execute interaction steps
         try:
             root = ET.fromstring(interaction_plan)
             steps = root.findall(".//step")
             results = []
 
             for step in steps:
-                operation = step.find("operation").text
-                selector = step.find("selector").text
-                description = step.find("description").text
-                value = (
-                    step.find("value").text if step.find("value") is not None else None
-                )
-                retry_info = step.find("retry")
+                result = await self.handle_step(step, self.page.url)
+                results.append(result)
+                if "Error" in result:
+                    return "\n".join(results)
 
-                # Log the step we're about to attempt
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] {description} on [{current_url}]",
-                    conversation_name=self.conversation_name,
-                )
+            final_message = "Successfully completed webpage interaction:\n" + "\n".join(
+                results
+            )
 
-                # Initialize retry parameters
-                max_attempts = 3
-                alternate_selector = None
-                fallback_operation = None
+            # Take final screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"final_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            final_screenshot = os.path.basename(screenshot_path)
 
-                if retry_info is not None:
-                    alt_selector_elem = retry_info.find("alternate_selector")
-                    if alt_selector_elem is not None:
-                        alternate_selector = alt_selector_elem.text
-
-                    fallback_op_elem = retry_info.find("fallback_operation")
-                    if fallback_op_elem is not None:
-                        fallback_operation = fallback_op_elem.text
-
-                    max_attempts_elem = retry_info.find("max_attempts")
-                    if max_attempts_elem is not None:
-                        max_attempts = int(max_attempts_elem.text)
-
-                # Execute step with retries
-                attempt = 0
-                success = False
-                last_error = None
-
-                while attempt < max_attempts and not success:
-                    try:
-                        # Try primary operation
-                        if operation == "click":
-                            await self.click_element_with_playwright(selector)
-                            # Wait for potential page load after click
-                            await self.page.wait_for_load_state("networkidle")
-                        elif operation == "fill":
-                            await self.fill_input_with_playwright(selector, value)
-                        elif operation == "select":
-                            await self.select_option_with_playwright(selector, value)
-                        elif operation == "wait":
-                            await self.wait_for_selector_with_playwright(selector)
-                        elif operation == "verify":
-                            await self.assert_element_with_playwright(selector, value)
-                        elif operation == "screenshot":
-                            await self.take_screenshot_with_highlight_with_playwright(
-                                selector, value
-                            )
-                        elif operation == "extract":
-                            await self.extract_text_from_image_with_playwright(selector)
-
-                        success = True
-                        results.append(
-                            f"Successfully completed {operation} on {selector}"
-                        )
-
-                        # After successful operation, get updated page content and summarize
-                        new_content = await self.get_page_content()
-                        page_summary = self.ApiClient.prompt_agent(
-                            agent_name=self.agent_name,
-                            prompt_name="Think About It",
-                            prompt_args={
-                                "user_input": f"""Please provide a concise summary of this page content that captures:
-1. The main purpose or topic of the page
-2. Any key information, data, or options present
-3. Available interaction elements (forms, buttons, etc.)
-4. Any error messages or important notices
-
-Page Content:
-{new_content}""",
-                                "conversation_name": self.conversation_name,
-                                "log_user_input": False,
-                                "log_output": False,
-                                "tts": False,
-                                "analyze_user_input": False,
-                                "disable_commands": True,
-                                "browse_links": False,
-                                "websearch": False,
-                            },
-                        )
-
-                        # Log successful operation and page summary
-                        self.ApiClient.new_conversation_message(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed: {description}\n{page_summary}",
-                            conversation_name=self.conversation_name,
-                        )
-
-                    except Exception as e:
-                        last_error = str(e)
-                        attempt += 1
-
-                        # Try alternate selector if available
-                        if (
-                            not success
-                            and alternate_selector
-                            and attempt < max_attempts
-                        ):
-                            try:
-                                if operation == "click":
-                                    await self.click_element_with_playwright(
-                                        alternate_selector
-                                    )
-                                    await self.page.wait_for_load_state("networkidle")
-                                elif operation == "fill":
-                                    await self.fill_input_with_playwright(
-                                        alternate_selector, value
-                                    )
-                                elif operation == "select":
-                                    await self.select_option_with_playwright(
-                                        alternate_selector, value
-                                    )
-                                elif operation == "wait":
-                                    await self.wait_for_selector_with_playwright(
-                                        alternate_selector
-                                    )
-                                elif operation == "verify":
-                                    await self.assert_element_with_playwright(
-                                        alternate_selector, value
-                                    )
-
-                                success = True
-                                results.append(
-                                    f"Successfully completed {operation} using alternate selector {alternate_selector}"
-                                )
-
-                                # Get and summarize page content after successful alternate attempt
-                                new_content = await self.get_page_content()
-                                page_summary = self.ApiClient.prompt_agent(
-                                    agent_name=self.agent_name,
-                                    prompt_name="Think About It",
-                                    prompt_args={
-                                        "user_input": f"""Please provide a concise summary of this page content that captures:
-1. The main purpose or topic of the page
-2. Any key information, data, or options present
-3. Available interaction elements (forms, buttons, etc.)
-4. Any error messages or important notices
-
-Page Content:
-{new_content}""",
-                                        "conversation_name": self.conversation_name,
-                                        "log_user_input": False,
-                                        "log_output": False,
-                                        "tts": False,
-                                        "analyze_user_input": False,
-                                        "disable_commands": True,
-                                        "browse_links": False,
-                                        "websearch": False,
-                                    },
-                                )
-
-                                # Log successful alternate operation and page summary
-                                self.ApiClient.new_conversation_message(
-                                    role=self.agent_name,
-                                    message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed with alternate selector: {description}\n{page_summary}",
-                                    conversation_name=self.conversation_name,
-                                )
-                                continue
-
-                            except Exception as alt_e:
-                                last_error = (
-                                    f"Alternative selector failed: {str(alt_e)}"
-                                )
-
-                        # Try fallback operation if available
-                        if (
-                            not success
-                            and fallback_operation
-                            and attempt < max_attempts
-                        ):
-                            try:
-                                if fallback_operation == "click":
-                                    await self.click_element_with_playwright(selector)
-                                    await self.page.wait_for_load_state("networkidle")
-                                elif fallback_operation == "fill":
-                                    await self.fill_input_with_playwright(
-                                        selector, value
-                                    )
-                                elif fallback_operation == "select":
-                                    await self.select_option_with_playwright(
-                                        selector, value
-                                    )
-                                elif fallback_operation == "wait":
-                                    await self.wait_for_selector_with_playwright(
-                                        selector
-                                    )
-                                elif fallback_operation == "verify":
-                                    await self.assert_element_with_playwright(
-                                        selector, value
-                                    )
-
-                                success = True
-                                results.append(
-                                    f"Successfully completed fallback operation {fallback_operation}"
-                                )
-
-                                # Get and summarize page content after successful fallback
-                                new_content = await self.get_page_content()
-                                page_summary = self.ApiClient.prompt_agent(
-                                    agent_name=self.agent_name,
-                                    prompt_name="Think About It",
-                                    prompt_args={
-                                        "user_input": f"""Please provide a concise summary of this page content that captures:
-1. The main purpose or topic of the page
-2. Any key information, data, or options present
-3. Available interaction elements (forms, buttons, etc.)
-4. Any error messages or important notices
-
-Page Content:
-{new_content}""",
-                                        "conversation_name": self.conversation_name,
-                                        "log_user_input": False,
-                                        "log_output": False,
-                                        "tts": False,
-                                        "analyze_user_input": False,
-                                        "disable_commands": True,
-                                        "browse_links": False,
-                                        "websearch": False,
-                                    },
-                                )
-
-                                # Log successful fallback operation and page summary
-                                self.ApiClient.new_conversation_message(
-                                    role=self.agent_name,
-                                    message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed with fallback operation: {description}\n{page_summary}",
-                                    conversation_name=self.conversation_name,
-                                )
-                                continue
-
-                            except Exception as fallback_e:
-                                last_error = (
-                                    f"Fallback operation failed: {str(fallback_e)}"
-                                )
-
-                        # If on last attempt and still not successful
-                        if attempt == max_attempts and not success:
-                            error_msg = f"Failed to complete {operation} after {max_attempts} attempts. Last error: {last_error}"
-                            self.ApiClient.new_conversation_message(
-                                role=self.agent_name,
-                                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
-                                conversation_name=self.conversation_name,
-                            )
-                            return error_msg
-
-            # Log final success message
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed all web interactions for task: {task}",
+                message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed all web interactions for task: {task} on [{self.page.url}]\n![Final Screenshot]({self.output_url}/{final_screenshot})",
                 conversation_name=self.conversation_name,
             )
 
-            return "Successfully completed webpage interaction:\n" + "\n".join(results)
+            return final_message
 
         except Exception as e:
             error_msg = f"Error during webpage interaction: {str(e)}"
+
+            # Take error screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
+            )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            error_screenshot = os.path.basename(screenshot_path)
+
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg} on [{self.page.url}]\n![Error Screenshot]({self.output_url}/{error_screenshot})",
                 conversation_name=self.conversation_name,
             )
             return error_msg
