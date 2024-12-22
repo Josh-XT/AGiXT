@@ -1213,6 +1213,13 @@ Page Content:
         Returns:
         str: Description of actions taken and results
         """
+
+        def safe_get_text(element, default="") -> str:
+            """Safely get text from XML element with default value."""
+            if element is None or element.text is None:
+                return default
+            return element.text.strip()
+
         if self.page is None:
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
@@ -1327,18 +1334,16 @@ IMPORTANT:
             results = []
             for step in steps:
                 try:
-                    operation = step.find("operation").text.strip()
-                    selector = (
-                        step.find("selector").text.strip()
-                        if step.find("selector") is not None
-                        else ""
+                    # Safely get step elements with defaults
+                    operation = safe_get_text(step.find("operation"))
+                    if not operation:
+                        raise ValueError("Operation is required")
+
+                    selector = safe_get_text(step.find("selector"))
+                    value = safe_get_text(step.find("value"))
+                    description = safe_get_text(
+                        step.find("description"), "Executing step"
                     )
-                    value = (
-                        step.find("value").text.strip()
-                        if step.find("value") is not None and step.find("value").text
-                        else ""
-                    )
-                    description = step.find("description").text.strip()
 
                     # Log step
                     self.ApiClient.new_conversation_message(
@@ -1366,10 +1371,10 @@ IMPORTANT:
                         result = f"Clicked element: {selector}"
 
                     elif operation == "fill":
-                        if not selector or not value:
-                            raise ValueError(
-                                "Selector and value required for fill operation"
-                            )
+                        if not selector:
+                            raise ValueError("Selector required for fill operation")
+                        if not value:
+                            raise ValueError("Value required for fill operation")
                         await self.page.wait_for_selector(
                             selector, state="visible", timeout=5000
                         )
