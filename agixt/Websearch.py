@@ -15,7 +15,7 @@ from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from datetime import datetime
 from googleapiclient.discovery import build
-from MagicalAuth import impersonate_user, MagicalAuth
+from MagicalAuth import MagicalAuth
 from agixtsdk import AGiXTSDK
 
 logging.basicConfig(
@@ -26,11 +26,10 @@ logging.basicConfig(
 
 async def search_the_web(
     query: str,
-    user_id: str,
+    token: str,
     agent_name: str,
     conversation_name="AGiXT Terminal",
 ):
-    token = impersonate_user(user_id=user_id)
     auth = MagicalAuth(token=token)
     user = auth.email
     ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_API"), token=token)
