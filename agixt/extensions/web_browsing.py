@@ -56,6 +56,12 @@ logging.basicConfig(
 )
 
 
+def escape_css_classname(classname: str) -> str:
+    # Minimal example that replaces `:` and `/` with escaped versions
+    # You can add more replacements if needed.
+    return classname.replace(":", "\\:").replace("/", "\\/")
+
+
 class web_browsing(Extensions):
     """
     The AGiXT Web Browsing extension enables sophisticated web interaction and data extraction.
@@ -175,7 +181,11 @@ class web_browsing(Extensions):
                     if field["className"]:
                         class_names = field["className"].split()
                         if class_names:
-                            selectors.append("." + ".".join(class_names))
+                            # Escape each class
+                            escaped_classes = [
+                                escape_css_classname(c) for c in class_names
+                            ]
+                            selectors.append("." + ".".join(escaped_classes))
                     if field["placeholder"]:
                         selectors.append(f"[placeholder='{field['placeholder']}']")
                     if field["ariaLabel"]:
