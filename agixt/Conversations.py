@@ -380,7 +380,7 @@ class Conversations:
         )
         if not conversation:
             session.close()
-            return {"activities": []}
+            return ""
         messages = (
             session.query(Message)
             .filter(Message.conversation_id == conversation.id)
@@ -389,7 +389,7 @@ class Conversations:
         )
         if not messages:
             session.close()
-            return {"activities": []}
+            return ""
         return_activities = []
         current_activity = None
         for message in messages:
