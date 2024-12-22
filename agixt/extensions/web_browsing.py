@@ -1226,6 +1226,78 @@ Page Content:
             )
             return error_msg
 
+    async def parse_interaction_plan(self, plan_text: str) -> ET.Element:
+        """
+        Parse the interaction plan with enhanced error handling and debugging
+        """
+        logging.info(f"Raw interaction plan:\n{plan_text}")
+
+        # Try different patterns to extract XML
+        patterns = [
+            r"<answer>\s*(.*?)\s*</answer>",  # Standard <answer> tags
+            r"<interaction>\s*(.*?)\s*</interaction>",  # Direct <interaction> tags
+            r"```xml\s*(.*?)\s*```",  # XML in code blocks
+            r"```\s*(<.*?>.*?</.*?>)\s*```",  # Any XML in code blocks
+        ]
+
+        xml_content = None
+        for pattern in patterns:
+            match = re.search(pattern, plan_text, re.DOTALL)
+            if match:
+                xml_content = match.group(1)
+                logging.info(f"Found XML using pattern {pattern}:\n{xml_content}")
+                break
+
+        if not xml_content:
+            # If no XML found, try to construct it from the response
+            lines = plan_text.split("\n")
+            constructed_xml = []
+            in_step = False
+
+            for line in lines:
+                if "step" in line.lower() and ":" in line:
+                    if in_step:
+                        constructed_xml.append("</step>")
+                    constructed_xml.append("<step>")
+                    in_step = True
+                elif "operation" in line.lower() and ":" in line:
+                    op = line.split(":", 1)[1].strip().lower()
+                    constructed_xml.append(f"<operation>{op}</operation>")
+                elif "selector" in line.lower() and ":" in line:
+                    sel = line.split(":", 1)[1].strip()
+                    constructed_xml.append(f"<selector>{sel}</selector>")
+                elif "value" in line.lower() and ":" in line:
+                    val = line.split(":", 1)[1].strip()
+                    constructed_xml.append(f"<value>{val}</value>")
+                elif "description" in line.lower() and ":" in line:
+                    desc = line.split(":", 1)[1].strip()
+                    constructed_xml.append(f"<description>{desc}</description>")
+
+            if in_step:
+                constructed_xml.append("</step>")
+
+            if constructed_xml:
+                xml_content = f"<interaction>{''.join(constructed_xml)}</interaction>"
+                logging.info(f"Constructed XML from response:\n{xml_content}")
+
+        if not xml_content:
+            raise Exception(f"Could not extract valid XML from response:\n{plan_text}")
+
+        # Clean up XML content
+        xml_content = xml_content.replace("&", "&amp;")
+        xml_content = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;)", "&amp;", xml_content)
+
+        try:
+            root = ET.fromstring(xml_content)
+            # Verify we have valid steps
+            steps = root.findall(".//step")
+            if not steps:
+                raise Exception("No valid steps found in XML")
+            return root
+        except ET.ParseError as e:
+            logging.error(f"XML Parse Error: {str(e)}\nContent:\n{xml_content}")
+            raise Exception(f"Failed to parse XML: {str(e)}")
+
     async def interact_with_webpage(self, url: str, task: str):
         """
         Execute a complex web interaction workflow. This command should be used when:
@@ -1261,77 +1333,49 @@ Page Content:
                 )
                 await self.navigate_to_url_with_playwright(url=url, headless=True)
 
-                # Analyze initial page state
-                initial_content = await self.get_page_content()
-
-                # Get detailed button analysis
-                button_analysis = await self.analyze_button_presence()
-                logging.info(f"Button analysis: {button_analysis}")
-
-                page_summary = self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
-                    prompt_name="Think About It",
-                    prompt_args={
-                        "user_input": f"""Please analyze this page content and provide:
-1. Available navigation elements (buttons, links)
-2. Forms and their inputs
-3. Clear step-by-step actions to achieve the task
-
-Current URL: {url}
-Task: {task}
-
-Page Content:
-{initial_content}
-
-Button Analysis:
-{button_analysis}""",
-                        "conversation_name": self.conversation_name,
-                        "log_user_input": False,
-                        "log_output": False,
-                        "tts": False,
-                        "analyze_user_input": False,
-                        "disable_commands": True,
-                        "browse_links": False,
-                        "websearch": False,
-                    },
-                )
-                logging.info(f"Page summary: {page_summary}")
-
             # Get current state
             current_url = self.page.url
             current_content = await self.get_page_content()
             button_analysis = await self.analyze_button_presence()
 
-            # Request interaction plan
-            interaction_plan = self.ApiClient.prompt_agent(
+            # Get interaction plan
+            plan_response = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
-                    "user_input": f"""Plan the interaction steps for this task. Return ONLY the XML plan inside an <answer> tag.
+                    "user_input": f"""Analyze this page and provide EXACT steps to accomplish the task.
+Return the steps in XML format as shown in the example.
 
-URL: {current_url}
-Task: {task}
+Current URL: {current_url}
+Task to accomplish: {task}
 
-Current Page Content:
+Page Content:
 {current_content}
 
 Button Analysis:
 {button_analysis}
 
-Return the steps in this format:
+Example format:
 <answer>
 <interaction>
 <step>
-    <operation>click|fill|select</operation>
-    <selector>exact_selector_or_text</selector>
-    <value>optional_value</value>
-    <description>step_description</description>
+    <operation>click</operation>
+    <selector>Register</selector>
+    <description>Click the Register button</description>
+</step>
+<step>
+    <operation>fill</operation>
+    <selector>#email</selector>
+    <value>test@example.com</value>
+    <description>Fill in email address</description>
 </step>
 </interaction>
-</answer>""",
+</answer>
+
+Provide ONLY the XML plan inside <answer> tags. Do not include any other text.""",
                     "conversation_name": self.conversation_name,
                     "log_user_input": False,
-                    "log_output": False,
+                    "log_output": True,
                     "tts": False,
                     "analyze_user_input": False,
                     "disable_commands": True,
@@ -1340,53 +1384,29 @@ Return the steps in this format:
                 },
             )
 
-            # Extract XML content
-            pattern = r"<answer>\s*(.*?)\s*</answer>"
-            match = re.search(pattern, interaction_plan, re.DOTALL)
-            if not match:
-                raise Exception("Could not find valid XML plan in the response")
-
-            xml_content = match.group(1)
-            logging.info(f"Extracted XML plan: {xml_content}")
-
-            # Parse and validate XML
-            try:
-                root = ET.fromstring(xml_content)
-            except ET.ParseError as e:
-                # Try to fix common XML issues
-                fixed_xml = xml_content.replace("&", "&amp;").replace("<>", "&lt;&gt;")
-                try:
-                    root = ET.fromstring(fixed_xml)
-                except ET.ParseError as e2:
-                    raise Exception(f"Could not parse interaction plan XML: {str(e2)}")
-
+            # Parse the interaction plan
+            root = await self.parse_interaction_plan(plan_response)
             steps = root.findall(".//step")
-            if not steps:
-                raise Exception("No interaction steps found in the plan")
 
             results = []
             for step in steps:
                 try:
-                    operation = step.find("operation").text
-                    selector = step.find("selector").text
-                    description = step.find("description").text
+                    operation = step.find("operation").text.strip()
+                    selector = step.find("selector").text.strip()
+                    description = step.find("description").text.strip()
                     value = (
-                        step.find("value").text
+                        step.find("value").text.strip()
                         if step.find("value") is not None
                         else None
                     )
 
-                    if not operation or not selector:
-                        continue
+                    # Log step details
+                    logging.info(f"Executing step: {description}")
+                    logging.info(f"Operation: {operation}")
+                    logging.info(f"Selector: {selector}")
+                    logging.info(f"Value: {value}")
 
-                    # Log the step we're about to attempt
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}] Attempting: {description} on [{current_url}]",
-                        conversation_name=self.conversation_name,
-                    )
-
-                    # Execute the step
+                    # Execute step
                     if operation == "click":
                         result = await self.click_element_with_playwright(selector)
                     elif operation == "fill":
@@ -1396,37 +1416,14 @@ Return the steps in this format:
                             selector, value
                         )
                     else:
-                        result = f"Unsupported operation: {operation}"
+                        raise Exception(f"Unknown operation: {operation}")
 
                     results.append(result)
 
-                    # Check for errors
                     if "Error:" in result:
-                        # Take error screenshot
-                        error_name, _ = await self.take_verified_screenshot(
-                            "operation_error",
-                            f"after error in {operation} on {selector}",
-                        )
-
-                        error_msg = (
-                            f"Step failed: {description}\n"
-                            f"Operation: {operation}\n"
-                            f"Selector: {selector}\n"
-                            f"Error Screenshot: {self.output_url}/{error_name}"
-                        )
-
-                        self.ApiClient.new_conversation_message(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
-                            conversation_name=self.conversation_name,
-                        )
                         return "\n".join(results)
 
-                    # Wait for any navigation to complete
                     await self.page.wait_for_load_state("networkidle")
-
-                    # Update current URL after each step
-                    current_url = self.page.url
 
                 except Exception as step_error:
                     error_msg = f"Error executing step: {str(step_error)}"
@@ -1434,7 +1431,7 @@ Return the steps in this format:
                     results.append(error_msg)
                     return "\n".join(results)
 
-            return "Successfully completed webpage interaction:\n" + "\n".join(results)
+            return "Successfully completed interaction:\n" + "\n".join(results)
 
         except Exception as e:
             error_msg = f"Error during webpage interaction: {str(e)}"
