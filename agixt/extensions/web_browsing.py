@@ -1165,33 +1165,19 @@ Page Content:
 
     async def get_page_content(self) -> str:
         """
-        Get the content of the current page in a well-structured format using BeautifulSoup.
-        Extracts and organizes with robust error handling:
-        - Page title and headers
-        - Main content sections
-        - Navigation elements
-        - Forms and input fields
-        - Links and buttons
-        - Lists and tables
-        - Error messages and notifications
-
-        Returns:
-        str: Structured text content of the current page
+        Get the content of the current page with special focus on interactive elements.
+        Extracts and organizes:
+        - All clickable elements (links, buttons)
+        - Form inputs and their types
+        - Interactive elements and their selectors
+        - Other page content in structured format
         """
         try:
             if self.page is None:
                 return "Error: No page loaded."
 
-            # Get the page HTML
             html_content = await self.page.content()
             soup = BeautifulSoup(html_content, "html.parser")
-
-            # Remove unwanted elements
-            for element in soup.find_all(
-                ["script", "style", "meta", "link", "noscript"]
-            ):
-                element.decompose()
-
             structured_content = []
 
             # Extract title safely
@@ -1200,7 +1186,156 @@ Page Content:
                 if title_text:
                     structured_content.append(f"Page Title: {title_text}")
 
-            # Extract headers hierarchically with safe text extraction
+            # SECTION 1: Interactive Elements
+            structured_content.append("\n=== INTERACTIVE ELEMENTS ===")
+
+            # 1.1 Links with their text and selectors
+            links = []
+            for link in soup.find_all("a", href=True):
+                try:
+                    text = self.get_text_safely(link)
+                    href = link.get("href", "")
+                    if text and href:
+                        # Build selector (try ID first, then other attributes)
+                        if link.get("id"):
+                            selector = f"#{link['id']}"
+                        elif link.get("class"):
+                            selector = f"a.{'.'.join(link['class'])}"
+                        else:
+                            # Create a selector based on text content
+                            selector = f"a[href='{href}']"
+                        links.append(f"Link: '{text}' -> Selector: '{selector}'")
+                except Exception as e:
+                    continue
+
+            if links:
+                structured_content.append("\nClickable Links:")
+                structured_content.extend(links)
+
+            # 1.2 Buttons with their text and selectors
+            buttons = []
+            for button in soup.find_all(
+                ["button", 'input[type="button"]', 'input[type="submit"]']
+            ):
+                try:
+                    text = self.get_text_safely(button) or button.get("value", "")
+                    if text:
+                        if button.get("id"):
+                            selector = f"#{button['id']}"
+                        elif button.get("class"):
+                            selector = f"button.{'.'.join(button['class'])}"
+                        else:
+                            selector = f"button:has-text('{text}')"
+                        buttons.append(f"Button: '{text}' -> Selector: '{selector}'")
+                except Exception as e:
+                    continue
+
+            if buttons:
+                structured_content.append("\nClickable Buttons:")
+                structured_content.extend(buttons)
+
+            # 1.3 Form Inputs with their details and selectors
+            forms = soup.find_all("form")
+            form_sections = []
+
+            for form in forms:
+                try:
+                    form_info = []
+                    if form.get("id"):
+                        form_info.append(f"Form: #{form['id']}")
+                    elif form.get("name"):
+                        form_info.append(f"Form: {form['name']}")
+
+                    # Extract all input fields with their selectors
+                    for input_field in form.find_all(["input", "select", "textarea"]):
+                        try:
+                            field_type = input_field.get("type", "text")
+                            field_name = input_field.get("name", "")
+                            field_id = input_field.get("id", "")
+                            placeholder = input_field.get("placeholder", "")
+
+                            # Build the most reliable selector
+                            if field_id:
+                                selector = f"#{field_id}"
+                            elif field_name:
+                                selector = f"[name='{field_name}']"
+                            elif placeholder:
+                                selector = f"[placeholder='{placeholder}']"
+                            else:
+                                continue  # Skip if we can't create a reliable selector
+
+                            # Build a descriptive string based on available attributes
+                            desc = f"Input: {field_type}"
+                            if field_name:
+                                desc += f" (name: {field_name})"
+                            if placeholder:
+                                desc += f" (placeholder: {placeholder})"
+                            desc += f" -> Selector: '{selector}'"
+
+                            # Additional details for specific input types
+                            if field_type == "select":
+                                options = []
+                                for option in input_field.find_all("option"):
+                                    option_text = self.get_text_safely(option)
+                                    if option_text:
+                                        options.append(option_text)
+                                if options:
+                                    desc += f"\n    Options: {', '.join(options)}"
+
+                            form_info.append(desc)
+                        except Exception as e:
+                            continue
+
+                    if form_info:
+                        form_sections.extend(form_info)
+                        form_sections.append("")  # Add spacing between forms
+                except Exception as e:
+                    continue
+
+            if form_sections:
+                structured_content.append("\nForm Fields:")
+                structured_content.extend(form_sections)
+
+            # 1.4 Other Interactive Elements (e.g., custom elements, clickable divs)
+            other_interactive = []
+            for element in soup.find_all(
+                class_=lambda x: x
+                and any(
+                    cls in str(x).lower()
+                    for cls in ["clickable", "button", "interactive", "dropdown"]
+                )
+            ):
+                try:
+                    if element.name in [
+                        "a",
+                        "button",
+                        "input",
+                    ]:  # Skip elements we've already processed
+                        continue
+
+                    text = self.get_text_safely(element)
+                    if text:
+                        if element.get("id"):
+                            selector = f"#{element['id']}"
+                        elif element.get("class"):
+                            selector = f".{'.'.join(element['class'])}"
+                        else:
+                            continue  # Skip if we can't create a reliable selector
+
+                        other_interactive.append(
+                            f"Interactive Element: '{text}' -> Selector: '{selector}'"
+                        )
+                except Exception as e:
+                    continue
+
+            if other_interactive:
+                structured_content.append("\nOther Interactive Elements:")
+                structured_content.extend(other_interactive)
+
+            # SECTION 2: Regular Content (for context)
+            structured_content.append("\n=== PAGE CONTENT ===")
+
+            # Headers
             headers = []
             for level in range(1, 7):
                 for header in soup.find_all(f"h{level}"):
@@ -1211,206 +1346,30 @@ Page Content:
                 structured_content.append("\nHeaders:")
                 structured_content.extend(headers)
 
-            # Extract main content
-            main_content = soup.find("main")
-            if not main_content:
-                main_content = soup.find("body")
-
-            # Extract forms and inputs with error handling
-            forms = soup.find_all("form")
-            form_sections = []
-            if forms:
-                for form in forms:
-                    try:
-                        form_info = []
-                        form_id = form.get("id", "")
-                        form_action = form.get("action", "")
-
-                        if form_id:
-                            form_info.append(f"Form ID: {form_id}")
-                        if form_action:
-                            form_info.append(f"Action: {form_action}")
-
-                        # Extract input fields safely
-                        inputs = form.find_all(["input", "select", "textarea"])
-                        for input_field in inputs:
-                            try:
-                                input_type = input_field.get("type", "text")
-                                input_name = input_field.get("name", "unnamed")
-                                input_id = input_field.get("id", "")
-                                field_info = f"- {input_type} field"
-                                if input_name and input_name != "unnamed":
-                                    field_info += f" (name: {input_name})"
-                                if input_id:
-                                    field_info += f" (id: {input_id})"
-                                form_info.append(field_info)
-                            except (AttributeError, TypeError):
-                                continue
-
-                        if form_info:
-                            form_sections.extend(form_info)
-                    except Exception as e:
-                        logging.warning(f"Error processing form: {str(e)}")
-                        continue
-
-            if form_sections:
-                structured_content.append("\nForms and Inputs:")
-                structured_content.extend(form_sections)
-
-            # Extract navigation elements safely
-            nav = soup.find_all(["nav", "menu"])
-            nav_items = []
-            if nav:
-                for nav_elem in nav:
-                    try:
-                        links = nav_elem.find_all("a")
-                        for link in links:
-                            text = self.get_text_safely(link)
-                            if text:
-                                nav_items.append(f"- {text}")
-                    except Exception as e:
-                        logging.warning(f"Error processing navigation: {str(e)}")
-                        continue
-
-                if nav_items:
-                    structured_content.append("\nNavigation:")
-                    structured_content.extend(nav_items)
-
-            # Extract lists safely
-            list_items = []
-            if main_content:
-                lists = main_content.find_all(["ul", "ol"])
-                for list_elem in lists:
-                    try:
-                        items = list_elem.find_all("li")
-                        for item in items:
-                            text = self.get_text_safely(item)
-                            if text:
-                                list_items.append(f"• {text}")
-                    except Exception as e:
-                        logging.warning(f"Error processing list: {str(e)}")
-                        continue
-
-            if list_items:
-                structured_content.append("\nLists:")
-                structured_content.extend(list_items)
-
-            # Extract tables with error handling
-            tables = soup.find_all("table")
-            table_content = []
-            if tables:
-                for table in tables:
-                    try:
-                        # Get table headers safely
-                        headers = []
-                        for th in table.find_all("th"):
-                            text = self.get_text_safely(th)
-                            if text:
-                                headers.append(text)
-                        if headers:
-                            table_content.append(
-                                "Table Headers: " + " | ".join(headers)
-                            )
-
-                        # Get table rows safely
-                        for tr in table.find_all("tr"):
-                            try:
-                                row_data = []
-                                for td in tr.find_all("td"):
-                                    text = self.get_text_safely(td)
-                                    if text:
-                                        row_data.append(text)
-                                if row_data:
-                                    table_content.append("Row: " + " | ".join(row_data))
-                            except Exception as e:
-                                logging.warning(f"Error processing table row: {str(e)}")
-                                continue
-                    except Exception as e:
-                        logging.warning(f"Error processing table: {str(e)}")
-                        continue
-
-            if table_content:
-                structured_content.append("\nTables:")
-                structured_content.extend(table_content)
-
-            # Extract error messages and notifications safely
-            error_messages = soup.find_all(
-                class_=lambda x: x
-                and (
-                    "error" in x.lower()
-                    or "alert" in x.lower()
-                    or "notification" in x.lower()
-                )
-            )
-            notifications = []
-            if error_messages:
-                for msg in error_messages:
-                    try:
-                        text = self.get_text_safely(msg)
-                        if text:
-                            notifications.append(f"! {text}")
-                    except Exception as e:
-                        logging.warning(f"Error processing notification: {str(e)}")
-                        continue
-
-            if notifications:
-                structured_content.append("\nMessages and Notifications:")
-                structured_content.extend(notifications)
-
-            # Extract main content paragraphs and text safely
+            # Main content sections
+            main_content = soup.find("main") or soup.find("body")
             if main_content:
                 content_sections = []
-                for element in main_content.find_all(
-                    ["p", "article", "section", "div"]
-                ):
+                for element in main_content.find_all(["p", "article", "section"]):
                     try:
                         # Skip if element is part of already processed structures
-                        if (
-                            element.find_parent("form")
-                            or element.find_parent("nav")
-                            or element.find_parent("table")
-                        ):
+                        if element.find_parent("form") or element.find_parent("nav"):
                             continue
 
                         text = self.get_text_safely(element)
                         if text and len(text) > 20:  # Filter out tiny text fragments
-                            # Remove excessive whitespace and normalize
-                            text = " ".join(text.split())
+                            text = " ".join(text.split())  # Normalize whitespace
                             content_sections.append(text)
                     except Exception as e:
-                        logging.warning(f"Error processing content section: {str(e)}")
                         continue
 
                 if content_sections:
                     structured_content.append("\nMain Content:")
                     structured_content.extend(content_sections)
 
-            # Extract important buttons safely
-            button_elements = soup.find_all(
-                ["button", "a"], class_=lambda x: x and "btn" in x.lower()
-            )
-            buttons = []
-            if button_elements:
-                for button in button_elements:
-                    try:
-                        text = self.get_text_safely(button)
-                        if text:
-                            buttons.append(f"[Button] {text}")
-                    except Exception as e:
-                        logging.warning(f"Error processing button: {str(e)}")
-                        continue
-
-            if buttons:
-                structured_content.append("\nImportant Buttons:")
-                structured_content.extend(buttons)
-
             # Clean up and finalize content
             final_content = "\n".join(filter(None, structured_content))
-
-            # Remove excessive newlines and spaces
             final_content = re.sub(r"\n\s*\n", "\n\n", final_content)
-            final_content = re.sub(r" +", " ", final_content)
-
             return final_content.strip()
 
         except Exception as e:
