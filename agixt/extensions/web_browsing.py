@@ -97,6 +97,70 @@ class web_browsing(Extensions):
         self.page = None
         self.popup = None
 
+    async def take_verified_screenshot(
+        self, prefix: str, extra_logging: str = ""
+    ) -> tuple[str, str]:
+        """
+        Take and verify a screenshot, ensuring it was properly saved
+
+        Args:
+            prefix: String prefix for the screenshot filename
+            extra_logging: Additional context to add to log messages
+
+        Returns:
+            tuple: (filename, full_path) if successful, (None, None) if failed
+        """
+        try:
+            # Set up screenshot path
+            filename = f"{prefix}_{uuid.uuid4()}.png"
+            full_path = os.path.join(self.WORKING_DIRECTORY, filename)
+
+            # Wait for network idle
+            await self.page.wait_for_load_state("networkidle")
+
+            # Get page dimensions
+            dimensions = await self.page.evaluate(
+                """() => {
+                return {
+                    width: Math.max(
+                        document.documentElement.scrollWidth,
+                        document.documentElement.clientWidth
+                    ),
+                    height: Math.max(
+                        document.documentElement.scrollHeight,
+                        document.documentElement.clientHeight
+                    )
+                }
+            }"""
+            )
+
+            # Set viewport to match content
+            await self.page.set_viewport_size(
+                {"width": dimensions["width"], "height": dimensions["height"]}
+            )
+
+            # Take the screenshot
+            await self.page.screenshot(
+                path=full_path, full_page=True, timeout=10000  # 10 second timeout
+            )
+
+            # Verify the screenshot was saved and has content
+            if not os.path.exists(full_path):
+                raise Exception("Screenshot file was not created")
+
+            file_size = os.path.getsize(full_path)
+            if file_size == 0:
+                raise Exception("Screenshot file is empty")
+
+            logging.info(
+                f"Successfully took screenshot {filename} ({file_size} bytes) {extra_logging}"
+            )
+            return filename, full_path
+
+        except Exception as e:
+            logging.error(f"Failed to take screenshot: {str(e)}")
+            return None, None
+
     async def get_search_results(self, query: str) -> List[dict]:
         """
         Get search results from a search engine
@@ -117,16 +181,7 @@ class web_browsing(Extensions):
     async def navigate_to_url_with_playwright(
         self, url: str, headless: bool = True
     ) -> str:
-        """
-        Navigate to a URL using Playwright
-
-        Args:
-        url (str): The URL to navigate to
-        headless (bool): Whether to run the browser in headless mode
-
-        Returns:
-        str: Confirmation message
-        """
+        """Navigate to a URL using Playwright"""
         try:
             if self.playwright is None:
                 self.playwright = await async_playwright().start()
@@ -135,27 +190,43 @@ class web_browsing(Extensions):
                 self.page = await self.context.new_page()
             await self.page.goto(url)
             logging.info(f"Navigated to {url}")
+
+            # Take a screenshot after navigation
+            screenshot_name, _ = await self.take_verified_screenshot(
+                "navigation", f"after navigating to {url}"
+            )
+            if screenshot_name:
+                return f"Navigated to {url}\n![Navigation Screenshot]({self.output_url}/{screenshot_name})"
             return f"Navigated to {url}"
         except Exception as e:
             logging.error(f"Error navigating to {url}: {str(e)}")
             return f"Error: {str(e)}"
 
     async def click_element_with_playwright(self, selector: str) -> str:
-        """
-        Click an element specified by a selector using Playwright
-
-        Args:
-        selector (str): The CSS selector of the element to click
-
-        Returns:
-        str: Confirmation message
-        """
+        """Click an element with screenshot verification"""
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
+
+            # Take before screenshot
+            before_name, _ = await self.take_verified_screenshot(
+                "pre_click", f"before clicking {selector}"
+            )
+
             await self.page.click(selector)
-            logging.info(f"Clicked element with selector {selector}")
-            return f"Clicked element with selector {selector}"
+            await self.page.wait_for_load_state("networkidle")
+
+            # Take after screenshot
+            after_name, _ = await self.take_verified_screenshot(
+                "post_click", f"after clicking {selector}"
+            )
+
+            msg = f"Clicked element with selector {selector}"
+            if before_name and after_name:
+                msg += f"\n![Before Click]({self.output_url}/{before_name})\n![After Click]({self.output_url}/{after_name})"
+
+            logging.info(msg)
+            return msg
         except Exception as e:
             logging.error(f"Error clicking element {selector}: {str(e)}")
             return f"Error: {str(e)}"
@@ -1316,9 +1387,7 @@ Please analyze the task and provide the necessary interaction steps using the fo
             return None
 
     async def fill_input_with_playwright(self, selector: str, text: str) -> str:
-        """
-        Enhanced input filling with verified screenshot handling
-        """
+        """Fill an input field with enhanced error handling and screenshots"""
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
@@ -1327,13 +1396,9 @@ Please analyze the task and provide the necessary interaction steps using the fo
             logging.info(f"Attempting to fill input {selector} on {current_url}")
 
             # Take before screenshot
-            pre_screenshot_name, pre_screenshot_path = (
-                await self.take_verified_screenshot(
-                    "pre_fill", f"before filling {selector}"
-                )
+            pre_screenshot_name, _ = await self.take_verified_screenshot(
+                "pre_fill", f"before filling {selector}"
             )
-            if not pre_screenshot_name:
-                return "Error: Failed to take pre-fill screenshot"
 
             # Wait for element with timeout
             try:
@@ -1343,16 +1408,10 @@ Please analyze the task and provide the necessary interaction steps using the fo
                 if not element:
                     raise Exception(f"Element not found: {selector}")
             except Exception as wait_error:
-                # Take error screenshot
-                error_screenshot_name, error_screenshot_path = (
-                    await self.take_verified_screenshot(
-                        "error_fill", f"after element not found: {selector}"
-                    )
+                error_screenshot_name, _ = await self.take_verified_screenshot(
+                    "error_fill", f"after element not found: {selector}"
                 )
-                if not error_screenshot_name:
-                    error_screenshot_name = "Screenshot failed"
 
-                # Get page source for analysis
                 page_content = await self.get_page_content()
 
                 error_msg = (
@@ -1367,28 +1426,33 @@ Please analyze the task and provide the necessary interaction steps using the fo
 
             # Try to fill the input
             try:
-                # Clear existing value first
                 await element.evaluate('el => el.value = ""')
-
-                # Fill the input
                 await element.fill(text)
-
-                # Verify the input value
                 actual_value = await element.input_value()
+
                 if actual_value != text:
                     raise Exception(
                         f"Value mismatch - Expected: {text}, Got: {actual_value}"
                     )
 
-            except Exception as fill_error:
-                # Take error screenshot
-                error_screenshot_name, error_screenshot_path = (
-                    await self.take_verified_screenshot(
-                        "error_fill", f"after fill failure: {selector}"
-                    )
+                # Take after screenshot
+                post_screenshot_name, _ = await self.take_verified_screenshot(
+                    "post_fill", f"after successfully filling {selector}"
                 )
-                if not error_screenshot_name:
-                    error_screenshot_name = "Screenshot failed"
+
+                success_msg = (
+                    f"Successfully filled input {selector} with text '{text}'\n"
+                    f"Current URL: {current_url}\n"
+                    f"Before Screenshot: {self.output_url}/{pre_screenshot_name}\n"
+                    f"After Screenshot: {self.output_url}/{post_screenshot_name}"
+                )
+                logging.info(success_msg)
+                return success_msg
+
+            except Exception as fill_error:
+                error_screenshot_name, _ = await self.take_verified_screenshot(
+                    "error_fill", f"after fill failure: {selector}"
+                )
 
                 error_msg = (
                     f"Failed to fill input: {str(fill_error)}\n"
@@ -1398,24 +1462,6 @@ Please analyze the task and provide the necessary interaction steps using the fo
                 )
                 logging.error(error_msg)
                 return f"Error: {error_msg}"
-
-            # Take after screenshot
-            post_screenshot_name, post_screenshot_path = (
-                await self.take_verified_screenshot(
-                    "post_fill", f"after successfully filling {selector}"
-                )
-            )
-            if not post_screenshot_name:
-                post_screenshot_name = "Screenshot failed"
-
-            success_msg = (
-                f"Successfully filled input {selector} with text '{text}'\n"
-                f"Current URL: {current_url}\n"
-                f"Before Screenshot: {self.output_url}/{pre_screenshot_name}\n"
-                f"After Screenshot: {self.output_url}/{post_screenshot_name}"
-            )
-            logging.info(success_msg)
-            return success_msg
 
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
