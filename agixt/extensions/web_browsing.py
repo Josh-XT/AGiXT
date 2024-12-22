@@ -1225,11 +1225,6 @@ Page Content:
             return element.text.strip()
 
         if self.page is None:
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Navigating to [{url}]",
-                conversation_name=self.conversation_name,
-            )
             await self.navigate_to_url_with_playwright(url=url, headless=True)
 
         # Get current page state
@@ -1239,66 +1234,63 @@ Page Content:
         # Get detailed form field information
         form_fields = await self.get_form_fields()
 
-        # Log detected form fields
+        # Extract just the selectors for validation
+        available_selectors = []
+        for line in form_fields.split("\n"):
+            if "  - " in line:  # Lines with selectors start with '  - '
+                selector = line.split("  - ")[-1].strip()
+                available_selectors.append(selector)
+
+        # Log available selectors for debugging
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Detected form fields:\n{form_fields}",
+            message=f"[SUBACTIVITY][{self.activity_id}] Available selectors:\n{', '.join(available_selectors)}",
             conversation_name=self.conversation_name,
         )
 
-        # Create context that includes form field information
         planning_context = f"""Current webpage state:
 
 URL: {current_url}
 
-AVAILABLE FORM FIELDS AND SELECTORS (ONLY USE THESE - DO NOT INVENT OR ASSUME ANY OTHERS):
+DETECTED FORM FIELDS:
 {form_fields}
 
-CURRENT PAGE CONTENT:
-{current_page_content}
+STRICT RULES - READ CAREFULLY:
+1. You may ONLY use selectors that are EXPLICITLY listed above after "Selectors (in order of reliability):"
+2. The exact selectors you can use are: {', '.join(available_selectors)}
+3. DO NOT invent, modify, or assume any selectors - use them exactly as shown
+4. If a selector you need isn't listed above, you CANNOT use it
+5. Each step must use a selector from the list above
 
 TASK TO COMPLETE:
 {task}
 
-IMPORTANT INSTRUCTIONS:
-1. You can ONLY use selectors that are explicitly listed above under "AVAILABLE FORM FIELDS AND SELECTORS"
-2. Do not assume or invent selectors that aren't listed
-3. If a field you need isn't available, use the 'wait' operation to wait for it to appear
-4. Each step must use an element that currently exists on the page
+Generate an interaction plan using ONLY the available selectors listed above.
+Put your response in an <answer> tag using this exact format:
 
-Generate an interaction plan using ONLY the available selectors above.
-
-YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK LIKE THIS in the <answer> tag:
 <interaction>
     <step>
         <operation>click|fill|wait|verify</operation>
-        <selector>EXACT selector from available fields</selector>
+        <selector>COPY EXACT SELECTOR FROM LIST ABOVE</selector>
         <value>Value if needed</value>
         <description>Human-readable description</description>
     </step>
 </interaction>
 
-Follow these rules:
-1. Only use selectors that are EXPLICITLY listed in the form fields section
-2. Each step must check if needed elements exist before proceeding
-3. If a required field isn't available yet, add a wait step
-4. Verify each major state change
+Example of CORRECT selector usage:
+If the form fields show:
+- #email
+- [name='email']
+Then you can use: <selector>#email</selector> or <selector>[name='email']</selector>
 
-Example of good interaction plan:
-<interaction>
-    <step>
-        <operation>fill</operation>
-        <selector>#email</selector>
-        <value>user@example.com</value>
-        <description>Fill in email field</description>
-    </step>
-    <step>
-        <operation>wait</operation>
-        <selector>#continue-button</selector>
-        <value>2000</value>
-        <description>Wait for continue button to appear</description>
-    </step>
-</interaction>"""
+Example of INCORRECT selector usage:
+- Using a selector not in the list: #name (if not listed)
+- Modifying a selector: input#email (if #email was listed)
+- Assuming a selector exists: #password (if not listed)"""
+
+        def validate_selector(selector: str, available_selectors: list) -> bool:
+            """Validate that a selector is in the available list."""
+            return selector in available_selectors
 
         def extract_interaction_block(response: str) -> str:
             """Extract and clean the interaction XML block."""
@@ -1319,7 +1311,7 @@ Example of good interaction plan:
 
             return xml_block
 
-        # Get and extract interaction plan
+        # Get and validate interaction plan
         try:
             raw_response = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
@@ -1341,13 +1333,6 @@ Example of good interaction plan:
             # Extract and clean interaction XML
             interaction_xml = extract_interaction_block(raw_response)
 
-            # Log the cleaned XML
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Executing interaction plan:\n```xml\n{interaction_xml}\n```",
-                conversation_name=self.conversation_name,
-            )
-
             # Parse XML
             root = ET.fromstring(interaction_xml)
             steps = root.findall(".//step")
@@ -1355,122 +1340,75 @@ Example of good interaction plan:
             if not steps:
                 raise ValueError("No steps found in interaction plan")
 
-            # Execute each step
+            # Validate all selectors before executing any steps
+            for step in steps:
+                selector = safe_get_text(step.find("selector"))
+                if selector and not validate_selector(selector, available_selectors):
+                    raise ValueError(
+                        f"Invalid selector '{selector}' - must be one of: {', '.join(available_selectors)}"
+                    )
+
+            # Execute steps
             results = []
             for step in steps:
                 try:
-                    # Safely get step elements with defaults
                     operation = safe_get_text(step.find("operation"))
-                    if not operation:
-                        raise ValueError("Operation is required")
-
                     selector = safe_get_text(step.find("selector"))
                     value = safe_get_text(step.find("value"))
-                    description = safe_get_text(
-                        step.find("description"), "Executing step"
-                    )
+                    description = safe_get_text(step.find("description"))
 
-                    # Log step
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}] Executing: {description}",
-                        conversation_name=self.conversation_name,
-                    )
-
-                    # Take before screenshot
-                    before_screenshot = os.path.join(
-                        self.WORKING_DIRECTORY, f"before_{uuid.uuid4()}.png"
-                    )
-                    await self.page.screenshot(path=before_screenshot, full_page=True)
-                    before_image = os.path.basename(before_screenshot)
-
-                    # Execute step based on operation type
                     if operation == "click":
-                        if not selector:
-                            raise ValueError("Selector required for click operation")
                         await self.page.wait_for_selector(
                             selector, state="visible", timeout=5000
                         )
                         await self.click_element_with_playwright(selector)
                         await self.page.wait_for_load_state("networkidle")
-                        result = f"Clicked element: {selector}"
 
                     elif operation == "fill":
-                        if not selector:
-                            raise ValueError("Selector required for fill operation")
-                        if not value:
-                            raise ValueError("Value required for fill operation")
                         await self.page.wait_for_selector(
                             selector, state="visible", timeout=5000
                         )
                         await self.fill_input_with_playwright(selector, value)
-                        result = f"Filled input {selector} with value: {value}"
 
                     elif operation == "wait":
-                        wait_time = int(value) if value.isdigit() else 2000
-                        await self.page.wait_for_timeout(wait_time)
-                        result = f"Waited for {wait_time}ms"
                         if selector:
                             await self.wait_for_selector_with_playwright(selector)
-                            result += f" and element: {selector}"
+                        else:
+                            wait_time = int(value) if value.isdigit() else 2000
+                            await self.page.wait_for_timeout(wait_time)
 
                     elif operation == "verify":
-                        if not selector:
-                            raise ValueError("Selector required for verify operation")
                         await self.page.wait_for_selector(
                             selector, state="visible", timeout=5000
                         )
-                        result = f"Verified element present: {selector}"
 
-                    else:
-                        raise ValueError(f"Unknown operation: {operation}")
+                    results.append(f"Completed: {description}")
 
-                    # Take after screenshot
-                    after_screenshot = os.path.join(
-                        self.WORKING_DIRECTORY, f"after_{uuid.uuid4()}.png"
-                    )
-                    await self.page.screenshot(path=after_screenshot, full_page=True)
-                    after_image = os.path.basename(after_screenshot)
+                    # After each step, re-check available fields as they may have changed
+                    new_fields = await self.get_form_fields()
+                    new_selectors = []
+                    for line in new_fields.split("\n"):
+                        if "  - " in line:
+                            selector = line.split("  - ")[-1].strip()
+                            new_selectors.append(selector)
 
-                    # Log result with before/after screenshots
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}] Completed: {description}\nResult: {result}\nBefore: ![Before]({self.output_url}/{before_image})\nAfter: ![After]({self.output_url}/{after_image})",
-                        conversation_name=self.conversation_name,
-                    )
-
-                    results.append(result)
+                    available_selectors = new_selectors
 
                 except Exception as step_error:
-                    error_msg = (
-                        f"Error executing step: {description}\nError: {str(step_error)}"
-                    )
+                    error_msg = f"Error in step '{description}': {str(step_error)}"
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
                         message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
-                    raise  # Re-raise to handle in outer try-catch
+                    # Continue with next step rather than aborting
+                    results.append(error_msg)
+                    continue
 
-            return "Successfully completed all interactions:\n" + "\n".join(results)
+            return "Completed interactions:\n" + "\n".join(results)
 
         except Exception as e:
-            error_msg = f"Error during webpage interaction: {str(e)}"
-
-            # Take error screenshot
-            error_screenshot = os.path.join(
-                self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
-            )
-            await self.page.screenshot(path=error_screenshot, full_page=True)
-            error_image = os.path.basename(error_screenshot)
-
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}\n![Error]({self.output_url}/{error_image})",
-                conversation_name=self.conversation_name,
-            )
-
-            return error_msg
+            return f"Error: {str(e)}"
 
     def get_text_safely(self, element) -> str:
         """
