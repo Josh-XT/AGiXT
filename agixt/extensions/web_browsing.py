@@ -1265,6 +1265,7 @@ Page Content:
 
         iteration_count = 0
         overall_results = []
+        max_iterations = 10
 
         while iteration_count < max_iterations:
             iteration_count += 1
