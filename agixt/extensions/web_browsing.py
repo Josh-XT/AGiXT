@@ -98,15 +98,14 @@ class web_browsing(Extensions):
         self.popup = None
 
     async def take_verified_screenshot(
-        self, prefix: str, extra_logging: str = "", element_to_highlight: str = None
+        self, prefix: str, extra_logging: str = ""
     ) -> tuple[str, str]:
         """
-        Take and verify a screenshot, with optional element highlighting
+        Take and verify a screenshot, ensuring it was properly saved
 
         Args:
             prefix: String prefix for the screenshot filename
             extra_logging: Additional context to add to log messages
-            element_to_highlight: Optional CSS selector of element to highlight
 
         Returns:
             tuple: (filename, full_path) if successful, (None, None) if failed
@@ -119,51 +118,30 @@ class web_browsing(Extensions):
             # Wait for network idle
             await self.page.wait_for_load_state("networkidle")
 
-            # Get viewport and layout dimensions
+            # Get page dimensions
             dimensions = await self.page.evaluate(
                 """() => {
                 return {
-                    viewport: {
-                        width: window.innerWidth,
-                        height: window.innerHeight
-                    },
-                    layout: {
-                        width: Math.max(
-                            document.documentElement.scrollWidth,
-                            document.documentElement.clientWidth
-                        ),
-                        height: Math.max(
-                            document.documentElement.scrollHeight,
-                            document.documentElement.clientHeight
-                        )
-                    },
-                    scroll: {
-                        x: window.scrollX,
-                        y: window.scrollY
-                    }
+                    width: Math.max(
+                        document.documentElement.scrollWidth,
+                        document.documentElement.clientWidth
+                    ),
+                    height: Math.max(
+                        document.documentElement.scrollHeight,
+                        document.documentElement.clientHeight
+                    )
                 }
             }"""
             )
 
-            # If highlighting an element, get its position
-            if element_to_highlight:
-                element = await self.page.query_selector(element_to_highlight)
-                if element:
-                    box = await element.bounding_box()
-                    if box:
-                        # Ensure viewport includes element
-                        await element.scroll_into_view_if_needed()
-                        # Set scroll position to show context around element
-                        scroll_y = max(
-                            0, box["y"] - (dimensions["viewport"]["height"] / 4)
-                        )
-                        await self.page.evaluate(f"window.scrollTo(0, {scroll_y});")
+            # Set viewport to match content
+            await self.page.set_viewport_size(
+                {"width": dimensions["width"], "height": dimensions["height"]}
+            )
 
             # Take the screenshot
             await self.page.screenshot(
-                path=full_path,
-                full_page=False,  # Only capture current viewport
-                timeout=10000,
+                path=full_path, full_page=True, timeout=10000  # 10 second timeout
             )
 
             # Verify the screenshot was saved and has content
@@ -175,9 +153,7 @@ class web_browsing(Extensions):
                 raise Exception("Screenshot file is empty")
 
             logging.info(
-                f"Screenshot {filename} ({file_size} bytes) {extra_logging}\n"
-                f"Viewport: {dimensions['viewport']}\n"
-                f"Scroll position: {dimensions['scroll']}"
+                f"Successfully took screenshot {filename} ({file_size} bytes) {extra_logging}"
             )
             return filename, full_path
 
@@ -227,121 +203,33 @@ class web_browsing(Extensions):
             return f"Error: {str(e)}"
 
     async def click_element_with_playwright(self, selector: str) -> str:
-        """Click an element with proper scrolling and focus handling"""
+        """Click an element with screenshot verification"""
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
 
-            current_url = self.page.url
-            logging.info(f"Attempting to click element {selector} on {current_url}")
-
-            # First locate the element
-            element = await self.page.wait_for_selector(
-                selector, state="visible", timeout=5000
-            )
-            if not element:
-                raise Exception(f"Element not found: {selector}")
-
-            # Get element's location
-            element_box = await element.bounding_box()
-            if not element_box:
-                raise Exception(f"Could not get element position for {selector}")
-
-            # Take screenshot of the current view before scrolling
-            pre_scroll_name, _ = await self.take_verified_screenshot(
-                "pre_scroll", f"before scrolling to {selector}"
+            # Take before screenshot
+            before_name, _ = await self.take_verified_screenshot(
+                "pre_click", f"before clicking {selector}"
             )
 
-            # Scroll element into view and get its center
-            await element.scroll_into_view_if_needed()
-            box = await element.bounding_box()
-            center_x = box["x"] + box["width"] / 2
-            center_y = box["y"] + box["height"] / 2
-
-            # Set viewport to ensure element is clearly visible
-            current_viewport = await self.page.viewport_size()
-            if current_viewport:
-                # Calculate viewport to center the element
-                new_scroll = max(0, center_y - (current_viewport["height"] / 2))
-                await self.page.evaluate(f"window.scrollTo(0, {new_scroll});")
-
-                # Wait a moment for scroll to complete
-                await self.page.wait_for_timeout(500)
-
-            # Take screenshot showing the element in view
-            pre_click_name, _ = await self.take_verified_screenshot(
-                "pre_click", f"with {selector} in view"
-            )
-
-            # Highlight element temporarily for screenshot
-            await self.page.evaluate(
-                """(selector) => {
-                const element = document.querySelector(selector);
-                if (element) {
-                    element.style.outline = '2px solid red';
-                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            }""",
-                selector,
-            )
-
-            # Take screenshot with highlight
-            highlight_name, _ = await self.take_verified_screenshot(
-                "highlight", f"with {selector} highlighted"
-            )
-
-            # Remove highlight
-            await self.page.evaluate(
-                """(selector) => {
-                const element = document.querySelector(selector);
-                if (element) {
-                    element.style.outline = '';
-                }
-            }""",
-                selector,
-            )
-
-            # Click the element
-            await element.click()
-
-            # Wait for any navigation or network activity
+            await self.page.click(selector)
             await self.page.wait_for_load_state("networkidle")
 
-            # Take screenshot after click
-            post_click_name, _ = await self.take_verified_screenshot(
+            # Take after screenshot
+            after_name, _ = await self.take_verified_screenshot(
                 "post_click", f"after clicking {selector}"
             )
 
-            # Get new URL in case of navigation
-            new_url = self.page.url
+            msg = f"Clicked element with selector {selector}"
+            if before_name and after_name:
+                msg += f"\n![Before Click]({self.output_url}/{before_name})\n![After Click]({self.output_url}/{after_name})"
 
-            success_msg = (
-                f"Successfully clicked element {selector}\n"
-                f"Started on: [{current_url}]\n"
-                f"Ended on: [{new_url}]\n"
-                f"Element position: x={center_x}, y={center_y}\n"
-                f"Screenshot progression:\n"
-                f"1. Before scrolling: {self.output_url}/{pre_scroll_name}\n"
-                f"2. Element in view: {self.output_url}/{pre_click_name}\n"
-                f"3. Element highlighted: {self.output_url}/{highlight_name}\n"
-                f"4. After click: {self.output_url}/{post_click_name}"
-            )
-
-            logging.info(success_msg)
-            return success_msg
-
+            logging.info(msg)
+            return msg
         except Exception as e:
-            error_msg = f"Error clicking element {selector}: {str(e)}"
-            logging.error(error_msg)
-
-            # Take error screenshot
-            error_name, _ = await self.take_verified_screenshot(
-                "click_error", f"after click error on {selector}"
-            )
-
-            return (
-                f"Error: {error_msg}\nError Screenshot: {self.output_url}/{error_name}"
-            )
+            logging.error(f"Error clicking element {selector}: {str(e)}")
+            return f"Error: {str(e)}"
 
     async def select_option_with_playwright(self, selector: str, value: str) -> str:
         """
