@@ -99,145 +99,149 @@ class web_browsing(Extensions):
 
     async def get_form_fields(self) -> str:
         """
-        Enhanced method to specifically extract form fields with comprehensive selector strategies
+        Enhanced method to detect form fields, handling modern web apps and dynamic content.
         """
         if self.page is None:
             return "Error: No page loaded."
 
-        html_content = await self.page.content()
-        soup = BeautifulSoup(html_content, "html.parser")
-        form_fields = []
+        try:
+            # Wait for network to be idle and page to stabilize
+            await self.page.wait_for_load_state("networkidle", timeout=5000)
 
-        # Helper function to generate multiple possible selectors for an element
-        def generate_selectors(element):
-            selectors = []
+            # Use JavaScript to get all input fields, including those in shadow DOM
+            fields = await self.page.evaluate(
+                """() => {
+                const getAllFields = (root) => {
+                    let elements = [];
+                    
+                    // Get regular form fields
+                    const formFields = root.querySelectorAll('input, select, textarea, button');
+                    elements = [...elements, ...formFields];
+                    
+                    // Get shadow roots
+                    const shadowHosts = root.querySelectorAll('*');
+                    shadowHosts.forEach(host => {
+                        if (host.shadowRoot) {
+                            elements = [...elements, ...getAllFields(host.shadowRoot)];
+                        }
+                    });
+                    
+                    return elements;
+                };
+                
+                const elements = getAllFields(document);
+                return elements.map(el => ({
+                    tagName: el.tagName.toLowerCase(),
+                    type: el.type || '',
+                    id: el.id || '',
+                    name: el.name || '',
+                    className: el.className || '',
+                    placeholder: el.placeholder || '',
+                    value: el.value || '',
+                    isVisible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+                    ariaLabel: el.getAttribute('aria-label') || '',
+                    role: el.getAttribute('role') || '',
+                    dataTestId: el.getAttribute('data-testid') || '',
+                }));
+            }"""
+            )
 
-            # ID-based selector (highest priority)
-            if element.get("id"):
-                selectors.append(f"#{element['id']}")
+            # Process fields into structured description
+            structured_content = []
 
-            # Name-based selectors
-            if element.get("name"):
-                selectors.append(f"[name='{element['name']}']")
-                # Include element type for more specificity
-                if element.get("type"):
-                    selectors.append(
-                        f"{element.name}[name='{element['name']}'][type='{element['type']}']"
-                    )
+            # Group fields by type
+            input_fields = [f for f in fields if f["tagName"] == "input"]
+            select_fields = [f for f in fields if f["tagName"] == "select"]
+            textarea_fields = [f for f in fields if f["tagName"] == "textarea"]
+            button_fields = [
+                f for f in fields if f["tagName"] == "button" or f["type"] == "submit"
+            ]
 
-            # Class-based selectors
-            if element.get("class"):
-                class_selector = ".".join(element["class"])
-                selectors.append(f".{class_selector}")
+            # Process input fields
+            if input_fields:
+                structured_content.append("\nInput Fields:")
+                for field in input_fields:
+                    if not field["isVisible"]:
+                        continue
 
-            # Placeholder-based selector
-            if element.get("placeholder"):
-                selectors.append(f"[placeholder='{element['placeholder']}']")
+                    desc = f"Field: {field['type'] or 'text'}"
+                    selectors = []
 
-            # Data attribute selectors
-            data_attrs = [attr for attr in element.attrs if attr.startswith("data-")]
-            for attr in data_attrs:
-                selectors.append(f"[{attr}='{element[attr]}']")
+                    # Build selectors in order of specificity
+                    if field["id"]:
+                        selectors.append(f"#{field['id']}")
+                    if field["name"]:
+                        selectors.append(f"[name='{field['name']}']")
+                    if field["className"]:
+                        class_names = field["className"].split()
+                        if class_names:
+                            selectors.append("." + ".".join(class_names))
+                    if field["placeholder"]:
+                        selectors.append(f"[placeholder='{field['placeholder']}']")
+                    if field["ariaLabel"]:
+                        selectors.append(f"[aria-label='{field['ariaLabel']}']")
+                    if field["dataTestId"]:
+                        selectors.append(f"[data-testid='{field['dataTestId']}']")
 
-            # Type-specific selectors
-            if element.get("type"):
-                selectors.append(f"{element.name}[type='{element['type']}']")
+                    # Add field attributes to description
+                    if field["name"]:
+                        desc += f" (name: {field['name']})"
+                    if field["placeholder"]:
+                        desc += f" (placeholder: {field['placeholder']})"
+                    if field["ariaLabel"]:
+                        desc += f" (aria-label: {field['ariaLabel']})"
 
-            # Label-based selectors
-            if element.get("id"):
-                label = soup.find("label", attrs={"for": element["id"]})
-                if label and label.string:
-                    selectors.append(f"#{element['id']}")  # Prefer ID when label exists
-
-            return selectors
-
-        for form in soup.find_all("form"):
-            form_info = []
-
-            # Get form identifier
-            form_id = form.get("id", "")
-            form_name = form.get("name", "")
-            form_class = " ".join(form.get("class", []))
-            form_identifier = form_id or form_name or form_class or "unnamed-form"
-
-            form_info.append(f"\nForm: {form_identifier}")
-
-            # Find all input fields, including hidden fields
-            input_fields = form.find_all(["input", "select", "textarea"])
-
-            for field in input_fields:
-                try:
-                    field_type = field.get(
-                        "type", "text" if field.name == "input" else field.name
-                    )
-                    field_name = field.get("name", "")
-                    field_id = field.get("id", "")
-                    placeholder = field.get("placeholder", "")
-
-                    # Get associated label text
-                    label = None
-                    if field_id:
-                        label = soup.find("label", attrs={"for": field_id})
-                    if not label:
-                        # Look for wrapping label
-                        label = field.find_parent("label")
-
-                    label_text = self.get_text_safely(label) if label else ""
-
-                    # Generate all possible selectors
-                    selectors = generate_selectors(field)
-
-                    field_info = {
-                        "type": field_type,
-                        "name": field_name,
-                        "id": field_id,
-                        "placeholder": placeholder,
-                        "label": label_text,
-                        "selectors": selectors,
-                        "required": "required" in field.attrs
-                        or field.get("required") == True,
-                        "readonly": "readonly" in field.attrs
-                        or field.get("readonly") == True,
-                        "disabled": "disabled" in field.attrs
-                        or field.get("disabled") == True,
-                    }
-
-                    # Format field information
-                    desc = f"Field: {field_type}"
-                    if field_name:
-                        desc += f" (name: {field_name})"
-                    if label_text:
-                        desc += f" (label: {label_text})"
-                    if placeholder:
-                        desc += f" (placeholder: {placeholder})"
-                    if field_info["required"]:
-                        desc += " (required)"
-
+                    # Add selectors
                     desc += "\nSelectors (in order of reliability):"
                     for selector in selectors:
                         desc += f"\n  - {selector}"
 
-                    form_info.append(desc)
+                    structured_content.append(desc)
 
-                    # For select elements, list options
-                    if field.name == "select":
-                        options = []
-                        for option in field.find_all("option"):
-                            option_text = self.get_text_safely(option)
-                            option_value = option.get("value", "")
-                            if option_text or option_value:
-                                options.append(f"{option_text} ({option_value})")
-                        if options:
-                            form_info.append("  Options: " + ", ".join(options))
+            # Process buttons
+            if button_fields:
+                structured_content.append("\nButtons:")
+                for button in button_fields:
+                    if not button["isVisible"]:
+                        continue
 
-                except Exception as e:
-                    continue
+                    selectors = []
+                    desc = "Button"
 
-            if form_info:
-                form_fields.extend(form_info)
-                form_fields.append("")  # Add spacing between forms
+                    # Build button selectors
+                    if button["id"]:
+                        selectors.append(f"#{button['id']}")
+                    if button["className"]:
+                        class_names = button["className"].split()
+                        if class_names:
+                            selectors.append("." + ".".join(class_names))
+                    if button["type"] == "submit":
+                        selectors.append("button[type='submit']")
 
-        return "\n".join(form_fields)
+                    # Add button attributes
+                    if button["value"]:
+                        desc += f" (value: {button['value']})"
+                    if button["ariaLabel"]:
+                        desc += f" (aria-label: {button['ariaLabel']})"
+
+                    # Add selectors
+                    desc += "\nSelectors (in order of reliability):"
+                    for selector in selectors:
+                        desc += f"\n  - {selector}"
+
+                    structured_content.append(desc)
+
+            # Format and return content
+            return "\n".join(structured_content)
+
+        except Exception as e:
+            error_msg = f"Error detecting form fields: {str(e)}"
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                conversation_name=self.conversation_name,
+            )
+            return error_msg
 
     async def get_search_results(self, query: str) -> List[dict]:
         """
