@@ -32,7 +32,7 @@ async def search_the_web(
 ):
     auth = MagicalAuth(token=token)
     user = auth.email
-    ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_API"), token=token)
+    ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_API"), api_key=token)
     c = Conversations(conversation_name=conversation_name, user=user)
     conversaton_id = c.get_conversation_id()
     websearch = Websearch(
