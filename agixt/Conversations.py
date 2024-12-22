@@ -404,14 +404,17 @@ class Conversations:
                     "subactivities": [],
                 }
             elif message.content.startswith("[SUBACTIVITY]"):
-                current_activity["subactivities"].append(
-                    {
-                        "id": message.id,
-                        "role": message.role,
-                        "message": message.content,
-                        "timestamp": message.timestamp,
-                    }
-                )
+                if current_activity:
+                    if "subactivities" not in current_activity:
+                        current_activity["subactivities"] = []
+                    current_activity["subactivities"].append(
+                        {
+                            "id": message.id,
+                            "role": message.role,
+                            "message": message.content,
+                            "timestamp": message.timestamp,
+                        }
+                    )
         if current_activity:
             return_activities.append(current_activity)
         session.close()
