@@ -1191,6 +1191,33 @@ Page Content:
             )
             return error_msg
 
+    def extract_valid_selectors(form_fields: str) -> list:
+        """Extract only valid, simple selectors from form fields."""
+        valid_selectors = []
+
+        # Process form fields line by line
+        for line in form_fields.split("\n"):
+            if "  - " in line:  # Lines with selectors start with '  - '
+                selector = line.split("  - ")[-1].strip()
+
+                # Only include simple, valid selectors:
+                # - IDs (#name, #email)
+                # - Basic attributes (button[type='submit'])
+                # - Simple name attributes ([name='email'])
+                # - Simple placeholder attributes ([placeholder='Enter your email'])
+                if (
+                    selector.startswith("#")  # ID selectors
+                    or selector.startswith("[name=")  # Name attributes
+                    or selector.startswith("[placeholder=")  # Placeholder attributes
+                    or (
+                        selector.startswith("button[") and "type=" in selector
+                    )  # Button type selectors
+                    or selector == "button[type='submit']"  # Submit buttons
+                ):
+                    valid_selectors.append(selector)
+
+        return valid_selectors
+
     async def interact_with_webpage(self, url: str, task: str):
         """
         Execute a complex web interaction workflow. This command should be used when:
@@ -1239,12 +1266,20 @@ Page Content:
         for line in form_fields.split("\n"):
             if "  - " in line:  # Lines with selectors start with '  - '
                 selector = line.split("  - ")[-1].strip()
-                available_selectors.append(selector)
-        joined_selectors = ", ".join(available_selectors)
+                if (
+                    selector.startswith("#")  # ID selectors
+                    or selector.startswith("[name=")  # Name attributes
+                    or selector.startswith("[placeholder=")  # Placeholder attributes
+                    or selector == "button[type='submit']"  # Submit buttons
+                ):
+                    available_selectors.append(selector)
+
+        # Join selectors outside of f-string
+        selector_list = ", ".join(available_selectors)
         # Log available selectors for debugging
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Available selectors:\n{joined_selectors}",
+            message=f"[SUBACTIVITY][{self.activity_id}] Available selectors:\n{selector_list}",
             conversation_name=self.conversation_name,
         )
 
@@ -1252,41 +1287,45 @@ Page Content:
 
 URL: {current_url}
 
+AVAILABLE SELECTORS YOU CAN USE (COPY EXACTLY):
+{selector_list}
+
 DETECTED FORM FIELDS:
 {form_fields}
-
-STRICT RULES - READ CAREFULLY:
-1. You may ONLY use selectors that are EXPLICITLY listed above after "Selectors (in order of reliability):"
-2. The exact selectors you can use are: {joined_selectors}
-3. DO NOT invent, modify, or assume any selectors - use them exactly as shown
-4. If a selector you need isn't listed above, you CANNOT use it
-5. Each step must use a selector from the list above
 
 TASK TO COMPLETE:
 {task}
 
-Generate an interaction plan using ONLY the available selectors listed above.
-Put your response in an <answer> tag using this exact format:
+STRICT RULES - READ CAREFULLY:
+1. You may ONLY use selectors that are EXPLICITLY listed above
+2. Do NOT use complex class selectors
+3. Prefer simple selectors like #email, #name, button[type='submit']
+4. Each selector must be COPIED EXACTLY as shown
+5. If a field isn't listed above, you CANNOT use it
 
+YOUR RESPONSE MUST BE IN THIS EXACT FORMAT:
+<answer>
 <interaction>
     <step>
         <operation>click|fill|wait|verify</operation>
-        <selector>COPY EXACT SELECTOR FROM LIST ABOVE</selector>
+        <selector>COPY EXACT SELECTOR FROM AVAILABLE SELECTORS</selector>
         <value>Value if needed</value>
         <description>Human-readable description</description>
     </step>
 </interaction>
+</answer>
 
-Example of CORRECT selector usage:
-If the form fields show:
+Example of CORRECT selectors:
 - #email
-- [name='email']
-Then you can use: <selector>#email</selector> or <selector>[name='email']</selector>
+- #name
+- button[type='submit']
+- [placeholder='Enter your email']
 
-Example of INCORRECT selector usage:
-- Using a selector not in the list: #name (if not listed)
-- Modifying a selector: input#email (if #email was listed)
-- Assuming a selector exists: #password (if not listed)"""
+Example of INCORRECT selectors:
+- Complex class selectors
+- Made up IDs
+- Modified selectors
+- Selectors not in the available list"""
 
         def validate_selector(selector: str, available_selectors: list) -> bool:
             """Validate that a selector is in the available list."""
