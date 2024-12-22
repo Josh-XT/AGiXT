@@ -1252,35 +1252,83 @@ Page Content:
         Returns:
         str: Description of actions taken and results
         """
-        if self.page is None:
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Navigating to [{url}]",
-                conversation_name=self.conversation_name,
-            )
-            await self.navigate_to_url_with_playwright(url=url, headless=True)
-
-            # Take initial screenshot
-            initial_screenshot_name, initial_screenshot_path = (
-                await self.take_verified_screenshot(
-                    "initial_page", f"after navigating to {url}"
+        try:
+            if self.page is None:
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Navigating to [{url}]",
+                    conversation_name=self.conversation_name,
                 )
-            )
+                await self.navigate_to_url_with_playwright(url=url, headless=True)
 
-            # Get and summarize initial page content
-            initial_content = await self.get_page_content()
-            page_summary = self.ApiClient.prompt_agent(
+                # Analyze initial page state
+                initial_content = await self.get_page_content()
+
+                # Get detailed button analysis
+                button_analysis = await self.analyze_button_presence()
+                logging.info(f"Button analysis: {button_analysis}")
+
+                page_summary = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": f"""Please analyze this page content and provide:
+1. Available navigation elements (buttons, links)
+2. Forms and their inputs
+3. Clear step-by-step actions to achieve the task
+
+Current URL: {url}
+Task: {task}
+
+Page Content:
+{initial_content}
+
+Button Analysis:
+{button_analysis}""",
+                        "conversation_name": self.conversation_name,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "tts": False,
+                        "analyze_user_input": False,
+                        "disable_commands": True,
+                        "browse_links": False,
+                        "websearch": False,
+                    },
+                )
+                logging.info(f"Page summary: {page_summary}")
+
+            # Get current state
+            current_url = self.page.url
+            current_content = await self.get_page_content()
+            button_analysis = await self.analyze_button_presence()
+
+            # Request interaction plan
+            interaction_plan = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
-                    "user_input": f"""Please provide a concise summary of this page content that captures:
-1. The main purpose or topic of the page
-2. Any key information, data, or options present
-3. Available interaction elements (forms, buttons, etc.)
-4. Any error messages or important notices
+                    "user_input": f"""Plan the interaction steps for this task. Return ONLY the XML plan inside an <answer> tag.
 
-Page Content:
-{initial_content}""",
+URL: {current_url}
+Task: {task}
+
+Current Page Content:
+{current_content}
+
+Button Analysis:
+{button_analysis}
+
+Return the steps in this format:
+<answer>
+<interaction>
+<step>
+    <operation>click|fill|select</operation>
+    <selector>exact_selector_or_text</selector>
+    <value>optional_value</value>
+    <description>step_description</description>
+</step>
+</interaction>
+</answer>""",
                     "conversation_name": self.conversation_name,
                     "log_user_input": False,
                     "log_output": False,
@@ -1292,113 +1340,105 @@ Page Content:
                 },
             )
 
-            screenshot_msg = (
-                f"\n![Initial Page]({self.output_url}/{initial_screenshot_name})"
-                if initial_screenshot_name
-                else "\nWarning: Failed to take initial screenshot"
-            )
+            # Extract XML content
+            pattern = r"<answer>\s*(.*?)\s*</answer>"
+            match = re.search(pattern, interaction_plan, re.DOTALL)
+            if not match:
+                raise Exception("Could not find valid XML plan in the response")
 
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page [{url}]{screenshot_msg}\n\n{page_summary}",
-                conversation_name=self.conversation_name,
-            )
+            xml_content = match.group(1)
+            logging.info(f"Extracted XML plan: {xml_content}")
 
-        # Build context of the current page state
-        current_page_content = await self.get_page_content()
-        current_url = self.page.url
+            # Parse and validate XML
+            try:
+                root = ET.fromstring(xml_content)
+            except ET.ParseError as e:
+                # Try to fix common XML issues
+                fixed_xml = xml_content.replace("&", "&amp;").replace("<>", "&lt;&gt;")
+                try:
+                    root = ET.fromstring(fixed_xml)
+                except ET.ParseError as e2:
+                    raise Exception(f"Could not parse interaction plan XML: {str(e2)}")
 
-        # Use AI to plan interaction steps
-        interaction_plan = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": f"""Need to interact with a webpage to accomplish the following task:
-
-### Starting URL
-{url}
-
-### Current URL
-{current_url}
-
-### Task to Complete
-{task}
-
-### Page Content
-{current_page_content}
-
-Please analyze the task and provide the necessary interaction steps using the following XML format inside an <answer> block:
-
-<interaction>
-<step>
-    <operation>click|fill|select|wait|verify|screenshot|extract|download</operation>
-    <selector>CSS selector or XPath</selector>
-    <value>Value for fill/select operations if needed</value>
-    <description>Human-readable description of this step's purpose</description>
-    <retry>
-        <alternate_selector>Alternative selector if primary fails</alternate_selector>
-        <fallback_operation>Alternative operation type</fallback_operation>
-        <max_attempts>3</max_attempts>
-    </retry>
-</step>
-</interaction>""",
-                "conversation_name": self.conversation_name,
-                "log_user_input": False,
-                "log_output": False,
-                "tts": False,
-                "analyze_user_input": False,
-                "disable_commands": True,
-                "browse_links": False,
-                "websearch": False,
-            },
-        )
-
-        # Parse and execute interaction steps
-        try:
-            root = ET.fromstring(interaction_plan)
             steps = root.findall(".//step")
-            results = []
+            if not steps:
+                raise Exception("No interaction steps found in the plan")
 
+            results = []
             for step in steps:
-                result = await self.handle_step(step, self.page.url)
-                results.append(result)
-                if "Error" in result:
+                try:
+                    operation = step.find("operation").text
+                    selector = step.find("selector").text
+                    description = step.find("description").text
+                    value = (
+                        step.find("value").text
+                        if step.find("value") is not None
+                        else None
+                    )
+
+                    if not operation or not selector:
+                        continue
+
+                    # Log the step we're about to attempt
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Attempting: {description} on [{current_url}]",
+                        conversation_name=self.conversation_name,
+                    )
+
+                    # Execute the step
+                    if operation == "click":
+                        result = await self.click_element_with_playwright(selector)
+                    elif operation == "fill":
+                        result = await self.fill_input_with_playwright(selector, value)
+                    elif operation == "select":
+                        result = await self.select_option_with_playwright(
+                            selector, value
+                        )
+                    else:
+                        result = f"Unsupported operation: {operation}"
+
+                    results.append(result)
+
+                    # Check for errors
+                    if "Error:" in result:
+                        # Take error screenshot
+                        error_name, _ = await self.take_verified_screenshot(
+                            "operation_error",
+                            f"after error in {operation} on {selector}",
+                        )
+
+                        error_msg = (
+                            f"Step failed: {description}\n"
+                            f"Operation: {operation}\n"
+                            f"Selector: {selector}\n"
+                            f"Error Screenshot: {self.output_url}/{error_name}"
+                        )
+
+                        self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                            conversation_name=self.conversation_name,
+                        )
+                        return "\n".join(results)
+
+                    # Wait for any navigation to complete
+                    await self.page.wait_for_load_state("networkidle")
+
+                    # Update current URL after each step
+                    current_url = self.page.url
+
+                except Exception as step_error:
+                    error_msg = f"Error executing step: {str(step_error)}"
+                    logging.error(error_msg)
+                    results.append(error_msg)
                     return "\n".join(results)
 
-            final_message = "Successfully completed webpage interaction:\n" + "\n".join(
-                results
-            )
-
-            # Take final screenshot
-            screenshot_path = os.path.join(
-                self.WORKING_DIRECTORY, f"final_{uuid.uuid4()}.png"
-            )
-            await self.page.screenshot(path=screenshot_path, full_page=True)
-            final_screenshot = os.path.basename(screenshot_path)
-
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed all web interactions for task: {task} on [{self.page.url}]\n![Final Screenshot]({self.output_url}/{final_screenshot})",
-                conversation_name=self.conversation_name,
-            )
-
-            return final_message
+            return "Successfully completed webpage interaction:\n" + "\n".join(results)
 
         except Exception as e:
             error_msg = f"Error during webpage interaction: {str(e)}"
-
-            # Take error screenshot
-            screenshot_path = os.path.join(
-                self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
-            )
-            await self.page.screenshot(path=screenshot_path, full_page=True)
-            error_screenshot = os.path.basename(screenshot_path)
-
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg} on [{self.page.url}]\n![Error Screenshot]({self.output_url}/{error_screenshot})",
-                conversation_name=self.conversation_name,
-            )
+            logging.error(error_msg)
             return error_msg
 
     def get_text_safely(self, element) -> str:
