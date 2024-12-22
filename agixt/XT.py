@@ -1831,7 +1831,7 @@ class AGiXT:
                             ].split("</answer>")[0]
                             c.log_interaction(
                                 role=self.agent_name,
-                                message=f"[SUBACTIVITY][{thinking_id}] Generated diagram describing thoughts.\n{mermaid_diagram}",
+                                message=f"[SUBACTIVITY][{thinking_id}][DIAGRAM] Generated diagram describing thoughts.\n{mermaid_diagram}",
                             )
                         c.update_message_by_id(
                             message_id=thinking_id,
