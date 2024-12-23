@@ -17,6 +17,7 @@ from DB import (
     get_session,
     UserOAuth,
     OAuthProvider,
+    TaskItem,
 )
 from Providers import Providers
 from Extensions import Extensions
@@ -750,3 +751,55 @@ class Agent:
                 return None
         session.close()
         return agent.id
+
+    def get_conversation_tasks(self, conversation_id: str) -> str:
+        """Get all tasks assigned to an agent"""
+        try:
+            session = get_session()
+            tasks = (
+                session.query(TaskItem)
+                .filter(
+                    TaskItem.agent_id == self.agent_id,
+                    TaskItem.user_id == self.user_id,
+                    TaskItem.completed == False,
+                    TaskItem.memory_collection == conversation_id,
+                )
+                .all()
+            )
+            if not tasks:
+                session.close()
+                return ""
+
+            markdown_tasks = "## The Assistant's Scheduled Tasks\n**The assistant currently has the following tasks scheduled:**\n"
+            for task in tasks:
+                markdown_tasks += (
+                    f"### Task: {task.title}\n"
+                    f"**Description:** {task.description}\n"
+                    f"**Will be completed at:** {task.due_date}\n"
+                    f"**Status:** {task.status}\n"
+                )
+            session.close()
+            return markdown_tasks
+        except Exception as e:
+            logging.error(f"Error getting tasks by agent: {str(e)}")
+            session.close()
+            return ""
+
+    def get_all_pending_tasks(self) -> list:
+        """Get all tasks assigned to an agent"""
+        try:
+            session = get_session()
+            tasks = (
+                session.query(TaskItem)
+                .filter(
+                    TaskItem.agent_id == self.agent_id,
+                    TaskItem.user_id == self.user_id,
+                    TaskItem.completed == False,
+                )
+                .all()
+            )
+            session.close()
+            return tasks
+        except Exception as e:
+            logging.error(f"Error getting tasks by agent: {str(e)}")
+            return []
