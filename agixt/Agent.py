@@ -766,6 +766,9 @@ class Agent:
                 )
                 .all()
             )
+            if not tasks:
+                session.close()
+                return ""
 
             markdown_tasks = "## The Assistant's Scheduled Tasks\n**The assistant currently has the following tasks scheduled:**\n"
             for task in tasks:
@@ -776,6 +779,7 @@ class Agent:
                     f"**Status:** {task.status}\n"
                 )
             session.close()
+            return markdown_tasks
         except Exception as e:
             logging.error(f"Error getting tasks by agent: {str(e)}")
             session.close()
