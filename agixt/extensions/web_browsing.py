@@ -1246,30 +1246,49 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
-        async def find_button_by_text(self, selector: str, button_text: str) -> str:
+        async def find_clickable_by_text(self, text: str) -> str:
             """
-            Find a button that matches both the selector and contains the specified text.
-            Returns a more specific selector that uniquely identifies the button.
+            Find a clickable element containing the specified text.
+            Tries multiple selector strategies.
             """
-            if not button_text:
-                return selector
+            if not text:
+                return None
 
+            text_lower = text.lower()
             try:
-                elements = await self.page.query_selector_all(selector)
-                for element in elements:
-                    text = await element.text_content()
-                    if text and button_text.lower() in text.lower():
-                        # Try to get unique attributes for a more specific selector
-                        for attr in ["aria-label", "id", "name", "data-testid"]:
-                            attr_value = await element.get_attribute(attr)
-                            if attr_value:
-                                if attr == "id":
-                                    return f"#{attr_value}"
-                                return f'{selector}[{attr}="{attr_value}"]'
-                        return selector
+                # List of selector strategies to try
+                strategies = [
+                    "button",
+                    '[role="button"]',
+                    "a",
+                    '[type="submit"]',
+                    '[type="button"]',
+                ]
+
+                for base_selector in strategies:
+                    elements = await self.page.query_selector_all(base_selector)
+                    for element in elements:
+                        # Check visible text content
+                        element_text = await element.text_content()
+                        if element_text and text_lower in element_text.lower():
+                            # Try to get unique identifier
+                            for attr in ["id", "data-testid", "name", "aria-label"]:
+                                value = await element.get_attribute(attr)
+                                if value:
+                                    if attr == "id":
+                                        return f"#{value}"
+                                    return f'{base_selector}[{attr}="{value}"]'
+                            # If no unique identifier, return basic selector
+                            return base_selector
+
+                # Try finding by aria-label if direct text match failed
+                elements = await self.page.query_selector_all(f'[aria-label*="{text}"]')
+                if elements:
+                    return f'[aria-label*="{text}"]'
+
             except Exception as e:
-                logging.error(f"Error in find_button_by_text: {str(e)}")
-            return selector
+                logging.error(f"Error in find_clickable_by_text: {str(e)}")
+            return None
 
         def is_valid_selector(selector: str) -> bool:
             """
@@ -1290,10 +1309,15 @@ Page Content:
                 r"^#[\w-]+$",  # Simple IDs
                 r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
                 r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
+                r"^button$",  # any button
                 r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
                 r'^button\[type=[\'"](submit|button)[\'"]?\]\[[\w-]+=[\'"][^\'"]+[\'"]?\]$',  # buttons with additional attributes
                 r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
                 r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # Simple link hrefs
+                r'^\[role=[\'"]button[\'"]?\]$',  # ARIA button role
+                r'^\[aria-label=[\'"][^\'"]+[\'"]?\]$',  # aria-label
+                r'^\[data-testid=[\'"][^\'"]+[\'"]?\]$',  # data-testid
+                r'^\[aria-label\*=[\'"][^\'"]+[\'"]?\]$',  # partial aria-label match
             ]
 
             return any(re.match(pattern, selector) for pattern in valid_patterns)
@@ -1301,7 +1325,6 @@ Page Content:
         def is_repeat_failure(step, attempt_history, window=3):
             """
             Check if this step was recently attempted and failed.
-            Only looks at the last 'window' attempts.
             """
             operation = safe_get_text(step.find("operation")).lower()
             selector = safe_get_text(step.find("selector"))
@@ -1360,47 +1383,47 @@ Page Content:
             # Create planning context
             planning_context = f"""Current webpage state:
 
-    TASK TO COMPLETE: {task}
+TASK TO COMPLETE: {task}
 
-    CURRENT URL: {current_url}
-    URL CHANGED: {url_changed}
+CURRENT URL: {current_url}
+URL CHANGED: {url_changed}
 
-    AVAILABLE SELECTORS (ONLY these may be used):
-    {os.linesep.join(available_selectors)}
+AVAILABLE SELECTORS (ONLY these may be used):
+{os.linesep.join(available_selectors)}
 
-    FORM FIELDS AND INTERACTIVE ELEMENTS:
-    {form_fields}
+FORM FIELDS AND INTERACTIVE ELEMENTS:
+{form_fields}
 
-    CURRENT PAGE CONTENT:
-    {current_page_content}
+CURRENT PAGE CONTENT:
+{current_page_content}
 
-    PREVIOUS ATTEMPTS AND OUTCOMES:
-    {os.linesep.join(attempt_history)}
+PREVIOUS ATTEMPTS AND OUTCOMES:
+{os.linesep.join(attempt_history)}
 
-    STRICT RULES:
-    1. You may ONLY use selectors that are EXPLICITLY listed above
-    2. Do NOT use complex class selectors
-    3. Each selector must be COPIED EXACTLY as shown
-    4. If a needed element isn't available yet, use 'wait'
-    5. Do NOT use selectors containing ':', '|', or special characters
-    6. When clicking a button, you can specify its text in the 'value' field
+STRICT RULES:
+1. You may ONLY use selectors that are EXPLICITLY listed above
+2. Do NOT use complex class selectors
+3. Each selector must be COPIED EXACTLY as shown
+4. If a needed element isn't available yet, use 'wait'
+5. Do NOT use selectors containing ':', '|', or special characters
+6. When clicking, you can specify the element's text in the 'value' field
 
-    IMPORTANT INSTRUCTIONS:
-    1. Provide ONLY ONE STEP that moves us toward the goal
-    2. If you can't find a needed element, use 'wait'
-    3. If you've waited multiple times and still can't proceed, explain why
-    4. If the task is complete, use 'done'
-    5. For buttons, you can specify the button's text in the value field to help identify it
+IMPORTANT INSTRUCTIONS:
+1. Provide ONLY ONE STEP that moves us toward the goal
+2. If you can't find a needed element, use 'wait'
+3. If you've waited multiple times and still can't proceed, explain why
+4. If the task is complete, use 'done'
+5. For clickable elements, specify the exact text in the value field
 
-    YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
-    <interaction>
-        <step>
-            <operation>click|fill|wait|verify|done</operation>
-            <selector>EXACT selector from available fields</selector>
-            <value>Button text or input value</value>
-            <description>How this step helps accomplish the task</description>
-        </step>
-    </interaction>"""
+YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
+<interaction>
+    <step>
+        <operation>click|fill|wait|verify|done</operation>
+        <selector>EXACT selector from available fields</selector>
+        <value>Text content for clicks, or input value</value>
+        <description>How this step helps accomplish the task</description>
+    </step>
+</interaction>"""
 
             try:
                 # Get next step from LLM
@@ -1435,14 +1458,21 @@ Page Content:
                 value = safe_get_text(step.find("value"))
                 description = safe_get_text(step.find("description"))
 
-                # Validate the selector before proceeding
+                # For click operations, try to find element by text first
+                if operation == "click" and value:
+                    specific_selector = await find_clickable_by_text(self, value)
+                    if specific_selector:
+                        selector = specific_selector
+                        logging.info(f"Found clickable element by text: {selector}")
+
+                # Validate the selector
                 if operation != "done" and not is_valid_selector(selector):
                     error_msg = (
                         f"Invalid selector '{selector}'. Waiting for valid selectors..."
                     )
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
                     attempt_history.append(error_msg)
@@ -1461,24 +1491,11 @@ Page Content:
                     )
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
                     attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
                     continue
-
-                # If this is a button click, try to find by text content
-                if operation == "click" and selector == "button[type='submit']":
-                    button_text = value or description
-                    if button_text:
-                        specific_selector = await find_button_by_text(
-                            self, selector, button_text
-                        )
-                        if specific_selector != selector:
-                            selector = specific_selector
-                            logging.info(
-                                f"Found more specific button selector: {selector}"
-                            )
 
                 # Record this attempt before execution
                 attempt_record = f"Step {iteration_count}: {operation} on '{selector}' with value '{value}' - {description}"
@@ -1507,7 +1524,7 @@ Page Content:
                     2. The page might need time to load
                     3. A different selector might be needed
                     4. The operation might need to be different
-                    5. For buttons, try specifying the button text in the value field
+                    5. For clickable elements, try specifying the exact text
                     """
                     attempt_history.append(error_context)
 
