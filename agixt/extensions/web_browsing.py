@@ -1246,14 +1246,43 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
-        def is_repeat_failure(new_step, attempt_history):
-            """Check if this step was recently attempted and failed."""
-            operation = safe_get_text(new_step.find("operation")).lower()
-            selector = safe_get_text(new_step.find("selector"))
-            value = safe_get_text(new_step.find("value"))
+        def is_valid_selector(selector: str) -> bool:
+            """
+            Validate if a selector is stable and usable.
+            """
+            if not selector:
+                return False
 
-            # Look at last 3 attempts
-            recent_attempts = attempt_history[-3:]
+            # Reject selectors with dynamic-looking patterns
+            if any(char in selector for char in ":|"):
+                return False
+
+            if re.search(r"[rR]adix-|[rR]eact-|__next|:[A-Za-z0-9]", selector):
+                return False
+
+            # Allow only simple, stable selectors
+            valid_patterns = [
+                r"^#[\w-]+$",  # Simple IDs
+                r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
+                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
+                r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
+                r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
+                r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # Simple link hrefs
+            ]
+
+            return any(re.match(pattern, selector) for pattern in valid_patterns)
+
+        def is_repeat_failure(step, attempt_history, window=3):
+            """
+            Check if this step was recently attempted and failed.
+            Only looks at the last 'window' attempts.
+            """
+            operation = safe_get_text(step.find("operation")).lower()
+            selector = safe_get_text(step.find("selector"))
+            value = safe_get_text(step.find("value"))
+
+            # Look at last N attempts
+            recent_attempts = attempt_history[-window:]
             for attempt in recent_attempts:
                 if f"{operation} on '{selector}'" in attempt and (
                     "Error" in attempt or "fail" in attempt.lower()
@@ -1261,34 +1290,7 @@ Page Content:
                     return True
             return False
 
-        def is_valid_selector(selector: str) -> bool:
-            """
-            Validate if a selector is stable and usable.
-            Rejects dynamic IDs and complex selectors.
-            """
-            if not selector:
-                return False
-
-            # Reject selectors with special characters that might be dynamic
-            if any(char in selector for char in ":|"):
-                return False
-
-            # Reject obviously dynamic React/framework IDs
-            if re.search(r"[rR]adix-|[rR]eact-|__next|:[A-Za-z0-9]", selector):
-                return False
-
-            # Only allow simple, stable selectors
-            valid_patterns = [
-                r"^#[\w-]+$",  # Simple IDs
-                r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
-                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
-                r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
-                r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
-            ]
-
-            return any(re.match(pattern, selector) for pattern in valid_patterns)
-
-        # Initialize browser if needed and navigate to URL
+        # Initialize browser if needed
         if not url.startswith("http"):
             url = "https://" + url
 
@@ -1305,7 +1307,7 @@ Page Content:
         results = []
         last_url = None
         attempt_history = []
-        primary_goal = task  # Store the original task
+        primary_goal = task
 
         while iteration_count < max_iterations:
             iteration_count += 1
@@ -1328,19 +1330,18 @@ Page Content:
                         available_selectors.append(sel)
 
             if not available_selectors:
-                # If no valid selectors found, wait briefly and retry
                 await self.page.wait_for_timeout(2000)
                 continue
 
             # Log current state
             state_msg = f"""Iteration {iteration_count}
-    URL: {current_url}
-    URL Changed: {url_changed}
-    Available Selectors:
-    {os.linesep.join(available_selectors)}
+URL: {current_url}
+URL Changed: {url_changed}
+Available Selectors:
+{os.linesep.join(available_selectors)}
 
-    Form Fields:
-    {form_fields}"""
+Form Fields:
+{form_fields}"""
 
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
@@ -1348,18 +1349,18 @@ Page Content:
                 conversation_name=self.conversation_name,
             )
 
-            # Create planning context with attempt history and strong goal focus
+            # Create planning context
             planning_context = f"""Current webpage state:
 
-PRIMARY GOAL: {primary_goal}
-Focus ONLY on completing this goal. Ignore any unrelated UI elements or options.
+TASK TO COMPLETE: {primary_goal}
 
-CURRENT PAGE URL: {current_url}
+CURRENT URL: {current_url}
+URL CHANGED: {url_changed}
 
 AVAILABLE SELECTORS (ONLY these may be used):
 {os.linesep.join(available_selectors)}
 
-DETECTED FORM FIELDS:
+FORM FIELDS AND INTERACTIVE ELEMENTS:
 {form_fields}
 
 CURRENT PAGE CONTENT:
@@ -1368,20 +1369,19 @@ CURRENT PAGE CONTENT:
 PREVIOUS ATTEMPTS AND OUTCOMES:
 {os.linesep.join(attempt_history)}
 
-STRICT RULES - READ CAREFULLY:
-1. You may ONLY use selectors from the available list above
-2. Stay focused on the primary goal - ignore unrelated UI elements
+STRICT RULES:
+1. You may ONLY use selectors that are EXPLICITLY listed above
+2. Do NOT use complex class selectors
 3. Each selector must be COPIED EXACTLY as shown
-4. If a needed field isn't available, use 'wait'
-5. DO NOT try to use dynamic selectors containing ':', '|', or special characters
-6. DO NOT interact with theme toggles, language switches, or other auxiliary UI unless specifically part of the goal
+4. If a needed element isn't available yet, use 'wait'
+5. Do NOT use selectors containing ':', '|', or special characters
+6. Focus on elements that help accomplish the task
 
 IMPORTANT INSTRUCTIONS:
-1. Provide ONLY ONE STEP that directly progresses toward the PRIMARY GOAL
-2. If you can't find a valid selector for a needed element, use 'wait'
+1. Provide ONLY ONE STEP that moves us toward the goal
+2. If you can't find a needed element, use 'wait'
 3. If you've waited multiple times and still can't proceed, explain why
-4. If the PRIMARY GOAL is complete, use 'done'
-5. DO NOT get distracted by auxiliary UI elements
+4. If the task is complete, use 'done'
 
 YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 <interaction>
@@ -1389,11 +1389,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
         <operation>click|fill|wait|verify|done</operation>
         <selector>EXACT selector from available fields</selector>
         <value>Value if needed</value>
-        <description>Human-readable description of how this advances the PRIMARY GOAL</description>
-        <retry>
-            <alternate_selector>Alternative if primary fails</alternate_selector>
-            <max_attempts>3</max_attempts>
-        </retry>
+        <description>How this step helps accomplish the task</description>
     </step>
 </interaction>"""
 
@@ -1491,7 +1487,6 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     2. The page might need time to load
                     3. A different selector might be needed
                     4. The operation might need to be different
-                    Remember to stay focused on the PRIMARY GOAL: {primary_goal}
                     """
                     attempt_history.append(error_context)
 
@@ -1513,7 +1508,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 )
 
             except Exception as e:
-                error_msg = f"Error on iteration {iteration_count}\n{str(e)}"
+                error_msg = f"Error on iteration {iteration_count}: {str(e)}"
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
                     message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
