@@ -160,28 +160,23 @@ class agixt_actions(Extensions):
         self.commands = {
             "Think Deeply": self.think_deeply,
             "Run Data Analysis": self.run_data_analysis,
-            "Create Task Chain": self.create_task_chain,
+            "Schedule Follow Up with User": self.schedule_follow_up,
+            "Update Scheduled Task": self.modify_task,
+            "Store information in my long term memory": self.store_long_term_memory,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
-            "Generate Agent Helper Chain": self.generate_helper_chain,
             "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
             "Execute Python Code": self.execute_python_code_internal,
             "Get Python Code from Response": self.get_python_code_from_response,
             "Get Mindmap for task to break it down": self.get_mindmap,
-            "Store information in my long term memory": self.store_long_term_memory,
             "Research on arXiv": self.search_arxiv,
-            "Read GitHub Repository into long term memory": self.read_github_repository,
-            "Read Website Content into long term memory": self.write_website_to_memory,
-            "Read non-image file content into long term memory": self.read_file_content,
             "Make CSV Code Block": self.make_csv_code_block,
             "Get CSV Preview": self.get_csv_preview,
             "Get CSV Preview Text": self.get_csv_preview_text,
             "Strip CSV Data from Code Block": self.get_csv_from_response,
             "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
             "Disable Command": self.disable_command,
-            "Plan Multistep Task": self.plan_multistep_task,
             "Replace init in File": self.replace_init_in_file,
             "Explain Chain": self.chain_to_mermaid,
-            "Schedule Follow Up with User": self.schedule_follow_up,
             "Get Datetime": self.get_datetime,
         }
         self.command_name = (
@@ -367,6 +362,45 @@ class agixt_actions(Extensions):
 
         return f"Scheduled follow-up task {task_id} for {due_date.strftime('%Y-%m-%d %H:%M:%S')}"
 
+    async def modify_task(
+        self,
+        task_id: str,
+        title: str = None,
+        description: str = None,
+        due_date: str = None,
+        estimated_hours: str = None,
+        priority: str = None,
+        cancel_task: str = "false",
+    ):
+        """
+        Modify an existing task with new information.
+
+        Args:
+        task_id (str): The ID of the task to modify
+        title (str): The new title of the task
+        description (str): The new description of the task
+        due_date (datetime.datetime): The new due date of the task
+        estimated_hours (int): The new estimated hours to complete the task
+        priority (int): The new priority of the task
+        cancel_task (bool): Whether to cancel the task
+
+        Returns:
+        str: Success message
+        """
+        # Initialize task manager with the current token
+        task_manager = Task(token=self.api_key)
+        if str(cancel_task).lower() == "true":
+            return await task_manager.delete_task(task_id)
+        # Update the task
+        return await task_manager.update_task(
+            task_id=task_id,
+            title=title,
+            description=description,
+            due_date=due_date,
+            estimated_hours=estimated_hours,
+            priority=priority,
+        )
+
     async def read_file_content(self, file_path: str):
         """
         Read the content of a file and store it in long term memory
@@ -420,6 +454,7 @@ class agixt_actions(Extensions):
             agent_name=self.agent_name,
             user_input=input,
             text=data_to_correlate_with_input,
+            collection_number=self.conversation_id,
         )
 
     async def search_arxiv(self, query: str, max_articles: int = 5):

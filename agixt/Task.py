@@ -196,6 +196,9 @@ class Task:
         """Update a task's details"""
         session = get_session()
         task = session.query(TaskItem).get(task_id)
+        if not task:
+            session.close()
+            return "Task not found"
         if task and task.user_id == self.user_id:
             if title is not None:
                 task.title = title
@@ -214,15 +217,20 @@ class Task:
                     task.completed_at = datetime.datetime.now()
             session.commit()
         session.close()
+        return "Task updated successfully"
 
     async def delete_task(self, task_id: str):
         """Delete a task"""
         session = get_session()
         task = session.query(TaskItem).get(task_id)
+        if not task:
+            session.close()
+            return "Task not found"
         if task and task.user_id == self.user_id:
             session.delete(task)
             session.commit()
         session.close()
+        return "Task deleted successfully"
 
     async def start_task_monitor(self, check_interval: int = 60):
         """Start monitoring for pending tasks
