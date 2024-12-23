@@ -1246,6 +1246,31 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
+        async def find_button_by_text(self, selector: str, button_text: str) -> str:
+            """
+            Find a button that matches both the selector and contains the specified text.
+            Returns a more specific selector that uniquely identifies the button.
+            """
+            if not button_text:
+                return selector
+
+            try:
+                elements = await self.page.query_selector_all(selector)
+                for element in elements:
+                    text = await element.text_content()
+                    if text and button_text.lower() in text.lower():
+                        # Try to get unique attributes for a more specific selector
+                        for attr in ["aria-label", "id", "name", "data-testid"]:
+                            attr_value = await element.get_attribute(attr)
+                            if attr_value:
+                                if attr == "id":
+                                    return f"#{attr_value}"
+                                return f'{selector}[{attr}="{attr_value}"]'
+                        return selector
+            except Exception as e:
+                logging.error(f"Error in find_button_by_text: {str(e)}")
+            return selector
+
         def is_valid_selector(selector: str) -> bool:
             """
             Validate if a selector is stable and usable.
@@ -1266,6 +1291,7 @@ Page Content:
                 r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
                 r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
                 r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
+                r'^button\[type=[\'"](submit|button)[\'"]?\]\[[\w-]+=[\'"][^\'"]+[\'"]?\]$',  # buttons with additional attributes
                 r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
                 r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # Simple link hrefs
             ]
@@ -1281,7 +1307,6 @@ Page Content:
             selector = safe_get_text(step.find("selector"))
             value = safe_get_text(step.find("value"))
 
-            # Look at last N attempts
             recent_attempts = attempt_history[-window:]
             for attempt in recent_attempts:
                 if f"{operation} on '{selector}'" in attempt and (
@@ -1307,7 +1332,6 @@ Page Content:
         results = []
         last_url = None
         attempt_history = []
-        primary_goal = task
 
         while iteration_count < max_iterations:
             iteration_count += 1
@@ -1333,65 +1357,50 @@ Page Content:
                 await self.page.wait_for_timeout(2000)
                 continue
 
-            # Log current state
-            state_msg = f"""Iteration {iteration_count}
-URL: {current_url}
-URL Changed: {url_changed}
-Available Selectors:
-{os.linesep.join(available_selectors)}
-
-Form Fields:
-{form_fields}"""
-
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] {state_msg}",
-                conversation_name=self.conversation_name,
-            )
-
             # Create planning context
             planning_context = f"""Current webpage state:
 
-TASK TO COMPLETE: {primary_goal}
+    TASK TO COMPLETE: {task}
 
-CURRENT URL: {current_url}
-URL CHANGED: {url_changed}
+    CURRENT URL: {current_url}
+    URL CHANGED: {url_changed}
 
-AVAILABLE SELECTORS (ONLY these may be used):
-{os.linesep.join(available_selectors)}
+    AVAILABLE SELECTORS (ONLY these may be used):
+    {os.linesep.join(available_selectors)}
 
-FORM FIELDS AND INTERACTIVE ELEMENTS:
-{form_fields}
+    FORM FIELDS AND INTERACTIVE ELEMENTS:
+    {form_fields}
 
-CURRENT PAGE CONTENT:
-{current_page_content}
+    CURRENT PAGE CONTENT:
+    {current_page_content}
 
-PREVIOUS ATTEMPTS AND OUTCOMES:
-{os.linesep.join(attempt_history)}
+    PREVIOUS ATTEMPTS AND OUTCOMES:
+    {os.linesep.join(attempt_history)}
 
-STRICT RULES:
-1. You may ONLY use selectors that are EXPLICITLY listed above
-2. Do NOT use complex class selectors
-3. Each selector must be COPIED EXACTLY as shown
-4. If a needed element isn't available yet, use 'wait'
-5. Do NOT use selectors containing ':', '|', or special characters
-6. Focus on elements that help accomplish the task
+    STRICT RULES:
+    1. You may ONLY use selectors that are EXPLICITLY listed above
+    2. Do NOT use complex class selectors
+    3. Each selector must be COPIED EXACTLY as shown
+    4. If a needed element isn't available yet, use 'wait'
+    5. Do NOT use selectors containing ':', '|', or special characters
+    6. When clicking a button, you can specify its text in the 'value' field
 
-IMPORTANT INSTRUCTIONS:
-1. Provide ONLY ONE STEP that moves us toward the goal
-2. If you can't find a needed element, use 'wait'
-3. If you've waited multiple times and still can't proceed, explain why
-4. If the task is complete, use 'done'
+    IMPORTANT INSTRUCTIONS:
+    1. Provide ONLY ONE STEP that moves us toward the goal
+    2. If you can't find a needed element, use 'wait'
+    3. If you've waited multiple times and still can't proceed, explain why
+    4. If the task is complete, use 'done'
+    5. For buttons, you can specify the button's text in the value field to help identify it
 
-YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
-<interaction>
-    <step>
-        <operation>click|fill|wait|verify|done</operation>
-        <selector>EXACT selector from available fields</selector>
-        <value>Value if needed</value>
-        <description>How this step helps accomplish the task</description>
-    </step>
-</interaction>"""
+    YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
+    <interaction>
+        <step>
+            <operation>click|fill|wait|verify|done</operation>
+            <selector>EXACT selector from available fields</selector>
+            <value>Button text or input value</value>
+            <description>How this step helps accomplish the task</description>
+        </step>
+    </interaction>"""
 
             try:
                 # Get next step from LLM
@@ -1423,6 +1432,8 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 step = steps[0]  # Only take the first step
                 operation = safe_get_text(step.find("operation")).lower()
                 selector = safe_get_text(step.find("selector"))
+                value = safe_get_text(step.find("value"))
+                description = safe_get_text(step.find("description"))
 
                 # Validate the selector before proceeding
                 if operation != "done" and not is_valid_selector(selector):
@@ -1431,7 +1442,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     )
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
                     attempt_history.append(error_msg)
@@ -1450,15 +1461,24 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     )
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
                     attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
                     continue
 
-                # Execute the single step
-                value = safe_get_text(step.find("value"))
-                description = safe_get_text(step.find("description"))
+                # If this is a button click, try to find by text content
+                if operation == "click" and selector == "button[type='submit']":
+                    button_text = value or description
+                    if button_text:
+                        specific_selector = await find_button_by_text(
+                            self, selector, button_text
+                        )
+                        if specific_selector != selector:
+                            selector = specific_selector
+                            logging.info(
+                                f"Found more specific button selector: {selector}"
+                            )
 
                 # Record this attempt before execution
                 attempt_record = f"Step {iteration_count}: {operation} on '{selector}' with value '{value}' - {description}"
@@ -1487,6 +1507,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     2. The page might need time to load
                     3. A different selector might be needed
                     4. The operation might need to be different
+                    5. For buttons, try specifying the button text in the value field
                     """
                     attempt_history.append(error_context)
 
