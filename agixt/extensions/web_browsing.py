@@ -1229,13 +1229,11 @@ Page Content:
         """
 
         def safe_get_text(element, default="") -> str:
-            """Safely get XML element text."""
             if element is None or element.text is None:
                 return default
             return element.text.strip()
 
         def extract_interaction_block(response: str) -> str:
-            """Extract and clean the <interaction> XML block."""
             match = re.search(r"<interaction>.*?</interaction>", response, re.DOTALL)
             if not match:
                 raise ValueError("No <interaction> block found in response.")
@@ -1246,89 +1244,29 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
-        async def find_clickable_by_text(self, text: str) -> str:
-            """
-            Find a clickable element containing the specified text.
-            Tries multiple selector strategies.
-            """
-            if not text:
-                return None
-
-            text_lower = text.lower()
-            try:
-                # List of selector strategies to try
-                strategies = [
-                    "button",
-                    '[role="button"]',
-                    "a",
-                    '[type="submit"]',
-                    '[type="button"]',
-                ]
-
-                for base_selector in strategies:
-                    elements = await self.page.query_selector_all(base_selector)
-                    for element in elements:
-                        # Check visible text content
-                        element_text = await element.text_content()
-                        if element_text and text_lower in element_text.lower():
-                            # Try to get unique identifier
-                            for attr in ["id", "data-testid", "name", "aria-label"]:
-                                value = await element.get_attribute(attr)
-                                if value:
-                                    if attr == "id":
-                                        return f"#{value}"
-                                    return f'{base_selector}[{attr}="{value}"]'
-                            # If no unique identifier, return basic selector
-                            return base_selector
-
-                # Try finding by aria-label if direct text match failed
-                elements = await self.page.query_selector_all(f'[aria-label*="{text}"]')
-                if elements:
-                    return f'[aria-label*="{text}"]'
-
-            except Exception as e:
-                logging.error(f"Error in find_clickable_by_text: {str(e)}")
-            return None
-
         def is_valid_selector(selector: str) -> bool:
-            """
-            Validate if a selector is stable and usable.
-            """
             if not selector:
                 return False
 
-            # Reject selectors with dynamic-looking patterns
-            if any(char in selector for char in ":|"):
-                return False
-
+            # Reject dynamic patterns
             if re.search(r"[rR]adix-|[rR]eact-|__next|:[A-Za-z0-9]", selector):
                 return False
 
-            # Allow only simple, stable selectors
+            # Basic selector patterns
             valid_patterns = [
-                r"^#[\w-]+$",  # Simple IDs
-                r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
-                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
-                r"^button$",  # any button
+                r"^#[\w-]+$",  # IDs
+                r'^\[name=[\'"]\w+[\'"]?\]$',  # names
+                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholders
                 r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
-                r'^button\[type=[\'"](submit|button)[\'"]?\]\[[\w-]+=[\'"][^\'"]+[\'"]?\]$',  # buttons with additional attributes
                 r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
-                r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # Simple link hrefs
-                r'^\[role=[\'"]button[\'"]?\]$',  # ARIA button role
-                r'^\[aria-label=[\'"][^\'"]+[\'"]?\]$',  # aria-label
-                r'^\[data-testid=[\'"][^\'"]+[\'"]?\]$',  # data-testid
-                r'^\[aria-label\*=[\'"][^\'"]+[\'"]?\]$',  # partial aria-label match
+                r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
             ]
 
             return any(re.match(pattern, selector) for pattern in valid_patterns)
 
         def is_repeat_failure(step, attempt_history, window=3):
-            """
-            Check if this step was recently attempted and failed.
-            """
             operation = safe_get_text(step.find("operation")).lower()
             selector = safe_get_text(step.find("selector"))
-            value = safe_get_text(step.find("value"))
 
             recent_attempts = attempt_history[-window:]
             for attempt in recent_attempts:
@@ -1343,11 +1281,6 @@ Page Content:
             url = "https://" + url
 
         if self.page is None:
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Navigating to [{url}]",
-                conversation_name=self.conversation_name,
-            )
             await self.navigate_to_url_with_playwright(url=url, headless=True)
 
         max_iterations = 10
@@ -1359,12 +1292,10 @@ Page Content:
         while iteration_count < max_iterations:
             iteration_count += 1
             current_url = self.page.url
-
-            # Check if page has changed
             url_changed = current_url != last_url
             last_url = current_url
 
-            # Always get fresh page content and form fields
+            # Get fresh page state
             current_page_content = await self.get_page_content()
             form_fields = await self.get_form_fields()
 
@@ -1402,18 +1333,15 @@ PREVIOUS ATTEMPTS AND OUTCOMES:
 
 STRICT RULES:
 1. You may ONLY use selectors that are EXPLICITLY listed above
-2. Do NOT use complex class selectors
-3. Each selector must be COPIED EXACTLY as shown
-4. If a needed element isn't available yet, use 'wait'
-5. Do NOT use selectors containing ':', '|', or special characters
-6. When clicking, you can specify the element's text in the 'value' field
+2. Each selector must be COPIED EXACTLY as shown
+3. If a needed element isn't available yet, use 'wait'
+4. If "Continue with Email" button is needed, use button[type='submit']
 
 IMPORTANT INSTRUCTIONS:
-1. Provide ONLY ONE STEP that moves us toward the goal
+1. Provide ONE STEP that moves us toward the goal
 2. If you can't find a needed element, use 'wait'
 3. If you've waited multiple times and still can't proceed, explain why
 4. If the task is complete, use 'done'
-5. For clickable elements, specify the exact text in the value field
 
 YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 <interaction>
@@ -1458,25 +1386,13 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 value = safe_get_text(step.find("value"))
                 description = safe_get_text(step.find("description"))
 
-                # For click operations, try to find element by text first
-                if operation == "click" and value:
-                    specific_selector = await find_clickable_by_text(self, value)
-                    if specific_selector:
-                        selector = specific_selector
-                        logging.info(f"Found clickable element by text: {selector}")
-
                 # Validate the selector
                 if operation != "done" and not is_valid_selector(selector):
                     error_msg = (
                         f"Invalid selector '{selector}'. Waiting for valid selectors..."
                     )
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
-                        conversation_name=self.conversation_name,
-                    )
-                    attempt_history.append(error_msg)
                     await self.page.wait_for_timeout(2000)
+                    attempt_history.append(error_msg)
                     continue
 
                 # Check for completion
@@ -1489,18 +1405,13 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     error_msg = (
                         "Preventing repeated failed action. Need a different approach."
                     )
-                    self.ApiClient.new_conversation_message(
-                        role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
-                        conversation_name=self.conversation_name,
-                    )
                     attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
                     continue
 
                 # Record this attempt before execution
                 attempt_record = f"Step {iteration_count}: {operation} on '{selector}' with value '{value}' - {description}"
 
-                # Additional wait for element stability
+                # Wait for element stability
                 if operation in ["click", "fill"]:
                     try:
                         await self.page.wait_for_selector(selector, timeout=5000)
@@ -1509,6 +1420,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                         attempt_history.append(attempt_record)
                         continue
 
+                # Execute the step
                 step_result = await self.handle_step(step, current_url)
 
                 # Record the outcome
@@ -1516,15 +1428,14 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 attempt_history.append(attempt_record)
                 results.append(step_result)
 
-                # If the step failed, add additional context about why
+                # If the step failed, add context
                 if "Error" in step_result or "fail" in step_result.lower():
-                    error_context = f"""
+                    error_context = """
                     This step failed. Consider:
-                    1. The selector might not be visible or accessible
+                    1. The selector might not be visible
                     2. The page might need time to load
                     3. A different selector might be needed
                     4. The operation might need to be different
-                    5. For clickable elements, try specifying the exact text
                     """
                     attempt_history.append(error_context)
 
@@ -1532,7 +1443,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 await self.page.wait_for_load_state("networkidle", timeout=5000)
                 await self.page.wait_for_timeout(1000)
 
-                # Take a screenshot after step
+                # Take a screenshot
                 screenshot_path = os.path.join(
                     self.WORKING_DIRECTORY, f"{uuid.uuid4()}.png"
                 )
