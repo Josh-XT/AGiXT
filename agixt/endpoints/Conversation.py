@@ -362,3 +362,14 @@ async def get_tts(
     )
     c.update_message_by_id(message_id=message_id, new_message=new_message)
     return {"message": new_message}
+
+
+@app.get(
+    "/api/notifications",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_notifications(user=Depends(verify_api_key)):
+    c = Conversations(user=user)
+    notifications = c.get_notifications()
+    return {"notifications": notifications}
