@@ -1285,18 +1285,22 @@ Page Content:
                 selector = safe_get_text(step.find("selector"))
                 value = safe_get_text(step.find("value"))
                 description = safe_get_text(step.find("description"))
-
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] About to perform: {operation} on selector `{selector}` [{current_url}]\nDescription: {description}\n\nValue: {value}",
+                    conversation_name=self.conversation_name,
+                )
                 # For click operations, try text matching first
                 if operation == "click" and value:
                     try:
-                        # First try exact text match
-                        locator = self.page.locator(f'text="{value}"').first
+                        # Try exact text match with proper await handling
+                        locator = self.page.get_by_text(value, exact=True)
                         if await locator.count() > 0:
                             await locator.click()
                             return f"Clicked element with text '{value}'"
 
-                        # Try contains text match
-                        locator = self.page.locator(f'text="{value}"').first
+                        # Try contains text match if exact match fails
+                        locator = self.page.get_by_text(value, exact=False)
                         if await locator.count() > 0:
                             await locator.click()
                             return f"Clicked element containing text '{value}'"
@@ -1495,9 +1499,8 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 
                 # Check for repeated failed actions
                 if is_repeat_failure(step, attempt_history):
-                    error_msg = (
-                        "Preventing repeated failed action. Need a different approach."
-                    )
+                    attempt_history_string = "\n".join(attempt_history)
+                    error_msg = f"Preventing repeated failed action. Need a different approach.\nAttempt history:\n{attempt_history_string}"
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
                         message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
@@ -1547,6 +1550,15 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 
                 # Execute the step
                 step_result = await handle_step(self, step, current_url)
+                # Wait for network and animations
+                await self.page.wait_for_load_state("networkidle", timeout=5000)
+                await self.page.wait_for_timeout(1000)
+                # Take a screenshot
+                screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=screenshot_path, full_page=True)
+                screenshot = os.path.basename(screenshot_path)
 
                 # Record the outcome
                 attempt_record += f" -> Result: {step_result}"
@@ -1555,7 +1567,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 
                 # If the step failed, add context
                 if "Error" in step_result or "fail" in step_result.lower():
-                    error_context = """
+                    error_context = """Failed to complete the step.
                     This step failed. Consider:
                     1. Check if the element is visible
                     2. The page might need time to load
@@ -1563,35 +1575,29 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     4. Try waiting for elements to appear
                     """
                     attempt_history.append(error_context)
-
-                # Wait for network and animations
-                await self.page.wait_for_load_state("networkidle", timeout=5000)
-                await self.page.wait_for_timeout(1000)
-
-                # Take a screenshot
-                screenshot_path = os.path.join(
-                    self.WORKING_DIRECTORY, f"{uuid.uuid4()}.png"
-                )
-                await self.page.screenshot(path=screenshot_path, full_page=True)
-                screenshot = os.path.basename(screenshot_path)
-
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Step completed on [{current_url}]\n![Screenshot]({self.output_url}/{screenshot})",
-                    conversation_name=self.conversation_name,
-                )
-
+                    attempt_history_string = "\n".join(attempt_history)
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_context}\nAttempt history:\n{attempt_history_string}\n\n![Screenshot]({self.output_url}/{screenshot})",
+                        conversation_name=self.conversation_name,
+                    )
+                else:
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Step completed on [{current_url}]\n![Screenshot]({self.output_url}/{screenshot})",
+                        conversation_name=self.conversation_name,
+                    )
             except Exception as e:
                 error_msg = f"Error on iteration {iteration_count}: {str(e)}"
+                attempt_history_string = "\n".join(attempt_history)
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}\nAttempt history:\n{attempt_history_string}\n\n![Screenshot]({self.output_url}/{screenshot})",
                     conversation_name=self.conversation_name,
                 )
                 attempt_history.append(f"EXCEPTION: {error_msg}")
                 results.append(error_msg)
                 break
-
         return "\n".join(results)
 
     def get_text_safely(self, element) -> str:
