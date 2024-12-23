@@ -304,9 +304,10 @@ class Conversations:
                 updated_at=message.updated_at,
                 updated_by=message.updated_by,
                 feedback_received=message.feedback_received,
+                notify=False,
             )
             session.add(new_message)
-
+        new_message.notify = True  # Notify on the last message
         session.commit()
         forked_conversation_id = str(new_conversation.id)
         session.close()
@@ -582,6 +583,7 @@ class Conversations:
         return str(thinking_id)
 
     def log_interaction(self, role, message):
+        message = str(message)
         if str(message).startswith("[SUBACTIVITY] "):
             try:
                 last_activity_id = self.get_last_activity_id()
@@ -604,8 +606,14 @@ class Conversations:
             )
             .first()
         )
+        notify = False
         if role.lower() == "user":
             role = "USER"
+        else:
+            if not message.startswith("[ACTIVITY]") and not message.startswith(
+                "[SUBACTIVITY]"
+            ):
+                notify = True
         if not conversation:
             conversation = self.new_conversation()
             session.close()
@@ -615,6 +623,7 @@ class Conversations:
                 role=role,
                 content=message,
                 conversation_id=conversation.id,
+                notify=notify,
             )
             # Update the conversation's updated_at timestamp
             conversation.updated_at = func.now()
@@ -626,6 +635,7 @@ class Conversations:
                 role=role,
                 content=message,
                 conversation_id=conversation.id,
+                notify=notify,
             )
             # Update the conversation's updated_at timestamp
             conversation.updated_at = func.now()
