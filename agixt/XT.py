@@ -1838,6 +1838,7 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
+                """
                 if self.conversation_name == "-":
                     # Rename the conversation
                     new_name = datetime.now().strftime(
@@ -1880,6 +1881,7 @@ class AGiXT:
                     if "#" in new_name:
                         new_name = str(new_name).replace("#", "")
                     self.conversation_name = c.rename_conversation(new_name=new_name)
+                """
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
