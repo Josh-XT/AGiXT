@@ -772,11 +772,11 @@ class Agent:
 
             markdown_tasks = "## The Assistant's Scheduled Tasks\n**The assistant currently has the following tasks scheduled:**\n"
             for task in tasks:
+                string_due_date = task.due_date.strftime("%Y-%m-%d %H:%M:%S")
                 markdown_tasks += (
                     f"### Task: {task.title}\n"
                     f"**Description:** {task.description}\n"
-                    f"**Will be completed at:** {task.due_date}\n"
-                    f"**Status:** {task.status}\n"
+                    f"**Will be completed at:** {string_due_date}\n"
                 )
             session.close()
             return markdown_tasks
