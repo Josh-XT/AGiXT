@@ -1213,7 +1213,7 @@ class github(Extensions):
         )
         issues = await self.get_repo_issues(repo_url=repo_url)
         # Ask if any of these issues are related to the idea so that we can select that issue instead of create a new one
-        issue_number = self.ApiClient.prompt_agent(
+        issue_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -1236,9 +1236,11 @@ Is there an existing issue that is related to the idea you provided? If so, plea
                 "conversation_name": self.conversation_name,
             },
         )
+        if "<answer>" in issue_response:
+            issue_response = issue_response.split("</answer>")[0].split("<answer>")[-1]
         try:
-            issue_number = int(issue_number)
-        except:
+            issue_number = int("".join(filter(str.isdigit, issue_response)))
+        except ValueError:
             issue_number = 0
         if issue_number == 0:
             self.ApiClient.new_conversation_message(
@@ -1252,12 +1254,12 @@ Is there an existing issue that is related to the idea you provided? If so, plea
                 prompt_name="Think About It",
                 prompt_args={
                     "user_input": f"""### Presented Idea
-    {idea}
+{idea}
 
-    ## User
-    Please take the presented idea and write a detailed scope for a junior developer to build out the remaining code using the provided code from the repository.
-    Follow all patterns in the current framework to maintain maintainability and consistency.
-    The developer may have little to no guidance outside of this scope.""",
+## User
+Please take the presented idea and write a detailed scope for a junior developer to build out the remaining code using the provided code from the repository.
+Follow all patterns in the current framework to maintain maintainability and consistency.
+The developer may have little to no guidance outside of this scope.""",
                     "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                     "log_user_input": False,
                     "disable_commands": True,
