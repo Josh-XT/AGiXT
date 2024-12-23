@@ -641,6 +641,10 @@ class Conversations:
             conversation = self.new_conversation()
             session.close()
             session = get_session()
+        if message.endswith("\n"):
+            message = message[:-1]
+        if message.endswith("\n"):
+            message = message[:-1]
         try:
             new_message = Message(
                 role=role,
