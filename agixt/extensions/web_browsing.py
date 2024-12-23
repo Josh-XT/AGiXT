@@ -1244,25 +1244,26 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
-        def is_valid_selector(selector: str) -> bool:
-            if not selector:
-                return False
+    def is_valid_selector(selector: str) -> bool:
+        """
+        Validate if a selector is stable and usable.
+        Rejects class-based and dynamic selectors.
+        """
+        if not selector:
+            return False
 
-            # Reject dynamic patterns
-            if re.search(r"[rR]adix-|[rR]eact-|__next|:[A-Za-z0-9]", selector):
-                return False
+        # Only allow very specific selector types
+        valid_patterns = [
+            r"^#[\w-]+$",  # IDs
+            r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
+            r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
+            r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
+            r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
+            r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
+        ]
 
-            # Basic selector patterns
-            valid_patterns = [
-                r"^#[\w-]+$",  # IDs
-                r'^\[name=[\'"]\w+[\'"]?\]$',  # names
-                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholders
-                r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
-                r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
-                r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
-            ]
-
-            return any(re.match(pattern, selector) for pattern in valid_patterns)
+        # Must match one of our valid patterns exactly
+        return any(re.match(pattern + "$", selector) for pattern in valid_patterns)
 
         def is_repeat_failure(step, attempt_history, window=3):
             operation = safe_get_text(step.find("operation")).lower()
@@ -1394,11 +1395,33 @@ PREVIOUS ATTEMPTS AND OUTCOMES:
 {os.linesep.join(attempt_history)}
 
 STRICT RULES:
-1. You may ONLY use selectors that are EXPLICITLY listed above
-2. Each selector must be COPIED EXACTLY as shown
-3. If a needed element isn't available yet, use 'wait'
-4. For clicking buttons or links, ALWAYS provide the exact text in the 'value' field
-Example: <value>Continue with Email</value>
+1. For clicking buttons with text (like "Continue with Email"):
+   - Use button[type='submit'] as the selector
+   - Put the EXACT button text in the value field
+   Example:
+   <operation>click</operation>
+   <selector>button[type='submit']</selector>
+   <value>Continue with Email</value>
+
+2. For filling inputs:
+   - Use ONLY these selector types:
+     * #id
+     * [name='name']
+     * [placeholder='text']
+     * [type='type']
+   Example:
+   <operation>fill</operation>
+   <selector>#email</selector>
+   <value>user@example.com</value>
+
+3. DO NOT use:
+   - Class-based selectors
+   - Complex selectors
+   - Dynamic IDs
+
+4. If an element isn't found:
+   - Use 'wait' operation
+   - Try the exact button text in value field
 
 IMPORTANT INSTRUCTIONS:
 1. Provide ONE STEP that moves us toward the goal
