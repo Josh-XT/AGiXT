@@ -1841,6 +1841,48 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
+                if self.conversation_name == "-":
+                    # Rename the conversation
+                    new_name = datetime.now().strftime(
+                        "Conversation Created %Y-%m-%d %I:%M %p"
+                    )
+                    conversation_list = c.get_conversations()
+                    response = await self.inference(
+                        user_input=f"Rename conversation",
+                        prompt_name="Name Conversation",
+                        conversation_list="\n".join(conversation_list),
+                        conversation_results=10,
+                        websearch=False,
+                        browse_links=False,
+                        voice_response=False,
+                        log_user_input=False,
+                        log_output=False,
+                        conversation_name=self.conversation_name,
+                    )
+                    if "```json" not in response and "```" in response:
+                        response = response.replace("```", "```json", 1)
+                    if "```json" in response:
+                        response = response.split("```json")[1].split("```")[0].strip()
+                    try:
+                        response = json.loads(response)
+                        new_name = response["suggested_conversation_name"]
+
+                        if new_name in conversation_list:
+                            i = 1
+                            while new_name in conversation_list:
+                                new_name = (
+                                    response["suggested_conversation_name"]
+                                    + " "
+                                    + datetime.now().strftime("%Y-%m-%d %I:%M %p")
+                                )
+                                i += 1
+                    except:
+                        new_name = datetime.now().strftime(
+                            "Conversation Created %Y-%m-%d %I:%M %p"
+                        )
+                    if "#" in new_name:
+                        new_name = str(new_name).replace("#", "")
+                    self.conversation_name = c.rename_conversation(new_name=new_name)
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
