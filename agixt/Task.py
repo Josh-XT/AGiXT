@@ -183,6 +183,26 @@ class Task:
         session.close()
         return tasks
 
+    async def get_tasks_by_agent(self, agent_name: str) -> list:
+        """Get all tasks assigned to an agent"""
+        session = get_session()
+        agent = (
+            session.query(Agent)
+            .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
+            .first()
+        )
+        if not agent:
+            session.close()
+            return []
+
+        tasks = (
+            session.query(TaskItem)
+            .filter(TaskItem.agent_id == agent.id, TaskItem.user_id == self.user_id)
+            .all()
+        )
+        session.close()
+        return tasks
+
     async def update_task(
         self,
         task_id: str,
