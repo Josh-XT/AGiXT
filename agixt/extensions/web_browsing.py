@@ -1442,7 +1442,7 @@ Page Content:
                     )
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
                     attempt_history.append(error_msg)
@@ -1461,7 +1461,7 @@ Page Content:
                     )
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
                         conversation_name=self.conversation_name,
                     )
                     attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
