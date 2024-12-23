@@ -808,6 +808,49 @@ def ensure_command_cascades():
         raise
 
 
+def ensure_message_notify_column():
+    """Ensure the message table has the notify boolean column"""
+    import sqlite3
+    import logging
+    from Globals import getenv
+
+    db_path = getenv("DATABASE_NAME") + ".db"
+    logging.info(f"Checking message table schema in {db_path}")
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+
+            # First check if table exists
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='message'"
+            )
+            if not cursor.fetchone():
+                logging.info("Message table doesn't exist yet")
+                return
+
+            # Check columns
+            cursor.execute("PRAGMA table_info(message)")
+            columns = [col[1] for col in cursor.fetchall()]
+            logging.info(f"Current message columns: {columns}")
+
+            if "notify" not in columns:
+                logging.info("Adding notify column")
+                cursor.execute(
+                    """
+                    ALTER TABLE message 
+                    ADD COLUMN notify BOOLEAN NOT NULL DEFAULT 0
+                """
+                )
+
+            conn.commit()
+            logging.info("Message table schema update completed")
+
+    except Exception as e:
+        logging.error(f"Migration error: {e}")
+        raise
+
+
 if __name__ == "__main__":
     logging.info("Connecting to database...")
     if getenv("DATABASE_TYPE") != "sqlite":
@@ -819,6 +862,10 @@ if __name__ == "__main__":
             ensure_command_cascades()
         except Exception as e:
             logging.info("No command cascade constraints to update")
+        try:
+            ensure_message_notify_column()
+        except Exception as e:
+            logging.info("No message notify column to update")
     # Create any missing tables
     Base.metadata.create_all(engine)
     logging.info("Database tables verified/created.")
