@@ -59,23 +59,14 @@ async def get_conversations(user=Depends(verify_api_key)):
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversation_history(
-    conversation_id: str, history: HistoryModel, user=Depends(verify_api_key)
-):
-
+async def get_conversation_history(conversation_id: str, user=Depends(verify_api_key)):
     auth = MagicalAuth(token=user)
-    if not conversation_id:
-        conversation_name = history.conversation_name
-    else:
-        conversation_name = get_conversation_name_by_id(
-            conversation_id=conversation_id, user_id=auth.user_id
-        )
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
     conversation_history = Conversations(
         conversation_name=conversation_name, user=user
-    ).get_conversation(
-        limit=history.limit,
-        page=history.page,
-    )
+    ).get_conversation()
     if conversation_history is None:
         conversation_history = []
     if "interactions" in conversation_history:
