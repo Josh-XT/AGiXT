@@ -159,7 +159,6 @@ class Conversations:
             .order_by(Conversation.updated_at.desc())
             .all()
         )
-
         result = {
             str(conversation.id): {
                 "name": conversation.name,
