@@ -57,7 +57,6 @@ class AGiXT:
                 self.conversation_id = get_conversation_id_by_name(
                     user_id=self.auth.user_id, conversation_name="-"
                 )
-                conversation_name = "-"
             else:
                 # Check if conversation name is a UUID
                 try:
@@ -69,6 +68,11 @@ class AGiXT:
                     conversation_name = get_conversation_name_by_id(
                         user_id=self.auth.user_id,
                         conversation_id=str(conversation_name),
+                    )
+                else:
+                    self.conversation_name = conversation_name
+                    self.conversation_id = get_conversation_id_by_name(
+                        user_id=self.auth.user_id, conversation_name=conversation_name
                     )
             self.conversation = Conversations(
                 conversation_name=conversation_name, user=self.user_email
