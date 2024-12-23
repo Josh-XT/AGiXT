@@ -28,10 +28,13 @@ def get_conversation_id_by_name(conversation_name, user_id):
         .first()
     )
     if not conversation:
-        conversation = Conversation(name=conversation_name, user_id=user_id)
-        session.add(conversation)
-        session.commit()
-    conversation_id = str(conversation.id)
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user_id,
+        )
+        conversation_id = c.get_conversation_id()
+    else:
+        conversation_id = str(conversation.id)
     session.close()
     return conversation_id
 
