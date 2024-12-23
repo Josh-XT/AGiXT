@@ -1,6 +1,10 @@
 from fastapi import APIRouter, Depends, Header
 from ApiClient import verify_api_key
-from Conversations import Conversations, get_conversation_name_by_id
+from Conversations import (
+    Conversations,
+    get_conversation_name_by_id,
+    get_conversation_id_by_name,
+)
 from XT import AGiXT
 from Models import (
     HistoryModel,
@@ -65,6 +69,10 @@ async def get_conversation_history(
     authorization: str = Header(None),
 ):
     auth = MagicalAuth(token=authorization)
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
     conversation_name = get_conversation_name_by_id(
         conversation_id=conversation_id, user_id=auth.user_id
     )
