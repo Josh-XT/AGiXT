@@ -257,6 +257,7 @@ class agixt_actions(Extensions):
             prompt_args={
                 "user_input": query,
                 "conversation_name": self.conversation_name,
+                "disable_commands": True,
                 "log_user_input": False,
                 "log_output": False,
                 "tts": False,
@@ -350,16 +351,14 @@ class agixt_actions(Extensions):
 
         # Initialize task manager with the current token
         task_manager = Task(token=self.api_key)
-
         # Create a descriptive title from the purpose of the follow-up
         title_preview = title.split("\n")[0][:50] + ("..." if len(title) > 50 else "")
-        title = f"AI Follow-up: {title_preview}"
 
         # Create the follow-up task
         task_id = await task_manager.create_task(
-            title=title,
+            title=title_preview,
             description=follow_up_notes,
-            category_name="AI Follow-ups",
+            category_name="Follow-ups",
             agent_name=self.agent_name,
             due_date=due_date,
             priority=1,  # High priority for follow-ups
