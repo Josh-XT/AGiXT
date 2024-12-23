@@ -7,7 +7,7 @@ import difflib
 from pydantic import BaseModel
 from typing import List, Literal, Union
 from Extensions import Extensions
-from agixtsdk import AGiXTSDK
+from agixtsdk import AGiXTSDK, get_tokens
 from Globals import getenv
 from dataclasses import dataclass
 import logging
@@ -1162,6 +1162,52 @@ class github(Extensions):
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
+
+    async def reduce_code_content(self, code, task_description):
+        """
+        Ask the agent to look at the whole code base and determine which files are necessary to complete the task.
+
+        The agent does not need to resolve the task, just tell us what files are relevant if the code base is over 64k tokens.
+        """
+        tokens = get_tokens(code)
+        if tokens > 64000:
+            necessary_files = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": f"""### Task Description
+
+{task_description}
+
+### Code Base
+
+{code}
+
+The code base is too large for me to process in one go. Can you help me identify the files that are relevant to the task?
+
+We need the response in the answer block to be in the following format:
+
+<files>
+    <file>path/to/file1</file>
+    <file>path/to/file2</file>
+</files>
+""",
+                    "context": f"",
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
+            # Turn the files response into a list
+            necessary_files = necessary_files.split("<file>")[1:]
+            necessary_files = [file.split("</file>")[0] for file in necessary_files]
+            return necessary_files
+        return []
 
     async def improve_codebase(
         self,

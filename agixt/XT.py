@@ -60,7 +60,7 @@ class AGiXT:
         if conversation_uuid:
             self.conversation_id = conversation_name
             self.conversation_name = get_conversation_name_by_id(
-                conversation_id=str(conversation_name)
+                user_id=self.auth.user_id, conversation_id=str(conversation_name)
             )
         if conversation_name != None:
             self.conversation = Conversations(
