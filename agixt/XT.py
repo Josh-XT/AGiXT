@@ -1801,12 +1801,14 @@ class AGiXT:
                 except:
                     pass
                 # Strip out any <execute> or <output> tags
-                thoughts_and_reflections = self.remove_tagged_content(
-                    thoughts_and_reflections, "execute"
-                )
-                thoughts_and_reflections = self.remove_tagged_content(
-                    thoughts_and_reflections, "output"
-                )
+                if "<execute>" in thoughts_and_reflections:
+                    thoughts_and_reflections = re.sub(
+                        r"<execute>(.*?)</execute>", "", thoughts_and_reflections
+                    )
+                if "<output>" in thoughts_and_reflections:
+                    thoughts_and_reflections = re.sub(
+                        r"<output>(.*?)</output>", "", thoughts_and_reflections
+                    )
                 if len(thoughts_and_reflections) > 10:
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     await self.file_reader.write_text_to_memory(
