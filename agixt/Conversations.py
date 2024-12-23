@@ -17,7 +17,28 @@ logging.basicConfig(
 )
 
 
+def get_conversation_id_by_name(conversation_name, user_id):
+    session = get_session()
+    conversation = (
+        session.query(Conversation)
+        .filter(
+            Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
+        )
+        .first()
+    )
+    if not conversation:
+        conversation = Conversation(name=conversation_name, user_id=user_id)
+        session.add(conversation)
+        session.commit()
+    conversation_id = str(conversation.id)
+    session.close()
+    return conversation_id
+
+
 def get_conversation_name_by_id(conversation_id, user_id):
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name("-", user_id)
     session = get_session()
     conversation = (
         session.query(Conversation)
