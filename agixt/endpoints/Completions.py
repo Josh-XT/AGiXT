@@ -34,17 +34,19 @@ async def chat_completion(
     # prompt.model is the agent name
     # prompt.user is the conversation name
     # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
-    try:
-        conversation_id = str(uuid.UUID(prompt.user))
-    except:
-        conversation_id = None
-    if conversation_id:
-        prompt.user = get_conversation_name_by_id(conversation_id)
+    conversation_name = prompt.user
+    if conversation_name != "-":
+        try:
+            conversation_id = str(uuid.UUID(conversation_name))
+        except:
+            conversation_id = None
+        if conversation_id:
+            conversation_name = get_conversation_name_by_id(conversation_id)
     agixt = AGiXT(
         user=user,
         agent_name=prompt.model,
         api_key=authorization,
-        conversation_name=prompt.user,
+        conversation_name=conversation_name,
     )
     return await agixt.chat_completions(prompt=prompt)
 
