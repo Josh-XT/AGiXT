@@ -324,6 +324,7 @@ class Message(Base):
         nullable=True,
     )
     feedback_received = Column(Boolean, default=False)
+    notify = Column(Boolean, default=False, nullable=False)
 
 
 class Setting(Base):
