@@ -1244,6 +1244,26 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
+        async def find_specific_button(self, button_text: str) -> str:
+            """Find a button containing specific text."""
+            try:
+                # Try submit buttons first
+                buttons = await self.page.query_selector_all('button[type="submit"]')
+                for button in buttons:
+                    text = await button.text_content()
+                    if text and button_text.lower() in text.lower():
+                        # Try to get a unique identifier
+                        for attr in ["id", "name", "aria-label", "data-testid"]:
+                            value = await button.get_attribute(attr)
+                            if value:
+                                if attr == "id":
+                                    return f"#{value}"
+                                return f'button[{attr}="{value}"]'
+                        return 'button[type="submit"]'
+            except Exception as e:
+                logging.error(f"Error finding specific button: {str(e)}")
+            return None
+
         def is_valid_selector(selector: str) -> bool:
             if not selector:
                 return False
@@ -1258,6 +1278,7 @@ Page Content:
                 r'^\[name=[\'"]\w+[\'"]?\]$',  # names
                 r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholders
                 r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
+                r'^button\[[\w-]+=[\'"][^\'"]+[\'"]?\]$',  # buttons with attributes
                 r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
                 r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
             ]
@@ -1335,20 +1356,21 @@ STRICT RULES:
 1. You may ONLY use selectors that are EXPLICITLY listed above
 2. Each selector must be COPIED EXACTLY as shown
 3. If a needed element isn't available yet, use 'wait'
-4. If "Continue with Email" button is needed, use button[type='submit']
+4. For buttons with specific text, use button[type='submit'] and put the button text in the value field
 
 IMPORTANT INSTRUCTIONS:
 1. Provide ONE STEP that moves us toward the goal
 2. If you can't find a needed element, use 'wait'
 3. If you've waited multiple times and still can't proceed, explain why
 4. If the task is complete, use 'done'
+5. When clicking a button, specify the button's exact text in the value field
 
 YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 <interaction>
     <step>
         <operation>click|fill|wait|verify|done</operation>
         <selector>EXACT selector from available fields</selector>
-        <value>Text content for clicks, or input value</value>
+        <value>Button text for clicks, or input value</value>
         <description>How this step helps accomplish the task</description>
     </step>
 </interaction>"""
@@ -1386,10 +1408,26 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 value = safe_get_text(step.find("value"))
                 description = safe_get_text(step.find("description"))
 
+                # If this is a button click with text, try to find the specific button
+                if (
+                    operation == "click"
+                    and selector == "button[type='submit']"
+                    and value
+                ):
+                    specific_selector = await find_specific_button(self, value)
+                    if specific_selector:
+                        selector = specific_selector
+                        logging.info(f"Found specific button: {selector}")
+
                 # Validate the selector
                 if operation != "done" and not is_valid_selector(selector):
                     error_msg = (
                         f"Invalid selector '{selector}'. Waiting for valid selectors..."
+                    )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        conversation_name=self.conversation_name,
                     )
                     await self.page.wait_for_timeout(2000)
                     attempt_history.append(error_msg)
@@ -1405,6 +1443,11 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     error_msg = (
                         "Preventing repeated failed action. Need a different approach."
                     )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        conversation_name=self.conversation_name,
+                    )
                     attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
                     continue
 
@@ -1414,7 +1457,15 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 # Wait for element stability
                 if operation in ["click", "fill"]:
                     try:
-                        await self.page.wait_for_selector(selector, timeout=5000)
+                        element = await self.page.wait_for_selector(
+                            selector, timeout=5000
+                        )
+                        if not element:
+                            raise Exception("Element not found")
+                        # Make sure element is visible and enabled
+                        is_visible = await element.is_visible()
+                        if not is_visible:
+                            raise Exception("Element is not visible")
                     except Exception as wait_error:
                         attempt_record += f" -> Wait failed: {str(wait_error)}"
                         attempt_history.append(attempt_record)
@@ -1436,6 +1487,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                     2. The page might need time to load
                     3. A different selector might be needed
                     4. The operation might need to be different
+                    5. For buttons, make sure to specify the exact button text
                     """
                     attempt_history.append(error_context)
 
