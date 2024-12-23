@@ -293,6 +293,7 @@ class Conversation(Base):
     )
     name = Column(Text, nullable=False)
     summary = Column(Text, nullable=True)
+    attachment_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -853,7 +854,7 @@ def ensure_message_notify_column():
 
 
 def ensure_conversation_summary():
-    """Ensure the conversation table has the summary text column"""
+    """Ensure the conversation table has the summary text and attachment_count columns"""
     import sqlite3
     import logging
     from Globals import getenv
@@ -884,6 +885,15 @@ def ensure_conversation_summary():
                     """
                     ALTER TABLE conversation 
                     ADD COLUMN summary TEXT
+                """
+                )
+
+            if "attachment_count" not in columns:
+                logging.info("Adding attachment_count column")
+                cursor.execute(
+                    """
+                    ALTER TABLE conversation 
+                    ADD COLUMN attachment_count INTEGER NOT NULL DEFAULT 0
                 """
                 )
 

@@ -746,6 +746,7 @@ class AGiXT:
             file_data = await self.download_file_to_workspace(
                 url=file_url, file_name=file_name
             )
+            self.conversation.increment_attachment_count()
             if file_data == {}:
                 self.conversation.log_interaction(
                     role=self.agent_name,

@@ -165,6 +165,7 @@ class Conversations:
                 "updated_at": conversation.updated_at,
                 "has_notifications": notification_count > 0,
                 "summary": conversation.summary,
+                "attachment_count": conversation.attachment_count,
             }
             for conversation, notification_count in conversations
         }
@@ -1141,3 +1142,72 @@ class Conversations:
         summary = conversation.summary
         session.close()
         return summary
+
+    def get_attachment_count(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return 0
+        attachment_count = conversation.attachment_count
+        session.close()
+        return attachment_count
+
+    def update_attachment_count(self, count: int):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return 0
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation.id)
+            .first()
+        )
+        conversation.attachment_count = count
+        session.commit()
+        session.close()
+        return count
+
+    def increment_attachment_count(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return 0
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation.id)
+            .first()
+        )
+        conversation.attachment_count += 1
+        session.commit()
+        session.close()
+        return conversation.attachment_count
