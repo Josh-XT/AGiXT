@@ -292,6 +292,7 @@ class Conversation(Base):
         default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -851,6 +852,49 @@ def ensure_message_notify_column():
         raise
 
 
+def ensure_conversation_summary():
+    """Ensure the conversation table has the summary text column"""
+    import sqlite3
+    import logging
+    from Globals import getenv
+
+    db_path = getenv("DATABASE_NAME") + ".db"
+    logging.info(f"Checking conversation table schema in {db_path}")
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+
+            # First check if table exists
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation'"
+            )
+            if not cursor.fetchone():
+                logging.info("Conversation table doesn't exist yet")
+                return
+
+            # Check columns
+            cursor.execute("PRAGMA table_info(conversation)")
+            columns = [col[1] for col in cursor.fetchall()]
+            logging.info(f"Current conversation columns: {columns}")
+
+            if "summary" not in columns:
+                logging.info("Adding summary column")
+                cursor.execute(
+                    """
+                    ALTER TABLE conversation 
+                    ADD COLUMN summary TEXT
+                """
+                )
+
+            conn.commit()
+            logging.info("Conversation table schema update completed")
+
+    except Exception as e:
+        logging.error(f"Migration error: {e}")
+        raise
+
+
 if __name__ == "__main__":
     logging.info("Connecting to database...")
     if getenv("DATABASE_TYPE") != "sqlite":
@@ -866,6 +910,10 @@ if __name__ == "__main__":
             ensure_message_notify_column()
         except Exception as e:
             logging.info("No message notify column to update")
+        try:
+            ensure_conversation_summary()
+        except Exception as e:
+            logging.info("No conversation summary column to update")
     # Create any missing tables
     Base.metadata.create_all(engine)
     logging.info("Database tables verified/created.")

@@ -1,0 +1,16 @@
+## Context
+
+{context}
+
+Last user input:
+{user_input}
+
+Last response from the assistant:
+{assistant_response}
+
+**Task: Summarize the conversation between the user and the assistant.**
+- Be detailed but concise, this should ideally capture the essence of the conversation.
+- This will serve as a short summary for the user and assistant will be able to search and find it easily.
+- Do not include any code snippets or long texts, just a brief summary of the conversation.
+- If the user's name is mentioned, mention their name in the summary.
+- The assistant is {agent_name} and should be referred to as such in the summary.

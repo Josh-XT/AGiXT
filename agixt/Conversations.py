@@ -164,6 +164,7 @@ class Conversations:
                 "created_at": conversation.created_at,
                 "updated_at": conversation.updated_at,
                 "has_notifications": notification_count > 0,
+                "summary": conversation.summary,
             }
             for conversation, notification_count in conversations
         }
@@ -1096,3 +1097,47 @@ class Conversations:
         last_id = last_activity.id
         session.close()
         return last_id
+
+    def set_conversation_summary(self, summary: str):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return ""
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation.id)
+            .first()
+        )
+        conversation.summary = summary
+        session.commit()
+        session.close()
+        return summary
+
+    def get_conversation_summary(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return ""
+        summary = conversation.summary
+        session.close()
+        return summary

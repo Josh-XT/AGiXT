@@ -1828,6 +1828,22 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
+                # Update the conversation summary
+                new_summary = await self.inference(
+                    user_input=new_prompt,
+                    prompt_category="Default",
+                    prompt_name="Summarize Conversation",
+                    assistant_response=response,
+                    log_output=False,
+                    log_user_input=False,
+                    voice_response=False,
+                    analyze_user_input=False,
+                    browse_links=False,
+                    websearch=False,
+                    disable_commands=True,
+                    conversation_name=self.conversation_name,
+                )
+                c.set_conversation_summary(new_summary)
                 """
                 if self.conversation_name == "-":
                     # Rename the conversation
