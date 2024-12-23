@@ -1,6 +1,6 @@
 from Interactions import Interactions
 from ApiClient import get_api_client, Conversations, Prompts, Chain
-from Conversations import get_conversation_name_by_id
+from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from readers.file import FileReader
 from Extensions import Extensions
 from pydub import AudioSegment
@@ -53,16 +53,23 @@ class AGiXT:
         self.conversation_id = None
         self.conversation_name = None
         if conversation_name != None:
-            # Check if conversation name is a UUID
-            try:
-                conversation_uuid = uuid.UUID(conversation_name)
-            except:
-                conversation_uuid = None
-            if conversation_uuid:
-                self.conversation_id = conversation_name
-                conversation_name = get_conversation_name_by_id(
-                    user_id=self.auth.user_id, conversation_id=str(conversation_name)
+            if conversation_name == "-":
+                self.conversation_id = get_conversation_id_by_name(
+                    user_id=self.auth.user_id, conversation_name="-"
                 )
+                conversation_name = "-"
+            else:
+                # Check if conversation name is a UUID
+                try:
+                    conversation_uuid = uuid.UUID(conversation_name)
+                except:
+                    conversation_uuid = None
+                if conversation_uuid:
+                    self.conversation_id = conversation_name
+                    conversation_name = get_conversation_name_by_id(
+                        user_id=self.auth.user_id,
+                        conversation_id=str(conversation_name),
+                    )
             self.conversation = Conversations(
                 conversation_name=conversation_name, user=self.user_email
             )
