@@ -52,17 +52,17 @@ class AGiXT:
         self.conversation = None
         self.conversation_id = None
         self.conversation_name = None
-        # Check if conversation name is a UUID
-        try:
-            conversation_uuid = uuid.UUID(conversation_name)
-        except:
-            conversation_uuid = None
-        if conversation_uuid:
-            self.conversation_id = conversation_name
-            self.conversation_name = get_conversation_name_by_id(
-                user_id=self.auth.user_id, conversation_id=str(conversation_name)
-            )
         if conversation_name != None:
+            # Check if conversation name is a UUID
+            try:
+                conversation_uuid = uuid.UUID(conversation_name)
+            except:
+                conversation_uuid = None
+            if conversation_uuid:
+                self.conversation_id = conversation_name
+                self.conversation_name = get_conversation_name_by_id(
+                    user_id=self.auth.user_id, conversation_id=str(conversation_name)
+                )
             self.conversation = Conversations(
                 conversation_name=conversation_name, user=self.user_email
             )
