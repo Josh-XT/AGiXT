@@ -252,6 +252,9 @@ class Interactions:
                 conversation_results = int(top_results) if top_results > 0 else 5
             except:
                 conversation_results = 5
+        agent_tasks = self.agent.get_conversation_tasks(conversation_id=conversation_id)
+        if agent_tasks != "":
+            context.append(agent_tasks)
         conversation_history = ""
         conversation = c.get_conversation()
         if "interactions" in conversation:
