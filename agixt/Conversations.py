@@ -164,7 +164,9 @@ class Conversations:
                 "created_at": conversation.created_at,
                 "updated_at": conversation.updated_at,
                 "has_notifications": notification_count > 0,
-                "summary": conversation.summary,
+                "summary": (
+                    conversation.summary if Conversation.summary else "None available"
+                ),
                 "attachment_count": conversation.attachment_count,
             }
             for conversation, notification_count in conversations
