@@ -57,6 +57,7 @@ class AGiXT:
                 conversation_name=conversation_name, user=self.user_email
             )
             self.conversation_id = self.conversation.get_conversation_id()
+            self.conversation_name = conversation_name
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
         if collection_id is not None:
@@ -70,8 +71,7 @@ class AGiXT:
             self.conversation = Conversations(
                 conversation_name=self.conversation_name, user=self.user_email
             )
-            if not self.conversation_id:
-                self.conversation_id = "1"
+            self.conversation_id = self.conversation.get_conversation_id()
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
             agent_name=self.agent_name,
