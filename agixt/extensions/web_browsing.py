@@ -1244,26 +1244,26 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
-    def is_valid_selector(selector: str) -> bool:
-        """
-        Validate if a selector is stable and usable.
-        Rejects class-based and dynamic selectors.
-        """
-        if not selector:
-            return False
+        def is_valid_selector(selector: str) -> bool:
+            """
+            Validate if a selector is stable and usable.
+            Rejects class-based and dynamic selectors.
+            """
+            if not selector:
+                return False
 
-        # Only allow very specific selector types
-        valid_patterns = [
-            r"^#[\w-]+$",  # IDs
-            r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
-            r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
-            r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
-            r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
-            r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
-        ]
+            # Only allow very specific selector types
+            valid_patterns = [
+                r"^#[\w-]+$",  # IDs
+                r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
+                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
+                r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
+                r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
+                r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
+            ]
 
-        # Must match one of our valid patterns exactly
-        return any(re.match(pattern + "$", selector) for pattern in valid_patterns)
+            # Must match one of our valid patterns exactly
+            return any(re.match(pattern + "$", selector) for pattern in valid_patterns)
 
         def is_repeat_failure(step, attempt_history, window=3):
             operation = safe_get_text(step.find("operation")).lower()
