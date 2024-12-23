@@ -1489,16 +1489,32 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 # Wait for element stability
                 if operation in ["click", "fill"]:
                     try:
-                        # If it's a click with text, wait for text
-                        if operation == "click" and value:
-                            try:
-                                await self.page.wait_for_selector(
-                                    f'text="{value}"', timeout=5000
-                                )
-                            except Exception:
-                                await self.page.wait_for_selector(
-                                    selector, timeout=5000
-                                )
+                        # Enhanced operation handling with more detailed feedback
+                        if operation == "click":
+                            if value:  # If we have text to match
+                                try:
+                                    # Try text-based locator first
+                                    text_locator = f"text={value}"
+                                    element = await self.page.locator(
+                                        text_locator
+                                    ).first
+                                    if element:
+                                        await element.click()
+                                        await self.page.wait_for_load_state(
+                                            "networkidle"
+                                        )
+                                        return f"Clicked element with text '{value}'"
+                                except Exception as text_error:
+                                    logging.info(
+                                        f"Text-based click failed, falling back to selector: {text_error}"
+                                    )
+
+                            # Fall back to normal selector-based click
+                            await self.page.wait_for_selector(
+                                selector, state="visible", timeout=5000
+                            )
+                            await self.click_element_with_playwright(selector)
+                            await self.page.wait_for_load_state("networkidle")
                         else:
                             await self.page.wait_for_selector(selector, timeout=5000)
                     except Exception as wait_error:
