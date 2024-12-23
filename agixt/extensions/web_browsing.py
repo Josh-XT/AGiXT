@@ -1244,26 +1244,6 @@ Page Content:
             xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
             return xml_block
 
-        async def find_specific_button(self, button_text: str) -> str:
-            """Find a button containing specific text."""
-            try:
-                # Try submit buttons first
-                buttons = await self.page.query_selector_all('button[type="submit"]')
-                for button in buttons:
-                    text = await button.text_content()
-                    if text and button_text.lower() in text.lower():
-                        # Try to get a unique identifier
-                        for attr in ["id", "name", "aria-label", "data-testid"]:
-                            value = await button.get_attribute(attr)
-                            if value:
-                                if attr == "id":
-                                    return f"#{value}"
-                                return f'button[{attr}="{value}"]'
-                        return 'button[type="submit"]'
-            except Exception as e:
-                logging.error(f"Error finding specific button: {str(e)}")
-            return None
-
         def is_valid_selector(selector: str) -> bool:
             if not selector:
                 return False
@@ -1278,7 +1258,6 @@ Page Content:
                 r'^\[name=[\'"]\w+[\'"]?\]$',  # names
                 r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholders
                 r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
-                r'^button\[[\w-]+=[\'"][^\'"]+[\'"]?\]$',  # buttons with attributes
                 r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
                 r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
             ]
@@ -1288,6 +1267,7 @@ Page Content:
         def is_repeat_failure(step, attempt_history, window=3):
             operation = safe_get_text(step.find("operation")).lower()
             selector = safe_get_text(step.find("selector"))
+            value = safe_get_text(step.find("value"))
 
             recent_attempts = attempt_history[-window:]
             for attempt in recent_attempts:
@@ -1296,6 +1276,67 @@ Page Content:
                 ):
                     return True
             return False
+
+        async def handle_step(self, step, current_url) -> str:
+            """Handle a single interaction step with text-based locator support."""
+            try:
+                operation = safe_get_text(step.find("operation"))
+                selector = safe_get_text(step.find("selector"))
+                value = safe_get_text(step.find("value"))
+                description = safe_get_text(step.find("description"))
+
+                # For click operations, try text matching first
+                if operation == "click" and value:
+                    try:
+                        # First try exact text match
+                        locator = self.page.locator(f'text="{value}"').first
+                        if await locator.count() > 0:
+                            await locator.click()
+                            return f"Clicked element with text '{value}'"
+
+                        # Try contains text match
+                        locator = self.page.locator(f'text="{value}"').first
+                        if await locator.count() > 0:
+                            await locator.click()
+                            return f"Clicked element containing text '{value}'"
+
+                    except Exception as text_error:
+                        logging.info(
+                            f"Text-based click failed, falling back to selector: {text_error}"
+                        )
+
+                # Proceed with normal selector-based operations
+                if operation == "click":
+                    await self.page.click(selector)
+                    return f"Clicked element with selector {selector}"
+
+                elif operation == "fill":
+                    await self.page.fill(selector, value)
+                    return f"Filled input {selector} with value {value}"
+
+                elif operation == "wait":
+                    if value and value.isdigit():
+                        await self.page.wait_for_timeout(int(value))
+                        return f"Waited for {value}ms"
+                    else:
+                        await self.page.wait_for_selector(selector, timeout=5000)
+                        return f"Waited for selector {selector}"
+
+                elif operation == "verify":
+                    element = await self.page.wait_for_selector(selector)
+                    content = await element.text_content()
+                    if value not in content:
+                        return f"Verification failed: Expected '{value}' in element {selector}"
+                    return f"Verified element {selector} contains '{value}'"
+
+                elif operation == "done":
+                    return "Operation complete"
+
+                else:
+                    return f"Unknown operation: {operation}"
+
+            except Exception as e:
+                return f"Error: {str(e)}"
 
         # Initialize browser if needed
         if not url.startswith("http"):
@@ -1356,14 +1397,16 @@ STRICT RULES:
 1. You may ONLY use selectors that are EXPLICITLY listed above
 2. Each selector must be COPIED EXACTLY as shown
 3. If a needed element isn't available yet, use 'wait'
-4. For buttons with specific text, use button[type='submit'] and put the button text in the value field
+4. For clicking buttons or links, ALWAYS provide the exact text in the 'value' field
+Example: <value>Continue with Email</value>
 
 IMPORTANT INSTRUCTIONS:
 1. Provide ONE STEP that moves us toward the goal
-2. If you can't find a needed element, use 'wait'
-3. If you've waited multiple times and still can't proceed, explain why
-4. If the task is complete, use 'done'
-5. When clicking a button, specify the button's exact text in the value field
+2. When clicking buttons or links, ALWAYS specify the exact text in the value field
+3. For buttons that say "Continue with Email", use that exact text
+4. If you can't find a needed element, use 'wait'
+5. If you've waited multiple times and still can't proceed, explain why
+6. If the task is complete, use 'done'
 
 YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
 <interaction>
@@ -1408,18 +1451,7 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 value = safe_get_text(step.find("value"))
                 description = safe_get_text(step.find("description"))
 
-                # If this is a button click with text, try to find the specific button
-                if (
-                    operation == "click"
-                    and selector == "button[type='submit']"
-                    and value
-                ):
-                    specific_selector = await find_specific_button(self, value)
-                    if specific_selector:
-                        selector = specific_selector
-                        logging.info(f"Found specific button: {selector}")
-
-                # Validate the selector
+                # Validate the selector unless we're done
                 if operation != "done" and not is_valid_selector(selector):
                     error_msg = (
                         f"Invalid selector '{selector}'. Waiting for valid selectors..."
@@ -1457,22 +1489,25 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 # Wait for element stability
                 if operation in ["click", "fill"]:
                     try:
-                        element = await self.page.wait_for_selector(
-                            selector, timeout=5000
-                        )
-                        if not element:
-                            raise Exception("Element not found")
-                        # Make sure element is visible and enabled
-                        is_visible = await element.is_visible()
-                        if not is_visible:
-                            raise Exception("Element is not visible")
+                        # If it's a click with text, wait for text
+                        if operation == "click" and value:
+                            try:
+                                await self.page.wait_for_selector(
+                                    f'text="{value}"', timeout=5000
+                                )
+                            except Exception:
+                                await self.page.wait_for_selector(
+                                    selector, timeout=5000
+                                )
+                        else:
+                            await self.page.wait_for_selector(selector, timeout=5000)
                     except Exception as wait_error:
                         attempt_record += f" -> Wait failed: {str(wait_error)}"
                         attempt_history.append(attempt_record)
                         continue
 
                 # Execute the step
-                step_result = await self.handle_step(step, current_url)
+                step_result = await handle_step(self, step, current_url)
 
                 # Record the outcome
                 attempt_record += f" -> Result: {step_result}"
@@ -1483,11 +1518,10 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 if "Error" in step_result or "fail" in step_result.lower():
                     error_context = """
                     This step failed. Consider:
-                    1. The selector might not be visible
+                    1. Check if the element is visible
                     2. The page might need time to load
-                    3. A different selector might be needed
-                    4. The operation might need to be different
-                    5. For buttons, make sure to specify the exact button text
+                    3. For buttons, make sure to use the exact button text
+                    4. Try waiting for elements to appear
                     """
                     attempt_history.append(error_context)
 
