@@ -59,8 +59,12 @@ async def get_conversations(user=Depends(verify_api_key)):
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversation_history(conversation_id: str, user=Depends(verify_api_key)):
-    auth = MagicalAuth(token=user)
+async def get_conversation_history(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
     conversation_name = get_conversation_name_by_id(
         conversation_id=conversation_id, user_id=auth.user_id
     )
