@@ -18,7 +18,9 @@ logging.basicConfig(
 
 
 def get_conversation_id_by_name(conversation_name, user_id):
+    user_id = str(user_id)
     session = get_session()
+    user = session.query(User).filter(User.id == user_id).first()
     conversation = (
         session.query(Conversation)
         .filter(
@@ -28,10 +30,7 @@ def get_conversation_id_by_name(conversation_name, user_id):
         .first()
     )
     if not conversation:
-        c = Conversations(
-            conversation_name=conversation_name,
-            user=user_id,
-        )
+        c = Conversations(conversation_name=conversation_name, user=user.email)
         conversation_id = c.get_conversation_id()
     else:
         conversation_id = str(conversation.id)
