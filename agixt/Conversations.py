@@ -1017,19 +1017,23 @@ class Conversations:
         session.close()
 
     def get_conversation_id(self):
+        if not self.conversation_name:
+            conversation_name = "-"
+        else:
+            conversation_name = self.conversation_name
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
         conversation = (
             session.query(Conversation)
             .filter(
-                Conversation.name == self.conversation_name,
+                Conversation.name == conversation_name,
                 Conversation.user_id == user_id,
             )
             .first()
         )
         if not conversation:
-            conversation = Conversation(name=self.conversation_name, user_id=user_id)
+            conversation = Conversation(name=conversation_name, user_id=user_id)
             session.add(conversation)
             session.commit()
         conversation_id = str(conversation.id)

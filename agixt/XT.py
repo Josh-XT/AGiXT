@@ -66,8 +66,8 @@ class AGiXT:
             self.conversation = Conversations(
                 conversation_name=conversation_name, user=self.user_email
             )
-            self.conversation_id = self.conversation.get_conversation_id()
-            self.conversation_name = conversation_name
+            if not self.conversation_id:
+                self.conversation_id = self.conversation.get_conversation_id()
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
         if collection_id is not None:
@@ -81,7 +81,8 @@ class AGiXT:
             self.conversation = Conversations(
                 conversation_name=self.conversation_name, user=self.user_email
             )
-            self.conversation_id = self.conversation.get_conversation_id()
+            if not self.conversation_id:
+                self.conversation_id = self.conversation.get_conversation_id()
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
             agent_name=self.agent_name,
@@ -1048,7 +1049,7 @@ class AGiXT:
             file_type = "txt"
         self.conversation_id
         if not self.conversation_id:
-            self.conversation_id = "1"
+            self.conversation_id = self.conversation.get_conversation_id()
         file_name = f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
         file_name = "".join(c if c.isalnum() else "_" for c in file_name)
         file_extension = file_name.split("_")[-1]
