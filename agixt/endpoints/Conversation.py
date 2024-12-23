@@ -19,6 +19,7 @@ from Models import (
     ConversationFork,
 )
 import json
+import uuid
 from datetime import datetime
 from MagicalAuth import MagicalAuth
 
@@ -91,7 +92,19 @@ async def get_conversation_history(
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversation_history(history: HistoryModel, user=Depends(verify_api_key)):
+async def get_conversation_history(
+    history: HistoryModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(history.conversation_name)
+        history.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
     conversation_history = Conversations(
         conversation_name=history.conversation_name, user=user
     ).get_conversation(
@@ -115,7 +128,16 @@ async def get_conversation_data(
     limit: int = 100,
     page: int = 1,
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(conversation_name)
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
     conversation_history = Conversations(
         conversation_name=conversation_name, user=user
     ).get_conversation(limit=limit, page=page)
@@ -147,8 +169,18 @@ async def new_conversation_history(
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_conversation_history(
-    history: ConversationHistoryModel, user=Depends(verify_api_key)
+    history: ConversationHistoryModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(history.conversation_name)
+        history.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
     Conversations(
         conversation_name=history.conversation_name, user=user
     ).delete_conversation()
@@ -177,8 +209,18 @@ async def delete_history_message(
     dependencies=[Depends(verify_api_key)],
 )
 async def update_history_message(
-    history: UpdateConversationHistoryMessageModel, user=Depends(verify_api_key)
+    history: UpdateConversationHistoryMessageModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(history.conversation_name)
+        history.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
     Conversations(
         conversation_name=history.conversation_name, user=user
     ).update_message(
@@ -231,8 +273,18 @@ async def delete_by_id(
     dependencies=[Depends(verify_api_key)],
 )
 async def log_interaction(
-    log_interaction: LogInteraction, user=Depends(verify_api_key)
+    log_interaction: LogInteraction,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(log_interaction.conversation_name)
+        log_interaction.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
     interaction_id = Conversations(
         conversation_name=log_interaction.conversation_name, user=user
     ).log_interaction(
@@ -253,6 +305,14 @@ async def rename_conversation(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(rename.conversation_name)
+        rename.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
     agixt = AGiXT(
         user=user,
         agent_name=rename.agent_name,
