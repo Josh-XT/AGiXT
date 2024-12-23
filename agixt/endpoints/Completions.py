@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, Header
 from Globals import get_tokens
 from ApiClient import Agent, verify_api_key, get_api_client
+from Conversations import get_conversation_name_by_id
 from providers.default import DefaultProvider
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
@@ -32,6 +33,13 @@ async def chat_completion(
 ):
     # prompt.model is the agent name
     # prompt.user is the conversation name
+    # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
+    try:
+        conversation_id = str(uuid.UUID(prompt.user))
+    except:
+        conversation_id = None
+    if conversation_id:
+        prompt.user = get_conversation_name_by_id(conversation_id)
     agixt = AGiXT(
         user=user,
         agent_name=prompt.model,
