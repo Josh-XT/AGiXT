@@ -39,6 +39,7 @@ def get_conversation_id_by_name(conversation_name, user_id):
 def get_conversation_name_by_id(conversation_id, user_id):
     if conversation_id == "-":
         conversation_id = get_conversation_id_by_name("-", user_id)
+        return "-"
     session = get_session()
     conversation = (
         session.query(Conversation)
