@@ -133,7 +133,7 @@ class Task:
         for task in tasks:
             try:
                 session = get_session()
-                if task.category.name == "AI Follow-ups" and task.agent_id:
+                if task.category.name == "Follow-ups" and task.agent_id:
                     # Handle AI follow-ups as before
                     agent = session.query(Agent).get(task.agent_id)
                     if agent:
