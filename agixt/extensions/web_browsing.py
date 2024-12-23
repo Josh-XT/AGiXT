@@ -56,6 +56,12 @@ logging.basicConfig(
 )
 
 
+def escape_css_classname(classname: str) -> str:
+    # Minimal example that replaces `:` and `/` with escaped versions
+    # You can add more replacements if needed.
+    return classname.replace(":", "\\:").replace("/", "\\/")
+
+
 class web_browsing(Extensions):
     """
     The AGiXT Web Browsing extension enables sophisticated web interaction and data extraction.
@@ -90,13 +96,162 @@ class web_browsing(Extensions):
         self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.commands = {
             "Interact with Webpage": self.interact_with_webpage,
-            "Get Web Search Results": self.get_search_results,
         }
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
         self.popup = None
+
+    async def get_form_fields(self) -> str:
+        """
+        Enhanced method to detect form fields, handling modern web apps and dynamic content.
+        """
+        if self.page is None:
+            return "Error: No page loaded."
+
+        try:
+            # Wait for network to be idle and page to stabilize
+            await self.page.wait_for_load_state("networkidle", timeout=5000)
+
+            # Use JavaScript to get all input fields, including those in shadow DOM
+            fields = await self.page.evaluate(
+                """() => {
+                const getAllFields = (root) => {
+                    let elements = [];
+                    
+                    // Get regular form fields
+                    const formFields = root.querySelectorAll('input, select, textarea, button');
+                    elements = [...elements, ...formFields];
+                    
+                    // Get shadow roots
+                    const shadowHosts = root.querySelectorAll('*');
+                    shadowHosts.forEach(host => {
+                        if (host.shadowRoot) {
+                            elements = [...elements, ...getAllFields(host.shadowRoot)];
+                        }
+                    });
+                    
+                    return elements;
+                };
+                
+                const elements = getAllFields(document);
+                return elements.map(el => ({
+                    tagName: el.tagName.toLowerCase(),
+                    type: el.type || '',
+                    id: el.id || '',
+                    name: el.name || '',
+                    className: el.className || '',
+                    placeholder: el.placeholder || '',
+                    value: el.value || '',
+                    isVisible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+                    ariaLabel: el.getAttribute('aria-label') || '',
+                    role: el.getAttribute('role') || '',
+                    dataTestId: el.getAttribute('data-testid') || '',
+                }));
+            }"""
+            )
+
+            # Process fields into structured description
+            structured_content = []
+
+            # Group fields by type
+            input_fields = [f for f in fields if f["tagName"] == "input"]
+            select_fields = [f for f in fields if f["tagName"] == "select"]
+            textarea_fields = [f for f in fields if f["tagName"] == "textarea"]
+            button_fields = [
+                f for f in fields if f["tagName"] == "button" or f["type"] == "submit"
+            ]
+
+            # Process input fields
+            if input_fields:
+                structured_content.append("\nInput Fields:")
+                for field in input_fields:
+                    if not field["isVisible"]:
+                        continue
+
+                    desc = f"Field: {field['type'] or 'text'}"
+                    selectors = []
+
+                    # Build selectors in order of specificity
+                    if field["id"]:
+                        selectors.append(f"#{field['id']}")
+                    if field["name"]:
+                        selectors.append(f"[name='{field['name']}']")
+                    if field["className"]:
+                        class_names = field["className"].split()
+                        if class_names:
+                            # Escape each class
+                            escaped_classes = [
+                                escape_css_classname(c) for c in class_names
+                            ]
+                            selectors.append("." + ".".join(escaped_classes))
+                    if field["placeholder"]:
+                        selectors.append(f"[placeholder='{field['placeholder']}']")
+                    if field["ariaLabel"]:
+                        selectors.append(f"[aria-label='{field['ariaLabel']}']")
+                    if field["dataTestId"]:
+                        selectors.append(f"[data-testid='{field['dataTestId']}']")
+
+                    # Add field attributes to description
+                    if field["name"]:
+                        desc += f" (name: {field['name']})"
+                    if field["placeholder"]:
+                        desc += f" (placeholder: {field['placeholder']})"
+                    if field["ariaLabel"]:
+                        desc += f" (aria-label: {field['ariaLabel']})"
+
+                    # Add selectors
+                    desc += "\nSelectors (in order of reliability):"
+                    for selector in selectors:
+                        desc += f"\n  - {selector}"
+
+                    structured_content.append(desc)
+
+            # Process buttons
+            if button_fields:
+                structured_content.append("\nButtons:")
+                for button in button_fields:
+                    if not button["isVisible"]:
+                        continue
+
+                    selectors = []
+                    desc = "Button"
+
+                    # Build button selectors
+                    if button["id"]:
+                        selectors.append(f"#{button['id']}")
+                    if button["className"]:
+                        class_names = button["className"].split()
+                        if class_names:
+                            selectors.append("." + ".".join(class_names))
+                    if button["type"] == "submit":
+                        selectors.append("button[type='submit']")
+
+                    # Add button attributes
+                    if button["value"]:
+                        desc += f" (value: {button['value']})"
+                    if button["ariaLabel"]:
+                        desc += f" (aria-label: {button['ariaLabel']})"
+
+                    # Add selectors
+                    desc += "\nSelectors (in order of reliability):"
+                    for selector in selectors:
+                        desc += f"\n  - {selector}"
+
+                    structured_content.append(desc)
+
+            # Format and return content
+            return "\n".join(structured_content)
+
+        except Exception as e:
+            error_msg = f"Error detecting form fields: {str(e)}"
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                conversation_name=self.conversation_name,
+            )
+            return error_msg
 
     async def get_search_results(self, query: str) -> List[dict]:
         """
@@ -163,23 +318,61 @@ class web_browsing(Extensions):
 
     async def fill_input_with_playwright(self, selector: str, text: str) -> str:
         """
-        Fill an input field specified by a selector using Playwright
-
-        Args:
-        selector (str): The CSS selector of the input field
-        text (str): The text to fill into the input field
-
-        Returns:
-        str: Confirmation message
+        Enhanced version of fill_input that tries multiple strategies
         """
         try:
             if self.page is None:
                 return "Error: No page loaded. Please navigate to a URL first."
-            await self.page.fill(selector, text)
-            logging.info(f"Filled input {selector} with text '{text}'")
-            return f"Filled input {selector} with text '{text}'"
+
+            # Try different selector variations
+            selector_variations = [
+                selector,
+                f"input{selector}",  # Try with input prefix
+                f"{selector}:not([type='hidden'])",  # Exclude hidden fields
+                f"[name='{selector}']",  # Try as name attribute
+                f"[placeholder='{selector}']",  # Try as placeholder
+                f"input[name='{selector}']",  # Try as input with name
+            ]
+
+            # Try label-based selection
+            label_element = await self.page.query_selector(f"label:has-text('{text}')")
+            if label_element:
+                label_for = await label_element.get_attribute("for")
+                if label_for:
+                    selector_variations.append(f"#{label_for}")
+
+            success = False
+            error_messages = []
+
+            for sel in selector_variations:
+                try:
+                    # Wait briefly for the element
+                    await self.page.wait_for_selector(sel, timeout=2000)
+
+                    # Try to fill
+                    await self.page.fill(sel, text)
+
+                    # Verify the fill worked
+                    element = await self.page.query_selector(sel)
+                    if element:
+                        value = await element.get_property("value")
+                        actual_value = await value.json_value()
+                        if actual_value == text:
+                            success = True
+                            break
+
+                except Exception as e:
+                    error_messages.append(f"Selector '{sel}' failed: {str(e)}")
+                    continue
+
+            if success:
+                return f"Successfully filled input with text '{text}'"
+            else:
+                return f"Failed to fill input. Tried these selectors:\n" + "\n".join(
+                    error_messages
+                )
+
         except Exception as e:
-            logging.error(f"Error filling input {selector}: {str(e)}")
             return f"Error: {str(e)}"
 
     async def select_option_with_playwright(self, selector: str, value: str) -> str:
@@ -729,223 +922,240 @@ class web_browsing(Extensions):
             )
             return f"Error: {str(e)}"
 
-    async def interact_with_webpage(self, url: str, task: str):
+    async def handle_step(self, step, current_url):
         """
-        Execute a complex web interaction workflow. This command should be used when:
-        - Navigating through multi-step web processes
-        - Filling out forms and clicking through pages
-        - Handling login flows or authentication
-        - Extracting information across multiple pages
-        - Automating web-based tasks
-
-        The assistant will:
-        - Plan the interaction steps needed
-        - Execute each step in sequence with error recovery
-        - Handle retries with alternative approaches
-        - Maintain session state throughout
-        - Verify successful completion
-        - Log detailed subactivities for each interaction
-        - Generate summaries of important page content
-
-        Args:
-        url (str): Starting URL for the workflow
-        task (str): Natural language description of what needs to be accomplished
-
-        Returns:
-        str: Description of actions taken and results
+        Handle execution of a single interaction step with enhanced form handling and logging
         """
-        # First check if we have an active session
-        if self.page is None:
+        operation = step.find("operation").text
+        selector = step.find("selector").text
+        description = step.find("description").text
+        value = step.find("value").text if step.find("value") is not None else None
+        retry_info = step.find("retry")
+
+        # For form operations, get detailed field information first
+        if operation in ["fill", "select"]:
+            form_fields = await self.get_form_fields()
+            logging.info(f"Available form fields:\n{form_fields}")
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Navigating to [{url}]",
+                message=f"[SUBACTIVITY][{self.activity_id}] Form fields detected:\n{form_fields}",
                 conversation_name=self.conversation_name,
             )
-            await self.navigate_to_url_with_playwright(url=url, headless=True)
-            # Get and summarize initial page content
-            initial_content = await self.get_page_content()
-            page_summary = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": f"""Please provide a concise summary of this page content that captures:
+
+        # Take screenshot before action
+        screenshot_path = os.path.join(
+            self.WORKING_DIRECTORY, f"before_{uuid.uuid4()}.png"
+        )
+        await self.page.screenshot(path=screenshot_path, full_page=True)
+        before_screenshot = os.path.basename(screenshot_path)
+
+        # Log step with current URL and before screenshot
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{self.activity_id}] About to perform: {description} on [{current_url}]\n![Before Screenshot]({self.output_url}/{before_screenshot})",
+            conversation_name=self.conversation_name,
+        )
+
+        # Initialize retry parameters
+        max_attempts = 3
+        alternate_selector = None
+        fallback_operation = None
+
+        if retry_info is not None:
+            alt_selector_elem = retry_info.find("alternate_selector")
+            if alt_selector_elem is not None:
+                alternate_selector = alt_selector_elem.text
+
+            fallback_op_elem = retry_info.find("fallback_operation")
+            if fallback_op_elem is not None:
+                fallback_operation = fallback_op_elem.text
+
+            max_attempts_elem = retry_info.find("max_attempts")
+            if max_attempts_elem is not None:
+                max_attempts = int(max_attempts_elem.text)
+
+        # Execute step with retries
+        attempt = 0
+        success = False
+        last_error = None
+
+        while attempt < max_attempts and not success:
+            try:
+                # Take screenshot before operation
+                pre_op_screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"pre_op_{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=pre_op_screenshot_path, full_page=True)
+                pre_op_screenshot = os.path.basename(pre_op_screenshot_path)
+
+                # Log the current state before operation
+                current_url = self.page.url
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Attempting {operation} (try {attempt + 1}/{max_attempts}) on [{current_url}]\n![Pre-Operation Screenshot]({self.output_url}/{pre_op_screenshot})",
+                    conversation_name=self.conversation_name,
+                )
+
+                # Enhanced operation handling with more detailed feedback
+                if operation == "click":
+                    # Wait for element to be clickable
+                    await self.page.wait_for_selector(
+                        selector, state="visible", timeout=5000
+                    )
+                    await self.click_element_with_playwright(selector)
+                    await self.page.wait_for_load_state("networkidle")
+
+                elif operation == "fill":
+                    # Enhanced fill operation with retries and validation
+                    fill_result = await self.fill_input_with_playwright(selector, value)
+                    if "Error" in fill_result:
+                        raise Exception(fill_result)
+
+                    # Verify the fill operation
+                    element = await self.page.query_selector(selector)
+                    if element:
+                        element_value = await element.get_property("value")
+                        actual_value = await element_value.json_value()
+                        if actual_value != value:
+                            raise Exception(
+                                f"Fill verification failed. Expected '{value}' but got '{actual_value}'"
+                            )
+
+                elif operation == "select":
+                    await self.select_option_with_playwright(selector, value)
+
+                elif operation == "wait":
+                    await self.wait_for_selector_with_playwright(selector)
+
+                elif operation == "verify":
+                    await self.assert_element_with_playwright(selector, value)
+
+                elif operation == "screenshot":
+                    await self.take_screenshot_with_highlight_with_playwright(
+                        selector, value
+                    )
+
+                elif operation == "extract":
+                    await self.extract_text_from_image_with_playwright(selector)
+
+                elif operation == "download":
+                    download_path = os.path.join(
+                        self.WORKING_DIRECTORY, value or f"download_{uuid.uuid4()}"
+                    )
+                    await self.download_file_with_playwright(selector, download_path)
+                    file_name = os.path.basename(download_path)
+
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Downloaded file on [{current_url}]\nFile available at: {self.output_url}/{file_name}",
+                        conversation_name=self.conversation_name,
+                    )
+                    return f"Downloaded file saved as: {self.output_url}/{file_name}"
+
+                # Take screenshot after operation
+                post_op_screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"post_op_{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=post_op_screenshot_path, full_page=True)
+                post_op_screenshot = os.path.basename(post_op_screenshot_path)
+
+                # Get updated URL after operation
+                new_url = self.page.url
+
+                # Log the completion of operation with before/after screenshots
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed {operation} operation\nStarted on: [{current_url}]\nEnded on: [{new_url}]\n![Post-Operation Screenshot]({self.output_url}/{post_op_screenshot})",
+                    conversation_name=self.conversation_name,
+                )
+
+                success = True
+
+                # Generate page summary after successful operation
+                new_content = await self.get_page_content()
+                page_summary = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": f"""Please provide a concise summary of the current page state:
 1. The main purpose or topic of the page
 2. Any key information, data, or options present
 3. Available interaction elements (forms, buttons, etc.)
 4. Any error messages or important notices
+5. The result of the last operation ({operation})
 
 Page Content:
-{initial_content}""",
-                    "conversation_name": self.conversation_name,
-                    "log_user_input": False,
-                    "log_output": False,
-                    "tts": False,
-                    "analyze_user_input": False,
-                    "disable_commands": True,
-                    "browse_links": False,
-                    "websearch": False,
-                },
-            )
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Loaded initial page.\n{page_summary}",
-                conversation_name=self.conversation_name,
-            )
-
-        # Build context of the current page state
-        current_page_content = await self.get_page_content()
-        current_url = self.page.url if self.page else "No page loaded"
-
-        # Use AI to plan interaction steps
-        interaction_plan = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": f"""Need to interact with a webpage to accomplish the following task:
-
-### Starting URL
-{url}
-
-### Task to Complete
-{task}
-
-### Current Page State
-Currently on: {current_url}
-
-### Page Content
-{current_page_content}
-
-Please analyze the task and provide the necessary interaction steps using the following XML format inside an <answer> block:
-
-<interaction>
-<step>
-    <operation>click|fill|select|wait|verify|screenshot|extract</operation>
-    <selector>CSS selector or XPath</selector>
-    <value>Value for fill/select operations if needed</value>
-    <description>Human-readable description of this step's purpose</description>
-    <retry>
-        <alternate_selector>Alternative selector if primary fails</alternate_selector>
-        <fallback_operation>Alternative operation type</fallback_operation>
-        <max_attempts>3</max_attempts>
-    </retry>
-</step>
-</interaction>
-
-Important Guidelines:
-1. Each <step> must include operation, selector, and description
-2. Add <value> for fill/select operations
-3. Include <retry> blocks for critical steps
-4. Provide precise selectors using:
-- Unique IDs when available
-- Specific CSS selectors
-- XPath as last resort
-5. Consider page load timing
-6. Add verification steps after important actions
-
-Example:
-<interaction>
-<step>
-    <operation>fill</operation>
-    <selector>#email-input</selector>
-    <value>user@example.com</value>
-    <description>Filling in the email address field</description>
-    <retry>
-        <alternate_selector>input[type='email']</alternate_selector>
-        <fallback_operation>fill</fallback_operation>
-        <max_attempts>3</max_attempts>
-    </retry>
-</step>
-</interaction>""",
-                "conversation_name": self.conversation_name,
-                "log_user_input": False,
-                "log_output": False,
-                "tts": False,
-                "analyze_user_input": False,
-                "disable_commands": True,
-                "browse_links": False,
-                "websearch": False,
-            },
-        )
-
-        # Parse interaction steps
-        try:
-            root = ET.fromstring(interaction_plan)
-            steps = root.findall(".//step")
-            results = []
-
-            for step in steps:
-                operation = step.find("operation").text
-                selector = step.find("selector").text
-                description = step.find("description").text
-                value = (
-                    step.find("value").text if step.find("value") is not None else None
+{new_content}""",
+                        "conversation_name": self.conversation_name,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "tts": False,
+                        "analyze_user_input": False,
+                        "disable_commands": True,
+                        "browse_links": False,
+                        "websearch": False,
+                    },
                 )
-                retry_info = step.find("retry")
 
-                # Log the step we're about to attempt
+                return f"Operation successful: {page_summary}"
+
+            except Exception as e:
+                last_error = str(e)
+                attempt += 1
+
+                # Log the error attempt
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] {description} on [{current_url}]",
+                    message=f"[SUBACTIVITY][{self.activity_id}] Operation {operation} failed (attempt {attempt}/{max_attempts}): {last_error}",
                     conversation_name=self.conversation_name,
                 )
 
-                # Initialize retry parameters
-                max_attempts = 3
-                alternate_selector = None
-                fallback_operation = None
-
-                if retry_info is not None:
-                    alt_selector_elem = retry_info.find("alternate_selector")
-                    if alt_selector_elem is not None:
-                        alternate_selector = alt_selector_elem.text
-
-                    fallback_op_elem = retry_info.find("fallback_operation")
-                    if fallback_op_elem is not None:
-                        fallback_operation = fallback_op_elem.text
-
-                    max_attempts_elem = retry_info.find("max_attempts")
-                    if max_attempts_elem is not None:
-                        max_attempts = int(max_attempts_elem.text)
-
-                # Execute step with retries
-                attempt = 0
-                success = False
-                last_error = None
-
-                while attempt < max_attempts and not success:
+                # Try alternate selector if available
+                if not success and alternate_selector and attempt < max_attempts:
                     try:
-                        # Try primary operation
-                        if operation == "click":
-                            await self.click_element_with_playwright(selector)
-                            # Wait for potential page load after click
-                            await self.page.wait_for_load_state("networkidle")
-                        elif operation == "fill":
-                            await self.fill_input_with_playwright(selector, value)
-                        elif operation == "select":
-                            await self.select_option_with_playwright(selector, value)
-                        elif operation == "wait":
-                            await self.wait_for_selector_with_playwright(selector)
-                        elif operation == "verify":
-                            await self.assert_element_with_playwright(selector, value)
-                        elif operation == "screenshot":
-                            await self.take_screenshot_with_highlight_with_playwright(
-                                selector, value
-                            )
-                        elif operation == "extract":
-                            await self.extract_text_from_image_with_playwright(selector)
-
-                        success = True
-                        results.append(
-                            f"Successfully completed {operation} on {selector}"
+                        self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{self.activity_id}] Trying alternate selector: {alternate_selector}",
+                            conversation_name=self.conversation_name,
                         )
 
-                        # After successful operation, get updated page content and summarize
+                        if operation == "click":
+                            await self.click_element_with_playwright(alternate_selector)
+                            await self.page.wait_for_load_state("networkidle")
+                        elif operation == "fill":
+                            await self.fill_input_with_playwright(
+                                alternate_selector, value
+                            )
+                        elif operation == "select":
+                            await self.select_option_with_playwright(
+                                alternate_selector, value
+                            )
+                        elif operation == "wait":
+                            await self.wait_for_selector_with_playwright(
+                                alternate_selector
+                            )
+                        elif operation == "verify":
+                            await self.assert_element_with_playwright(
+                                alternate_selector, value
+                            )
+
+                        success = True
+
+                        # Take screenshot after successful alternate action
+                        screenshot_path = os.path.join(
+                            self.WORKING_DIRECTORY, f"after_alt_{uuid.uuid4()}.png"
+                        )
+                        await self.page.screenshot(path=screenshot_path, full_page=True)
+                        after_screenshot = os.path.basename(screenshot_path)
+
+                        # Get updated URL and content
+                        current_url = self.page.url
                         new_content = await self.get_page_content()
                         page_summary = self.ApiClient.prompt_agent(
                             agent_name=self.agent_name,
                             prompt_name="Think About It",
                             prompt_args={
-                                "user_input": f"""Please provide a concise summary of this page content that captures:
+                                "user_input": f"""Please provide a concise summary of the current page state after using alternate selector:
 1. The main purpose or topic of the page
 2. Any key information, data, or options present
 3. Available interaction elements (forms, buttons, etc.)
@@ -964,368 +1174,651 @@ Page Content:
                             },
                         )
 
-                        # Log successful operation and page summary
                         self.ApiClient.new_conversation_message(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed: {description}\n{page_summary}",
+                            message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed with alternate selector: {description} on [{current_url}]\n![After Screenshot]({self.output_url}/{after_screenshot})\n\n{page_summary}",
                             conversation_name=self.conversation_name,
                         )
+                        return "Success with alternate selector"
 
-                    except Exception as e:
-                        last_error = str(e)
-                        attempt += 1
+                    except Exception as alt_e:
+                        last_error = f"Alternative selector failed: {str(alt_e)}"
 
-                        # Try alternate selector if available
-                        if (
-                            not success
-                            and alternate_selector
-                            and attempt < max_attempts
-                        ):
-                            try:
-                                if operation == "click":
-                                    await self.click_element_with_playwright(
-                                        alternate_selector
-                                    )
-                                    await self.page.wait_for_load_state("networkidle")
-                                elif operation == "fill":
-                                    await self.fill_input_with_playwright(
-                                        alternate_selector, value
-                                    )
-                                elif operation == "select":
-                                    await self.select_option_with_playwright(
-                                        alternate_selector, value
-                                    )
-                                elif operation == "wait":
-                                    await self.wait_for_selector_with_playwright(
-                                        alternate_selector
-                                    )
-                                elif operation == "verify":
-                                    await self.assert_element_with_playwright(
-                                        alternate_selector, value
-                                    )
+        if not success:
+            error_msg = f"Failed to complete {operation} after {max_attempts} attempts. Last error: {last_error}"
 
-                                success = True
-                                results.append(
-                                    f"Successfully completed {operation} using alternate selector {alternate_selector}"
-                                )
-
-                                # Get and summarize page content after successful alternate attempt
-                                new_content = await self.get_page_content()
-                                page_summary = self.ApiClient.prompt_agent(
-                                    agent_name=self.agent_name,
-                                    prompt_name="Think About It",
-                                    prompt_args={
-                                        "user_input": f"""Please provide a concise summary of this page content that captures:
-1. The main purpose or topic of the page
-2. Any key information, data, or options present
-3. Available interaction elements (forms, buttons, etc.)
-4. Any error messages or important notices
-
-Page Content:
-{new_content}""",
-                                        "conversation_name": self.conversation_name,
-                                        "log_user_input": False,
-                                        "log_output": False,
-                                        "tts": False,
-                                        "analyze_user_input": False,
-                                        "disable_commands": True,
-                                        "browse_links": False,
-                                        "websearch": False,
-                                    },
-                                )
-
-                                # Log successful alternate operation and page summary
-                                self.ApiClient.new_conversation_message(
-                                    role=self.agent_name,
-                                    message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed with alternate selector: {description}\n{page_summary}",
-                                    conversation_name=self.conversation_name,
-                                )
-                                continue
-
-                            except Exception as alt_e:
-                                last_error = (
-                                    f"Alternative selector failed: {str(alt_e)}"
-                                )
-
-                        # Try fallback operation if available
-                        if (
-                            not success
-                            and fallback_operation
-                            and attempt < max_attempts
-                        ):
-                            try:
-                                if fallback_operation == "click":
-                                    await self.click_element_with_playwright(selector)
-                                    await self.page.wait_for_load_state("networkidle")
-                                elif fallback_operation == "fill":
-                                    await self.fill_input_with_playwright(
-                                        selector, value
-                                    )
-                                elif fallback_operation == "select":
-                                    await self.select_option_with_playwright(
-                                        selector, value
-                                    )
-                                elif fallback_operation == "wait":
-                                    await self.wait_for_selector_with_playwright(
-                                        selector
-                                    )
-                                elif fallback_operation == "verify":
-                                    await self.assert_element_with_playwright(
-                                        selector, value
-                                    )
-
-                                success = True
-                                results.append(
-                                    f"Successfully completed fallback operation {fallback_operation}"
-                                )
-
-                                # Get and summarize page content after successful fallback
-                                new_content = await self.get_page_content()
-                                page_summary = self.ApiClient.prompt_agent(
-                                    agent_name=self.agent_name,
-                                    prompt_name="Think About It",
-                                    prompt_args={
-                                        "user_input": f"""Please provide a concise summary of this page content that captures:
-1. The main purpose or topic of the page
-2. Any key information, data, or options present
-3. Available interaction elements (forms, buttons, etc.)
-4. Any error messages or important notices
-
-Page Content:
-{new_content}""",
-                                        "conversation_name": self.conversation_name,
-                                        "log_user_input": False,
-                                        "log_output": False,
-                                        "tts": False,
-                                        "analyze_user_input": False,
-                                        "disable_commands": True,
-                                        "browse_links": False,
-                                        "websearch": False,
-                                    },
-                                )
-
-                                # Log successful fallback operation and page summary
-                                self.ApiClient.new_conversation_message(
-                                    role=self.agent_name,
-                                    message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed with fallback operation: {description}\n{page_summary}",
-                                    conversation_name=self.conversation_name,
-                                )
-                                continue
-
-                            except Exception as fallback_e:
-                                last_error = (
-                                    f"Fallback operation failed: {str(fallback_e)}"
-                                )
-
-                        # If on last attempt and still not successful
-                        if attempt == max_attempts and not success:
-                            error_msg = f"Failed to complete {operation} after {max_attempts} attempts. Last error: {last_error}"
-                            self.ApiClient.new_conversation_message(
-                                role=self.agent_name,
-                                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
-                                conversation_name=self.conversation_name,
-                            )
-                            return error_msg
-
-            # Log final success message
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Successfully completed all web interactions for task: {task}",
-                conversation_name=self.conversation_name,
+            # Take error screenshot
+            screenshot_path = os.path.join(
+                self.WORKING_DIRECTORY, f"error_{uuid.uuid4()}.png"
             )
+            await self.page.screenshot(path=screenshot_path, full_page=True)
+            error_screenshot = os.path.basename(screenshot_path)
 
-            return "Successfully completed webpage interaction:\n" + "\n".join(results)
-
-        except Exception as e:
-            error_msg = f"Error during webpage interaction: {str(e)}"
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg} on [{current_url}]\n![Error Screenshot]({self.output_url}/{error_screenshot})",
                 conversation_name=self.conversation_name,
             )
             return error_msg
 
-    async def get_page_content(self) -> str:
+    async def interact_with_webpage(self, url: str, task: str):
         """
-        Get the content of the current page in a well-structured format using BeautifulSoup.
-        Extracts and organizes:
-        - Page title and headers
-        - Main content sections
-        - Navigation elements
-        - Forms and input fields
-        - Links and buttons
-        - Lists and tables
-        - Error messages and notifications
+        Execute a complex web interaction workflow. This command should be used when:
+        - Navigating through multi-step web processes
+        - Filling out forms and clicking through pages
+        - Handling login flows or authentication
+        - Extracting information across multiple pages
+        - Automating web-based tasks
+
+        The assistant will:
+        - Plan the interaction steps needed
+        - Execute each step in sequence with error recovery
+        - Handle retries with alternative approaches
+        - Maintain session state throughout
+        - Verify successful completion
+        - Log detailed subactivities for each interaction
+        - Generate summaries of important page content
+        - Unless otherwise specified, the assistant prefers Brave for search.
+
+        Args:
+        url (str): Starting URL for the workflow
+        task (str): Natural language description of what needs to be accomplished
 
         Returns:
-        str: Structured text content of the current page
+        str: Description of actions taken and results
+        """
+
+        def safe_get_text(element, default="") -> str:
+            if element is None or element.text is None:
+                return default
+            return element.text.strip()
+
+        def extract_interaction_block(response: str) -> str:
+            match = re.search(r"<interaction>.*?</interaction>", response, re.DOTALL)
+            if not match:
+                raise ValueError("No <interaction> block found in response.")
+            xml_block = match.group(0).strip()
+            xml_block = re.sub(r"\s+<", "<", xml_block)
+            xml_block = re.sub(r">\s+", ">", xml_block)
+            xml_block = re.sub(r"\s+(?=</)", "", xml_block)
+            xml_block = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_block
+            return xml_block
+
+        def is_valid_selector(selector: str) -> bool:
+            """
+            Validate if a selector is stable and usable.
+            Rejects class-based and dynamic selectors.
+            """
+            if not selector:
+                return False
+
+            # Only allow very specific selector types
+            valid_patterns = [
+                r"^#[\w-]+$",  # IDs
+                r'^\[name=[\'"]\w+[\'"]?\]$',  # name attributes
+                r'^\[placeholder=[\'"][^\'"]+[\'"]?\]$',  # placeholder attributes
+                r'^button\[type=[\'"](submit|button)[\'"]?\]$',  # button types
+                r'^\[type=[\'"]\w+[\'"]?\]$',  # input types
+                r'^a\[href=[\'"][^\'"]+[\'"]?\]$',  # links
+            ]
+
+            # Must match one of our valid patterns exactly
+            return any(re.match(pattern + "$", selector) for pattern in valid_patterns)
+
+        def is_repeat_failure(step, attempt_history, window=3):
+            operation = safe_get_text(step.find("operation")).lower()
+            selector = safe_get_text(step.find("selector"))
+            value = safe_get_text(step.find("value"))
+
+            recent_attempts = attempt_history[-window:]
+            for attempt in recent_attempts:
+                if f"{operation} on '{selector}'" in attempt and (
+                    "Error" in attempt or "fail" in attempt.lower()
+                ):
+                    return True
+            return False
+
+        async def handle_step(self, step, current_url) -> str:
+            """Handle a single interaction step with text-based locator support."""
+            try:
+                operation = safe_get_text(step.find("operation"))
+                selector = safe_get_text(step.find("selector"))
+                value = safe_get_text(step.find("value"))
+                description = safe_get_text(step.find("description"))
+
+                # For click operations, try text matching first
+                if operation == "click" and value:
+                    try:
+                        # First try exact text match
+                        locator = self.page.locator(f'text="{value}"').first
+                        if await locator.count() > 0:
+                            await locator.click()
+                            return f"Clicked element with text '{value}'"
+
+                        # Try contains text match
+                        locator = self.page.locator(f'text="{value}"').first
+                        if await locator.count() > 0:
+                            await locator.click()
+                            return f"Clicked element containing text '{value}'"
+
+                    except Exception as text_error:
+                        logging.info(
+                            f"Text-based click failed, falling back to selector: {text_error}"
+                        )
+
+                # Proceed with normal selector-based operations
+                if operation == "click":
+                    await self.page.click(selector)
+                    return f"Clicked element with selector {selector}"
+
+                elif operation == "fill":
+                    await self.page.fill(selector, value)
+                    return f"Filled input {selector} with value {value}"
+
+                elif operation == "wait":
+                    if value and value.isdigit():
+                        await self.page.wait_for_timeout(int(value))
+                        return f"Waited for {value}ms"
+                    else:
+                        await self.page.wait_for_selector(selector, timeout=5000)
+                        return f"Waited for selector {selector}"
+
+                elif operation == "verify":
+                    element = await self.page.wait_for_selector(selector)
+                    content = await element.text_content()
+                    if value not in content:
+                        return f"Verification failed: Expected '{value}' in element {selector}"
+                    return f"Verified element {selector} contains '{value}'"
+
+                elif operation == "done":
+                    return "Operation complete"
+
+                else:
+                    return f"Unknown operation: {operation}"
+
+            except Exception as e:
+                return f"Error: {str(e)}"
+
+        # Initialize browser if needed
+        if not url.startswith("http"):
+            url = "https://" + url
+
+        if self.page is None:
+            await self.navigate_to_url_with_playwright(url=url, headless=True)
+
+        max_iterations = 10
+        iteration_count = 0
+        results = []
+        last_url = None
+        attempt_history = []
+
+        while iteration_count < max_iterations:
+            iteration_count += 1
+            current_url = self.page.url
+            url_changed = current_url != last_url
+            last_url = current_url
+
+            # Get fresh page state
+            current_page_content = await self.get_page_content()
+            form_fields = await self.get_form_fields()
+
+            # Extract and validate available selectors
+            available_selectors = []
+            for line in form_fields.split("\n"):
+                if "  - " in line:
+                    sel = line.split("  - ")[-1].strip()
+                    if is_valid_selector(sel):
+                        available_selectors.append(sel)
+
+            if not available_selectors:
+                await self.page.wait_for_timeout(2000)
+                continue
+
+            # Create planning context
+            planning_context = f"""Current webpage state:
+
+TASK TO COMPLETE: {task}
+
+CURRENT URL: {current_url}
+URL CHANGED: {url_changed}
+
+AVAILABLE SELECTORS (ONLY these may be used):
+{os.linesep.join(available_selectors)}
+
+FORM FIELDS AND INTERACTIVE ELEMENTS:
+{form_fields}
+
+CURRENT PAGE CONTENT:
+{current_page_content}
+
+PREVIOUS ATTEMPTS AND OUTCOMES:
+{os.linesep.join(attempt_history)}
+
+STRICT RULES:
+1. For clicking buttons with text (like "Continue with Email"):
+   - Use button[type='submit'] as the selector
+   - Put the EXACT button text in the value field
+   Example:
+   <operation>click</operation>
+   <selector>button[type='submit']</selector>
+   <value>Continue with Email</value>
+
+2. For filling inputs:
+   - Use ONLY these selector types:
+     * #id
+     * [name='name']
+     * [placeholder='text']
+     * [type='type']
+   Example:
+   <operation>fill</operation>
+   <selector>#email</selector>
+   <value>user@example.com</value>
+
+3. DO NOT use:
+   - Class-based selectors
+   - Complex selectors
+   - Dynamic IDs
+
+4. If an element isn't found:
+   - Use 'wait' operation
+   - Try the exact button text in value field
+
+IMPORTANT INSTRUCTIONS:
+1. Provide ONE STEP that moves us toward the goal
+2. When clicking buttons or links, ALWAYS specify the exact text in the value field
+3. For buttons that say "Continue with Email", use that exact text
+4. If you can't find a needed element, use 'wait'
+5. If you've waited multiple times and still can't proceed, explain why
+6. If the task is complete, use 'done'
+
+YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
+<interaction>
+    <step>
+        <operation>click|fill|wait|verify|done</operation>
+        <selector>EXACT selector from available fields</selector>
+        <value>Button text for clicks, or input value</value>
+        <description>How this step helps accomplish the task</description>
+    </step>
+</interaction>"""
+
+            try:
+                # Get next step from LLM
+                raw_plan = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": planning_context,
+                        "conversation_name": self.conversation_name,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "tts": False,
+                        "analyze_user_input": False,
+                        "disable_commands": True,
+                        "browse_links": False,
+                        "websearch": False,
+                    },
+                )
+
+                # Parse the step
+                interaction_xml = extract_interaction_block(raw_plan)
+                root = ET.fromstring(interaction_xml)
+                steps = root.findall(".//step")
+
+                if not steps:
+                    results.append("No valid steps provided. Stopping.")
+                    break
+
+                step = steps[0]  # Only take the first step
+                operation = safe_get_text(step.find("operation")).lower()
+                selector = safe_get_text(step.find("selector"))
+                value = safe_get_text(step.find("value"))
+                description = safe_get_text(step.find("description"))
+
+                # Validate the selector unless we're done
+                if operation != "done" and not is_valid_selector(selector):
+                    error_msg = (
+                        f"Invalid selector '{selector}'. Waiting for valid selectors..."
+                    )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        conversation_name=self.conversation_name,
+                    )
+                    await self.page.wait_for_timeout(2000)
+                    attempt_history.append(error_msg)
+                    continue
+
+                # Check for completion
+                if operation == "done":
+                    results.append("Task completed successfully.")
+                    break
+
+                # Check for repeated failed actions
+                if is_repeat_failure(step, attempt_history):
+                    error_msg = (
+                        "Preventing repeated failed action. Need a different approach."
+                    )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                        conversation_name=self.conversation_name,
+                    )
+                    attempt_history.append(f"PREVENTED REPEAT: {error_msg}")
+                    continue
+
+                # Record this attempt before execution
+                attempt_record = f"Step {iteration_count}: {operation} on '{selector}' with value '{value}' - {description}"
+
+                # Wait for element stability
+                if operation in ["click", "fill"]:
+                    try:
+                        # Enhanced operation handling with more detailed feedback
+                        if operation == "click":
+                            if value:  # If we have text to match
+                                try:
+                                    # Try text-based locator first
+                                    text_locator = f"text={value}"
+                                    element = await self.page.locator(
+                                        text_locator
+                                    ).first
+                                    if element:
+                                        await element.click()
+                                        await self.page.wait_for_load_state(
+                                            "networkidle"
+                                        )
+                                        return f"Clicked element with text '{value}'"
+                                except Exception as text_error:
+                                    logging.info(
+                                        f"Text-based click failed, falling back to selector: {text_error}"
+                                    )
+
+                            # Fall back to normal selector-based click
+                            await self.page.wait_for_selector(
+                                selector, state="visible", timeout=5000
+                            )
+                            await self.click_element_with_playwright(selector)
+                            await self.page.wait_for_load_state("networkidle")
+                        else:
+                            await self.page.wait_for_selector(selector, timeout=5000)
+                    except Exception as wait_error:
+                        attempt_record += f" -> Wait failed: {str(wait_error)}"
+                        attempt_history.append(attempt_record)
+                        continue
+
+                # Execute the step
+                step_result = await handle_step(self, step, current_url)
+
+                # Record the outcome
+                attempt_record += f" -> Result: {step_result}"
+                attempt_history.append(attempt_record)
+                results.append(step_result)
+
+                # If the step failed, add context
+                if "Error" in step_result or "fail" in step_result.lower():
+                    error_context = """
+                    This step failed. Consider:
+                    1. Check if the element is visible
+                    2. The page might need time to load
+                    3. For buttons, make sure to use the exact button text
+                    4. Try waiting for elements to appear
+                    """
+                    attempt_history.append(error_context)
+
+                # Wait for network and animations
+                await self.page.wait_for_load_state("networkidle", timeout=5000)
+                await self.page.wait_for_timeout(1000)
+
+                # Take a screenshot
+                screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=screenshot_path, full_page=True)
+                screenshot = os.path.basename(screenshot_path)
+
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Step completed on [{current_url}]\n![Screenshot]({self.output_url}/{screenshot})",
+                    conversation_name=self.conversation_name,
+                )
+
+            except Exception as e:
+                error_msg = f"Error on iteration {iteration_count}: {str(e)}"
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] {error_msg}",
+                    conversation_name=self.conversation_name,
+                )
+                attempt_history.append(f"EXCEPTION: {error_msg}")
+                results.append(error_msg)
+                break
+
+        return "\n".join(results)
+
+    def get_text_safely(self, element) -> str:
+        """
+        Safely extract text from a BeautifulSoup element, handling None values.
+
+        Args:
+        element: BeautifulSoup element to extract text from
+
+        Returns:
+        str: Extracted and cleaned text, or empty string if extraction fails
+        """
+        try:
+            if element is None:
+                return ""
+            text = element.get_text()
+            return text.strip() if text else ""
+        except (AttributeError, TypeError):
+            return ""
+
+    async def get_page_content(self) -> str:
+        """
+        Get the content of the current page with special focus on interactive elements.
+        Extracts and organizes:
+        - All clickable elements (links, buttons)
+        - Form inputs and their types
+        - Interactive elements and their selectors
+        - Other page content in structured format
         """
         try:
             if self.page is None:
                 return "Error: No page loaded."
 
-            # Get the page HTML
             html_content = await self.page.content()
             soup = BeautifulSoup(html_content, "html.parser")
-
-            # Remove unwanted elements
-            for element in soup.find_all(
-                ["script", "style", "meta", "link", "noscript"]
-            ):
-                element.decompose()
-
             structured_content = []
 
-            # Extract title
-            if soup.title:
-                structured_content.append(f"Page Title: {soup.title.string.strip()}")
+            # Extract title safely
+            if soup.title and soup.title.string:
+                title_text = soup.title.string.strip()
+                if title_text:
+                    structured_content.append(f"Page Title: {title_text}")
 
-            # Extract headers hierarchically
+            # SECTION 1: Interactive Elements
+            structured_content.append("\n=== INTERACTIVE ELEMENTS ===")
+
+            # 1.1 Links with their text and selectors
+            links = []
+            for link in soup.find_all("a", href=True):
+                try:
+                    text = self.get_text_safely(link)
+                    href = link.get("href", "")
+                    if text and href:
+                        # Build selector (try ID first, then other attributes)
+                        if link.get("id"):
+                            selector = f"#{link['id']}"
+                        elif link.get("class"):
+                            selector = f"a.{'.'.join(link['class'])}"
+                        else:
+                            # Create a selector based on text content
+                            selector = f"a[href='{href}']"
+                        links.append(f"Link: '{text}' -> Selector: '{selector}'")
+                except Exception as e:
+                    continue
+
+            if links:
+                structured_content.append("\nClickable Links:")
+                structured_content.extend(links)
+
+            # 1.2 Buttons with their text and selectors
+            buttons = []
+            for button in soup.find_all(
+                ["button", 'input[type="button"]', 'input[type="submit"]']
+            ):
+                try:
+                    text = self.get_text_safely(button) or button.get("value", "")
+                    if text:
+                        if button.get("id"):
+                            selector = f"#{button['id']}"
+                        elif button.get("class"):
+                            selector = f"button.{'.'.join(button['class'])}"
+                        else:
+                            selector = f"button:has-text('{text}')"
+                        buttons.append(f"Button: '{text}' -> Selector: '{selector}'")
+                except Exception as e:
+                    continue
+
+            if buttons:
+                structured_content.append("\nClickable Buttons:")
+                structured_content.extend(buttons)
+
+            # 1.3 Form Inputs with their details and selectors
+            forms = soup.find_all("form")
+            form_sections = []
+
+            for form in forms:
+                try:
+                    form_info = []
+                    if form.get("id"):
+                        form_info.append(f"Form: #{form['id']}")
+                    elif form.get("name"):
+                        form_info.append(f"Form: {form['name']}")
+
+                    # Extract all input fields with their selectors
+                    for input_field in form.find_all(["input", "select", "textarea"]):
+                        try:
+                            field_type = input_field.get("type", "text")
+                            field_name = input_field.get("name", "")
+                            field_id = input_field.get("id", "")
+                            placeholder = input_field.get("placeholder", "")
+
+                            # Build the most reliable selector
+                            if field_id:
+                                selector = f"#{field_id}"
+                            elif field_name:
+                                selector = f"[name='{field_name}']"
+                            elif placeholder:
+                                selector = f"[placeholder='{placeholder}']"
+                            else:
+                                continue  # Skip if we can't create a reliable selector
+
+                            # Build a descriptive string based on available attributes
+                            desc = f"Input: {field_type}"
+                            if field_name:
+                                desc += f" (name: {field_name})"
+                            if placeholder:
+                                desc += f" (placeholder: {placeholder})"
+                            desc += f" -> Selector: '{selector}'"
+
+                            # Additional details for specific input types
+                            if field_type == "select":
+                                options = []
+                                for option in input_field.find_all("option"):
+                                    option_text = self.get_text_safely(option)
+                                    if option_text:
+                                        options.append(option_text)
+                                if options:
+                                    desc += f"\n    Options: {', '.join(options)}"
+
+                            form_info.append(desc)
+                        except Exception as e:
+                            continue
+
+                    if form_info:
+                        form_sections.extend(form_info)
+                        form_sections.append("")  # Add spacing between forms
+                except Exception as e:
+                    continue
+
+            if form_sections:
+                structured_content.append("\nForm Fields:")
+                structured_content.extend(form_sections)
+
+            # 1.4 Other Interactive Elements (e.g., custom elements, clickable divs)
+            other_interactive = []
+            for element in soup.find_all(
+                class_=lambda x: x
+                and any(
+                    cls in str(x).lower()
+                    for cls in ["clickable", "button", "interactive", "dropdown"]
+                )
+            ):
+                try:
+                    if element.name in [
+                        "a",
+                        "button",
+                        "input",
+                    ]:  # Skip elements we've already processed
+                        continue
+
+                    text = self.get_text_safely(element)
+                    if text:
+                        if element.get("id"):
+                            selector = f"#{element['id']}"
+                        elif element.get("class"):
+                            selector = f".{'.'.join(element['class'])}"
+                        else:
+                            continue  # Skip if we can't create a reliable selector
+
+                        other_interactive.append(
+                            f"Interactive Element: '{text}' -> Selector: '{selector}'"
+                        )
+                except Exception as e:
+                    continue
+
+            if other_interactive:
+                structured_content.append("\nOther Interactive Elements:")
+                structured_content.extend(other_interactive)
+
+            # SECTION 2: Regular Content (for context)
+            structured_content.append("\n=== PAGE CONTENT ===")
+
+            # Headers
             headers = []
             for level in range(1, 7):
                 for header in soup.find_all(f"h{level}"):
-                    text = header.get_text().strip()
+                    text = self.get_text_safely(header)
                     if text:
                         headers.append(f"{'#' * level} {text}")
             if headers:
                 structured_content.append("\nHeaders:")
                 structured_content.extend(headers)
 
-            # Extract main content
-            main_content = soup.find("main")
-            if not main_content:
-                main_content = soup.find("body")
-
-            # Extract forms and inputs
-            forms = soup.find_all("form")
-            if forms:
-                structured_content.append("\nForms and Inputs:")
-                for form in forms:
-                    form_info = []
-                    if form.get("id"):
-                        form_info.append(f"Form ID: {form['id']}")
-                    if form.get("action"):
-                        form_info.append(f"Action: {form['action']}")
-
-                    # Extract input fields
-                    inputs = form.find_all(["input", "select", "textarea"])
-                    for input_field in inputs:
-                        input_type = input_field.get("type", "text")
-                        input_name = input_field.get("name", "unnamed")
-                        input_id = input_field.get("id", "")
-                        field_info = f"- {input_type} field"
-                        if input_name != "unnamed":
-                            field_info += f" (name: {input_name})"
-                        if input_id:
-                            field_info += f" (id: {input_id})"
-                        form_info.append(field_info)
-
-                    structured_content.extend(form_info)
-
-            # Extract navigation elements
-            nav = soup.find_all(["nav", "menu"])
-            if nav:
-                structured_content.append("\nNavigation:")
-                for nav_elem in nav:
-                    links = nav_elem.find_all("a")
-                    for link in links:
-                        text = link.get_text().strip()
-                        if text:
-                            structured_content.append(f"- {text}")
-
-            # Extract lists
-            lists = main_content.find_all(["ul", "ol"]) if main_content else []
-            if lists:
-                structured_content.append("\nLists:")
-                for list_elem in lists:
-                    items = list_elem.find_all("li")
-                    for item in items:
-                        text = item.get_text().strip()
-                        if text:
-                            structured_content.append(f"• {text}")
-
-            # Extract tables
-            tables = soup.find_all("table")
-            if tables:
-                structured_content.append("\nTables:")
-                for table in tables:
-                    # Get table headers
-                    headers = []
-                    for th in table.find_all("th"):
-                        text = th.get_text().strip()
-                        if text:
-                            headers.append(text)
-                    if headers:
-                        structured_content.append(
-                            "Table Headers: " + " | ".join(headers)
-                        )
-
-                    # Get table rows
-                    for tr in table.find_all("tr"):
-                        row_data = []
-                        for td in tr.find_all("td"):
-                            text = td.get_text().strip()
-                            if text:
-                                row_data.append(text)
-                        if row_data:
-                            structured_content.append("Row: " + " | ".join(row_data))
-
-            # Extract error messages and notifications
-            error_messages = soup.find_all(
-                class_=lambda x: x
-                and (
-                    "error" in x.lower()
-                    or "alert" in x.lower()
-                    or "notification" in x.lower()
-                )
-            )
-            if error_messages:
-                structured_content.append("\nMessages and Notifications:")
-                for msg in error_messages:
-                    text = msg.get_text().strip()
-                    if text:
-                        structured_content.append(f"! {text}")
-
-            # Extract main content paragraphs and text
+            # Main content sections
+            main_content = soup.find("main") or soup.find("body")
             if main_content:
                 content_sections = []
-                for element in main_content.find_all(
-                    ["p", "article", "section", "div"]
-                ):
-                    # Skip if element is part of already processed structures
-                    if (
-                        element.find_parent("form")
-                        or element.find_parent("nav")
-                        or element.find_parent("table")
-                    ):
-                        continue
+                for element in main_content.find_all(["p", "article", "section"]):
+                    try:
+                        # Skip if element is part of already processed structures
+                        if element.find_parent("form") or element.find_parent("nav"):
+                            continue
 
-                    text = element.get_text().strip()
-                    if text and len(text) > 20:  # Filter out tiny text fragments
-                        content_sections.append(text)
+                        text = self.get_text_safely(element)
+                        if text and len(text) > 20:  # Filter out tiny text fragments
+                            text = " ".join(text.split())  # Normalize whitespace
+                            content_sections.append(text)
+                    except Exception as e:
+                        continue
 
                 if content_sections:
                     structured_content.append("\nMain Content:")
                     structured_content.extend(content_sections)
 
-            # Extract any remaining important buttons
-            buttons = soup.find_all(
-                ["button", "a"], class_=lambda x: x and "btn" in x.lower()
-            )
-            if buttons:
-                structured_content.append("\nImportant Buttons:")
-                for button in buttons:
-                    text = button.get_text().strip()
-                    if text:
-                        structured_content.append(f"[Button] {text}")
-
             # Clean up and finalize content
             final_content = "\n".join(filter(None, structured_content))
-
-            # Remove excessive newlines and spaces
             final_content = re.sub(r"\n\s*\n", "\n\n", final_content)
-            final_content = re.sub(r" +", " ", final_content)
-
             return final_content.strip()
 
         except Exception as e:
