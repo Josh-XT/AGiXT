@@ -1033,6 +1033,7 @@ class Conversations:
         conversation.name = new_name
         session.commit()
         session.close()
+        return new_name
 
     def get_last_activity_id(self):
         session = get_session()
