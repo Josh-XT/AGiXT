@@ -32,6 +32,7 @@ import base64
 import uuid
 import os
 from providers.default import DefaultProvider
+from Conversations import get_conversation_name_by_id
 
 app = APIRouter()
 
@@ -270,6 +271,13 @@ async def prompt_agent(
         del agent_prompt.prompt_args["conversation_name"]
     if "user_input" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["user_input"] = ""
+    if conversation_name != "-":
+        try:
+            conversation_id = str(uuid.UUID(conversation_name))
+        except:
+            conversation_id = None
+        if conversation_id:
+            conversation_name = get_conversation_name_by_id(conversation_id)
     agent = AGiXT(
         user=user,
         agent_name=agent_name,
