@@ -599,9 +599,14 @@ class github(Extensions):
         """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-            issue = repo.get_issue(issue_number)
-            self.failures = 0
-            return f"Issue Details for GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}"
+            try:
+                issue = repo.get_issue(
+                    int(issue_number)
+                )  # Ensure issue_number is cast to int
+                self.failures = 0
+                return f"Issue Details for GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}"
+            except ValueError as e:
+                return f"Error: Invalid issue number format - {str(e)}"
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
@@ -1252,18 +1257,24 @@ We need the response in the answer block to be in the following format:
         </modification>
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
-        self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Reviewing issues on [{repo_org}/{repo_name}]({repo_url}).",
-            conversation_name=self.conversation_name,
-        )
-        issues = await self.get_repo_issues(repo_url=repo_url)
-        # Ask if any of these issues are related to the idea so that we can select that issue instead of create a new one
-        issue_response = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": f"""### Idea
+        try:
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing issues on [{repo_org}/{repo_name}]({repo_url}).",
+                conversation_name=self.conversation_name,
+            )
+
+            # Get existing issues
+            issues = await self.get_repo_issues(repo_url=repo_url)
+            if issues.startswith("Error:"):
+                return f"Failed to get repository issues: {issues}"
+
+            # Ask if any existing issues are related
+            issue_response = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": f"""### Idea
 {idea}
 {additional_context}
 
@@ -1271,100 +1282,113 @@ We need the response in the answer block to be in the following format:
 {issues}
 
 Is there an existing issue that is related to the idea you provided? If so, please provide the issue number only in the answer block. If not, respond with 0.""",
-                "context": f"",
-                "log_user_input": False,
-                "disable_commands": True,
-                "log_output": False,
-                "browse_links": False,
-                "websearch": False,
-                "analyze_user_input": False,
-                "tts": False,
-                "conversation_name": self.conversation_name,
-            },
-        )
-        if "<answer>" in issue_response:
-            issue_response = issue_response.split("</answer>")[0].split("<answer>")[-1]
-        try:
-            issue_number = int("".join(filter(str.isdigit, issue_response)))
-        except ValueError:
-            issue_number = 0
-        if issue_number == 0:
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
-                conversation_name=self.conversation_name,
+                    "context": "",
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
             )
-            repo_content = await self.get_repo_code_contents(repo_url=repo_url)
-            scope = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": f"""### Presented Idea
+
+            # Extract issue number more robustly
+            try:
+                if "<answer>" in issue_response:
+                    issue_response = issue_response.split("</answer>")[0].split(
+                        "<answer>"
+                    )[-1]
+                issue_number = int("".join(filter(str.isdigit, issue_response)))
+            except (ValueError, TypeError):
+                issue_number = 0
+
+            if issue_number == 0:
+                # Create new issue logic
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+                    conversation_name=self.conversation_name,
+                )
+
+                repo_content = await self.get_repo_code_contents(repo_url=repo_url)
+
+                scope = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": f"""### Presented Idea
 {idea}
 
 ## User
 Please take the presented idea and write a detailed scope for a junior developer to build out the remaining code using the provided code from the repository.
 Follow all patterns in the current framework to maintain maintainability and consistency.
 The developer may have little to no guidance outside of this scope.""",
-                    "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
-                    "log_user_input": False,
-                    "disable_commands": True,
-                    "log_output": False,
-                    "browse_links": False,
-                    "websearch": False,
-                    "analyze_user_input": False,
-                    "tts": False,
-                    "conversation_name": self.conversation_name,
-                },
-            )
-            # Create issue
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Creating GitHub issue based on the scope of work.\n{scope}",
-                conversation_name=self.conversation_name,
-            )
-            issue_title = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": f"""### Scope of Work
+                        "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                        "log_user_input": False,
+                        "disable_commands": True,
+                        "log_output": False,
+                        "browse_links": False,
+                        "websearch": False,
+                        "analyze_user_input": False,
+                        "tts": False,
+                        "conversation_name": self.conversation_name,
+                    },
+                )
+
+                # Create issue title
+                issue_title = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": f"""### Scope of Work
 {scope}
 
 Come up with a concise title for the GitHub issue based on the scope of work, respond with only the title in the answer block.""",
-                    "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
-                    "log_user_input": False,
-                    "disable_commands": True,
-                    "log_output": False,
-                    "browse_links": False,
-                    "websearch": False,
-                    "analyze_user_input": False,
-                    "tts": False,
-                    "conversation_name": self.conversation_name,
-                },
+                        "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                        "log_user_input": False,
+                        "disable_commands": True,
+                        "log_output": False,
+                        "browse_links": False,
+                        "websearch": False,
+                        "analyze_user_input": False,
+                        "tts": False,
+                        "conversation_name": self.conversation_name,
+                    },
+                )
+
+                if "<answer>" in issue_title:
+                    issue_title = issue_title.split("</answer>")[0].split("<answer>")[
+                        -1
+                    ]
+
+                repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+                issue = repo.create_issue(title=issue_title, body=scope)
+                issue_number = issue.number
+
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Created GitHub [issue #{issue_number}: {issue_title}]({issue.html_url}).",
+                    conversation_name=self.conversation_name,
+                )
+            else:
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Using existing GitHub [issue #{issue_number}]({repo_url}/issues/{issue_number}).",
+                    conversation_name=self.conversation_name,
+                )
+
+            # Fix the GitHub issue
+            return await self.fix_github_issue(
+                repo_org=repo_org,
+                repo_name=repo_name,
+                issue_number=str(issue_number),
+                additional_context=f"{additional_context}\n{idea}",
             )
-            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-            issue = repo.create_issue(title=issue_title, body=scope)
-            issue_number = issue.number
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Created GitHub [issue #{issue_number}: {issue_title}]({issue.html_url}).",
-                conversation_name=self.conversation_name,
-            )
-        else:
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Using existing GitHub [issue #{issue_number}]({repo_url}/issues/{issue_number}).",
-                conversation_name=self.conversation_name,
-            )
-        # Use Fix Github Issue command
-        repo_org = repo_url.split("/")[-2]
-        repo_name = repo_url.split("/")[-1]
-        return await self.fix_github_issue(
-            repo_org=repo_org,
-            repo_name=repo_name,
-            issue_number=issue_number,
-            additional_context=f"{additional_context}\n{idea}",
-        )
+
+        except Exception as e:
+            return f"Error improving codebase: {str(e)}"
 
     async def copy_repo_contents(
         self,
