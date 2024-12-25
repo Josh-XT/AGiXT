@@ -33,6 +33,7 @@ import uuid
 import os
 from providers.default import DefaultProvider
 from Conversations import get_conversation_name_by_id
+from MagicalAuth import MagicalAuth
 
 app = APIRouter()
 
@@ -277,7 +278,10 @@ async def prompt_agent(
         except:
             conversation_id = None
         if conversation_id:
-            conversation_name = get_conversation_name_by_id(conversation_id)
+            auth = MagicalAuth(token=authorization)
+            conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=auth.user_id
+            )
     agent = AGiXT(
         user=user,
         agent_name=agent_name,
