@@ -1565,6 +1565,13 @@ YOUR RESPONSE MUST BE A SINGLE, VALID XML BLOCK:
                 attempt_history.append(attempt_record)
                 results.append(step_result)
 
+                # Take screenshot before error handling
+                screenshot_path = os.path.join(
+                    self.WORKING_DIRECTORY, f"{uuid.uuid4()}.png"
+                )
+                await self.page.screenshot(path=screenshot_path, full_page=True)
+                screenshot = os.path.basename(screenshot_path)
+
                 # If the step failed, add context
                 if "Error" in step_result or "fail" in step_result.lower():
                     error_context = """Failed to complete the step.
