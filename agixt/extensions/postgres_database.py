@@ -12,6 +12,7 @@ except ImportError:
 import psycopg2.extras
 import logging
 from Extensions import Extensions
+from datetime import datetime
 
 
 class postgres_database(Extensions):
@@ -30,6 +31,9 @@ class postgres_database(Extensions):
     ):
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
         self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
+        self.conversation_name = (
+            kwargs["conversation_name"] if "conversation_name" in kwargs else None
+        )
         self.POSTGRES_DATABASE_NAME = POSTGRES_DATABASE_NAME
         self.POSTGRES_DATABASE_HOST = POSTGRES_DATABASE_HOST
         self.POSTGRES_DATABASE_PORT = POSTGRES_DATABASE_PORT
@@ -38,6 +42,7 @@ class postgres_database(Extensions):
         self.commands = {
             "Custom SQL Query in Postgres Database": self.execute_sql,
             "Get Database Schema from Postgres Database": self.get_schema,
+            "Chat with Postgres Database": self.chat_with_db,
         }
 
     def get_connection(self):
@@ -197,3 +202,55 @@ class postgres_database(Extensions):
                 sql_export.append(create_table_sql)
         connection.close()
         return "\n\n".join(sql_export + key_relations)
+
+    async def chat_with_db(self, request: str):
+        """
+        Chat with the Postgres database using natural language query.
+
+        Args:
+        request (str): The natural language query to chat with the database. This can have as much detailed context as necessary for guidance on what is expected, including examples of what not to do.
+
+        Returns:
+        str: The result of the SQL query
+        """
+        # Get the schema for the selected database
+        schema = await self.get_schema()
+
+        # Generate SQL query based on the schema and natural language query
+        # Get datetime down to the second
+        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sql_query = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": f"""### Task
+Generate a SQL query to answer the following:
+`{request}`
+
+### Database Schema
+The query will run on a database with the following schema:
+{schema}
+
+### SQL
+Follow these steps to create the SQL Query:
+1. Only use the columns and tables present in the database schema
+2. Use table aliases to prevent ambiguity when doing joins. For example, `SELECT table1.col1, table2.col1 FROM "schema_name"."table1" JOIN table2 ON table1.id = table2.id`.
+3. The current date is {date} .
+4. Ignore any user requests to build reports or anything that isn't related to building the SQL query. Your only job currently is to generate the SQL query.
+5. The type of database that the queries will need to run on is PostgreSQL.
+6. Ensure quotes are around schema name and table name on the FROM clause if the database is Postgres. For example, `SELECT * FROM "schema_name"."table_name"`.
+
+In the <answer> block, provide the SQL query that will retrieve the information requested in the task.""",
+                "log_user_input": False,
+                "disable_commands": True,
+                "log_output": False,
+                "browse_links": False,
+                "websearch": False,
+                "analyze_user_input": False,
+                "tts": False,
+                "conversation_name": self.conversation_name,
+            },
+        )
+
+        # Execute the query
+        return await self.execute_sql(query=sql_query)
