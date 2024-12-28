@@ -6,7 +6,6 @@ from DB import (
     UserPreferences,
     get_session,
 )
-from OAuth2Providers import get_sso_provider
 from Models import UserInfo, Register, Login
 from agixtsdk import AGiXTSDK
 from fastapi import Header, HTTPException
@@ -24,12 +23,15 @@ from sendgrid.helpers.mail import (
 )
 import pyotp
 import requests
-import importlib
 import logging
 import jwt
 import json
 import os
-
+from sso.amazon import amazon_sso
+from sso.github import github_sso
+from sso.google import google_sso
+from sso.microsoft import microsoft_sso
+from sso.walmart import walmart_sso
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -44,6 +46,25 @@ Required environment variables:
 - MAGIC_LINK_URL: URL to send in the email for the user to click on
 - REGISTRATION_WEBHOOK: URL to send a POST request to when a user registers
 """
+
+
+def get_sso_provider(provider: str, code, redirect_uri=None):
+    try:
+        if provider == "amazon":
+            return amazon_sso(code=code, redirect_uri=redirect_uri)
+        elif provider == "github":
+            return github_sso(code=code, redirect_uri=redirect_uri)
+        elif provider == "google":
+            return google_sso(code=code, redirect_uri=redirect_uri)
+        elif provider == "microsoft":
+            return microsoft_sso(code=code, redirect_uri=redirect_uri)
+        elif provider == "walmart":
+            return walmart_sso(code=code, redirect_uri=redirect_uri)
+        else:
+            return None
+    except Exception as e:
+        logging.error(f"Error getting SSO provider info: {e}")
+        return None
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
@@ -702,6 +723,8 @@ class MagicalAuth:
             account_name = user_data["email"]
         elif provider == "github":
             account_name = user_data["login"]  # GitHub username
+        elif provider == "walmart":
+            account_name = user_data["sellerEmail"]
         else:
             account_name = (
                 user_data.get("email")
@@ -880,6 +903,10 @@ class MagicalAuth:
             from sso.github import GitHubSSO
 
             return GitHubSSO(access_token=access_token)
+        elif provider.name == "walmart":
+            from sso.walmart import WalmartSSO
+
+            return WalmartSSO(access_token=access_token)
 
     def registration_requirements(self):
         if not os.path.exists("registration_requirements.json"):

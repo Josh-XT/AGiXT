@@ -2061,23 +2061,23 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         branch: str = None,
     ) -> str:
         """
-            Apply a series of modifications to a file while preserving formatting and context.
+        Apply a series of modifications to a file while preserving formatting and context.
 
-            Args:
-                repo_url (str): The URL of the GitHub repository (e.g., "https://github.com/username/repo")
-                file_path (str): Path to the file within the repository (e.g., "src/example.py")
-                modification_commands (str): XML formatted string containing one or more modification commands.
-                                             The expected XML format:
+        Args:
+            repo_url (str): The URL of the GitHub repository (e.g., "https://github.com/username/repo")
+            file_path (str): Path to the file within the repository (e.g., "src/example.py")
+            modification_commands (str): XML formatted string containing one or more modification commands.
+            The expected XML format:
 
-                                             <modification>
-                                                 <operation>replace|insert|delete</operation>
-                                                 <target>code_block_or_line_number</target>
-                                                 <content>new_content (required for replace and insert)</content>
-                                             </modification>
+            <modification>
+                <operation>replace|insert|delete</operation>
+                <target>code_block_or_line_number</target>
+                <content>new_content (required for replace and insert)</content>
+            </modification>
 
-                                             Multiple <modification> blocks can be provided in a single string.
+            Multiple <modification> blocks can be provided in a single string.
 
-                branch (str, optional): The branch to modify. Defaults to the repository's default branch.
+            branch (str, optional): The branch to modify. Defaults to the repository's default branch.
 
             Returns:
                 str: A unified diff of the changes made, or an error message if something goes wrong.
