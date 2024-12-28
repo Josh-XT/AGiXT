@@ -187,6 +187,10 @@ def _indent_code_block(content: str, base_indent: str) -> List[str]:
 
 
 class github(Extensions):
+    """
+    The GitHub extension provides functionality to interact with GitHub repositories.
+    """
+
     def __init__(
         self,
         GITHUB_USERNAME: str = "",

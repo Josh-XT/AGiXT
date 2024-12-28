@@ -9,7 +9,7 @@ import re
 
 class file_system(Extensions):
     """
-    The file_system extension for AGiXT enables you to interact with the file system in the workspace.
+    The File System extension enables agents to interact with the file system in their workspace.
     """
 
     def __init__(
