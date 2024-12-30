@@ -593,7 +593,17 @@ class Memories:
     async def delete_memories_from_external_source(self, external_source: str):
         """Delete all memories from a specific external source."""
         logging.info(f"Starting deletion for source: {external_source}")  # Debug print
-
+        if external_source.startswith("file"):
+            file_path = external_source.split(" ")[1]
+            # Make sure the file path starts with the working directory
+            working_directory = getenv("WORKING_DIRECTORY")
+            if file_path.startswith(working_directory):
+                # Delete it
+                try:
+                    os.remove(file_path)
+                    logging.info(f"File deleted: {file_path}")  # Debug print
+                except Exception as e:
+                    logging.info(f"Error deleting file: {str(e)}")
         collection = await self.get_collection()
         if not collection:
             logging.info("No collection found")  # Debug print
