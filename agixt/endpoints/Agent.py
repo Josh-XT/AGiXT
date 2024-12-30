@@ -169,9 +169,10 @@ async def get_persona(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     auth = MagicalAuth(token=authorization)
+    user_persona = False
     if auth.get_user_role(company_id) > 2:
-        user = True
-    if user:
+        user_persona = True
+    if user_persona:
         ApiClient = get_api_client(authorization=authorization)
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
