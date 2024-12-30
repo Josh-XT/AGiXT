@@ -154,7 +154,7 @@ async def get_persona(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    return {"persona": agent.AGENT_CONFIG["settings"]["persona"]}
+    return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
 
 
 @app.put(
