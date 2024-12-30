@@ -19,6 +19,7 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
+from MagicalAuth import MagicalAuth, impersonate_user
 from Globals import getenv, DEFAULT_USER, get_tokens
 
 logging.basicConfig(
@@ -302,6 +303,35 @@ class Interactions:
             persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if "persona" in self.agent.AGENT_CONFIG["settings"]:
             persona = self.agent.AGENT_CONFIG["settings"]["persona"]
+        if str(getenv("ENT").lower()) == "true":
+            auth = MagicalAuth(token=impersonate_user(email=self.user))
+            company_training = auth.get_training_data()
+            persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
+            cs = auth.get_company_agent_session()
+            company_memories = cs.get_agent_memories(
+                agent_name=self.agent_name, user_input=user_input
+            )
+            if company_memories:
+                for result in company_memories:
+                    metadata = (
+                        result["additional_metadata"]
+                        if "additional_metadata" in result
+                        else ""
+                    )
+                    external_source = (
+                        result["external_source_name"]
+                        if "external_source_name" in result
+                        else None
+                    )
+                    timestamp = (
+                        result["timestamp"]
+                        if "timestamp" in result
+                        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+                    if external_source:
+                        metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
+                    if metadata not in context and metadata != "":
+                        context.append(metadata)
         if persona != "":
             context.append(
                 f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\n"
