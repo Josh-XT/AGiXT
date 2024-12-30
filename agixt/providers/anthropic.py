@@ -23,7 +23,6 @@ class AnthropicProvider:
         ANTHROPIC_GOOGLE_VERTEX_REGION: str = "europe-west1",
         ANTHROPIC_GOOGLE_VERTEX_PROJECT_ID: str = "",  # Leave empty if using Anthropic service
         ANTHROPIC_WAIT_BETWEEN_REQUESTS: int = 1,
-        ANTHROPIC_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
@@ -36,9 +35,6 @@ class AnthropicProvider:
         self.GOOGLE_VERTEX_PROJECT_ID = ANTHROPIC_GOOGLE_VERTEX_PROJECT_ID
         self.WAIT_BETWEEN_REQUESTS = (
             ANTHROPIC_WAIT_BETWEEN_REQUESTS if ANTHROPIC_WAIT_BETWEEN_REQUESTS else 1
-        )
-        self.WAIT_AFTER_FAILURE = (
-            ANTHROPIC_WAIT_AFTER_FAILURE if ANTHROPIC_WAIT_AFTER_FAILURE else 3
         )
         self.failures = 0
 
@@ -98,11 +94,8 @@ class AnthropicProvider:
             )
         else:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
-        if int(tokens) > 75000:
-            self.WAIT_BETWEEN_REQUESTS = 60
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
-
         try:
             response = c.messages.create(
                 messages=messages,
@@ -114,10 +107,11 @@ class AnthropicProvider:
             self.failures += 1
             if self.failures > 3:
                 print(f"[CLAUDE PROVIDER] Error: {e}")
-                return "Claude API Error: Too many failures."
-            if int(tokens) > 75000:
-                self.WAIT_AFTER_FAILURE = 60
-            if int(self.WAIT_AFTER_FAILURE) > 0:
-                time.sleep(int(self.WAIT_AFTER_FAILURE))
+                return f"Claude Error: {e}"
+            else:
+                # https://console.anthropic.com/settings/limits
+                # Rate limits that impact AGiXT most with Anthropic API are the input tokens per minute being limited to 80k.
+                # If we hit an error, it is almost always because we exceeded this by sending 2 or more prompts in a row exceeding 80k.
+                # To get around it, we sleep for 61 seconds.
+                time.sleep(61)
                 return await self.inference(prompt=prompt, tokens=tokens, images=images)
-            return f"Claude Error: {e}"
