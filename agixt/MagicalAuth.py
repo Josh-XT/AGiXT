@@ -1016,11 +1016,12 @@ class MagicalAuth:
                     if str(preference.pref_value).lower() == "true":
                         session.close()
                         return True
-                    if datetime.now() - timedelta(hours=24) < datetime.fromisoformat(
-                        preference.pref_value
-                    ):
-                        session.close()
-                        return True
+                    if str(preference.pref_value).lower() != "false":
+                        if datetime.now() - timedelta(
+                            hours=24
+                        ) < datetime.fromisoformat(preference.pref_value):
+                            session.close()
+                            return True
                     else:
                         # Update the date
                         preference.pref_value = str(datetime.now())
