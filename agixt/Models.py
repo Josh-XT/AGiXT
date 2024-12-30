@@ -386,6 +386,8 @@ class UrlInput(BaseModel):
 
 class PersonaInput(BaseModel):
     persona: str
+    company_id: Optional[str] = None
+    user: Optional[bool] = True
 
 
 class TaskPlanInput(BaseModel):

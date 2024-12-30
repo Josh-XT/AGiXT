@@ -136,6 +136,15 @@ async def update_persona(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
+    if persona.company_id is not None:
+        auth = MagicalAuth(token=authorization)
+        if auth.get_user_role(persona.company_id) < 3:
+            raise HTTPException(status_code=403, detail="Access Denied")
+        else:
+            response = auth.set_training_data(
+                training_data=persona.persona, company_id=persona.company_id
+            )
+            return ResponseMessage(message=response)
     update_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).update_agent_config(
