@@ -597,7 +597,6 @@ class Memories:
             try:
                 results = collection.get()
                 if results and "ids" in results and "metadatas" in results:
-                    # Handle nested structure correctly
                     ids_to_delete = []
                     for batch_ids, batch_metadata in zip(
                         results["ids"], results["metadatas"]
@@ -608,16 +607,34 @@ class Memories:
                             batch_metadata = [batch_metadata]
 
                         for id, metadata in zip(batch_ids, batch_metadata):
-                            if metadata.get("external_source_name") == external_source:
+                            stored_source = metadata.get(
+                                "external_source_name", ""
+                            ).strip()
+                            if stored_source.replace(
+                                " ", ""
+                            ) == external_source.replace(" ", ""):
                                 ids_to_delete.append(id)
+                                logging.info(
+                                    f"Found memory to delete with ID: {id} from source: {stored_source}"
+                                )
 
                     if ids_to_delete:
                         try:
+                            logging.info(
+                                f"Attempting to delete {len(ids_to_delete)} memories"
+                            )
                             collection.delete(ids=ids_to_delete)
+                            logging.info(
+                                f"Successfully deleted {len(ids_to_delete)} memories"
+                            )
                             return True
                         except Exception as e:
                             logging.warning(f"Failed to delete memories: {str(e)}")
                             return False
+                    else:
+                        logging.warning(
+                            f"No matching memories found for source: {external_source}"
+                        )
 
             except Exception as e:
                 logging.warning(
