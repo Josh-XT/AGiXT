@@ -98,7 +98,8 @@ class AnthropicProvider:
             )
         else:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
-
+        if int(tokens) > 75000:
+            self.WAIT_BETWEEN_REQUESTS = 60
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
 
