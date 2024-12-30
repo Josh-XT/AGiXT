@@ -115,6 +115,8 @@ class AnthropicProvider:
             if self.failures > 3:
                 print(f"[CLAUDE PROVIDER] Error: {e}")
                 return "Claude API Error: Too many failures."
+            if int(tokens) > 75000:
+                self.WAIT_AFTER_FAILURE = 60
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.inference(prompt=prompt, tokens=tokens, images=images)
