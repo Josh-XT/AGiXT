@@ -50,7 +50,7 @@ logging.basicConfig(
 """
 Required environment variables:
 
-- ENCRYPTION_SECRET: Encryption key to encrypt and decrypt data
+- AGIXT_API_KEY: Encryption key to encrypt and decrypt data
 - APP_URI: URL to send in the email for the user to click on
 - AGIXT_URI: URL to the AGiXT server
 - APP_NAME: Name of the app
@@ -185,17 +185,17 @@ def get_admin_user():
 
 
 def verify_api_key(authorization: str = Header(None)):
-    ENCRYPTION_SECRET = getenv("ENCRYPTION_SECRET")
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
-    if ENCRYPTION_SECRET:
-        if authorization == ENCRYPTION_SECRET:
+    if AGIXT_API_KEY:
+        if authorization == AGIXT_API_KEY:
             return get_admin_user()
         try:
-            if authorization == ENCRYPTION_SECRET:
+            if authorization == AGIXT_API_KEY:
                 return get_admin_user()
             token = jwt.decode(
                 jwt=authorization,
-                key=ENCRYPTION_SECRET,
+                key=AGIXT_API_KEY,
                 algorithms=["HS256"],
                 leeway=timedelta(hours=5),
             )
@@ -211,7 +211,7 @@ def verify_api_key(authorization: str = Header(None)):
             raise HTTPException(status_code=401, detail="Invalid API Key")
     else:
         logging.error(
-            "AGiXT API Key is missing. Please set the ENCRYPTION_SECRET environment variable."
+            "AGiXT API Key is missing. Please set the AGIXT_API_KEY environment variable."
         )
         raise HTTPException(status_code=401, detail="API Key is missing.")
 
@@ -248,13 +248,13 @@ def get_user_by_email(email: str):
 
 def impersonate_user(email: str):
     # Get token for the user
-    ENCRYPTION_SECRET = getenv("ENCRYPTION_SECRET")
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     token = jwt.encode(
         {
             "sub": get_user_id(email),
             "email": email,
         },
-        ENCRYPTION_SECRET,
+        AGIXT_API_KEY,
         algorithm="HS256",
     )
     return token
@@ -275,7 +275,7 @@ def decrypt(key: str, data: str):
 
 class MagicalAuth:
     def __init__(self, token: str = None):
-        encryption_key = getenv("ENCRYPTION_SECRET")
+        encryption_key = getenv("AGIXT_API_KEY")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
         token = (
