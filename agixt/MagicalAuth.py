@@ -184,29 +184,6 @@ def verify_api_key(authorization: str = Header(None)):
         return authorization
 
 
-def impersonate_user(user_id: str):
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    # Get users email
-    session = get_session()
-    user = session.query(User).filter(User.id == user_id).first()
-    if not user:
-        session.close()
-        raise HTTPException(status_code=404, detail="User not found.")
-    user_id = str(user.id)
-    email = user.email
-    session.close()
-    token = jwt.encode(
-        {
-            "sub": user_id,
-            "email": email,
-            "exp": datetime.now() + timedelta(days=1),
-        },
-        AGIXT_API_KEY,
-        algorithm="HS256",
-    )
-    return token
-
-
 def get_sso_credentials(user_id):
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()

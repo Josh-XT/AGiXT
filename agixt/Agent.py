@@ -22,13 +22,14 @@ from DB import (
 from Providers import Providers
 from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
-from MagicalAuth import MagicalAuth, impersonate_user, get_user_id
+from MagicalAuth import MagicalAuth, get_user_id
 from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
 import logging
 import json
 import numpy as np
+import jwt
 import os
 import re
 
@@ -36,6 +37,29 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+def impersonate_user(user_id: str):
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    # Get users email
+    session = get_session()
+    user = session.query(User).filter(User.id == user_id).first()
+    if not user:
+        session.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_id = str(user.id)
+    email = user.email
+    session.close()
+    token = jwt.encode(
+        {
+            "sub": user_id,
+            "email": email,
+            "exp": datetime.now() + timedelta(days=1),
+        },
+        AGIXT_API_KEY,
+        algorithm="HS256",
+    )
+    return token
 
 
 def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
