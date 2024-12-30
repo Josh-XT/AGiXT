@@ -583,6 +583,8 @@ async def delete_memories_from_external_source(
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    logging.info(f"External Source: {external_source.external_source}")
+    logging.info(f"Collection Number: {external_source.collection_number}")
     await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
