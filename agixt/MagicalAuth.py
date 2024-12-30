@@ -712,7 +712,6 @@ class MagicalAuth:
     def get_subscribed_products(self, stripe_api_key, stripe_customer_id):
         import stripe
 
-        # TODO make sure if the stripe request fails, an exception gets thrown.
         stripe.api_key = stripe_api_key
         logging.info(f"Checking subscriptions for customer {stripe_customer_id}...")
         all_subscriptions = stripe.Subscription.list(
