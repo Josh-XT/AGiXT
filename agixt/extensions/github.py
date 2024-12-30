@@ -2556,6 +2556,7 @@ Please analyze the changes and provide:
 3. If no changes are needed, give feedback without suggesting modifications.
 4. Ensure indentation is correct when working with Python code! Modify it to have the correct number of spaces or tabs if needed.
 5. XML modification blocks for any necessary changes in the format:
+6. Modifications must all be inside of the <answer> block! They will not be parsed if they're outside of it.
 
 <modification>
 <file>path/to/file</file>
@@ -2568,7 +2569,9 @@ Focus on:
 - Code correctness and functionality
 - Adherence to project patterns and standards
 - Security considerations
-- Performance implications"""
+- Performance implications
+- Ensuring modifications are in the answer block.
+"""
 
             # Get review feedback
             review_feedback = self.ApiClient.prompt_agent(
@@ -2662,7 +2665,8 @@ Please provide new modification commands that:
 4. Only reference existing dependencies and functions
 5. Ensure the file path is correct
 6. Try something else, like a shorter target that will fit and match better
-7. Do not start target or content with a new line, they're exact replacements
+7. Do not start target or content with a new line, they're exact replacements.
+8. Modifications must be in the <answer> block to be parsed!
 
 If multiple modifications are needed, repeat the <modification> block.
 
@@ -2823,6 +2827,7 @@ If multiple modifications are needed, repeat the <modification> block.
 - Put your <modification> blocks inside of the <answer> block!
 - Ensure indentation is correct in the <content> tag, it is critical for Python code and other languages with strict indentation rules.
 - If working with NextJS, remember to include "use client" as the first line of all files declaring components that use client side hooks such as useEffect and useState.
+- Modifications must be in the <answer> block to be parsed! They cannot be outside of it.
 
 Example modifications:
 1. Insert after a function:
@@ -2830,10 +2835,9 @@ Example modifications:
 <file>auth.py</file>
 <operation>insert</operation>
 <target>def verify_email_address(self, code: str = None):</target>
-<content>
-def verify_mfa(self, token: str):
-    # Verify MFA token
-    pass</content>
+<content>    def verify_mfa(self, token: str):
+        # Verify MFA token
+        pass</content>
 </modification>
 
 2. Replace a code block:
