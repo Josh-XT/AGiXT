@@ -592,30 +592,30 @@ class Memories:
 
     async def delete_memories_from_external_source(self, external_source: str):
         """Delete all memories from a specific external source."""
-        print(f"Starting deletion for source: {external_source}")  # Debug print
+        logging.info(f"Starting deletion for source: {external_source}")  # Debug print
 
         collection = await self.get_collection()
         if not collection:
-            print("No collection found")  # Debug print
+            logging.info("No collection found")  # Debug print
             return False
 
-        print("Collection found, attempting to get results")  # Debug print
+        logging.info("Collection found, attempting to get results")  # Debug print
         try:
             results = collection.get()
-            print(
+            logging.info(
                 f"Got results: {results.keys() if results else 'None'}"
             )  # Debug print
 
             if not results or "ids" not in results or "metadatas" not in results:
-                print(f"Missing required data in results")  # Debug print
+                logging.info(f"Missing required data in results")  # Debug print
                 return False
 
-            print(f"Processing {len(results['ids'])} batches")  # Debug print
+            logging.info(f"Processing {len(results['ids'])} batches")  # Debug print
             ids_to_delete = []
             for batch_idx, (batch_ids, batch_metadata) in enumerate(
                 zip(results["ids"], results["metadatas"])
             ):
-                print(
+                logging.info(
                     f"Processing batch {batch_idx}: {len(batch_ids) if isinstance(batch_ids, list) else '1'} items"
                 )  # Debug print
 
@@ -626,7 +626,7 @@ class Memories:
 
                 for id, metadata in zip(batch_ids, batch_metadata):
                     stored_source = metadata.get("external_source_name", "").strip()
-                    print(
+                    logging.info(
                         f"Comparing source: '{stored_source}' with '{external_source}'"
                     )  # Debug print
                     if stored_source.replace(" ", "") == external_source.replace(
@@ -635,19 +635,21 @@ class Memories:
                         ids_to_delete.append(id)
 
             if ids_to_delete:
-                print(f"Found {len(ids_to_delete)} items to delete")  # Debug print
+                logging.info(
+                    f"Found {len(ids_to_delete)} items to delete"
+                )  # Debug print
                 try:
                     collection.delete(ids=ids_to_delete)
-                    print("Deletion successful")  # Debug print
+                    logging.info("Deletion successful")  # Debug print
                     return True
                 except Exception as e:
-                    print(f"Deletion failed: {str(e)}")  # Debug print
+                    logging.info(f"Deletion failed: {str(e)}")  # Debug print
                     return False
             else:
-                print("No matching items found to delete")  # Debug print
+                logging.info("No matching items found to delete")  # Debug print
 
         except Exception as e:
-            print(f"Error during deletion process: {str(e)}")  # Debug print
+            logging.info(f"Error during deletion process: {str(e)}")  # Debug print
         return False
 
     def score_chunk(self, chunk: str, keywords: set) -> int:
