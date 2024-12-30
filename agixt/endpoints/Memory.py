@@ -569,7 +569,7 @@ async def fine_tune_model(
 
 # Delete memories from external source
 @app.delete(
-    "/api/agent/{agent_name}/memory/external_source",
+    "/api/agent/{agent_name}/memories/external_source",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
