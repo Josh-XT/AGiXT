@@ -157,6 +157,29 @@ async def get_persona(
     return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
 
 
+@app.get(
+    "/api/agent/{agent_name}/persona/{id}",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent persona",
+)
+async def get_persona(
+    agent_name: str,
+    id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    auth = MagicalAuth(token=authorization)
+    if auth.get_user_role(id) > 2:
+        user = True
+    if user:
+        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+        return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
+    else:
+        response = auth.get_training_data(id if id is None else id)
+        return {"message": response}
+
+
 @app.put(
     "/api/agent/{agent_name}/commands",
     tags=["Agent"],

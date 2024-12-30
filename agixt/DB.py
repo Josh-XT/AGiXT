@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import text
+from cryptography.fernet import Fernet
 from Globals import getenv
 
 logging.basicConfig(
@@ -53,6 +53,87 @@ def get_new_id():
     return str(uuid.uuid4())
 
 
+class UserRole(Base):
+    __tablename__ = "Role"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    friendly_name = Column(String)
+
+
+class Company(Base):
+    __tablename__ = "Company"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String
+    )  # Parent company reference
+    name = Column(String)
+    encryption_key = Column(String, nullable=False)
+    token = Column(String, nullable=True)
+    training_data = Column(String, nullable=True)
+    users = relationship("UserCompany", back_populates="company")
+
+    @classmethod
+    def create(cls, session, **kwargs):
+        kwargs["encryption_key"] = Fernet.generate_key().decode()
+        new_company = cls(**kwargs)
+        session.add(new_company)
+        session.flush()
+        return new_company
+
+
+class UserCompany(Base):
+    __tablename__ = "UserCompany"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+    )
+    role_id = Column(Integer, ForeignKey("Role.id"), nullable=False, server_default="3")
+
+    user = relationship("User", back_populates="user_companys")
+    company = relationship("Company", back_populates="users")
+    role = relationship("UserRole")
+
+
+class Invitation(Base):
+    __tablename__ = "Invitation"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    email = Column(String, nullable=False)
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+    )
+    role_id = Column(Integer, ForeignKey("Role.id"), nullable=False)
+    inviter_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    is_accepted = Column(Boolean, default=False)
+
+    company = relationship("Company")
+    role = relationship("UserRole")
+    inviter = relationship("User")
+
+
 class User(Base):
     __tablename__ = "user"
     id = Column(
@@ -68,6 +149,7 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
+    user_companys = relationship("UserCompany", back_populates="user")
 
 
 class UserPreferences(Base):
@@ -631,6 +713,21 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
+def setup_default_roles():
+    with get_session() as db:
+        default_roles = [
+            {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
+            {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
+            {"id": 3, "name": "user", "friendly_name": "User"},
+        ]
+        for role in default_roles:
+            existing_role = db.query(UserRole).filter_by(id=role["id"]).first()
+            if not existing_role:
+                new_role = UserRole(**role)
+                db.add(new_role)
+        db.commit()
+
+
 def ensure_conversation_timestamps():
     """Ensure the conversation table has timestamp columns"""
     import sqlite3
@@ -927,6 +1024,7 @@ if __name__ == "__main__":
     # Create any missing tables
     Base.metadata.create_all(engine)
     logging.info("Database tables verified/created.")
+    setup_default_roles()
 
     # Import seed data
     from SeedImports import import_all_data

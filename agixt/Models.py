@@ -1,8 +1,77 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, List, Any, Union
-from Globals import DEFAULT_USER
+from datetime import datetime
+from typing import List, Optional, Dict, Any, Union
+from Globals import getenv
 
 
+# Auth Models
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    first_name: str
+    last_name: str
+    role: str
+    role_id: int
+
+
+class CompanyResponse(BaseModel):
+    id: str
+    name: str
+    company_id: Optional[str] = None
+    users: List[UserResponse]
+    children: List["CompanyResponse"] = []
+
+
+CompanyResponse.model_rebuild()
+
+
+class InvitationCreate(BaseModel):
+    email: str
+    company_id: Optional[str] = None
+    role_id: int
+
+
+class InvitationResponse(BaseModel):
+    id: str
+    email: str
+    company_id: str
+    role_id: int
+    inviter_id: str
+    created_at: datetime
+    is_accepted: bool
+
+    class Config:
+        from_attributes = True
+
+
+class Login(BaseModel):
+    email: str
+    token: str
+
+
+class Register(BaseModel):
+    email: str
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
+    invitation_id: Optional[str] = ""
+
+
+class Invitation(BaseModel):
+    email: str
+    company_id: str
+    role_id: int
+
+
+class UserInfo(BaseModel):
+    first_name: str
+    last_name: str
+
+
+class Detail(BaseModel):
+    detail: str
+
+
+# Agent Models
 class AgentName(BaseModel):
     agent_name: str
 
@@ -31,6 +100,203 @@ class LogInteraction(BaseModel):
     role: str
     message: str
     conversation_name: Optional[str] = ""
+
+
+# Memory and Context Models
+class FileInput(BaseModel):
+    file_name: str
+    file_content: str
+    collection_number: Optional[Any] = "0"
+    company_id: Optional[str] = None
+    user: Optional[bool] = True
+
+
+class ExternalSource(BaseModel):
+    external_source: str
+    collection_number: Optional[str] = "0"
+    company_id: Optional[str] = None
+    user: Optional[bool] = True
+
+
+class TextMemoryInput(BaseModel):
+    user_input: str
+    text: str
+    collection_number: Optional[str] = "0"
+
+
+# Conversation Models
+class ConversationHistoryModel(BaseModel):
+    agent_name: Optional[str] = ""
+    conversation_name: str
+    conversation_content: List[dict] = []
+
+
+class RenameConversationModel(BaseModel):
+    agent_name: str
+    conversation_name: str
+    new_conversation_name: Optional[str] = "-"
+
+
+class ConversationFork(BaseModel):
+    conversation_name: str
+    message_id: str
+
+
+class UpdateMessageModel(BaseModel):
+    conversation_name: str
+    message_id: str
+    new_message: str
+
+
+class DeleteMessageModel(BaseModel):
+    conversation_name: str
+
+
+# Agent Configuration Models
+class AgentSettings(BaseModel):
+    agent_name: str
+    settings: Optional[Dict[str, Any]] = {}
+    commands: Optional[Dict[str, Any]] = {}
+    training_urls: Optional[List[str]] = []
+
+
+class AgentConfig(BaseModel):
+    agent_name: str
+    settings: Dict[str, Any]
+    commands: Dict[str, Any]
+
+
+class ToggleCommandPayload(BaseModel):
+    command_name: str
+    enable: bool
+
+
+# AI Service Models
+class ChatCompletions(BaseModel):
+    model: str = "gpt-3.5-turbo"  # This is the agent name
+    messages: List[dict] = None
+    temperature: Optional[float] = 0.9
+    top_p: Optional[float] = 1.0
+    tools: Optional[List[dict]] = None
+    tools_choice: Optional[str] = "auto"
+    n: Optional[int] = 1
+    stream: Optional[bool] = False
+    stop: Optional[List[str]] = None
+    max_tokens: Optional[int] = 4096
+    presence_penalty: Optional[float] = 0.0
+    frequency_penalty: Optional[float] = 0.0
+    logit_bias: Optional[Dict[str, float]] = None
+    user: Optional[str] = "Chat"  # This is the conversation name
+
+
+class TextToSpeech(BaseModel):
+    input: str
+    model: Optional[str] = "XT"
+    voice: Optional[str] = "default"
+    language: Optional[str] = "en"
+    user: Optional[str] = None
+
+
+class ImageCreation(BaseModel):
+    prompt: str
+    model: Optional[str] = "dall-e-3"
+    n: Optional[int] = 1
+    size: Optional[str] = "1024x1024"
+
+
+class EmbeddingModel(BaseModel):
+    input: Union[str, List[str]]
+    model: str
+    user: Optional[str] = None
+
+
+# Chain Models
+class ChainData(BaseModel):
+    chain_name: str
+    steps: Dict[str, Any]
+
+
+class RunChain(BaseModel):
+    prompt: str
+    agent_override: Optional[str] = ""
+    all_responses: Optional[bool] = False
+    from_step: Optional[int] = 1
+    chain_args: Optional[dict] = {}
+    conversation_name: Optional[str] = ""
+
+
+class RunChainStep(BaseModel):
+    prompt: str
+    agent_override: Optional[str] = ""
+    chain_args: Optional[dict] = {}
+    chain_run_id: Optional[str] = ""
+    conversation_name: Optional[str] = ""
+
+
+class ChainStep(BaseModel):
+    step_number: int
+    agent_name: str
+    prompt_type: str
+    prompt: dict
+
+
+# History and Feedback Models
+class HistoryModel(BaseModel):
+    agent_name: Optional[str] = getenv("AGENT_NAME")
+    conversation_name: Optional[str] = None
+    limit: Optional[int] = 100
+    page: Optional[int] = 1
+
+
+class FeedbackInput(BaseModel):
+    user_input: str
+    message: str
+    feedback: str
+    positive: Optional[bool] = True
+    conversation_name: Optional[str] = ""
+
+
+# Integration Models
+class GitHubInput(BaseModel):
+    github_repo: str
+    github_user: Optional[str] = None
+    github_token: Optional[str] = None
+    github_branch: Optional[str] = "main"
+    use_agent_settings: Optional[bool] = False
+    collection_number: Optional[int] = 0
+
+
+class ArxivInput(BaseModel):
+    query: Optional[str] = None
+    article_ids: Optional[str] = None
+    max_results: Optional[int] = 5
+    collection_number: Optional[int] = 0
+
+
+class WebhookUser(BaseModel):
+    email: str
+    agent_name: Optional[str] = ""
+    settings: Optional[Dict[str, Any]] = {}
+    commands: Optional[Dict[str, Any]] = {}
+    training_urls: Optional[List[str]] = []
+    github_repos: Optional[List[str]] = []
+    zip_file_content: Optional[str] = ""
+
+
+class WebhookModel(BaseModel):
+    success: str
+
+
+class TasksToDo(BaseModel):
+    tasks: List[str]
+
+
+class ChainCommandName(BaseModel):
+    command_name: str
+
+
+class TranslationRequest(BaseModel):
+    target_language_translated_text: str
 
 
 class Dataset(BaseModel):
@@ -64,42 +330,9 @@ class PromptCategoryList(BaseModel):
     prompt_categories: List[str]
 
 
-class ChatCompletions(BaseModel):
-    model: str = "gpt-3.5-turbo"  # This is the agent name
-    messages: List[dict] = None
-    temperature: Optional[float] = 0.9
-    top_p: Optional[float] = 1.0
-    tools: Optional[List[dict]] = None
-    tools_choice: Optional[str] = "auto"
-    n: Optional[int] = 1
-    stream: Optional[bool] = False
-    stop: Optional[List[str]] = None
-    max_tokens: Optional[int] = 4096
-    presence_penalty: Optional[float] = 0.0
-    frequency_penalty: Optional[float] = 0.0
-    logit_bias: Optional[Dict[str, float]] = None
-    user: Optional[str] = "Chat"  # This is the conversation name
-
-
-class TextToSpeech(BaseModel):
-    input: str
-    model: Optional[str] = "gpt4free"
-    voice: Optional[str] = "default"
-    language: Optional[str] = "en"
-    user: Optional[str] = None
-
-
-class ImageCreation(BaseModel):
+class CustomPromptModel(BaseModel):
+    prompt_name: str
     prompt: str
-    model: Optional[str] = "dall-e-3"
-    n: Optional[int] = 1
-    size: Optional[str] = "1024x1024"
-
-
-class EmbeddingModel(BaseModel):
-    input: Union[str, List[str]]
-    model: str
-    user: Optional[str] = None
 
 
 class ChainNewName(BaseModel):
@@ -108,28 +341,6 @@ class ChainNewName(BaseModel):
 
 class ChainName(BaseModel):
     chain_name: str
-
-
-class ChainData(BaseModel):
-    chain_name: str
-    steps: Dict[str, Any]
-
-
-class RunChain(BaseModel):
-    prompt: str
-    agent_override: Optional[str] = ""
-    all_responses: Optional[bool] = False
-    from_step: Optional[int] = 1
-    chain_args: Optional[dict] = {}
-    conversation_name: Optional[str] = ""
-
-
-class RunChainStep(BaseModel):
-    prompt: str
-    agent_override: Optional[str] = ""
-    chain_args: Optional[dict] = {}
-    chain_run_id: Optional[str] = ""
-    conversation_name: Optional[str] = ""
 
 
 class StepInfo(BaseModel):
@@ -146,13 +357,6 @@ class RunChainResponse(BaseModel):
     prompt_type: str
 
 
-class ChainStep(BaseModel):
-    step_number: int
-    agent_name: str
-    prompt_type: str
-    prompt: dict
-
-
 class ChainStepNewInfo(BaseModel):
     old_step_number: int
     new_step_number: int
@@ -160,110 +364,6 @@ class ChainStepNewInfo(BaseModel):
 
 class ResponseMessage(BaseModel):
     message: str
-
-
-class UrlInput(BaseModel):
-    url: str
-    collection_number: Optional[str] = "0"
-
-
-class FileInput(BaseModel):
-    file_name: str
-    file_content: str
-    collection_number: Optional[Any] = "0"
-
-
-class TextMemoryInput(BaseModel):
-    user_input: str
-    text: str
-    collection_number: Optional[str] = "0"
-
-
-class FeedbackInput(BaseModel):
-    user_input: str
-    message: str
-    feedback: str
-    positive: Optional[bool] = True
-    conversation_name: Optional[str] = ""
-
-
-class PersonaInput(BaseModel):
-    persona: str
-
-
-class TaskOutput(BaseModel):
-    output: str
-    message: Optional[str] = None
-
-
-class ToggleCommandPayload(BaseModel):
-    command_name: str
-    enable: bool
-
-
-class CustomPromptModel(BaseModel):
-    prompt_name: str
-    prompt: str
-
-
-class AgentSettings(BaseModel):
-    agent_name: str
-    settings: Optional[Dict[str, Any]] = {}
-    commands: Optional[Dict[str, Any]] = {}
-    training_urls: Optional[List[str]] = []
-
-
-class AgentConfig(BaseModel):
-    agent_name: str
-    settings: Dict[str, Any]
-    commands: Dict[str, Any]
-
-
-class AgentBrowsedLinks(BaseModel):
-    agent_name: str
-    links: List[Dict[str, Any]]
-
-
-class AgentCommands(BaseModel):
-    agent_name: str
-    commands: Dict[str, Any]
-
-
-class HistoryModel(BaseModel):
-    agent_name: str
-    conversation_name: Optional[str] = None
-    limit: int = 100
-    page: int = 1
-
-
-class ExternalSource(BaseModel):
-    external_source: str
-    collection_number: Optional[str] = "0"
-
-
-class ConversationHistoryModel(BaseModel):
-    agent_name: Optional[str] = ""
-    conversation_name: str
-    conversation_content: List[dict] = []
-
-
-class RenameConversationModel(BaseModel):
-    agent_name: str
-    conversation_name: str
-    new_conversation_name: Optional[str] = "-"
-
-
-class ConversationFork(BaseModel):
-    conversation_name: str
-    message_id: str
-
-
-class TTSInput(BaseModel):
-    text: str
-
-
-class WebhookModel(BaseModel):
-    success: str
 
 
 class ConversationHistoryMessageModel(BaseModel):
@@ -279,18 +379,13 @@ class UpdateConversationHistoryMessageModel(BaseModel):
     new_message: str
 
 
-class UpdateMessageModel(BaseModel):
-    conversation_name: str
-    message_id: str
-    new_message: str
+class UrlInput(BaseModel):
+    url: str
+    collection_number: Optional[str] = "0"
 
 
-class TranslationRequest(BaseModel):
-    target_language_translated_text: str
-
-
-class DeleteMessageModel(BaseModel):
-    conversation_name: str
+class PersonaInput(BaseModel):
+    persona: str
 
 
 class TaskPlanInput(BaseModel):
@@ -303,33 +398,24 @@ class TaskPlanInput(BaseModel):
     enable_new_command: Optional[bool] = True
 
 
-class TasksToDo(BaseModel):
-    tasks: List[str]
-
-
-class ChainCommandName(BaseModel):
-    command_name: str
-
-
-class GitHubInput(BaseModel):
-    github_repo: str
-    github_user: Optional[str] = None
-    github_token: Optional[str] = None
-    github_branch: Optional[str] = "main"
-    use_agent_settings: Optional[bool] = False
-    collection_number: Optional[int] = 0
-
-
-class ArxivInput(BaseModel):
-    query: Optional[str] = None
-    article_ids: Optional[str] = None
-    max_results: Optional[int] = 5
-    collection_number: Optional[int] = 0
-
-
 class YoutubeInput(BaseModel):
     video_id: str
     collection_number: Optional[str] = "0"
+
+
+class AgentBrowsedLinks(BaseModel):
+    agent_name: str
+    links: List[Dict[str, Any]]
+
+
+class AgentCommands(BaseModel):
+    agent_name: str
+    commands: Dict[str, Any]
+
+
+class TaskOutput(BaseModel):
+    output: str
+    message: Optional[str] = None
 
 
 class CommandExecution(BaseModel):
@@ -338,32 +424,5 @@ class CommandExecution(BaseModel):
     conversation_name: str = "AGiXT Terminal Command Execution"
 
 
-class WebhookUser(BaseModel):
-    email: str
-    agent_name: Optional[str] = ""
-    settings: Optional[Dict[str, Any]] = {}
-    commands: Optional[Dict[str, Any]] = {}
-    training_urls: Optional[List[str]] = []
-    github_repos: Optional[List[str]] = []
-    zip_file_content: Optional[str] = ""
-
-
-# Auth user models
-class Login(BaseModel):
-    email: str
-    token: str
-
-
-class Register(BaseModel):
-    email: str
-    first_name: Optional[str] = ""
-    last_name: Optional[str] = ""
-
-
-class UserInfo(BaseModel):
-    first_name: str
-    last_name: str
-
-
-class Detail(BaseModel):
-    detail: str
+class TTSInput(BaseModel):
+    text: str
