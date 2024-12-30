@@ -2827,6 +2827,7 @@ If multiple modifications are needed, repeat the <modification> block.
 - Put your <modification> blocks inside of the <answer> block!
 - Ensure indentation is correct in the <content> tag, it is critical for Python code and other languages with strict indentation rules.
 - If working with NextJS, remember to include "use client" as the first line of all files declaring components that use client side hooks such as useEffect and useState.
+- Do not start target or content with a new line, they're exact replacements.
 - Modifications must be in the <answer> block to be parsed! They cannot be outside of it.
 
 Example modifications:
