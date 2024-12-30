@@ -595,18 +595,30 @@ class Memories:
         collection = await self.get_collection()
         if collection:
             try:
-                # Get all documents and their metadata
                 results = collection.get()
                 if results and "ids" in results and "metadatas" in results:
-                    # Find all IDs where external_source_name matches
-                    ids_to_delete = [
-                        id
-                        for id, metadata in zip(results["ids"], results["metadatas"])
-                        if metadata.get("external_source_name") == external_source
-                    ]
+                    # Handle nested structure correctly
+                    ids_to_delete = []
+                    for batch_ids, batch_metadata in zip(
+                        results["ids"], results["metadatas"]
+                    ):
+                        # Handle both single and batch results
+                        if isinstance(batch_ids, str):
+                            batch_ids = [batch_ids]
+                            batch_metadata = [batch_metadata]
+
+                        for id, metadata in zip(batch_ids, batch_metadata):
+                            if metadata.get("external_source_name") == external_source:
+                                ids_to_delete.append(id)
+
                     if ids_to_delete:
-                        collection.delete(ids=ids_to_delete)
-                        return True
+                        try:
+                            collection.delete(ids=ids_to_delete)
+                            return True
+                        except Exception as e:
+                            logging.warning(f"Failed to delete memories: {str(e)}")
+                            return False
+
             except Exception as e:
                 logging.warning(
                     f"Error deleting memories from source {external_source}: {str(e)}"
