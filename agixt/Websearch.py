@@ -370,6 +370,7 @@ class Websearch:
                         url = link
                 else:
                     url = link
+                logging.info(f"URL: {url}")
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if self.verify_link(link=url):
                     if conversation_name != "" and conversation_name is not None:
