@@ -1,8 +1,8 @@
 import time
-import base64
 import uuid
 from fastapi import APIRouter, Depends, Header
 from Globals import get_tokens
+from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client
 from Conversations import get_conversation_name_by_id
 from providers.default import DefaultProvider
@@ -41,7 +41,10 @@ async def chat_completion(
         except:
             conversation_id = None
         if conversation_id:
-            conversation_name = get_conversation_name_by_id(conversation_id)
+            user_id = get_user_id(user)
+            conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=user_id
+            )
     agixt = AGiXT(
         user=user,
         agent_name=prompt.model,

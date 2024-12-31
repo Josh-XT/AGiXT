@@ -222,8 +222,16 @@ class Agent:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
         self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
+        for key in ["name", "ApiClient", "agent_name", "user", "user_id", "api_key"]:
+            if key in self.PROVIDER_SETTINGS:
+                del self.PROVIDER_SETTINGS[key]
         self.PROVIDER = Providers(
-            name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            name=self.AI_PROVIDER,
+            ApiClient=ApiClient,
+            agent_name=self.agent_name,
+            user=self.user,
+            api_key=token,
+            **self.PROVIDER_SETTINGS,
         )
         vision_provider = (
             self.AGENT_CONFIG["settings"]["vision_provider"]
@@ -237,7 +245,12 @@ class Agent:
         ):
             try:
                 self.VISION_PROVIDER = Providers(
-                    name=vision_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+                    name=vision_provider,
+                    ApiClient=ApiClient,
+                    agent_name=self.agent_name,
+                    user=self.user,
+                    api_key=token,
+                    **self.PROVIDER_SETTINGS,
                 )
             except Exception as e:
                 logging.error(f"Error loading vision provider: {str(e)}")
