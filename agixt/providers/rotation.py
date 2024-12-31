@@ -1,6 +1,6 @@
 import logging
 from Providers import get_providers, Providers
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class RotationProvider:
@@ -11,6 +11,15 @@ class RotationProvider:
         self.requirements = []
         self.providers = get_providers()
         self.AGENT_SETTINGS = kwargs
+
+        # Define intelligence tiers from smartest to least smart
+        self.intelligence_tiers = [
+            kwargs.get("SMARTEST_PROVIDER", "anthropic"),
+            kwargs.get("SMART_PROVIDER", "gpt4"),
+            kwargs.get("MID_PROVIDER", "deepseek"),
+        ]
+
+        self.failed_providers = set()
 
     @staticmethod
     def services():
@@ -52,7 +61,11 @@ class RotationProvider:
         return suitable
 
     async def inference(
-        self, prompt: str, tokens: int = 0, images: List[Any] = None
+        self,
+        prompt: str,
+        tokens: int = 0,
+        images: List[Any] = None,
+        use_smartest: bool = False,
     ) -> str:
         """
         Attempt inference using providers with sufficient token limits.
@@ -61,6 +74,7 @@ class RotationProvider:
             prompt: The input prompt
             tokens: Required token count (0 if unknown)
             images: List of images for vision tasks
+            use_smartest: Whether to try providers in order of intelligence
 
         Returns:
             Response from successful provider or error message
@@ -101,10 +115,42 @@ class RotationProvider:
             logging.info("Token count not specified, all providers considered suitable")
 
         try:
-            # Select provider with lowest token limit that can handle the request
-            provider = min(suitable_providers, key=suitable_providers.get)
+            # Select provider based on intelligence tiers if use_smartest is True
+            if use_smartest:
+                # Try each tier in order until we find an available provider
+                for tier_provider in self.intelligence_tiers:
+                    if (
+                        tier_provider in suitable_providers
+                        and tier_provider not in self.failed_providers
+                    ):
+                        provider = tier_provider
+                        break
+                else:
+                    # If no tier provider is available, fall back to token-based selection
+                    available_providers = {
+                        k: v
+                        for k, v in suitable_providers.items()
+                        if k not in self.failed_providers
+                    }
+                    if not available_providers:
+                        self.failed_providers.clear()
+                        available_providers = suitable_providers
+                    provider = min(available_providers, key=available_providers.get)
+            else:
+                # Use token-based selection
+                available_providers = {
+                    k: v
+                    for k, v in suitable_providers.items()
+                    if k not in self.failed_providers
+                }
+                if not available_providers:
+                    self.failed_providers.clear()
+                    available_providers = suitable_providers
+                provider = min(available_providers, key=available_providers.get)
+
             logging.info(
-                f"Selected provider {provider} for inference (limit: {suitable_providers[provider]} tokens)"
+                f"Selected provider {provider} for inference "
+                f"(limit: {suitable_providers[provider]} tokens)"
             )
 
             # Try inference
@@ -112,15 +158,20 @@ class RotationProvider:
                 name=provider,
                 **self.AGENT_SETTINGS,
             )
-            return await provider_instance.inference(
+            result = await provider_instance.inference(
                 prompt=prompt, tokens=tokens, images=images
             )
+            self.failed_providers.discard(provider)
+            return result
 
         except Exception as e:
             logging.error(f"Provider {provider} failed with error: {str(e)}")
+            self.failed_providers.add(provider)
             if provider in self.providers:
                 self.providers.remove(provider)
                 logging.info(
                     f"Removed failed provider {provider}. Remaining providers: {self.providers}"
                 )
-            return await self.inference(prompt=prompt, tokens=tokens, images=images)
+            return await self.inference(
+                prompt=prompt, tokens=tokens, images=images, use_smartest=use_smartest
+            )
