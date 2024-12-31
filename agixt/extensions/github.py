@@ -2497,116 +2497,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
 
-    async def review_pull_request(
-        self,
-        repo_url: str,
-        pull_request_number: int,
-        code_content: str = None,
-        review_context: str = "",
-    ) -> str:
-        """
-        Review a pull request and provide feedback based on code changes and project standards.
-
-        Args:
-            repo_url (str): The URL of the GitHub repository
-            pull_request_number (int): The PR number to review
-            code_content (str): Optional pre-fetched code content to avoid redundant fetches
-            review_context (str): Additional context for the review (e.g., issue details)
-
-        Returns:
-            str: The review feedback and any suggested changes
-        """
-        try:
-            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-            pull_request = repo.get_pull(pull_request_number)
-
-            # Get the PR's changes if code_content wasn't provided
-            if not code_content:
-                code_content = await self.get_repo_code_contents(
-                    f"{repo_url}/tree/{pull_request.head.ref}"
-                )
-
-            # Get the PR's files for focused review
-            changed_files = pull_request.get_files()
-            files_context = []
-            for file in changed_files:
-                files_context.append(f"Modified file: {file.filename}")
-                files_context.append(f"Changes: +{file.additions} -{file.deletions}")
-                if file.patch:
-                    files_context.append(f"Patch:\n{file.patch}")
-
-            # Construct review prompt
-            review_prompt = f"""Review the following pull request changes and provide feedback:
-
-PR #{pull_request_number}: {pull_request.title}
-{pull_request.body}
-
-Changed Files:
-{chr(10).join(files_context)}
-
-Additional Context:
-{review_context}
-
-Repository Code:
-{code_content}
-
-Please analyze the changes and provide:
-1. Critical issues or bugs with the code changes
-2. That the changes resolve the issue requiring no further modifications. If any changes are needed, provide specific details.
-3. If no changes are needed, give feedback without suggesting modifications.
-4. Ensure indentation is correct when working with Python code! Modify it to have the correct number of spaces or tabs if needed.
-5. XML modification blocks for any necessary changes in the format:
-6. Modifications must all be inside of the <answer> block! They will not be parsed if they're outside of it.
-
-<modification>
-<file>path/to/file</file>
-<operation>replace|insert|delete</operation>
-<target>code_block_or_line</target>
-<content>new_code</content>
-</modification>
-
-Focus on:
-- Code correctness and functionality
-- Adherence to project patterns and standards
-- Security considerations
-- Performance implications
-- Ensuring modifications are in the answer block.
-"""
-
-            # Get review feedback
-            review_feedback = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": review_prompt,
-                    "log_user_input": False,
-                    "disable_commands": True,
-                    "log_output": False,
-                    "browse_links": False,
-                    "websearch": False,
-                    "analyze_user_input": False,
-                    "tts": False,
-                    "conversation_name": self.conversation_name,
-                },
-            )
-
-            # Extract any modification blocks for automated fixes
-            modifications = re.findall(
-                r"<modification>.*?</modification>", review_feedback, re.DOTALL
-            )
-
-            # Add review comment to PR
-            comment_body = review_feedback
-            if modifications:
-                comment_body += "\n\nI'll automatically apply these suggested changes."
-
-            pull_request.create_issue_comment(comment_body)
-
-            return review_feedback
-
-        except Exception as e:
-            return f"Error reviewing pull request: {str(e)}"
-
     async def handle_modifications(
         self,
         prompt: str,
@@ -2693,6 +2583,7 @@ Rewrite the modifications to fix the issue."""
                             "analyze_user_input": False,
                             "tts": False,
                             "conversation_name": self.conversation_name,
+                            "use_smartest": True,
                         },
                     )
                     # Try applying the new modifications
@@ -2864,6 +2755,7 @@ Example modifications:
                 "analyze_user_input": False,
                 "tts": False,
                 "conversation_name": self.conversation_name,
+                "use_smartest": True,
             },
         )
         self.ApiClient.new_conversation_message(
