@@ -670,6 +670,12 @@ class Interactions:
                 ApiClient=self.ApiClient,
             )
             del kwargs["collection_number"]
+        use_smartest = False
+        if "use_smartest" in kwargs:
+            use_smartest = (
+                True if str(kwargs["use_smartest"]).lower() == "true" else False
+            )
+            del kwargs["use_smartest"]
         websearch = False
         websearch_depth = 3
         conversation_results = 5
@@ -730,7 +736,7 @@ class Interactions:
                 )
                 try:
                     vision_response = await self.agent.vision_inference(
-                        prompt=user_input, images=images
+                        prompt=user_input, images=images, use_smartest=use_smartest
                     )
                     logging.info(f"Vision Response: {vision_response}")
                 except Exception as e:
@@ -869,7 +875,9 @@ class Interactions:
                 message=log_message,
             )
         try:
-            self.response = await self.agent.inference(prompt=formatted_prompt)
+            self.response = await self.agent.inference(
+                prompt=formatted_prompt, use_smartest=use_smartest
+            )
         except Exception as e:
             # Log the error with the full traceback for the provider
             error = ""
@@ -915,7 +923,9 @@ class Interactions:
                     if new_processed_length > processed_length:
                         # Get continuation only if we got new content
                         new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process..."
-                        command_response = await self.agent.inference(prompt=new_prompt)
+                        command_response = await self.agent.inference(
+                            prompt=new_prompt, use_smartest=use_smartest
+                        )
                         self.response = f"{self.response}{command_response}"
                         processed_length = new_processed_length
                     else:
@@ -938,7 +948,9 @@ class Interactions:
                     if new_processed_length > processed_length:
                         # Only continue if we actually got new content
                         new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
-                        command_response = await self.agent.inference(prompt=new_prompt)
+                        command_response = await self.agent.inference(
+                            prompt=new_prompt, use_smartest=use_smartest
+                        )
                         self.response = f"{self.response}{command_response}"
                         processed_length = new_processed_length
                         # Check for new thinking tags after getting new content
@@ -952,7 +964,9 @@ class Interactions:
                 # If no answer block yet, try to get it
                 elif "</answer>" not in self.response:
                     new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>' as long as there is a <answer> block present, otherwise, the final answer to the user should be within the <answer> block. to send the message to the user. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
-                    response = await self.agent.inference(prompt=new_prompt)
+                    response = await self.agent.inference(
+                        prompt=new_prompt, use_smartest=use_smartest
+                    )
                     self.response = f"{self.response}{response}"
                     continue
                 else:
