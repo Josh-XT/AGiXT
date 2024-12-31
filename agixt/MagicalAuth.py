@@ -5,33 +5,43 @@ from DB import (
     OAuthProvider,
     UserPreferences,
     get_session,
+    Company,
+    UserCompany,
+    Invitation,
 )
-from Models import UserInfo, Register, Login
-from agixtsdk import AGiXTSDK
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload
+from sendgrid.helpers.mail import Mail
+from sendgrid import SendGridAPIClient
+from Models import (
+    UserInfo,
+    Register,
+    Login,
+    CompanyResponse,
+    InvitationResponse,
+    InvitationCreate,
+    UserResponse,
+)
+from typing import List, Optional
 from fastapi import Header, HTTPException
-from Globals import getenv, get_default_agent, get_agixt_training_urls
+from Globals import getenv
 from datetime import datetime, timedelta
 from fastapi import HTTPException
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import (
-    Attachment,
-    FileContent,
-    FileName,
-    FileType,
-    Disposition,
-    Mail,
-)
-import pyotp
-import requests
-import logging
-import jwt
-import json
-import os
+from agixtsdk import AGiXTSDK
 from sso.amazon import amazon_sso
 from sso.github import github_sso
 from sso.google import google_sso
 from sso.microsoft import microsoft_sso
 from sso.walmart import walmart_sso
+import pyotp
+import logging
+import traceback
+import requests
+import jwt
+import json
+import uuid
+import os
+
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -40,12 +50,69 @@ logging.basicConfig(
 """
 Required environment variables:
 
-- SENDGRID_API_KEY: SendGrid API key
-- SENDGRID_FROM_EMAIL: Default email address to send emails from
 - AGIXT_API_KEY: Encryption key to encrypt and decrypt data
-- MAGIC_LINK_URL: URL to send in the email for the user to click on
-- REGISTRATION_WEBHOOK: URL to send a POST request to when a user registers
+- APP_URI: URL to send in the email for the user to click on
+- AGIXT_URI: URL to the AGiXT server
+- APP_NAME: Name of the app
+- AGENT_NAME: Name of the agent
+- TZ: Timezone
+- LOG_LEVEL: Log level
+- LOG_FORMAT: Log format
+- DEFAULT_USER: Default user email
+- STRIPE_API_KEY: Stripe API key
+- REGISTRATION_DISABLED: Registration disabled flag
+- APP_URI: App URI
 """
+
+
+def send_email(email: str, subject: str, body: str):
+    try:
+        # SendGrid
+        sendgrid_api_key = getenv("SENDGRID_API_KEY")
+        sendgrid_from_email = getenv("SENDGRID_FROM_EMAIL")
+        logging.info(f"sendgrid_api_key: {sendgrid_api_key}")
+        logging.info(f"sendgrid_from_email: {sendgrid_from_email}")
+        if sendgrid_api_key and sendgrid_from_email:
+            message = Mail(
+                from_email=sendgrid_from_email,
+                to_emails=email,
+                subject=subject,
+                html_content=body,
+            )
+            try:
+                response = SendGridAPIClient(sendgrid_api_key).send(message)
+                logging.info(f"Sengrid response: {response}")
+            except Exception as e:
+                return False
+            if response.status_code != 202:
+                return False
+            return True
+        # Mailgun
+        mailgun_api_key = getenv("MAILGUN_API_KEY")
+        mailgun_domain = getenv("MAILGUN_DOMAIN")
+        mailgun_from_email = getenv("MAILGUN_FROM_EMAIL")
+        if mailgun_api_key and mailgun_domain and mailgun_from_email:
+            try:
+                response = requests.post(
+                    f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
+                    auth=("api", mailgun_api_key),
+                    data={
+                        "from": mailgun_from_email,
+                        "to": email,
+                        "subject": subject,
+                        "html": body,
+                    },
+                )
+            except Exception as e:
+                return False
+            if response.status_code != 200:
+                return False
+            return True
+
+        # None
+        return False
+    except:
+        return False
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None):
@@ -87,103 +154,6 @@ def is_agixt_admin(email: str = "", api_key: str = ""):
     return False
 
 
-def urlencode(data: str):
-    return (
-        str(data)
-        .replace("%2B", "+")
-        .replace("%2F", "/")
-        .replace("%3D", "=")
-        .replace("%20", " ")
-        .replace("%3A", ":")
-        .replace("%3F", "?")
-        .replace("%26", "&")
-        .replace("%23", "#")
-        .replace("%3B", ";")
-        .replace("%40", "@")
-        .replace("%21", "!")
-        .replace("%24", "$")
-        .replace("%27", "'")
-        .replace("%28", "(")
-        .replace("%29", ")")
-        .replace("%2A", "*")
-        .replace("%2C", ",")
-        .replace("%3B", ";")
-        .replace("%5B", "[")
-        .replace("%5D", "]")
-        .replace("%7B", "{")
-        .replace("%7D", "}")
-        .replace("%7C", "|")
-        .replace("%5C", "\\")
-        .replace("%5E", "^")
-        .replace("%60", "`")
-        .replace("%7E", "~")
-    )
-
-
-def urldecode(data: str):
-    return (
-        str(data)
-        .replace("+", "%2B")
-        .replace("/", "%2F")
-        .replace("=", "%3D")
-        .replace(" ", "%20")
-        .replace(":", "%3A")
-        .replace("?", "%3F")
-        .replace("&", "%26")
-        .replace("#", "%23")
-        .replace(";", "%3B")
-        .replace("@", "%40")
-        .replace("!", "%21")
-        .replace("$", "%24")
-        .replace("'", "%27")
-        .replace("(", "%28")
-        .replace(")", "%29")
-        .replace("*", "%2A")
-        .replace(",", "%2C")
-        .replace(";", "%3B")
-        .replace("[", "%5B")
-        .replace("]", "%5D")
-        .replace("{", "%7B")
-        .replace("}", "%7D")
-        .replace("|", "%7C")
-        .replace("\\", "%5C")
-        .replace("^", "%5E")
-        .replace("`", "%60")
-        .replace("~", "%7E")
-    )
-
-
-def verify_api_key(authorization: str = Header(None)):
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
-    if AGIXT_API_KEY:
-        if authorization is None:
-            raise HTTPException(
-                status_code=401, detail="Authorization header is missing"
-            )
-        if authorization == AGIXT_API_KEY:
-            return "ADMIN"
-        try:
-            if authorization == AGIXT_API_KEY:
-                return "ADMIN"
-            token = jwt.decode(
-                jwt=authorization,
-                key=AGIXT_API_KEY,
-                algorithms=["HS256"],
-                leeway=timedelta(hours=5),
-            )
-            db = get_session()
-            user = db.query(User).filter(User.id == token["sub"]).first()
-        except Exception as e:
-            raise HTTPException(status_code=401, detail="Invalid API Key")
-        if user.is_active == False:
-            user_preferences = MagicalAuth(token=authorization).get_user_preferences()
-        db.close()
-        return user
-    else:
-        return authorization
-
-
 def get_sso_credentials(user_id):
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
@@ -208,6 +178,44 @@ def get_sso_credentials(user_id):
     return credentials
 
 
+def get_admin_user():
+    session = get_session()
+    user = session.query(User).filter(User.admin == True).first()
+    return user
+
+
+def verify_api_key(authorization: str = Header(None)):
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+    if AGIXT_API_KEY:
+        if authorization == AGIXT_API_KEY:
+            return get_admin_user()
+        try:
+            if authorization == AGIXT_API_KEY:
+                return get_admin_user()
+            token = jwt.decode(
+                jwt=authorization,
+                key=AGIXT_API_KEY,
+                algorithms=["HS256"],
+                leeway=timedelta(hours=5),
+            )
+            db = get_session()
+            user = db.query(User).filter(User.id == token["sub"]).first()
+            # return user dict
+            user_dict = user.__dict__
+            user_dict.pop("_sa_instance_state")
+            db.close()
+            return user_dict
+        except Exception as e:
+            logging.info(f"Error verifying API Key: {str(e)}")
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+    else:
+        logging.error(
+            "AGiXT API Key is missing. Please set the AGIXT_API_KEY environment variable."
+        )
+        raise HTTPException(status_code=401, detail="API Key is missing.")
+
+
 def get_user_id(user: str):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
@@ -225,48 +233,31 @@ def get_user_id(user: str):
 
 def get_user_by_email(email: str):
     session = get_session()
-    user = session.query(User).filter(User.email == email).first()
-    if not user:
-        session.close()
-        raise HTTPException(status_code=404, detail="User not found.")
-    return user
-
-
-def send_email(
-    email: str,
-    subject: str,
-    body: str,
-    attachment_content=None,
-    attachment_file_type=None,
-    attachment_file_name=None,
-):
-    message = Mail(
-        from_email=getenv("SENDGRID_FROM_EMAIL"),
-        to_emails=email,
-        subject=subject,
-        html_content=body,
-    )
-    if (
-        attachment_content != None
-        and attachment_file_type != None
-        and attachment_file_name != None
-    ):
-        attachment = Attachment(
-            FileContent(attachment_content),
-            FileName(attachment_file_name),
-            FileType(attachment_file_type),
-            Disposition("attachment"),
-        )
-        message.attachment = attachment
-
     try:
-        response = SendGridAPIClient(getenv("SENDGRID_API_KEY")).send(message)
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail="Email could not be sent.")
-    if response.status_code != 202:
-        raise HTTPException(status_code=400, detail="Email could not be sent.")
-    return None
+        user = session.query(User).filter(User.email == email).first()
+        if not user:
+            session.close()
+            raise HTTPException(status_code=404, detail="User not found.")
+        user_dict = user.__dict__
+        user_dict.pop("_sa_instance_state")
+        session.close()
+        return user_dict
+    finally:
+        session.close()
+
+
+def impersonate_user(email: str):
+    # Get token for the user
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    token = jwt.encode(
+        {
+            "sub": str(get_user_id(email)),
+            "email": email,
+        },
+        AGIXT_API_KEY,
+        algorithm="HS256",
+    )
+    return token
 
 
 def encrypt(key: str, data: str):
@@ -284,8 +275,9 @@ def decrypt(key: str, data: str):
 
 class MagicalAuth:
     def __init__(self, token: str = None):
-        self.encryption_key = getenv("AGIXT_API_KEY")
-        self.link = getenv("MAGIC_LINK_URL")
+        encryption_key = getenv("AGIXT_API_KEY")
+        self.link = getenv("APP_URI")
+        self.encryption_key = encryption_key
         token = (
             str(token)
             .replace("%2B", "+")
@@ -329,16 +321,19 @@ class MagicalAuth:
                 leeway=timedelta(hours=5),
             )
             self.email = decoded["email"]
-            self.user_id = get_user_id(self.email)
+            self.user_id = decoded["sub"]
             self.token = token
+            self.company_id = self.get_user_company_id()
         except:
             self.email = None
             self.token = None
             self.user_id = None
-        if token == self.encryption_key:
+            self.company_id = None
+        if token == encryption_key:
             self.email = getenv("DEFAULT_USER")
             self.user_id = get_user_id(self.email)
             self.token = token
+            self.company_id = self.get_user_company_id()
 
     def validate_user(self):
         if self.user_id is None:
@@ -349,12 +344,44 @@ class MagicalAuth:
         return True
 
     def user_exists(self, email: str = None):
-        email = urldecode(email)
-        email = email.lower()
+        self.email = (
+            str(email)
+            .replace("%2B", "+")
+            .replace("%2F", "/")
+            .replace("%3D", "=")
+            .replace("%20", " ")
+            .replace("%3A", ":")
+            .replace("%3F", "?")
+            .replace("%26", "&")
+            .replace("%23", "#")
+            .replace("%3B", ";")
+            .replace("%40", "@")
+            .replace("%21", "!")
+            .replace("%24", "$")
+            .replace("%27", "'")
+            .replace("%28", "(")
+            .replace("%29", ")")
+            .replace("%2A", "*")
+            .replace("%2C", ",")
+            .replace("%3B", ";")
+            .replace("%5B", "[")
+            .replace("%5D", "]")
+            .replace("%7B", "{")
+            .replace("%7D", "}")
+            .replace("%7C", "|")
+            .replace("%5C", "\\")
+            .replace("%5E", "^")
+            .replace("%60", "`")
+            .replace("%7E", "~")
+        )
+        self.email = email.lower()
         session = get_session()
-        user = session.query(User).filter(User.email == email).first()
+        user = session.query(User).filter(User.email == self.email).first()
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            self.send_email_code()
+            self.send_sms_code()
+            session.close()
+            return False
         session.close()
         return True
 
@@ -387,7 +414,7 @@ class MagicalAuth:
         ip_address,
         login: Login,
         referrer=None,
-        send_link: bool = True,
+        send_link: bool = False,
     ):
         self.email = login.email.lower()
         session = get_session()
@@ -398,6 +425,9 @@ class MagicalAuth:
         if not pyotp.TOTP(user.mfa_token).verify(login.token, valid_window=60):
             self.add_failed_login(ip_address=ip_address)
             session.close()
+            logging.info(
+                f"Failed login attempt for {self.email} with token {login.token}, should have been {pyotp.TOTP(user.mfa_token).now()}"
+            )
             raise HTTPException(
                 status_code=401, detail="Invalid MFA token. Please try again."
             )
@@ -446,24 +476,19 @@ class MagicalAuth:
         if referrer is not None:
             self.link = referrer
         magic_link = f"{self.link}?token={token}"
-        if (
-            getenv("SENDGRID_API_KEY") != ""
-            and str(getenv("SENDGRID_API_KEY")).lower() != "none"
-            and getenv("SENDGRID_FROM_EMAIL") != ""
-            and str(getenv("SENDGRID_FROM_EMAIL")).lower() != "none"
-            and send_link
-        ):
-            send_email(
+        if send_link:
+            email_send = send_email(
                 email=self.email,
                 subject="Magic Link",
                 body=f"<a href='{magic_link}'>Click here to log in</a>",
             )
-        else:
+            if not email_send:
+                session.close()
+                return magic_link
+            # Upon clicking the link, the front end will call the login method and save the email and encrypted_id in the session
             session.close()
-            return magic_link
-        # Upon clicking the link, the front end will call the login method and save the email and encrypted_id in the session
-        session.close()
-        return f"A login link has been sent to {self.email}, please check your email and click the link to log in. The link will expire in 24 hours."
+            return f"A login link has been sent to {self.email}, please check your email and click the link to log in. The link will expire in 24 hours."
+        return magic_link
 
     def login(self, ip_address):
         """ "
@@ -508,105 +533,116 @@ class MagicalAuth:
         )
 
     def register(
-        self,
-        new_user: Register,
+        self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
         new_user.email = new_user.email.lower()
         self.email = new_user.email
-        allowed_domains = getenv("ALLOWED_DOMAINS")
-        registration_disabled = getenv("REGISTRATION_DISABLED").lower() == "true"
-        if registration_disabled:
-            raise HTTPException(
-                status_code=403, detail="Registration is disabled for this server."
-            )
-        if allowed_domains is None or allowed_domains == "":
-            allowed_domains = "*"
-        if allowed_domains != "*":
-            if "," in allowed_domains:
-                allowed_domains = allowed_domains.split(",")
-            else:
-                allowed_domains = [allowed_domains]
-            domain = self.email.split("@")[1]
-            if domain not in allowed_domains:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Registration is not allowed for this domain.",
-                )
-        session = get_session()
-        user = session.query(User).filter(User.email == self.email).first()
-        if user is not None:
-            logging.info(
-                f"User already exists with email: {self.email}. {user.__dict__}"
-            )
-            session.close()
-            raise HTTPException(
-                status_code=409, detail="User already exists with this email."
-            )
         mfa_token = pyotp.random_base32()
-        user = User(
-            mfa_token=mfa_token,
-            **new_user.model_dump(),
-        )
-        session.add(user)
-        session.commit()
-        # Add default user preferences
-        user_preferences = UserPreferences(
-            user_id=user.id,
-            pref_key="timezone",
-            pref_value=getenv("TZ"),
-        )
-        session.add(user_preferences)
-        session.commit()
-        user_preferences = UserPreferences(
-            user_id=user.id,
-            pref_key="input_tokens",
-            pref_value="0",
-        )
-        session.add(user_preferences)
-        session.commit()
-        user_preferences = UserPreferences(
-            user_id=user.id,
-            pref_key="output_tokens",
-            pref_value="0",
-        )
-        session.add(user_preferences)
-        session.commit()
-        session.close()
-        # Send registration webhook out to third party application such as AGiXT to create a user there.
-        registration_webhook = getenv("REGISTRATION_WEBHOOK")
-        if registration_webhook:
-            try:
-                requests.post(
-                    registration_webhook,
-                    json={"email": self.email},
-                    headers={"Authorization": getenv("AGIXT_API_KEY")},
+        ent = str(getenv("ENT")).lower() == "true"
+        try:
+            session = get_session()
+            # Check if user already exists
+            existing_user = session.query(User).filter(User.email == self.email).first()
+            if existing_user:
+                session.close()
+                return {"error": "User already exists", "status_code": 409}
+
+            # Check for invitation
+            invitation = None
+            if invitation_id:
+                invitation = (
+                    session.query(Invitation)
+                    .filter(
+                        Invitation.id == invitation_id,
+                        Invitation.email == self.email,
+                        Invitation.is_accepted == False,
+                    )
+                    .first()
                 )
-            except Exception as e:
-                pass
-        # After registering the user, add a default AGiXT agent for the user
-        # Train the agent on the AGiXT documentation.
-        create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
-        if create_agent:
+                logging.info(f"Fetched invitation: {invitation}")
+                if not invitation:
+                    session.close()
+                    return {
+                        "error": "Invalid or expired invitation",
+                        "status_code": 404,
+                    }
+            # Create new user
+            new_user_db = User(
+                email=self.email,
+                first_name=new_user.first_name,
+                last_name=new_user.last_name,
+                mfa_token=mfa_token,
+            )
+            session.add(new_user_db)
+            session.commit()
+            session.flush()  # Flush to get the new user's ID
+            self.user_id = str(new_user_db.id)
+            if ent:
+                if invitation:
+                    # User was invited - use invitation details
+                    verify_email = True
+                    company_id = invitation.company_id
+                    role_id = invitation.role_id
+                    invitation.is_accepted = True
+                    # Create user-company association
+                    user_company = UserCompany(
+                        user_id=new_user_db.id,
+                        company_id=company_id,
+                        role_id=role_id,
+                    )
+                    session.add(user_company)
+                    session.commit()
+                else:
+                    # If email ends in .xt, skip this part
+                    if not self.email.endswith(".xt"):
+                        # Create a new company for the user
+                        company_name = (
+                            f"{new_user.first_name}'s Company"
+                            if new_user.first_name
+                            else "My Company"
+                        )
+                        new_company = self.create_company(name=company_name)
+                        company_id = new_company["id"]
+            # Add default user preferences
+            default_preferences = [
+                ("timezone", getenv("TZ")),
+                ("input_tokens", "0"),
+                ("output_tokens", "0"),
+                ("verify_email", "true" if verify_email else "false"),
+            ]
+            for pref_key, pref_value in default_preferences:
+                user_preference = UserPreferences(
+                    user_id=new_user_db.id,
+                    pref_key=pref_key,
+                    pref_value=pref_value,
+                )
+                session.add(user_preference)
+
+            session.commit()
+            session.close()
+            with open("default_agent.json", "r") as file:
+                default_agent = json.load(file)
             agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
-            otp = pyotp.TOTP(mfa_token)
-            agixt.login(email=new_user.email, otp=otp.now())
-            agent_name = getenv("AGIXT_AGENT")
-            agent_config = get_default_agent()
-            agent_settings = agent_config["settings"]
-            agent_commands = agent_config["commands"]
-            create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
-            training_urls = (
-                get_agixt_training_urls()
-                if create_agixt_agent and agent_name == "AGiXT"
-                else agent_config["training_urls"]
-            )
+            agixt.login(email=self.email, otp=pyotp.TOTP(mfa_token).now())
             agixt.add_agent(
-                agent_name=agent_name,
-                settings=agent_settings,
-                commands=agent_commands,
-                training_urls=training_urls,
+                agent_name=getenv("AGENT_NAME"),
+                settings=default_agent["settings"],
+                commands=default_agent["commands"],
+                training_urls=(
+                    default_agent["training_urls"]
+                    if "training_urls" in default_agent
+                    else []
+                ),
             )
-        return mfa_token
+            return {"mfa_token": mfa_token, "status_code": 200}
+
+        except Exception as e:
+            logging.error(f"Unexpected error during registration: {str(e)}")
+            logging.error(traceback.format_exc())
+            return {
+                "error": f"An unexpected error occurred: {str(e)}",
+                "status_code": 500,
+            }
 
     def update_user(self, **kwargs):
         self.validate_user()
@@ -618,6 +654,8 @@ class MagicalAuth:
             .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
+        if "subscription" in kwargs:
+            del kwargs["subscription"]
         if "email" in kwargs:
             del kwargs["email"]
         if "input_tokens" in kwargs:
@@ -631,6 +669,9 @@ class MagicalAuth:
                 value = encrypt(self.encryption_key, value)
             if "_secret" in key.lower():
                 value = encrypt(self.encryption_key, value)
+            if key == "phone_number":
+                # Remove anything that isn't a number
+                value = "".join([x for x in value if x.isdigit()])
             if key in allowed_keys:
                 setattr(user, key, value)
             else:
@@ -660,231 +701,6 @@ class MagicalAuth:
         session.close()
         return "User deleted successfully"
 
-    def sso(
-        self,
-        provider,
-        code,
-        ip_address,
-        referrer=None,
-    ):
-        if not referrer:
-            referrer = getenv("MAGIC_LINK_URL")
-        provider = str(provider).lower()
-        sso_data = None
-        sso_data = get_sso_provider(provider=provider, code=code, redirect_uri=referrer)
-        if not sso_data:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to get user data from {provider.capitalize()}.",
-            )
-        if not sso_data.access_token:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to get access token from {provider.capitalize()}.",
-            )
-        user_data = sso_data.user_info
-        access_token = sso_data.access_token
-        refresh_token = sso_data.refresh_token
-        token_expires_at = (
-            datetime.now() + timedelta(seconds=sso_data.expires_in)
-            if hasattr(sso_data, "expires_in")
-            else None
-        )
-
-        # Get account identifier based on provider
-        if provider == "microsoft":
-            account_name = (
-                user_data["mail"] or user_data["userPrincipalName"]
-            )  # Microsoft sometimes uses userPrincipalName instead of mail
-        elif provider == "google":
-            account_name = user_data["email"]
-        elif provider == "github":
-            account_name = user_data["login"]  # GitHub username
-        elif provider == "walmart":
-            account_name = user_data["sellerEmail"]
-        else:
-            account_name = (
-                user_data.get("email")
-                or user_data.get("mail")
-                or user_data.get("login")
-            )
-
-        session = get_session()
-
-        # First try to find existing OAuth connection by account_name
-        provider_record = (
-            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
-        )
-        if not provider_record:
-            provider_record = OAuthProvider(name=provider)
-            session.add(provider_record)
-            session.commit()
-
-        existing_oauth = (
-            session.query(UserOAuth)
-            .filter(UserOAuth.provider_id == provider_record.id)
-            .filter(UserOAuth.account_name == account_name)
-            .first()
-        )
-
-        if existing_oauth:
-            # Update existing OAuth connection
-            user = existing_oauth.user
-            existing_oauth.access_token = access_token
-            existing_oauth.refresh_token = refresh_token
-            existing_oauth.token_expires_at = token_expires_at
-            session.commit()
-        else:
-            # Check if user exists by email
-            self.email = str(user_data["email"]).lower()
-            user = session.query(User).filter(User.email == self.email).first()
-
-            if not user:
-                # Create new user
-                register = Register(
-                    email=self.email,
-                    first_name=user_data.get("first_name", ""),
-                    last_name=user_data.get("last_name", ""),
-                )
-                mfa_token = self.register(new_user=register)
-                user = session.query(User).filter(User.email == self.email).first()
-
-            # Create new OAuth connection
-            user_oauth = UserOAuth(
-                user_id=user.id,
-                provider_id=provider_record.id,
-                account_name=account_name,
-                access_token=access_token,
-                refresh_token=refresh_token,
-                token_expires_at=token_expires_at,
-            )
-            session.add(user_oauth)
-
-        session.commit()
-        session.close()
-        # Generate login token
-        totp = pyotp.TOTP(user.mfa_token)
-        login = Login(email=user.email, token=totp.now())
-        return self.send_magic_link(
-            ip_address=ip_address,
-            login=login,
-            referrer=referrer,
-            send_link=False,
-        )
-
-    def refresh_oauth_token(self, provider: str):
-        """Refresh OAuth token if expired"""
-        session = get_session()
-        provider_record = (
-            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
-        )
-        if not provider_record:
-            session.close()
-            raise HTTPException(status_code=404, detail="Provider not found")
-
-        user_oauth = (
-            session.query(UserOAuth)
-            .filter(UserOAuth.user_id == self.user_id)
-            .filter(UserOAuth.provider_id == provider_record.id)
-            .first()
-        )
-
-        if not user_oauth:
-            session.close()
-            raise HTTPException(status_code=404, detail="OAuth connection not found")
-
-        # Check if token needs refresh
-        if (
-            user_oauth.token_expires_at
-            and user_oauth.token_expires_at <= datetime.now() + timedelta(minutes=5)
-            and user_oauth.refresh_token
-        ):
-            try:
-                if provider == "microsoft":
-                    from sso.microsoft import MicrosoftSSO
-
-                    sso_instance = MicrosoftSSO(
-                        refresh_token=user_oauth.refresh_token,
-                    )
-                elif provider == "google":
-                    from sso.google import GoogleSSO
-
-                    sso_instance = GoogleSSO(
-                        refresh_token=user_oauth.refresh_token,
-                    )
-                else:
-                    session.close()
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Token refresh not implemented for provider: {provider}",
-                    )
-
-                # Get new tokens
-                new_tokens = sso_instance.get_new_token()
-
-                # Update stored tokens
-                user_oauth.access_token = new_tokens["access_token"]
-                if "refresh_token" in new_tokens:
-                    user_oauth.refresh_token = new_tokens["refresh_token"]
-                if "expires_in" in new_tokens:
-                    user_oauth.token_expires_at = datetime.now() + timedelta(
-                        seconds=new_tokens["expires_in"]
-                    )
-
-                session.commit()
-                session.close()
-                return new_tokens["access_token"]
-
-            except Exception as e:
-                session.close()
-                raise HTTPException(
-                    status_code=401,
-                    detail=f"Failed to refresh {provider} token: {str(e)}",
-                )
-
-        session.close()
-        return user_oauth.access_token
-
-    def get_oauth_functions(self, provider: str):
-        session = get_session()
-        user = session.query(User).filter(User.id == self.user_id).first()
-        if not user:
-            session.close()
-            raise HTTPException(status_code=404, detail="User not found")
-        provider = (
-            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
-        )
-        if not provider:
-            session.close()
-            raise HTTPException(status_code=404, detail="Provider not found")
-        user_oauth = (
-            session.query(UserOAuth)
-            .filter(UserOAuth.user_id == self.user_id)
-            .filter(UserOAuth.provider_id == provider.id)
-            .first()
-        )
-        if not user_oauth:
-            session.close()
-            raise HTTPException(status_code=404, detail="User OAuth not found")
-        access_token = user_oauth.access_token
-        session.close()
-        if provider.name == "google":
-            from sso.google import GoogleSSO
-
-            return GoogleSSO(access_token=access_token)
-        elif provider.name == "microsoft":
-            from sso.microsoft import MicrosoftSSO
-
-            return MicrosoftSSO(access_token=access_token)
-        elif provider.name == "github":
-            from sso.github import GitHubSSO
-
-            return GitHubSSO(access_token=access_token)
-        elif provider.name == "walmart":
-            from sso.walmart import WalmartSSO
-
-            return WalmartSSO(access_token=access_token)
-
     def registration_requirements(self):
         if not os.path.exists("registration_requirements.json"):
             requirements = {}
@@ -893,7 +709,61 @@ class MagicalAuth:
                 requirements = json.load(file)
         if not requirements:
             requirements = {}
+        if "stripe_id" not in requirements:
+            requirements["stripe_id"] = "None"
         return requirements
+
+    def get_subscribed_products(self, stripe_api_key, stripe_customer_id):
+        import stripe
+
+        stripe.api_key = stripe_api_key
+        logging.info(f"Checking subscriptions for customer {stripe_customer_id}...")
+        all_subscriptions = stripe.Subscription.list(
+            customer=stripe_customer_id,
+            expand=["data.items.data.price"],
+        )
+        logging.info(f"Found {len(all_subscriptions)} subscriptions.")
+        relevant_subscriptions = []
+        for subscription in all_subscriptions:
+            logging.info(f"Checking subscription {subscription['id']}")
+            if subscription.status == "active":
+                logging.info(f"Subscription {subscription['id']} active.")
+                relevant_to_this_app = None
+                for item in subscription["items"]:
+                    product_id = item["price"]["product"]
+                    product = stripe.Product.retrieve(product_id)
+                    try:
+                        relevant_app = product["metadata"]["APP_NAME"]
+                    except:
+                        relevant_app = "[No App Defined in Product]"
+                        logging.warning(
+                            f"Subscription detected with items missing relevant APP_NAME metadata: {subscription['id']}"
+                        )
+                    print(product)
+                    print(relevant_app)
+                    if relevant_app == getenv("APP_NAME"):
+                        if relevant_to_this_app == False:
+                            raise Exception(
+                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
+                            )
+                        relevant_to_this_app = True
+                        logging.info(
+                            f"Subscription {subscription['id']} relevant to this app {getenv('APP_NAME')}."
+                        )
+                    else:
+                        if relevant_to_this_app == True:
+                            raise Exception(
+                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
+                            )
+                        relevant_to_this_app = False
+                        logging.info(
+                            f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {relevant_app}."
+                        )
+                    if relevant_to_this_app:
+                        relevant_subscriptions.append(subscription)
+            else:
+                logging.info(f"Subscription {subscription['id']} not active.")
+        return relevant_subscriptions
 
     def get_user_preferences(self):
         session = get_session()
@@ -911,24 +781,475 @@ class MagicalAuth:
             user_preferences["input_tokens"] = 0
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
+        if user.email != getenv("DEFAULT_USER"):
+            api_key = getenv("STRIPE_API_KEY")
+            if api_key != "" and api_key is not None and str(api_key).lower() != "none":
+                import stripe
+
+                stripe.api_key = api_key
+                if "stripe_id" not in user_preferences or not user_preferences[
+                    "stripe_id"
+                ].startswith("cus_"):
+                    logging.info("No Stripe ID found in user preferences.")
+                    customer = stripe.Customer.create(email=user.email)
+                    user_preferences["stripe_id"] = customer.id
+                    user_preference = UserPreferences(
+                        user_id=self.user_id,
+                        pref_key="stripe_id",
+                        pref_value=customer.id,
+                    )
+                    session.add(user_preference)
+                    session.commit()
+
+                else:
+                    logging.info("Stripe ID found: " + user_preferences["stripe_id"])
+                    relevant_subscriptions = self.get_subscribed_products(
+                        api_key, user_preferences["stripe_id"]
+                    )
+                    if not relevant_subscriptions:
+                        logging.info(f"No active subscriptions for this app detected.")
+                        if getenv("STRIPE_PRICING_TABLE_ID"):
+                            c_session = stripe.CustomerSession.create(
+                                customer=user_preferences["stripe_id"],
+                                components={"pricing_table": {"enabled": True}},
+                            )
+                        else:
+                            c_session = ""
+
+                        user = (
+                            session.query(User).filter(User.id == self.user_id).first()
+                        )
+                        user.is_active = False
+                        session.commit()
+                        session.close()
+                        raise HTTPException(
+                            status_code=402,
+                            detail={
+                                "message": f"No active subscriptions.",
+                                "customer_session": c_session,
+                                "customer_id": user_preferences["stripe_id"],
+                            },
+                        )
+                    else:
+                        logging.info(
+                            f"{len(relevant_subscriptions)} subscriptions relevant to this app detected."
+                        )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
             del user_preferences["first_name"]
         if "last_name" in user_preferences:
             del user_preferences["last_name"]
+        if "phone_number" not in user_preferences:
+            user_preferences["phone_number"] = ""
         if "missing_requirements" in user_preferences:
             del user_preferences["missing_requirements"]
         missing_requirements = []
         if user_requirements:
             for key, value in user_requirements.items():
                 if key not in user_preferences:
-                    missing_requirements.append({key: value})
+                    if key != "stripe_id":
+                        missing_requirements.append({key: value})
+        if "verify_email" not in user_preferences:
+            if getenv("SENDGRID_API_KEY"):
+                missing_requirements.append({"verify_email": True})
+                self.send_email_verification_link()
+        else:
+            if str(user_preferences["verify_email"]).lower() != "true":
+                if getenv("SENDGRID_API_KEY"):
+                    missing_requirements.append({"verify_email": True})
+                    self.send_email_verification_link()
+            del user_preferences["verify_email"]
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         session.close()
         logging.info(f"User Preferences: {user_preferences}")
         return user_preferences
+
+    def send_email_code(self):
+        if not getenv("SENDGRID_API_KEY"):
+            return False
+        session = get_session()
+        user = session.query(User).filter(User.email == self.email).first()
+        if user is None:
+            session.close()
+            return False
+        totp = pyotp.TOTP(user.mfa_token)
+        code = totp.now()
+        app_name = getenv("APP_NAME")
+        try:
+            email_send = send_email(
+                email=self.email,
+                subject=f"{app_name} Verification Code",
+                body=f"This code expires in 60 seconds. Your verification code is: {code}",
+            )
+        except Exception as e:
+            logging.error(f"Error sending email code: {str(e)}")
+            session.close()
+            return False
+        if not email_send:
+            session.close()
+            return False
+        session.close()
+        return True
+
+    def send_sms_code(self):
+        """
+        Send an SMS verification code to the user's phone number
+        """
+        if not getenv("TWILIO_ACCOUNT_SID") or not getenv("TWILIO_AUTH_TOKEN"):
+            return False
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            return False
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
+        )
+        try:
+            # Check verify_sms to see if it is verified
+            # Currently disabled until we implement UI for SMS verification
+            # It will just try to send to a valid 10 digit phone number
+            """
+            verify_sms = next(
+                (x for x in user_preferences if x.pref_key == "verify_sms"), None
+            )
+            if not verify_sms:
+                return False
+            """
+            # Check if phone_number is in the preferences
+            phone_number_preference = next(
+                (x for x in user_preferences if x.pref_key == "phone_number"),
+                None,
+            )
+            if phone_number_preference:
+                if len(phone_number_preference.pref_value) < 10:
+                    session.close()
+                    return False
+                # If it isn't a valid phone number, return False
+                try:
+                    int(phone_number_preference.pref_value)
+                except:
+                    session.close()
+                    return False
+                # Send SMS with the pyotp code
+                totp = pyotp.TOTP(user.mfa_token)
+                code = totp.now()
+                from twilio.rest import Client
+
+                client = Client(
+                    getenv("TWILIO_ACCOUNT_SID"), getenv("TWILIO_AUTH_TOKEN")
+                )
+                message = client.messages.create(
+                    body=f"Your verification code is: {code}",
+                    from_=getenv("TWILIO_PHONE_NUMBER"),
+                    to=phone_number_preference.pref_value,
+                )
+                session.close()
+                return True
+        except Exception as e:
+            logging.error(f"Error sending SMS code: {str(e)}")
+            session.close()
+            return False
+        session.close()
+        return False
+
+    def verify_sms(self, code: str):
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            return False
+        if not code:
+            session.close()
+            return False
+        try:
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == user.id)
+                .filter(UserPreferences.pref_key == "sms_code")
+                .first()
+            )
+            if user_preferences and user_preferences.pref_value == code:
+                user_preferences = (
+                    session.query(UserPreferences)
+                    .filter(UserPreferences.user_id == user.id)
+                    .filter(UserPreferences.pref_key == "verify_sms")
+                    .first()
+                )
+                if not user_preferences:
+                    user_preferences = UserPreferences(
+                        user_id=user.id, pref_key="verify_sms", pref_value="True"
+                    )
+                    session.add(user_preferences)
+                else:
+                    user_preferences.pref_value = "True"
+                session.commit()
+                return True
+        except Exception as e:
+            logging.error(f"Error verifying SMS code: {str(e)}")
+        finally:
+            session.close()
+        return False
+
+    def send_email_verification_link(self):
+        """
+        Use sendgrid to send a verification email to the user with a link to verify their email address
+        Link will go to magic_link ?verify_email=Code associated with their account
+        Just use the mfa_token encrypted with the user's email and the current date
+        """
+        # Get user's mfa token
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            return False
+        # Check user preferences for verify_email
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
+        )
+        found = False
+        for preference in user_preferences:
+            if preference.pref_key == "verify_email":
+                # Check the date, if it's been less than 24 hours, don't send another email
+                if preference.pref_value:
+                    if str(preference.pref_value).lower() == "true":
+                        session.close()
+                        return True
+                    if str(preference.pref_value).lower() != "false":
+                        if datetime.now() - timedelta(
+                            hours=24
+                        ) < datetime.fromisoformat(preference.pref_value):
+                            session.close()
+                            return True
+                    else:
+                        # Update the date
+                        preference.pref_value = str(datetime.now())
+                        session.commit()
+                        found = True
+                        break
+        if not found:
+            # Add user preference for email verification as the current timestamp
+            user_preference = UserPreferences(
+                user_id=user.id,
+                pref_key="verify_email",
+                pref_value=str(datetime.now()),
+            )
+            session.add(user_preference)
+            session.commit()
+        encrypted_key = encrypt(f"{self.email}:{user.mfa_token}", user.mfa_token)
+        # Make it url safe
+        encrypted_key = (
+            encrypted_key.replace("+", "%2B")
+            .replace("/", "%2F")
+            .replace("=", "%3D")
+            .replace(" ", "%20")
+            .replace(":", "%3A")
+            .replace("?", "%3F")
+            .replace("&", "%26")
+            .replace("#", "%23")
+            .replace(";", "%3B")
+            .replace("@", "%40")
+            .replace("!", "%21")
+            .replace("$", "%24")
+            .replace("'", "%27")
+            .replace("(", "%28")
+            .replace(")", "%29")
+            .replace("*", "%2A")
+            .replace(",", "%2C")
+            .replace(";", "%3B")
+            .replace("[", "%5B")
+            .replace("]", "%5D")
+            .replace("{", "%7B")
+            .replace("}", "%7D")
+            .replace("|", "%7C")
+            .replace("\\", "%5C")
+            .replace("^", "%5E")
+            .replace("`", "%60")
+            .replace("~", "%7E")
+        )
+        parsed_email = (
+            self.email.replace("+", "%2B")
+            .replace("/", "%2F")
+            .replace("=", "%3D")
+            .replace(" ", "%20")
+            .replace(":", "%3A")
+            .replace("?", "%3F")
+            .replace("&", "%26")
+            .replace("#", "%23")
+            .replace(";", "%3B")
+            .replace("@", "%40")
+            .replace("!", "%21")
+            .replace("$", "%24")
+            .replace("'", "%27")
+            .replace("(", "%28")
+            .replace(")", "%29")
+            .replace("*", "%2A")
+            .replace(",", "%2C")
+            .replace(";", "%3B")
+            .replace("[", "%5B")
+            .replace("]", "%5D")
+            .replace("{", "%7B")
+            .replace("}", "%7D")
+            .replace("|", "%7C")
+            .replace("\\", "%5C")
+            .replace("^", "%5E")
+            .replace("`", "%60")
+            .replace("~", "%7E")
+        )
+        sent = send_email(
+            email=self.email,
+            subject="Verify your email address",
+            body=f"Click the link below to verify your email address: <a href='{self.link}?verify_email={encrypted_key}&email={parsed_email}'>Verify Email</a>",
+        )
+        logging.info(f"Email verification link sent to {self.email}: {sent}")
+        session.close()
+        return sent
+
+    def verify_email_address(self, code: str = None):
+        """
+        Set's the user's email to verified status
+        """
+        if not code:
+            return False
+        session = get_session()
+        user = session.query(User).filter(User.email == self.email).first()
+        if not user:
+            session.close()
+            return False
+        code = (
+            code.replace("%2B", "+")
+            .replace("%2F", "/")
+            .replace("%3D", "=")
+            .replace("%20", " ")
+            .replace("%3A", ":")
+            .replace("%3F", "?")
+            .replace("%26", "&")
+            .replace("%23", "#")
+            .replace("%3B", ";")
+            .replace("%40", "@")
+            .replace("%21", "!")
+            .replace("%24", "$")
+            .replace("%27", "'")
+            .replace("%28", "(")
+            .replace("%29", ")")
+            .replace("%2A", "*")
+            .replace("%2C", ",")
+            .replace("%3B", ";")
+            .replace("%5B", "[")
+            .replace("%5D", "]")
+            .replace("%7B", "{")
+            .replace("%7D", "}")
+            .replace("%7C", "|")
+            .replace("%5C", "\\")
+            .replace("%5E", "^")
+            .replace("%60", "`")
+            .replace("%7E", "~")
+        )
+        decrypted_code = decrypt(f"{self.email}:{user.mfa_token}", code)
+        if decrypted_code != user.mfa_token:
+            session.close()
+            return False
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
+        )
+        for preference in user_preferences:
+            if preference.pref_key == "verify_email":
+                preference.pref_value = "True"
+                session.commit()
+                session.close()
+                return True
+        # Create it if it doesn't exist and set it to True
+        user_preference = UserPreferences(
+            user_id=user.id,
+            pref_key="verify_email",
+            pref_value="True",
+        )
+        session.add(user_preference)
+        session.commit()
+        session.close()
+        return True
+
+    def verify_mfa(self, token: str):
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            return False
+        if not token:
+            session.close()
+            return False
+        try:
+            is_valid = pyotp.TOTP(user.mfa_token).verify(token, valid_window=60)
+            if is_valid:
+                # Update verification status
+                user_preferences = (
+                    session.query(UserPreferences)
+                    .filter(UserPreferences.user_id == user.id)
+                    .filter(UserPreferences.pref_key == "verify_mfa")
+                    .first()
+                )
+                if not user_preferences:
+                    user_preferences = UserPreferences(
+                        user_id=user.id, pref_key="verify_mfa", pref_value="True"
+                    )
+                    session.add(user_preferences)
+                else:
+                    user_preferences.pref_value = "True"
+                session.commit()
+                return True
+        except Exception as e:
+            logging.error(f"Error verifying MFA token: {str(e)}")
+        finally:
+            session.close()
+        return False
+
+    def reset_mfa(self):
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if user:
+            user.mfa_token = pyotp.random_base32()
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == user.id)
+                .filter(UserPreferences.pref_key == "verify_mfa")
+                .first()
+            )
+            if user_preferences:
+                user_preferences.pref_value = "False"
+            session.commit()
+        session.close()
+        return "MFA has been reset."
+
+    def get_decrypted_user_preferences(self):
+        self.validate_user()
+        user_preferences = self.get_user_preferences()
+        if not user_preferences:
+            return {}
+        decrypted_preferences = {}
+        for key, value in user_preferences.items():
+            if (
+                value != "password"
+                and value != ""
+                and value is not None
+                and value != "string"
+                and value != "text"
+            ):
+                if "password" in key.lower():
+                    value = decrypt(self.encryption_key, value)
+                elif "api_key" in key.lower():
+                    value = decrypt(self.encryption_key, value)
+                elif "_secret" in key.lower():
+                    value = decrypt(self.encryption_key, value)
+            decrypted_preferences[key] = value
+        return decrypted_preferences
 
     def get_decrypted_user_preferences(self):
         self.validate_user()
@@ -1045,36 +1366,708 @@ class MagicalAuth:
             "output_tokens": updated_output_tokens,
         }
 
-    def get_sso_connections(self):
+    def get_user_companies(self) -> List[str]:
+        """Get list of company IDs that the user has access to"""
         session = get_session()
-        user_oauth = (
-            session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
+        user_companies = (
+            session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
         )
-        response = []
-        creds = []
-        for oauth in user_oauth:
-            provider = (
-                session.query(OAuthProvider)
-                .filter(OAuthProvider.id == oauth.provider_id)
-                .first()
-            )
-            response.append(provider.name)
-            creds.append(
-                {
-                    "provider": provider.name,
-                    "access_token": oauth.access_token,
-                    "refresh_token": oauth.refresh_token,
-                }
-            )
-        logging.info(f"User {self.user_id} has SSO connections: {creds}")
+        response = [str(uc.company_id) for uc in user_companies]
         session.close()
         return response
+
+    def get_user_companies_with_roles(self) -> List[dict]:
+        """Get list of company IDs that the user has access to"""
+        session = get_session()
+        try:
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+            response = []
+            for uc in user_companies:
+                # Use the session to query the company
+                company = (
+                    session.query(Company).filter(Company.id == uc.company_id).first()
+                )
+                if company:
+                    # Make sure to get the dict while the session is still open
+                    company_dict = {}
+                    for key, value in company.__dict__.items():
+                        if not key.startswith("_"):
+                            company_dict[key] = value
+
+                    company_dict["role_id"] = uc.role_id
+                    if "encryption_key" in company_dict:
+                        company_dict.pop("encryption_key")
+                    if "token" in company_dict:
+                        company_dict.pop("token")
+                    if str(company_dict["id"]) == str(self.company_id):
+                        company_dict["primary"] = True
+                    else:
+                        company_dict["primary"] = False
+                    response.append(company_dict)
+            return response
+        finally:
+            session.close()
+
+    def create_invitation(self, invitation: InvitationCreate) -> InvitationResponse:
+        if str(invitation.company_id) not in self.get_user_companies():
+            invitation.company_id = self.get_user_company_id()
+        with get_session() as db:
+            try:
+                # Check if user has appropriate role
+                user_role = self.get_user_role(invitation.company_id)
+                if user_role > 2:  # Only allow tenant_admin and company_admin
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Unauthorized. Insufficient permissions.",
+                    )
+
+                # Check if invitation already exists
+                existing_invitation = (
+                    db.query(Invitation)
+                    .filter(
+                        Invitation.email == invitation.email,
+                        Invitation.company_id == invitation.company_id,
+                        Invitation.is_accepted == False,
+                    )
+                    .first()
+                )
+
+                if existing_invitation:
+                    self.send_invitation_email(existing_invitation)
+                    return InvitationResponse(
+                        id=str(existing_invitation.id),
+                        email=existing_invitation.email,
+                        company_id=str(existing_invitation.company_id),
+                        role_id=existing_invitation.role_id,
+                        inviter_id=str(existing_invitation.inviter_id),
+                        created_at=existing_invitation.created_at,
+                        is_accepted=existing_invitation.is_accepted,
+                    )
+                new_invitation = Invitation(
+                    email=invitation.email.lower(),
+                    company_id=invitation.company_id,
+                    role_id=invitation.role_id,
+                    inviter_id=self.user_id,
+                )
+                db.add(new_invitation)
+                db.commit()
+                db.refresh(new_invitation)
+
+                # Send invitation email
+                self.send_invitation_email(new_invitation)
+
+                response = {
+                    "id": str(new_invitation.id),
+                    "email": new_invitation.email,
+                    "company_id": str(new_invitation.company_id),
+                    "role_id": new_invitation.role_id,
+                    "inviter_id": str(new_invitation.inviter_id),
+                    "created_at": new_invitation.created_at,
+                    "is_accepted": new_invitation.is_accepted,
+                }
+                logging.info(f"Invitation created: {response}")
+                return InvitationResponse(**response)
+            except SQLAlchemyError as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
+    def send_invitation_email(self, invitation: Invitation):
+        with get_session() as db:
+            company = (
+                db.query(Company).filter(Company.id == invitation.company_id).first()
+            )
+            company_name = company.name if company else "our platform"
+        app_uri = getenv("APP_URI")
+        app_name = getenv("APP_NAME")
+        company = (
+            company_name.replace("+", "%2B")
+            .replace("/", "%2F")
+            .replace("=", "%3D")
+            .replace(" ", "%20")
+            .replace(":", "%3A")
+            .replace("?", "%3F")
+            .replace("&", "%26")
+            .replace("#", "%23")
+            .replace(";", "%3B")
+            .replace("@", "%40")
+            .replace("!", "%21")
+            .replace("$", "%24")
+            .replace("'", "%27")
+            .replace("(", "%28")
+            .replace(")", "%29")
+            .replace("*", "%2A")
+            .replace(",", "%2C")
+            .replace(";", "%3B")
+            .replace("[", "%5B")
+            .replace("]", "%5D")
+            .replace("{", "%7B")
+            .replace("}", "%7D")
+            .replace("|", "%7C")
+            .replace("\\", "%5C")
+            .replace("^", "%5E")
+            .replace("`", "%60")
+            .replace("~", "%7E")
+        )
+        invitation_link = f"{app_uri}?invitation_id={invitation.id}&email={invitation.email}&company={company}"
+        email_send = send_email(
+            email=invitation.email,
+            subject=f"Invitation to join {company_name} on {app_name}",
+            body=f"""
+<h2>Invitation to join {company_name} on {app_name}</h2>
+<p>You have been invited to join {company_name} on {app_name}.</p>
+<p>Please click <a href="{invitation_link}">here</a> to accept the invitation and create your account.</p>
+<p>This invitation link will expire once used.</p>
+<p>If you did not expect this invitation, please ignore this email.</p>""",
+        )
+        if not email_send:
+            logging.info(
+                f"Failed to send invitation link {invitation_link} to {invitation.email}"
+            )
+
+    def get_users_agent(self, user_id: str):
+        session = get_session()
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user_id)
+            .filter(UserPreferences.pref_key == "agent_name")
+            .first()
+        )
+        if user_preferences and user_preferences.pref_value:
+            return user_preferences.pref_value
+        return getenv("AGENT_NAME")
+
+    def accept_invitation(self, invitation_id: str) -> bool:
+        with get_session() as db:
+            try:
+                invitation = (
+                    db.query(Invitation).filter(Invitation.id == invitation_id).first()
+                )
+                if not invitation:
+                    raise HTTPException(status_code=404, detail="Invitation not found")
+
+                if invitation.is_accepted:
+                    raise HTTPException(
+                        status_code=400, detail="Invitation already accepted"
+                    )
+
+                invitation.is_accepted = True
+                user_company = UserCompany(
+                    user_id=self.user_id,
+                    company_id=invitation.company_id,
+                    role_id=invitation.role_id,
+                )
+                db.add(user_company)
+                db.commit()
+                return True
+            except SQLAlchemyError as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
+    def get_user_company_id(self):
+        with get_session() as db:
+            user_company = (
+                db.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .first()
+            )
+            return str(user_company.company_id) if user_company else None
+
+    def get_user_company(self, company_id):
+        with get_session() as db:
+            # Make sure the company ID is in the lsit of users companies
+            user_company = (
+                db.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .filter(UserCompany.company_id == company_id)
+                .first()
+            )
+            if not user_company:
+                return None
+            company = db.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                return None
+            company_dict = company.__dict__
+            company_dict.pop("_sa_instance_state")
+            return company_dict
+
+    def get_user_tenant_id(self):
+        with get_session() as db:
+            user_company = (
+                db.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .first()
+            )
+            return str(user_company.company_id) if user_company else None
+
+    def get_user_role(self, company_id: str = None) -> int:
+        if company_id is None:
+            company_id = self.get_user_company_id()
+        with get_session() as db:
+            user_company = (
+                db.query(UserCompany)
+                .filter(
+                    UserCompany.user_id == self.user_id,
+                    UserCompany.company_id == company_id,
+                )
+                .first()
+            )
+            if not user_company:
+                return None
+            return (
+                user_company.role_id if user_company else 3
+            )  # Default to regular user
+
+    def convert_uuid_to_str(self, obj):
+        if isinstance(obj, dict):
+            return {k: self.convert_uuid_to_str(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.convert_uuid_to_str(item) for item in obj]
+        elif isinstance(obj, uuid.UUID):
+            return str(obj)
+        else:
+            return obj
+
+    def get_all_companies(self) -> List[CompanyResponse]:
+        """
+        Get all companies accessible to the current user with proper deduplication of users.
+
+        Returns:
+            List[CompanyResponse]: List of companies with their associated users
+        """
+        with get_session() as db:
+            try:
+                # Get all companies the user has access to
+                user_companies = (
+                    db.query(Company)
+                    .join(UserCompany)
+                    .filter(UserCompany.user_id == self.user_id)
+                    .options(
+                        joinedload(Company.users).joinedload(UserCompany.user),
+                        joinedload(Company.users).joinedload(UserCompany.role),
+                    )
+                    .all()
+                )
+                result = []
+                for company in user_companies:
+                    # Use dictionary for deduplication based on user ID
+                    unique_users = {}
+                    for user_company in company.users:
+                        user = user_company.user
+                        user_id = str(user.id)
+                        if user_id not in unique_users:
+                            unique_users[user_id] = UserResponse(
+                                id=user_id,
+                                email=user.email,
+                                first_name=user.first_name,
+                                last_name=user.last_name,
+                                role=user_company.role.name,
+                                role_id=user_company.role_id,
+                            )
+
+                    company_data = {
+                        "id": str(company.id),
+                        "name": company.name,
+                        "company_id": (
+                            str(company.company_id) if company.company_id else None
+                        ),
+                        "users": list(unique_users.values()),
+                        "children": [],
+                    }
+
+                    # Handle child companies
+                    if not company.company_id:  # This is a parent company
+                        child_companies = (
+                            db.query(Company)
+                            .filter(Company.company_id == company.id)
+                            .options(
+                                joinedload(Company.users).joinedload(UserCompany.user),
+                                joinedload(Company.users).joinedload(UserCompany.role),
+                            )
+                            .all()
+                        )
+
+                        for child in child_companies:
+                            # Deduplicate users for child company
+                            child_unique_users = {}
+                            for user_company in child.users:
+                                user = user_company.user
+                                user_id = str(user.id)
+                                if user_id not in child_unique_users:
+                                    child_unique_users[user_id] = UserResponse(
+                                        id=user_id,
+                                        email=user.email,
+                                        first_name=user.first_name,
+                                        last_name=user.last_name,
+                                        role=user_company.role.name,
+                                        role_id=user_company.role_id,
+                                    )
+
+                            child_data = {
+                                "id": str(child.id),
+                                "name": child.name,
+                                "company_id": str(child.company_id),
+                                "users": list(child_unique_users.values()),
+                            }
+                            company_data["children"].append(child_data)
+
+                    result.append(company_data)
+
+                # Convert all UUID objects to strings
+                return self.convert_uuid_to_str(result)
+
+            except Exception as e:
+                logging.error(f"Error in get_all_companies: {str(e)}")
+                logging.error(traceback.format_exc())
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"An error occurred while fetching companies: {str(e)}",
+                )
+
+    def verify_company_access(self, company_id: str) -> bool:
+        """Verify if the current user has access to the specified company."""
+        with get_session() as db:
+            # Get all companies the user has access to (including parent/child relationships)
+            user_companies = (
+                db.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
+            )
+
+            allowed_company_ids = set()
+            for uc in user_companies:
+                allowed_company_ids.add(str(uc.company_id))
+                # If user is admin or company_admin of a parent company,
+                # add all child company IDs
+                if uc.role_id <= 2:  # tenant_admin or company_admin
+                    child_companies = (
+                        db.query(Company)
+                        .filter(Company.company_id == uc.company_id)
+                        .all()
+                    )
+                    allowed_company_ids.update(str(c.id) for c in child_companies)
+
+            return str(company_id) in allowed_company_ids
+
+    def create_company(self, name: str, parent_company_id: Optional[str] = None):
+        with get_session() as db:
+            try:
+                if self.company_id != None:
+                    if parent_company_id != None:
+                        user_role = self.get_user_role(parent_company_id)
+                    else:
+                        user_role = self.get_user_role(self.company_id)
+                    if user_role != None:
+                        if user_role > 2:  # Only allow tenant_admin and company_admin
+                            raise HTTPException(
+                                status_code=403,
+                                detail="Unauthorized. Insufficient permissions.",
+                            )
+                new_company = Company.create(
+                    db, name=name, company_id=parent_company_id
+                )
+                db.add(new_company)
+                db.commit()
+
+                user_company = UserCompany(
+                    user_id=self.user_id,
+                    company_id=new_company.id,
+                    role_id=2,  # Set as company_admin
+                )
+                db.add(user_company)
+                db.commit()
+                agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+                company_email = f"{str(new_company.id)}@{str(new_company.id)}.xt"
+                auth = MagicalAuth()
+                auth.register(
+                    new_user=Register(
+                        email=company_email,
+                        first_name="XT",
+                        last_name="API",
+                    ),
+                    verify_email=False,
+                )
+                # Get mfa token by email
+                company_user = (
+                    db.query(User).filter(User.email == company_email).first()
+                )
+                mfa_token = company_user.mfa_token
+                new_company.token = mfa_token
+                db.commit()
+                totp = pyotp.TOTP(mfa_token)
+                agixt.login(email=company_email, otp=totp.now())
+                with open("default_agent.json", "r") as file:
+                    default_agent = json.load(file)
+                agixt.add_agent(
+                    agent_name=getenv("AGENT_NAME"),
+                    settings=(
+                        default_agent["settings"] if "settings" in default_agent else {}
+                    ),
+                    commands=(
+                        default_agent["commands"] if "commands" in default_agent else {}
+                    ),
+                    training_urls=(
+                        default_agent["training_urls"]
+                        if "training_urls" in default_agent
+                        else []
+                    ),
+                )
+                response = {
+                    "id": str(new_company.id),
+                    "name": new_company.name,
+                }
+                return response
+            except SQLAlchemyError as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
+    def update_company(self, company_id: str, name: str) -> CompanyResponse:
+        with get_session() as db:
+            try:
+                company = db.query(Company).filter(Company.id == company_id).first()
+                if not company:
+                    raise HTTPException(status_code=404, detail="Company not found")
+
+                user_role = self.get_user_role(company_id)
+                if user_role > 2:  # Only allow tenant_admin and company_admin
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Unauthorized. Insufficient permissions.",
+                    )
+
+                company.name = name
+                db.commit()
+
+                return CompanyResponse(
+                    id=str(company.id),
+                    name=company.name,
+                    company_id=str(company.company_id) if company.company_id else None,
+                    users=[
+                        UserResponse(
+                            id=str(uc.user.id),
+                            email=uc.user.email,
+                            first_name=uc.user.first_name,
+                            last_name=uc.user.last_name,
+                            role=uc.role.name,
+                            role_id=uc.role_id,
+                        )
+                        for uc in company.users
+                    ],
+                    children=[],
+                )
+            except SQLAlchemyError as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=str(e))
+
+    def get_training_data(self, company_id: str = None) -> str:
+        if not company_id:
+            company_id = self.company_id
+        with get_session() as db:
+            company = db.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+            return str(company.training_data)
+
+    def set_training_data(self, training_data: str, company_id: str = None) -> str:
+        if not company_id:
+            company_id = self.company_id
+        with get_session() as db:
+            company = db.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+            company.training_data = training_data
+            db.commit()
+            return training_data
+
+    def get_user_agent_session(self) -> AGiXTSDK:
+        session = get_session()
+        user_details = session.query(User).filter(User.id == self.user_id).first()
+        if not user_details:
+            session.close()
+            raise HTTPException(status_code=401, detail="Invalid user login")
+        agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+        agixt.login(
+            email=user_details.email, otp=pyotp.TOTP(user_details.mfa_token).now()
+        )
+        session.close()
+        return agixt
+
+    def get_company_agent_session(self, company_id: str = None) -> AGiXTSDK:
+        if not company_id:
+            company_id = self.company_id
+        company = self.get_user_company(company_id)
+        if not company:
+            return None
+        agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+        totp = pyotp.TOTP(str(company["token"]))
+        agixt.login(email=f"{company_id}@{company_id}.xt", otp=totp.now())
+        return agixt
+
+    def sso(
+        self,
+        code,
+        ip_address,
+        provider="microsoft",
+        referrer=None,
+        invitation_id=None,
+    ):
+        if not referrer:
+            referrer = getenv("APP_URI")
+        provider = str(provider).lower()
+        if provider not in ["amazon", "microsoft", "google", "github", "walmart"]:
+            provider = "microsoft"
+        sso_data = get_sso_provider(provider=provider, code=code, redirect_uri=referrer)
+        if not sso_data:
+            logging.error(f"Failed to get user data from {provider.capitalize()}.")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to get user data from {provider.capitalize()}.",
+            )
+        if not sso_data.access_token:
+            logging.error(f"Failed to get access token from {provider.capitalize()}.")
+            logging.error(f"SSO Data: {sso_data}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to get access token from {provider.capitalize()}.",
+            )
+        user_data = sso_data.user_info
+        access_token = sso_data.access_token
+        refresh_token = sso_data.refresh_token
+        token_expires_at = (
+            datetime.now() + timedelta(seconds=sso_data.expires_in)
+            if hasattr(sso_data, "expires_in")
+            else None
+        )
+
+        # Get account identifier based on provider
+        if provider == "microsoft":
+            account_name = (
+                user_data.get("mail")
+                or user_data.get("userPrincipalName")
+                or user_data.get("email")
+            )
+        elif provider == "google":
+            account_name = user_data.get("email")
+        elif provider == "github":
+            response = requests.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"token {access_token}"},
+            )
+            response.raise_for_status()
+            account_name = response.json()["login"]
+        elif provider == "walmart":
+            account_name = user_data.get("email")
+        elif provider == "amazon":
+            account_name = user_data.get("email")
+        else:
+            account_name = (
+                user_data.get("email")
+                or user_data.get("mail")
+                or user_data.get("login")
+            )
+        if not account_name:
+            logging.error(
+                f"Could not get account identifier from {provider.capitalize()} response."
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not get account identifier from {provider.capitalize()} response.",
+            )
+        session = get_session()
+        try:
+            provider_record = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider)
+                .first()
+            )
+            if not provider_record:
+                provider_record = OAuthProvider(name=provider)
+                session.add(provider_record)
+                session.commit()
+            # Check for existing OAuth connection
+            existing_oauth = (
+                session.query(UserOAuth)
+                .filter(UserOAuth.provider_id == provider_record.id)
+                .filter(UserOAuth.account_name == account_name)
+                .first()
+            )
+            if existing_oauth:
+                if self.user_id:
+                    # If user is already logged in and trying to connect a provider that's
+                    # connected to another account, prevent it
+                    if str(existing_oauth.user_id) != str(self.user_id):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"This {provider} account is already connected to a different user.",
+                        )
+                else:
+                    # Only set user_id if no user is currently logged in
+                    self.user_id = existing_oauth.user_id
+                    user = session.query(User).filter(User.id == self.user_id).first()
+                    self.email = user.email
+                    mfa_token = user.mfa_token
+            else:
+                # No existing OAuth connection found
+                if not self.user_id:
+                    # If no user is logged in, look up or create user by email
+                    email = user_data.get("email") or account_name
+                    user = session.query(User).filter(User.email == email).first()
+                    if user:
+                        self.user_id = str(user.id)
+                        self.email = user.email
+                        mfa_token = user.mfa_token
+                    else:
+                        # Create new user
+                        register = Register(
+                            email=email,
+                            first_name=user_data.get("first_name", ""),
+                            last_name=user_data.get("last_name", ""),
+                        )
+                        registration_response = self.register(
+                            new_user=register,
+                            invitation_id=invitation_id,
+                            verify_email=True,
+                        )
+                        if isinstance(registration_response, dict):
+                            if "error" in registration_response:
+                                raise HTTPException(
+                                    status_code=registration_response.get(
+                                        "status_code", 400
+                                    ),
+                                    detail=registration_response["error"],
+                                )
+                            mfa_token = registration_response.get("mfa_token")
+                        else:
+                            mfa_token = registration_response
+                else:
+                    # User is logged in, get their MFA token
+                    user = session.query(User).filter(User.id == self.user_id).first()
+                    mfa_token = user.mfa_token
+            # Update or create OAuth connection
+            self.update_sso(
+                account_name=account_name,
+                provider_name=provider,
+                access_token=access_token,
+                token_expires_at=token_expires_at,
+                refresh_token=refresh_token,
+            )
+            totp = pyotp.TOTP(mfa_token)
+            login = Login(email=self.email, token=totp.now())
+            return self.send_magic_link(
+                ip_address=ip_address,
+                login=login,
+                referrer=referrer,
+                send_link=False,
+            )
+        finally:
+            session.close()
 
     def update_sso(
         self,
         provider_name,
         access_token,
-        account_name=None,
+        account_name="",
         token_expires_at=None,
         refresh_token=None,
     ):
@@ -1086,16 +2079,9 @@ class MagicalAuth:
             .first()
         )
         if not provider:
-            session.close()
-            # Create it if it doesn't exist
             provider = OAuthProvider(name=provider_name)
             session.add(provider)
             session.commit()
-            provider = (
-                session.query(OAuthProvider)
-                .filter(OAuthProvider.name == provider_name)
-                .first()
-            )
         user_oauth = (
             session.query(UserOAuth)
             .filter(UserOAuth.user_id == self.user_id)
@@ -1114,16 +2100,64 @@ class MagicalAuth:
             session.add(user_oauth)
         else:
             user_oauth.access_token = access_token
-            if token_expires_at:
-                user_oauth.token_expires_at = token_expires_at
             if account_name:
                 user_oauth.account_name = account_name
+            if token_expires_at:
+                user_oauth.token_expires_at = token_expires_at
             if refresh_token:
                 user_oauth.refresh_token = refresh_token
         session.commit()
         session.close()
-        self.get_sso_connections()
+        logging.info(
+            f"[{provider_name.capitalize()}] OAuth2 credentials updated. Access Token {access_token}"
+        )
+        if provider_name == "github":
+            try:
+                response = requests.get(
+                    "https://api.github.com/user",
+                    headers={"Authorization": f"token {access_token}"},
+                )
+                response.raise_for_status()
+                github_username = response.json()["login"]
+            except Exception as e:
+                logging.error(f"Error getting GitHub username: {str(e)}")
+                github_username = ""
+            agixt = self.get_user_agent_session()
+            agixt.update_agent_settings(
+                agent_name=getenv("AGENT_NAME"),
+                settings={
+                    "GITHUB_API_KEY": access_token,
+                    "GITHUB_USERNAME": github_username,
+                },
+            )
         return f"OAuth2 Credentials updated for {provider_name.capitalize()}."
+
+    def get_sso_connections(self):
+        session = get_session()
+        user_oauth = (
+            session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
+        )
+        response = []
+        creds = []
+        for oauth in user_oauth:
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.id == oauth.provider_id)
+                .first()
+            )
+            response.append(provider.name)
+            creds.append(
+                {
+                    "provider": provider.name,
+                    "account_name": oauth.account_name,
+                    "access_token": oauth.access_token,
+                    "token_expires_at": oauth.token_expires_at,
+                    "refresh_token": oauth.refresh_token,
+                }
+            )
+        logging.info(f"User {self.user_id} has SSO connections: {creds}")
+        session.close()
+        return response
 
     def disconnect_sso(self, provider_name):
         provider_name = str(provider_name).lower()
@@ -1148,10 +2182,33 @@ class MagicalAuth:
         session.delete(user_oauth)
         session.commit()
         session.close()
+        agent = self.get_user_agent_session()
+        if provider_name == "github":
+            agent.update_agent_settings(
+                agent_name=getenv("AGENT_NAME"),
+                settings={"GITHUB_API_KEY": "", "GITHUB_USERNAME": ""},
+            )
         return f"Disconnected {provider_name.capitalize()}."
 
-    def get_timezone(self):
-        user_preferences = self.get_user_preferences()
-        if "timezone" in user_preferences:
-            return user_preferences["timezone"]
-        return getenv("TZ")
+    def get_pcc_credentials(self):
+        if getenv("SELECTED_EHR").lower() == "pointclickcare":
+            session = get_session()
+            user = session.query(User).filter(User.email == self.email).first()
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == user.id)
+                .all()
+            )
+            if not user_preferences:
+                session.close()
+                return {}
+            data = {}
+            for preference in user_preferences:
+                if preference.pref_key == "pointclickcare_username":
+                    data["pointclickcare_username"] = preference.pref_value
+                if preference.pref_key == "pointclickcare_password":
+                    data["pointclickcare_password"] = decrypt(
+                        self.encryption_key, preference.pref_value
+                    )
+            session.close()
+            return data
