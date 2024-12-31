@@ -397,13 +397,21 @@ class Agent:
         session.close()
         return config
 
-    async def inference(self, prompt: str, images: list = []):
+    async def inference(
+        self, prompt: str, images: list = [], use_smartest: bool = False
+    ):
         if not prompt:
             return ""
         input_tokens = get_tokens(prompt)
-        answer = await self.PROVIDER.inference(
-            prompt=prompt, tokens=input_tokens, images=images
-        )
+        provider_name = self.AGENT_CONFIG["settings"]["provider"]
+        if provider_name == "rotation" and use_smartest == True:
+            answer = await self.PROVIDER.inference(
+                prompt=prompt, tokens=input_tokens, images=images, use_smartest=True
+            )
+        else:
+            answer = await self.PROVIDER.inference(
+                prompt=prompt, tokens=input_tokens, images=images
+            )
         output_tokens = get_tokens(answer)
         self.auth.increase_token_counts(
             input_tokens=input_tokens, output_tokens=output_tokens
@@ -413,15 +421,23 @@ class Agent:
             answer = answer[:-2]
         return answer
 
-    async def vision_inference(self, prompt: str, images: list = []):
+    async def vision_inference(
+        self, prompt: str, images: list = [], use_smartest: bool = False
+    ):
         if not prompt:
             return ""
         if not self.VISION_PROVIDER:
             return ""
         input_tokens = get_tokens(prompt)
-        answer = await self.VISION_PROVIDER.inference(
-            prompt=prompt, tokens=input_tokens, images=images
-        )
+        provider_name = self.AGENT_CONFIG["settings"]["provider"]
+        if provider_name == "rotation" and use_smartest == True:
+            answer = await self.PROVIDER.inference(
+                prompt=prompt, tokens=input_tokens, images=images, use_smartest=True
+            )
+        else:
+            answer = await self.PROVIDER.inference(
+                prompt=prompt, tokens=input_tokens, images=images
+            )
         output_tokens = get_tokens(answer)
         self.auth.increase_token_counts(
             input_tokens=input_tokens, output_tokens=output_tokens
