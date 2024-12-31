@@ -1,24 +1,21 @@
 import logging
 from Providers import get_providers, Providers
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 
 class RotationProvider:
     def __init__(
         self,
+        SMARTEST_PROVIDER: str = "anthropic",  # Can be a comma-separated list
         **kwargs,
     ):
         self.requirements = []
         self.providers = get_providers()
         self.AGENT_SETTINGS = kwargs
-
-        # Define intelligence tiers from smartest to least smart
-        self.intelligence_tiers = [
-            kwargs.get("SMARTEST_PROVIDER", "anthropic"),
-            kwargs.get("SMART_PROVIDER", "gpt4"),
-            kwargs.get("MID_PROVIDER", "deepseek"),
-        ]
-
+        if "," in SMARTEST_PROVIDER:
+            self.intelligence_tiers = SMARTEST_PROVIDER.split(",")
+        else:
+            self.intelligence_tiers = [SMARTEST_PROVIDER]
         self.failed_providers = set()
 
     @staticmethod
