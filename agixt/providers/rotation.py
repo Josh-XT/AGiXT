@@ -29,6 +29,8 @@ class RotationProvider:
         """Get token limits for all available providers."""
         provider_max_tokens = {}
         for provider in self.providers:
+            if provider in self.failed_providers:
+                continue
             setting_key = f"{provider.upper()}_MAX_TOKENS"
             try:
                 if setting_key in self.AGENT_SETTINGS:
@@ -39,7 +41,7 @@ class RotationProvider:
                         f"Provider {provider} has max token limit: {provider_max_tokens[provider]}"
                     )
             except:
-                self.providers.remove(provider)
+                self.failed_providers.add(provider)
                 continue
         return provider_max_tokens
 
@@ -50,7 +52,7 @@ class RotationProvider:
         suitable = {
             provider: max_tokens
             for provider, max_tokens in provider_max_tokens.items()
-            if max_tokens >= required_tokens
+            if max_tokens >= required_tokens and provider not in self.failed_providers
         }
         logging.info(
             f"Input requires {required_tokens} tokens. Suitable providers: {list(suitable.keys())}"
@@ -80,16 +82,33 @@ class RotationProvider:
 
         # Remove providers that shouldn't be part of rotation
         excluded_providers = {"agixt", "rotation", "gpt4free", "default"}
-        self.providers = [p for p in self.providers if p not in excluded_providers]
-        for provider in self.providers:
+        available_providers = [
+            p
+            for p in self.providers
+            if p not in excluded_providers and p not in self.failed_providers
+        ]
+
+        # Filter out providers without API keys
+        for provider in available_providers[:]:  # Create a copy to iterate over
             if provider.upper() + "_API_KEY" not in self.AGENT_SETTINGS:
-                self.providers.remove(provider)
+                self.failed_providers.add(provider)
                 continue
             if self.AGENT_SETTINGS[provider.upper() + "_API_KEY"] == "":
-                self.providers.remove(provider)
-        logging.info(f"Available providers after exclusions: {self.providers}")
+                self.failed_providers.add(provider)
 
-        if not self.providers:
+        logging.info(f"Available providers after exclusions: {available_providers}")
+
+        if not available_providers:
+            if len(self.failed_providers) > 0:
+                # Reset failed providers and try again
+                logging.info("All providers failed, resetting failed providers list")
+                self.failed_providers.clear()
+                return await self.inference(
+                    prompt=prompt,
+                    tokens=tokens,
+                    images=images,
+                    use_smartest=use_smartest,
+                )
             logging.error("No providers available for inference")
             return "Unable to process request. No providers available."
 
@@ -124,26 +143,10 @@ class RotationProvider:
                         break
                 else:
                     # If no tier provider is available, fall back to token-based selection
-                    available_providers = {
-                        k: v
-                        for k, v in suitable_providers.items()
-                        if k not in self.failed_providers
-                    }
-                    if not available_providers:
-                        self.failed_providers.clear()
-                        available_providers = suitable_providers
-                    provider = min(available_providers, key=available_providers.get)
+                    provider = min(suitable_providers, key=suitable_providers.get)
             else:
                 # Use token-based selection
-                available_providers = {
-                    k: v
-                    for k, v in suitable_providers.items()
-                    if k not in self.failed_providers
-                }
-                if not available_providers:
-                    self.failed_providers.clear()
-                    available_providers = suitable_providers
-                provider = min(available_providers, key=available_providers.get)
+                provider = min(suitable_providers, key=suitable_providers.get)
 
             logging.info(
                 f"Selected provider {provider} for inference "
@@ -158,17 +161,14 @@ class RotationProvider:
             result = await provider_instance.inference(
                 prompt=prompt, tokens=tokens, images=images
             )
-            self.failed_providers.discard(provider)
+            self.failed_providers.discard(
+                provider
+            )  # Provider succeeded, remove from failed list
             return result
 
         except Exception as e:
             logging.error(f"Provider {provider} failed with error: {str(e)}")
             self.failed_providers.add(provider)
-            if provider in self.providers:
-                self.providers.remove(provider)
-                logging.info(
-                    f"Removed failed provider {provider}. Remaining providers: {self.providers}"
-                )
             return await self.inference(
                 prompt=prompt, tokens=tokens, images=images, use_smartest=use_smartest
             )
