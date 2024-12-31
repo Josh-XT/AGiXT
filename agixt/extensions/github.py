@@ -498,6 +498,10 @@ class github(Extensions):
                     continue
                 if ".stories." in file:
                     continue
+                if "default_agent.json" in file:
+                    continue
+                if ".env" in file:
+                    continue
                 if file.endswith(".py"):
                     python_files.append(os.path.join(root, file))
                 elif file.endswith(".ps1"):
