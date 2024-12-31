@@ -1,9 +1,44 @@
 import logging
 from Providers import get_providers, Providers
 from Agent import Agent
+from Memories import nlp, extract_keywords
 from typing import List, Dict, Any, Optional
-import textwrap
+from collections import Counter
 import asyncio
+
+
+def score_chunk(self, chunk: str, keywords: set) -> int:
+    """Score a chunk based on the number of query keywords it contains."""
+    chunk_counter = Counter(chunk.split())
+    score = sum(chunk_counter[keyword] for keyword in keywords)
+    return score
+
+
+def chunk_content(text: str, chunk_size: int) -> List[str]:
+    doc = nlp(text)
+    sentences = list(doc.sents)
+    content_chunks = []
+    chunk = []
+    chunk_len = 0
+    keywords = set(extract_keywords(doc=doc, limit=10))
+    for sentence in sentences:
+        sentence_tokens = len(sentence)
+        if chunk_len + sentence_tokens > chunk_size and chunk:
+            chunk_text = " ".join(token.text for token in chunk)
+            content_chunks.append((score_chunk(chunk_text, keywords), chunk_text))
+            chunk = []
+            chunk_len = 0
+
+        chunk.extend(sentence)
+        chunk_len += sentence_tokens
+
+    if chunk:
+        chunk_text = " ".join(token.text for token in chunk)
+        content_chunks.append((score_chunk(chunk_text, keywords), chunk_text))
+
+    # Sort the chunks by their score in descending order before returning them
+    content_chunks.sort(key=lambda x: x[0], reverse=True)
+    return [chunk_text for score, chunk_text in content_chunks]
 
 
 class RotationProvider:
@@ -30,17 +65,11 @@ class RotationProvider:
         self.user = kwargs.get("user", None)
         self.ApiClient = kwargs.get("ApiClient", None)
 
-    def _chunk_text(self, text: str, chunk_size: int) -> List[str]:
-        """Split text into chunks of specified size."""
-        return textwrap.wrap(
-            text, chunk_size, break_long_words=False, break_on_hyphens=False
-        )
-
     async def _analyze_chunk(
         self, chunk: str, chunk_index: int, prompt: str
     ) -> List[int]:
         """Analyze a single large chunk to identify relevant smaller chunks."""
-        small_chunks = self._chunk_text(chunk, self.SMALL_CHUNK_SIZE)
+        small_chunks = chunk_content(chunk, self.SMALL_CHUNK_SIZE)
         if not small_chunks:
             return []
 
@@ -105,7 +134,7 @@ class RotationProvider:
 
     async def _get_relevant_chunks(self, text: str, prompt: str) -> str:
         """Split text into large chunks and analyze them in parallel."""
-        large_chunks = self._chunk_text(text, self.LARGE_CHUNK_SIZE)
+        large_chunks = chunk_content(text, self.LARGE_CHUNK_SIZE)
         if not large_chunks:
             return text
 
@@ -125,7 +154,7 @@ class RotationProvider:
         for chunk_index, (large_chunk, relevant_indices) in enumerate(
             zip(large_chunks, chunk_results)
         ):
-            small_chunks = self._chunk_text(large_chunk, self.SMALL_CHUNK_SIZE)
+            small_chunks = chunk_content(large_chunk, self.SMALL_CHUNK_SIZE)
             for sub_chunk_index in relevant_indices:
                 if 0 <= sub_chunk_index < len(small_chunks):
                     relevant_text.append(small_chunks[sub_chunk_index])
