@@ -30,6 +30,7 @@ from Models import (
 )
 import logging
 from Globals import getenv
+from MagicalAuth import MagicalAuth
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -198,6 +199,29 @@ async def learn_file(
     agent.conversation.log_interaction(
         role=agent_name,
         message=f"File [{file.file_name}]({agent.outputs}/{file.collection_number}/{file.file_name}) learned on {timestamp} to collection `{file.collection_number}`.",
+    )
+    return ResponseMessage(message=response)
+
+
+@app.post(
+    "/api/agent/{agent_name}/learn/file/{company_id}",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def learn_cfile(
+    agent_name: str,
+    company_id: str,
+    file: FileInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    agixt = auth.get_company_agent_session(company_id=company_id)
+    response = agixt.learn_file(
+        agent_name=agent_name,
+        file_name=file.file_name,
+        file_content=file.file_content,
+        collection_number=file.collection_number,
     )
     return ResponseMessage(message=response)
 
@@ -581,6 +605,15 @@ async def delete_memories_from_external_source(
 ) -> ResponseMessage:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
+    if external_source.company_id is not None:
+        auth = MagicalAuth(token=authorization)
+        agixt = auth.get_company_agent_session(company_id=external_source.company_id)
+        response = agixt.delete_memory_external_source(
+            agent_name=agent_name,
+            external_source=external_source.external_source,
+            collection_number=external_source.collection_number,
+        )
+        return ResponseMessage(message=response)
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     logging.info(f"External Source: {external_source.external_source}")
@@ -621,6 +654,28 @@ async def get_unique_external_sources(
         user=user,
     ).get_external_data_sources()
     return {"external_sources": external_sources}
+
+
+# Get unique external sources
+@app.get(
+    "/api/agent/{agent_name}/memory/external_sources/{collection_number}/{company_id}",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_cunique_external_sources(
+    agent_name: str,
+    company_id: str,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> Dict[str, Any]:
+    auth = MagicalAuth(token=authorization)
+    agixt = auth.get_company_agent_session(company_id=company_id)
+    response = agixt.get_memories_external_sources(
+        agent_name=agent_name,
+        collection_number=collection_number,
+    )
+    return {"external_sources": response}
 
 
 # RLHF endpoint

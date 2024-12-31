@@ -19,6 +19,7 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
+from MagicalAuth import MagicalAuth, impersonate_user
 from Globals import getenv, DEFAULT_USER, get_tokens
 
 logging.basicConfig(
@@ -37,6 +38,7 @@ class Interactions:
     ):
         self.ApiClient = ApiClient
         self.user = user
+        self.auth = MagicalAuth(token=impersonate_user(email=self.user))
         self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
@@ -302,6 +304,34 @@ class Interactions:
             persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if "persona" in self.agent.AGENT_CONFIG["settings"]:
             persona = self.agent.AGENT_CONFIG["settings"]["persona"]
+        if str(getenv("ENT").lower()) == "true":
+            company_training = self.auth.get_training_data()
+            persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
+            cs = self.auth.get_company_agent_session()
+            company_memories = cs.get_agent_memories(
+                agent_name=self.agent_name, user_input=user_input
+            )
+            if company_memories:
+                for result in company_memories:
+                    metadata = (
+                        result["additional_metadata"]
+                        if "additional_metadata" in result
+                        else ""
+                    )
+                    external_source = (
+                        result["external_source_name"]
+                        if "external_source_name" in result
+                        else None
+                    )
+                    timestamp = (
+                        result["timestamp"]
+                        if "timestamp" in result
+                        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+                    if external_source:
+                        metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
+                    if metadata not in context and metadata != "":
+                        context.append(metadata)
         if persona != "":
             context.append(
                 f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\n"
@@ -984,7 +1014,7 @@ class Interactions:
                             with open(audio_path, "wb") as f:
                                 f.write(audio_data)
                             tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{file_name}" type="audio/wav"></audio>'
-                        self.response = f"{self.response}\n{tts_response}"
+                        self.response = f"{self.response}\n\n{tts_response}"
                         if "</answer>" in self.response:
                             self.response = self.response.replace("</answer>", "")
                             self.response += "</answer>"

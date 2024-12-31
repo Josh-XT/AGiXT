@@ -12,6 +12,7 @@ def getenv(var_name: str):
         "AGIXT_API_KEY": "None",
         "EZLOCALAI_URI": "http://localhost:8091/v1/",
         "EZLOCALAI_API_KEY": "",
+        "AGENT_NAME": "AGiXT",
         "LLM_MAX_TOKENS": 8192,
         "ALLOWED_DOMAINS": "*",
         "WORKING_DIRECTORY": os.path.join(os.getcwd(), "WORKSPACE"),
