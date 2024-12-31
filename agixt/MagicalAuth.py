@@ -628,6 +628,11 @@ class MagicalAuth:
                 agent_name=getenv("AGENT_NAME"),
                 settings=default_agent["settings"],
                 commands=default_agent["commands"],
+                training_urls=(
+                    default_agent["training_urls"]
+                    if "training_urls" in default_agent
+                    else []
+                ),
             )
             return {"mfa_token": mfa_token, "status_code": 200}
 

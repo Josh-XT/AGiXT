@@ -42,5 +42,26 @@
     "WAIT_AFTER_FAILURE": 3,
     "persona": "",
     "tts": false
-  }
+  },
+  "training_urls": [
+    "https://josh-xt.github.io/AGiXT/",
+    "https://josh-xt.github.io/AGiXT/1-Getting%20started/3-Examples.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/0-Core%20Concepts.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/01-Processes%20and%20Frameworks.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/02-Providers.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/03-Agents.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/04-Chat%20Completions.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/05-Extension%20Commands.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/06-Prompts.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/07-Chains.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/07-Conversations.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/09-Agent%20Training.html",
+    "https://josh-xt.github.io/AGiXT/2-Concepts/10-Agent%20Interactions.html",
+    "https://josh-xt.github.io/AGiXT/3-Providers/0-ezLocalai.html",
+    "https://josh-xt.github.io/AGiXT/3-Providers/1-Anthropic%20Claude.html",
+    "https://josh-xt.github.io/AGiXT/3-Providers/2-Azure%20OpenAI.html",
+    "https://josh-xt.github.io/AGiXT/3-Providers/3-xAI.html",
+    "https://josh-xt.github.io/AGiXT/3-Providers/4-Google.html",
+    "https://josh-xt.github.io/AGiXT/3-Providers/6-OpenAI.html"
+  ]
 }
