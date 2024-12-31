@@ -251,7 +251,7 @@ def impersonate_user(email: str):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     token = jwt.encode(
         {
-            "sub": get_user_id(email),
+            "sub": str(get_user_id(email)),
             "email": email,
         },
         AGIXT_API_KEY,
