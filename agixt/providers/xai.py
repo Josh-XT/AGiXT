@@ -25,7 +25,7 @@ class XaiProvider:
         **kwargs,
     ):
         self.requirements = ["openai"]
-        self.AI_MODEL = XAI_MODEL if XAI_MODEL else "gpt-4o"
+        self.AI_MODEL = XAI_MODEL if XAI_MODEL else "grok-beta"
         self.AI_TEMPERATURE = XAI_TEMPERATURE if XAI_TEMPERATURE else 0.7
         self.AI_TOP_P = XAI_TOP_P if XAI_TOP_P else 0.7
         self.MAX_TOKENS = XAI_MAX_TOKENS if XAI_MAX_TOKENS else 128000

@@ -18,17 +18,17 @@ class DeepseekProvider:
         DEEPSEEK_MODEL: str = "deepseek-v3",
         DEEPSEEK_API_URI: str = "https://api.deepseek.com/",
         DEEPSEEK_MAX_TOKENS: int = 64000,
-        DEEPSEEK_TEMPERATURE: float = 0.7,
-        DEEPSEEK_TOP_P: float = 0.7,
-        DEEPSEEK_WAIT_BETWEEN_REQUESTS: int = 1,
+        DEEPSEEK_TEMPERATURE: float = 0.1,
+        DEEPSEEK_TOP_P: float = 0.95,
+        DEEPSEEK_WAIT_BETWEEN_REQUESTS: int = 0,
         DEEPSEEK_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.requirements = ["openai"]
-        self.AI_MODEL = DEEPSEEK_MODEL if DEEPSEEK_MODEL else "gpt-4o"
-        self.AI_TEMPERATURE = DEEPSEEK_TEMPERATURE if DEEPSEEK_TEMPERATURE else 0.7
-        self.AI_TOP_P = DEEPSEEK_TOP_P if DEEPSEEK_TOP_P else 0.7
-        self.MAX_TOKENS = DEEPSEEK_MAX_TOKENS if DEEPSEEK_MAX_TOKENS else 128000
+        self.AI_MODEL = DEEPSEEK_MODEL if DEEPSEEK_MODEL else "deepseek-v3"
+        self.AI_TEMPERATURE = DEEPSEEK_TEMPERATURE if DEEPSEEK_TEMPERATURE else 0.1
+        self.AI_TOP_P = DEEPSEEK_TOP_P if DEEPSEEK_TOP_P else 0.95
+        self.MAX_TOKENS = DEEPSEEK_MAX_TOKENS if DEEPSEEK_MAX_TOKENS else 64000
         self.API_URI = (
             DEEPSEEK_API_URI if DEEPSEEK_API_URI else "https://api.deepseek.com/"
         )
