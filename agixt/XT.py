@@ -1378,7 +1378,8 @@ class AGiXT:
         if "tts_provider" in self.agent_settings:
             tts_provider = str(self.agent_settings["tts_provider"]).lower()
             if tts_provider != "none" and tts_provider != "":
-                tts = True
+                if "tts" in self.agent_settings:
+                    tts = str(self.agent_settings["tts"]).lower() == "true"
         analyze_user_input = False
         if "analyze_user_input" in self.agent_settings:
             analyze_user_input = (
