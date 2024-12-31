@@ -8,6 +8,7 @@ except ImportError:
     import anthropic
 import httpx
 import base64
+import logging
 import time
 
 
@@ -104,9 +105,9 @@ class AnthropicProvider:
             )
             return response.content[0].text
         except Exception as e:
+            logging.info(f"[CLAUDE PROVIDER] Error: {e}")
             self.failures += 1
             if self.failures > 3:
-                print(f"[CLAUDE PROVIDER] Error: {e}")
                 return f"Claude Error: {e}"
             else:
                 # https://console.anthropic.com/settings/limits
