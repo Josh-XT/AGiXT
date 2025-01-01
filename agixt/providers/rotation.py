@@ -73,70 +73,85 @@ class RotationProvider:
         if not small_chunks:
             return []
 
-        analysis_prompt = (
-            f"Below is chunk {chunk_index + 1} of a larger codebase, split into {len(small_chunks)} "
-            f"sub-chunks of {self.SMALL_CHUNK_SIZE} characters each, followed by a user query.\n"
-            "Analyze which sub-chunks are relevant to answering the query.\n"
-            "Respond ONLY with comma-separated sub-chunk numbers (1-based indexing).\n"
-            "Example response format: 1,4,7\n\n"
-            f"Query: {prompt}\n\n"
-            "Sub-chunks:\n"
-        )
+        # Process small chunks in batches to stay within token limits
+        MAX_CHUNKS_PER_PROMPT = 5  # Adjust this based on actual token usage
+        results = []
 
-        for i, small_chunk in enumerate(small_chunks, 1):
-            analysis_prompt += f"\nSUB-CHUNK {i}:\n{small_chunk}\n"
+        for batch_start in range(0, len(small_chunks), MAX_CHUNKS_PER_PROMPT):
+            batch_end = min(batch_start + MAX_CHUNKS_PER_PROMPT, len(small_chunks))
+            batch_chunks = small_chunks[batch_start:batch_end]
 
-        try:
-            agent = Agent(
-                agent_name=self.agent_name,
-                user=self.user,
-                ApiClient=self.ApiClient,
+            analysis_prompt = (
+                f"Below is part {batch_start//MAX_CHUNKS_PER_PROMPT + 1} of chunk {chunk_index + 1}, "
+                f"containing sub-chunks {batch_start + 1} to {batch_end} of the total {len(small_chunks)} sub-chunks.\n"
+                "Analyze which sub-chunks are relevant to answering the query.\n"
+                "Respond ONLY with comma-separated sub-chunk numbers (using the original full numbering).\n"
+                "Example response format: 1,4,7\n"
+                "If no sub-chunks are relevant, respond with: none\n\n"
+                f"Query: {prompt}\n\n"
+                "Sub-chunks:\n"
             )
-            if "agent_name" in self.AGENT_SETTINGS:
-                del self.AGENT_SETTINGS["agent_name"]
-            if "user" in self.AGENT_SETTINGS:
-                del self.AGENT_SETTINGS["user"]
-            if "ApiClient" in self.AGENT_SETTINGS:
-                del self.AGENT_SETTINGS["ApiClient"]
-            agent.PROVIDER = Providers(
-                name=self.ANALYSIS_PROVIDER,
-                ApiClient=self.ApiClient,
-                agent_name=self.agent_name,
-                user=self.user,
-                **self.AGENT_SETTINGS,
-            )
+
+            for i, small_chunk in enumerate(batch_chunks, batch_start + 1):
+                analysis_prompt += f"\nSUB-CHUNK {i}:\n{small_chunk}\n"
+
             try:
-                result = await agent.inference(prompt=analysis_prompt)
-            except Exception as e:
-                logging.error(
-                    f"Chunk analysis failed for chunk {chunk_index + 1}: {str(e)}"
+                agent = Agent(
+                    agent_name=self.agent_name,
+                    user=self.user,
+                    ApiClient=self.ApiClient,
                 )
+                if "agent_name" in self.AGENT_SETTINGS:
+                    del self.AGENT_SETTINGS["agent_name"]
+                if "user" in self.AGENT_SETTINGS:
+                    del self.AGENT_SETTINGS["user"]
+                if "ApiClient" in self.AGENT_SETTINGS:
+                    del self.AGENT_SETTINGS["ApiClient"]
                 agent.PROVIDER = Providers(
-                    name="rotation",
+                    name=self.ANALYSIS_PROVIDER,
                     ApiClient=self.ApiClient,
                     agent_name=self.agent_name,
                     user=self.user,
                     **self.AGENT_SETTINGS,
                 )
-                result = await agent.inference(prompt=analysis_prompt)
+                try:
+                    result = await agent.inference(prompt=analysis_prompt)
+                except Exception as e:
+                    logging.error(
+                        f"Chunk analysis failed for batch {batch_start//MAX_CHUNKS_PER_PROMPT + 1} of chunk {chunk_index + 1}: {str(e)}"
+                    )
+                    agent.PROVIDER = Providers(
+                        name="rotation",
+                        ApiClient=self.ApiClient,
+                        agent_name=self.agent_name,
+                        user=self.user,
+                        **self.AGENT_SETTINGS,
+                    )
+                    result = await agent.inference(prompt=analysis_prompt)
 
-            # Parse comma-separated numbers, convert to 0-based indexing
-            chunk_numbers = [int(n.strip()) - 1 for n in result.split(",")]
-            # Validate chunk numbers
-            valid_numbers = [n for n in chunk_numbers if 0 <= n < len(small_chunks)]
+                if result.strip().lower() != "none":
+                    # Parse comma-separated numbers, convert to 0-based indexing
+                    chunk_numbers = [int(n.strip()) - 1 for n in result.split(",")]
+                    # Validate chunk numbers
+                    valid_numbers = [
+                        n for n in chunk_numbers if 0 <= n < len(small_chunks)
+                    ]
+                    results.extend(valid_numbers)
 
-            if not valid_numbers:
-                logging.warning(
-                    f"No valid chunk numbers returned for chunk {chunk_index + 1}, using all sub-chunks"
+            except Exception as e:
+                logging.error(
+                    f"Batch analysis failed for chunk {chunk_index + 1}, batch {batch_start//MAX_CHUNKS_PER_PROMPT + 1}: {str(e)}"
                 )
-                return list(range(len(small_chunks)))
+                # On complete failure, include all chunks from this batch
+                results.extend(range(batch_start, batch_end))
 
-            return valid_numbers
-        except Exception as e:
-            logging.error(
-                f"Chunk analysis failed for chunk {chunk_index + 1}: {str(e)}"
+        if not results:
+            logging.warning(
+                f"No valid chunk numbers returned for any batch in chunk {chunk_index + 1}, using all sub-chunks"
             )
-            return list(range(len(small_chunks)))  # Return all sub-chunks on failure
+            return list(range(len(small_chunks)))
+
+        return sorted(set(results))  # Remove duplicates and sort
 
     async def _get_relevant_chunks(self, text: str, prompt: str) -> str:
         """Split text into large chunks and analyze them in parallel."""
