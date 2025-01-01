@@ -7,7 +7,7 @@ from collections import Counter
 import asyncio
 
 
-def score_chunk(self, chunk: str, keywords: set) -> int:
+def score_chunk(chunk: str, keywords: set) -> int:
     """Score a chunk based on the number of query keywords it contains."""
     chunk_counter = Counter(chunk.split())
     score = sum(chunk_counter[keyword] for keyword in keywords)
