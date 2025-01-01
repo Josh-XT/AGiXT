@@ -532,6 +532,115 @@ class MagicalAuth:
             detail="Invalid login token. Please log out and try again.",
         )
 
+    def refresh_oauth_token(self, provider: str):
+        """Refresh OAuth token if expired"""
+        session = get_session()
+        provider_record = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+        )
+        if not provider_record:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider_record.id)
+            .first()
+        )
+
+        if not user_oauth:
+            session.close()
+            raise HTTPException(status_code=404, detail="OAuth connection not found")
+
+        # Check if token needs refresh
+        if (
+            user_oauth.token_expires_at
+            and user_oauth.token_expires_at <= datetime.now() + timedelta(minutes=5)
+            and user_oauth.refresh_token
+        ):
+            try:
+                if provider == "microsoft":
+                    from sso.microsoft import MicrosoftSSO
+
+                    sso_instance = MicrosoftSSO(
+                        refresh_token=user_oauth.refresh_token,
+                    )
+                elif provider == "google":
+                    from sso.google import GoogleSSO
+
+                    sso_instance = GoogleSSO(
+                        refresh_token=user_oauth.refresh_token,
+                    )
+                else:
+                    session.close()
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Token refresh not implemented for provider: {provider}",
+                    )
+
+                # Get new tokens
+                new_tokens = sso_instance.get_new_token()
+
+                # Update stored tokens
+                user_oauth.access_token = new_tokens["access_token"]
+                if "refresh_token" in new_tokens:
+                    user_oauth.refresh_token = new_tokens["refresh_token"]
+                if "expires_in" in new_tokens:
+                    user_oauth.token_expires_at = datetime.now() + timedelta(
+                        seconds=new_tokens["expires_in"]
+                    )
+
+                session.commit()
+                session.close()
+                return new_tokens["access_token"]
+
+            except Exception as e:
+                session.close()
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"Failed to refresh {provider} token: {str(e)}",
+                )
+
+        session.close()
+        return user_oauth.access_token
+
+    def get_oauth_functions(self, provider: str):
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            raise HTTPException(status_code=404, detail="User not found")
+        provider = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+        )
+        if not provider:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider.id)
+            .first()
+        )
+        if not user_oauth:
+            session.close()
+            raise HTTPException(status_code=404, detail="User OAuth not found")
+        access_token = user_oauth.access_token
+        session.close()
+        if provider.name == "google":
+            from sso.google import GoogleSSO
+
+            return GoogleSSO(access_token=access_token)
+        elif provider.name == "microsoft":
+            from sso.microsoft import MicrosoftSSO
+
+            return MicrosoftSSO(access_token=access_token)
+        elif provider.name == "github":
+            from sso.github import GitHubSSO
+
+            return GitHubSSO(access_token=access_token)
+
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
