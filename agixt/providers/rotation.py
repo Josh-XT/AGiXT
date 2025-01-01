@@ -92,6 +92,12 @@ class RotationProvider:
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
+            if "agent_name" in self.AGENT_SETTINGS:
+                del self.AGENT_SETTINGS["agent_name"]
+            if "user" in self.AGENT_SETTINGS:
+                del self.AGENT_SETTINGS["user"]
+            if "ApiClient" in self.AGENT_SETTINGS:
+                del self.AGENT_SETTINGS["ApiClient"]
             agent.PROVIDER = Providers(
                 name=self.ANALYSIS_PROVIDER,
                 ApiClient=self.ApiClient,
