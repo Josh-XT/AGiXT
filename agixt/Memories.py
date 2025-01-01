@@ -595,8 +595,10 @@ class Memories:
         logging.info(f"Starting deletion for source: {external_source}")  # Debug print
         if external_source.startswith("file"):
             file_path = external_source.split(" ")[1]
-            # Make sure the file path starts with the working directory
-            working_directory = getenv("WORKING_DIRECTORY")
+            # Normalize the file path
+            file_path = os.path.normpath(file_path)
+            # Make sure the file path is contained within the working directory
+            working_directory = os.path.normpath(getenv("WORKING_DIRECTORY"))
             if file_path.startswith(working_directory):
                 # Delete it
                 try:
