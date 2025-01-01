@@ -2299,25 +2299,8 @@ class MagicalAuth:
             )
         return f"Disconnected {provider_name.capitalize()}."
 
-    def get_pcc_credentials(self):
-        if getenv("SELECTED_EHR").lower() == "pointclickcare":
-            session = get_session()
-            user = session.query(User).filter(User.email == self.email).first()
-            user_preferences = (
-                session.query(UserPreferences)
-                .filter(UserPreferences.user_id == user.id)
-                .all()
-            )
-            if not user_preferences:
-                session.close()
-                return {}
-            data = {}
-            for preference in user_preferences:
-                if preference.pref_key == "pointclickcare_username":
-                    data["pointclickcare_username"] = preference.pref_value
-                if preference.pref_key == "pointclickcare_password":
-                    data["pointclickcare_password"] = decrypt(
-                        self.encryption_key, preference.pref_value
-                    )
-            session.close()
-            return data
+    def get_timezone(self):
+        user_preferences = self.get_user_preferences()
+        if "timezone" in user_preferences:
+            return user_preferences["timezone"]
+        return getenv("TZ")
