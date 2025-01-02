@@ -331,6 +331,10 @@ class Agent:
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
+        if self.company_id:
+            self.company_agent = self.get_company_agent()
+            company_commands = self.company_agent.available_commands
+            self.available_commands.extend(company_commands)
 
     def get_company_agent(self):
         if self.company_id:
