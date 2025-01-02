@@ -327,6 +327,34 @@ class Agent:
         self.available_commands = self.extensions.get_available_commands()
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
+        self.company_id = str(self.auth.company_id)
+        if "company_id" in self.AGENT_CONFIG["settings"]:
+            self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
+        self.PROVIDER_SETTINGS["company_id"] = self.company_id
+
+    def get_company_agent(self):
+        if self.company_id:
+            company_agent_session = self.auth.get_company_agent_session(
+                company_id=self.company_id
+            )
+            user = company_agent_session.get_user()
+            agent = Agent(
+                agent_name="AGiXT",
+                user=user["email"],
+                ApiClient=company_agent_session,
+            )
+            return agent
+        else:
+            return self
+
+    def get_company_agent_extensions(self):
+        try:
+            if self.company_id:
+                agent = self.get_company_agent()
+                return agent.get_agent_extensions()
+        except Exception as e:
+            return ""
+        return ""
 
     def load_config_keys(self):
         config_keys = [
