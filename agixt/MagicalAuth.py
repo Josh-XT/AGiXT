@@ -686,6 +686,7 @@ class MagicalAuth:
             session.commit()
             session.flush()  # Flush to get the new user's ID
             self.user_id = str(new_user_db.id)
+            company_id = None
             if ent:
                 if invitation:
                     # User was invited - use invitation details
@@ -733,6 +734,8 @@ class MagicalAuth:
                 default_agent = json.load(file)
             agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
             agixt.login(email=self.email, otp=pyotp.TOTP(mfa_token).now())
+            if company_id is not None:
+                default_agent["settings"]["company_id"] = str(company_id)
             agixt.add_agent(
                 agent_name=getenv("AGENT_NAME"),
                 settings=default_agent["settings"],
@@ -1723,13 +1726,16 @@ class MagicalAuth:
                 raise HTTPException(status_code=500, detail=str(e))
 
     def get_user_company_id(self):
-        with get_session() as db:
-            user_company = (
-                db.query(UserCompany)
-                .filter(UserCompany.user_id == self.user_id)
-                .first()
-            )
-            return str(user_company.company_id) if user_company else None
+        try:
+            with get_session() as db:
+                user_company = (
+                    db.query(UserCompany)
+                    .filter(UserCompany.user_id == self.user_id)
+                    .first()
+                )
+                return str(user_company.company_id) if user_company else None
+        except Exception as e:
+            return None
 
     def get_user_company(self, company_id):
         with get_session() as db:

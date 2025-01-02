@@ -305,9 +305,12 @@ class Interactions:
         if "persona" in self.agent.AGENT_CONFIG["settings"]:
             persona = self.agent.AGENT_CONFIG["settings"]["persona"]
         if str(getenv("ENT").lower()) == "true":
-            company_training = self.auth.get_training_data()
+            company_id = self.auth.company_id
+            if "company_id" in kwargs:
+                company_id = kwargs["company_id"]
+            company_training = self.auth.get_training_data(company_id=company_id)
             persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
-            cs = self.auth.get_company_agent_session()
+            cs = self.auth.get_company_agent_session(company_id=company_id)
             company_memories = cs.get_agent_memories(
                 agent_name="AGiXT", user_input=user_input
             )
@@ -451,6 +454,8 @@ class Interactions:
         if "disable_commands" not in kwargs:
             if len(command_list) > 0:
                 agent_extensions = self.agent.get_agent_extensions()
+                if str(getenv("ENT").lower()) == "true":
+                    agent_extensions += self.agent.get_company_agent_extensions()
                 agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
                 for extension in agent_extensions:
                     if extension["commands"] == []:
