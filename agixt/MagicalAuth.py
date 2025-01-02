@@ -1521,6 +1521,50 @@ class MagicalAuth:
         finally:
             session.close()
 
+    def get_invitations(self, company_id):
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+        with get_session() as db:
+            invitations = (
+                db.query(Invitation)
+                .filter(Invitation.company_id == company_id)
+                .filter(Invitation.is_accepted == False)
+                .all()
+            )
+            response = []
+            for invitation in invitations:
+                response.append(
+                    {
+                        "id": str(invitation.id),
+                        "email": invitation.email,
+                        "company_id": str(invitation.company_id),
+                        "role_id": invitation.role_id,
+                        "inviter_id": str(invitation.inviter_id),
+                        "created_at": invitation.created_at,
+                        "is_accepted": invitation.is_accepted,
+                    }
+                )
+            return response
+
+    def delete_invitation(self, invitation_id: str):
+        if str(invitation.company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+        with get_session() as db:
+            invitation = (
+                db.query(Invitation).filter(Invitation.id == invitation_id).first()
+            )
+            if not invitation:
+                raise HTTPException(status_code=404, detail="Invitation not found")
+            db.delete(invitation)
+            db.commit()
+            return "Invitation deleted successfully"
+
     def create_invitation(self, invitation: InvitationCreate) -> InvitationResponse:
         if str(invitation.company_id) not in self.get_user_companies():
             invitation.company_id = self.get_user_company_id()
