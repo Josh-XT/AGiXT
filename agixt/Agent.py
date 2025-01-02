@@ -331,7 +331,7 @@ class Agent:
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
-        if self.company_id:
+        if self.company_id and self.company_id != "None":
             self.company_agent = self.get_company_agent()
             company_commands = self.company_agent.available_commands
             self.available_commands.extend(company_commands)
@@ -341,6 +341,8 @@ class Agent:
             company_agent_session = self.auth.get_company_agent_session(
                 company_id=self.company_id
             )
+            if not company_agent_session:
+                return None
             user = company_agent_session.get_user()
             agent = Agent(
                 agent_name="AGiXT",
@@ -349,7 +351,7 @@ class Agent:
             )
             return agent
         else:
-            return self
+            return None
 
     def get_company_agent_extensions(self):
         try:
