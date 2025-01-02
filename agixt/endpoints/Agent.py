@@ -26,13 +26,14 @@ from Models import (
     TaskPlanInput,
     PersonaInput,
     ChatCompletions,
+    ThinkingPrompt,
 )
 import logging
 import base64
 import uuid
 import os
 from providers.default import DefaultProvider
-from Conversations import get_conversation_name_by_id
+from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from MagicalAuth import MagicalAuth
 
 app = APIRouter()
@@ -534,3 +535,48 @@ async def plan_task(
         enable_new_command=task.enable_new_command,
     )
     return {"response": planned_task}
+
+
+@app.post(
+    "/v1/agent/think",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def think(
+    agent_prompt: ThinkingPrompt,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if "conversation_name" in agent_prompt.prompt_args:
+        agent_prompt.conversation_id = get_conversation_id_by_name(
+            conversation_name=agent_prompt.prompt_args["conversation_name"]
+        )
+    if "log_user_input" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["log_user_input"] = False
+    if "log_output" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["log_output"] = False
+    if "tts" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["tts"] = False
+    if "analyze_user_input" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["analyze_user_input"] = False
+    if "browse_links" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["browse_links"] = False
+    if "websearch" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["websearch"] = False
+    if "disable_commands" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["disable_commands"] = True
+    think_deep = f"**The assistant should think deeply on the user's input and available context, reflect while being critical of the assistant's thoughts to ensure the most well reasoned response to the user. The assistant has 100 available thinking and reflection tokens to think through the response and is encouraged to use them liberally anywhere the assistant finds a higher reward could be achieved on responses. During reflection, the assistant should act as a critical judge that expects only the best, most well reasoned thoughts before answering the user, and should provide guidance for the next thoughts to be guided by for improved reasoning.**"
+    if "context" in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["context"] += f"\n\n{think_deep}"
+    else:
+        agent_prompt.prompt_args["context"] = think_deep
+    agent_prompt.prompt_args["user_input"] = agent_prompt.user_input
+    return await prompt_agent(
+        agent_name=agent_prompt.agent_name,
+        agent_prompt=AgentPrompt(
+            prompt_name="Think About It",
+            prompt_args=agent_prompt.prompt_args,
+        ),
+        user=user,
+        authorization=authorization,
+    )
