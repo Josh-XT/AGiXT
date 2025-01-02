@@ -85,6 +85,13 @@ class AgentPrompt(BaseModel):
     prompt_args: dict
 
 
+class ThinkingPrompt(BaseModel):
+    user_input: str
+    agent_name: str
+    conversation_id: Optional[str] = ""
+    prompt_args: Optional[dict] = {}
+
+
 class AgentMemoryQuery(BaseModel):
     user_input: str
     limit: int = 5
