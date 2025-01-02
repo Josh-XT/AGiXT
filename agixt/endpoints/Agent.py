@@ -170,6 +170,7 @@ async def get_persona(
     "/api/agent/{agent_name}/persona/{company_id}",
     dependencies=[Depends(verify_api_key)],
     summary="Get agent persona",
+    tags=["Agent"],
 )
 async def get_persona(
     agent_name: str,
