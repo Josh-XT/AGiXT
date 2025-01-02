@@ -1582,7 +1582,30 @@ class MagicalAuth:
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
                     )
-
+                # If the user exists, add them to the company with the desired role.
+                user = (
+                    db.query(User)
+                    .filter(User.email == invitation.email)
+                    .filter(User.is_active == True)
+                    .first()
+                )
+                if user:
+                    user_company = UserCompany(
+                        user_id=user.id,
+                        company_id=invitation.company_id,
+                        role_id=invitation.role_id,
+                    )
+                    db.add(user_company)
+                    db.commit()
+                    return InvitationResponse(
+                        id="none",
+                        email=invitation.email,
+                        company_id=str(invitation.company_id),
+                        role_id=invitation.role_id,
+                        inviter_id=str(self.user_id),
+                        created_at=datetime.now(),
+                        is_accepted=True,
+                    )
                 # Check if invitation already exists
                 existing_invitation = (
                     db.query(Invitation)
