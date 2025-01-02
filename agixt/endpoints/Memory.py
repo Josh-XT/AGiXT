@@ -218,7 +218,7 @@ async def learn_cfile(
     auth = MagicalAuth(token=authorization)
     agixt = auth.get_company_agent_session(company_id=company_id)
     response = agixt.learn_file(
-        agent_name=agent_name,
+        agent_name="AGiXT",
         file_name=file.file_name,
         file_content=file.file_content,
         collection_number=file.collection_number,
@@ -609,7 +609,7 @@ async def delete_memories_from_external_source(
         auth = MagicalAuth(token=authorization)
         agixt = auth.get_company_agent_session(company_id=external_source.company_id)
         response = agixt.delete_memory_external_source(
-            agent_name=agent_name,
+            agent_name="AGiXT",
             external_source=external_source.external_source,
             collection_number=external_source.collection_number,
         )
@@ -672,7 +672,7 @@ async def get_cunique_external_sources(
     auth = MagicalAuth(token=authorization)
     agixt = auth.get_company_agent_session(company_id=company_id)
     response = agixt.get_memories_external_sources(
-        agent_name=agent_name,
+        agent_name="AGiXT",
         collection_number=collection_number,
     )
     return {"external_sources": response}

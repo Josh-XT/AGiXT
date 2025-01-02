@@ -1955,7 +1955,7 @@ class MagicalAuth:
                 with open("default_agent.json", "r") as file:
                     default_agent = json.load(file)
                 agixt.add_agent(
-                    agent_name=getenv("AGENT_NAME"),
+                    agent_name="AGiXT",
                     settings=(
                         default_agent["settings"] if "settings" in default_agent else {}
                     ),

@@ -309,7 +309,7 @@ class Interactions:
             persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
             cs = self.auth.get_company_agent_session()
             company_memories = cs.get_agent_memories(
-                agent_name=self.agent_name, user_input=user_input
+                agent_name="AGiXT", user_input=user_input
             )
             if company_memories:
                 for result in company_memories:
