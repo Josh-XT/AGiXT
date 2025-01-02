@@ -166,29 +166,31 @@ async def get_persona(
     return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
 
 
-@app.get(
-    "/api/agent/{agent_name}/persona/{company_id}",
-    dependencies=[Depends(verify_api_key)],
-    summary="Get agent persona",
-    tags=["Agent"],
-)
-async def get_persona(
-    agent_name: str,
-    company_id: str,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
-    auth = MagicalAuth(token=authorization)
-    user_persona = False
-    if auth.get_user_role(company_id) > 2:
-        user_persona = True
-    if user_persona:
-        ApiClient = get_api_client(authorization=authorization)
-        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-        return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
-    else:
-        response = auth.get_training_data(id if company_id is None else company_id)
-        return {"message": response}
+if str(getenv("ENT")).lower() == "true":
+
+    @app.get(
+        "/api/agent/{agent_name}/persona/{company_id}",
+        dependencies=[Depends(verify_api_key)],
+        summary="Get agent persona",
+        tags=["Agent"],
+    )
+    async def get_persona(
+        agent_name: str,
+        company_id: str,
+        user=Depends(verify_api_key),
+        authorization: str = Header(None),
+    ) -> ResponseMessage:
+        auth = MagicalAuth(token=authorization)
+        user_persona = False
+        if auth.get_user_role(company_id) > 2:
+            user_persona = True
+        if user_persona:
+            ApiClient = get_api_client(authorization=authorization)
+            agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+            return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
+        else:
+            response = auth.get_training_data(id if company_id is None else company_id)
+            return {"message": response}
 
 
 @app.put(

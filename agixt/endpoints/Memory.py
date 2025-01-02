@@ -203,27 +203,29 @@ async def learn_file(
     return ResponseMessage(message=response)
 
 
-@app.post(
-    "/api/agent/{agent_name}/learn/file/{company_id}",
-    tags=["Memory"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def learn_cfile(
-    agent_name: str,
-    company_id: str,
-    file: FileInput,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
-    auth = MagicalAuth(token=authorization)
-    agixt = auth.get_company_agent_session(company_id=company_id)
-    response = agixt.learn_file(
-        agent_name="AGiXT",
-        file_name=file.file_name,
-        file_content=file.file_content,
-        collection_number=file.collection_number,
+if str(getenv("ENT")).lower() == "true":
+
+    @app.post(
+        "/api/agent/{agent_name}/learn/file/{company_id}",
+        tags=["Memory"],
+        dependencies=[Depends(verify_api_key)],
     )
-    return ResponseMessage(message=response)
+    async def learn_cfile(
+        agent_name: str,
+        company_id: str,
+        file: FileInput,
+        user=Depends(verify_api_key),
+        authorization: str = Header(None),
+    ) -> ResponseMessage:
+        auth = MagicalAuth(token=authorization)
+        agixt = auth.get_company_agent_session(company_id=company_id)
+        response = agixt.learn_file(
+            agent_name="AGiXT",
+            file_name=file.file_name,
+            file_content=file.file_content,
+            collection_number=file.collection_number,
+        )
+        return ResponseMessage(message=response)
 
 
 @app.post(
@@ -656,26 +658,28 @@ async def get_unique_external_sources(
     return {"external_sources": external_sources}
 
 
-# Get unique external sources
-@app.get(
-    "/api/agent/{agent_name}/memory/external_sources/{collection_number}/{company_id}",
-    tags=["Memory"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_cunique_external_sources(
-    agent_name: str,
-    company_id: str,
-    collection_number: str = "0",
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> Dict[str, Any]:
-    auth = MagicalAuth(token=authorization)
-    agixt = auth.get_company_agent_session(company_id=company_id)
-    response = agixt.get_memories_external_sources(
-        agent_name="AGiXT",
-        collection_number=collection_number,
+if str(getenv("ENT")).lower() == "true":
+
+    # Get unique external sources
+    @app.get(
+        "/api/agent/{agent_name}/memory/external_sources/{collection_number}/{company_id}",
+        tags=["Memory"],
+        dependencies=[Depends(verify_api_key)],
     )
-    return {"external_sources": response}
+    async def get_cunique_external_sources(
+        agent_name: str,
+        company_id: str,
+        collection_number: str = "0",
+        user=Depends(verify_api_key),
+        authorization: str = Header(None),
+    ) -> Dict[str, Any]:
+        auth = MagicalAuth(token=authorization)
+        agixt = auth.get_company_agent_session(company_id=company_id)
+        response = agixt.get_memories_external_sources(
+            agent_name="AGiXT",
+            collection_number=collection_number,
+        )
+        return {"external_sources": response}
 
 
 # RLHF endpoint
