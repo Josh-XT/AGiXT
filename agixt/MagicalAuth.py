@@ -1597,6 +1597,26 @@ class MagicalAuth:
                     )
                     db.add(user_company)
                     db.commit()
+                    # send an email letting the user know they have been added to the company
+                    company = (
+                        db.query(Company)
+                        .filter(Company.id == invitation.company_id)
+                        .first()
+                    )
+                    company_name = company.name if company else "our platform"
+                    app_uri = getenv("APP_URI")
+                    app_name = getenv("APP_NAME")
+                    email_send = send_email(
+                        email=user.email,
+                        subject=f"Added to {company_name} on {app_name}",
+                        body=f"""
+<h2>Added to {company_name} on {app_name}</h2>
+<p>You have been added to {company_name} on {app_name}.</p>
+<p>You can access the company by logging in to <a href="{app_uri}">{app_name}</a>.</p>
+
+<p>You can access the company by logging in to {app_name}.</p>
+""",
+                    )
                     return InvitationResponse(
                         id="none",
                         email=invitation.email,
