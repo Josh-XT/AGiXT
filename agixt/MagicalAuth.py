@@ -1521,7 +1521,9 @@ class MagicalAuth:
         finally:
             session.close()
 
-    def get_invitations(self, company_id):
+    def get_invitations(self, company_id=None):
+        if not company_id:
+            company_id = self.get_user_company_id()
         if str(company_id) not in self.get_user_companies():
             raise HTTPException(
                 status_code=403,
