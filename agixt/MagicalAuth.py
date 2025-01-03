@@ -1604,6 +1604,25 @@ class MagicalAuth:
                         .first()
                     )
                     company_name = company.name if company else "our platform"
+                    company_id = company.id if company else None
+                    with open("default_agent.json", "r") as file:
+                        default_agent = json.load(file)
+                    agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+                    agixt.login(
+                        email=invitation.email, otp=pyotp.TOTP(user.mfa_token).now()
+                    )
+                    if company_id is not None:
+                        default_agent["settings"]["company_id"] = str(company_id)
+                    agixt.add_agent(
+                        agent_name=getenv("AGENT_NAME"),
+                        settings=default_agent["settings"],
+                        commands=default_agent["commands"],
+                        training_urls=(
+                            default_agent["training_urls"]
+                            if "training_urls" in default_agent
+                            else []
+                        ),
+                    )
                     app_uri = getenv("APP_URI")
                     app_name = getenv("APP_NAME")
                     email_send = send_email(
