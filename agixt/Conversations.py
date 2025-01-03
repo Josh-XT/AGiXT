@@ -2,12 +2,14 @@ from datetime import datetime
 import logging
 from DB import (
     Conversation,
+    Agent,
     Message,
     User,
     UserPreferences,
     get_session,
 )
 from Globals import getenv, DEFAULT_USER
+from MagicalAuth import MagicalAuth, impersonate_user
 from sqlalchemy.sql import func
 import pytz
 
@@ -138,6 +140,23 @@ class Conversations:
         session.close()
         return result
 
+    def get_agent_id(self, user_id):
+        session = get_session()
+        agent_name = self.get_last_agent_name()
+        # Get the agent's ID from the database
+        # Make sure this agent belongs the the right user
+        agent = (
+            session.query(Agent)
+            .filter(Agent.name == agent_name, Agent.user_id == user_id)
+            .first()
+        )
+        try:
+            agent_id = str(agent.id)
+        except:
+            agent_id = None
+        session.close()
+        return agent_id
+
     def get_conversations_with_detail(self):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
@@ -158,11 +177,33 @@ class Conversations:
             .order_by(Conversation.updated_at.desc())
             .all()
         )
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(
+                UserPreferences.user_id == user_id,
+                UserPreferences.pref_key == "timezone",
+            )
+            .first()
+        )
+        if not user_preferences:
+            user_preferences = UserPreferences(
+                user_id=user_id, pref_key="timezone", pref_value=getenv("TZ")
+            )
+            session.add(user_preferences)
+            session.commit()
+        gmt = pytz.timezone("GMT")
+        local_tz = pytz.timezone(user_preferences.pref_value)
+        # If the agent's company_id does not match
         result = {
             str(conversation.id): {
                 "name": conversation.name,
-                "created_at": conversation.created_at,
-                "updated_at": conversation.updated_at,
+                "agent_id": self.get_agent_id(user_id),
+                "created_at": gmt.localize(conversation.created_at).astimezone(
+                    local_tz
+                ),
+                "updated_at": gmt.localize(conversation.updated_at).astimezone(
+                    local_tz
+                ),
                 "has_notifications": notification_count > 0,
                 "summary": (
                     conversation.summary if Conversation.summary else "None available"
