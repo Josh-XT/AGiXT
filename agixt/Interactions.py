@@ -427,11 +427,6 @@ class Interactions:
                 )
                 if fragmented_content != "":
                     file_contents = f"Here is some potentially relevant information from {the_files}\n{fragmented_content}\n\n"
-        command_list = [
-            available_command["friendly_name"]
-            for available_command in self.agent.available_commands
-            if available_command["enabled"] == True
-        ]
         skip_args = [
             "user_input",
             "agent_name",
@@ -450,69 +445,11 @@ class Interactions:
         for arg in kwargs:
             if arg in skip_args:
                 del args[arg]
-        agent_commands = ""
-        if "disable_commands" not in kwargs:
-            if len(command_list) > 0:
-                if str(getenv("ENT").lower()) == "true":
-                    try:
-                        agent_extensions = self.agent.get_company_agent_extensions()
-                    except:
-                        agent_extensions = self.agent.get_agent_extensions()
-                else:
-                    agent_extensions = self.agent.get_agent_extensions()
-                agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
-                for extension in agent_extensions:
-                    if extension["commands"] == []:
-                        continue
-                    extension_name = extension["extension_name"]
-                    extension_description = extension["description"]
-                    enabled_commands = [
-                        command
-                        for command in extension["commands"]
-                        if command["enabled"] == True
-                    ]
-                    if enabled_commands == []:
-                        continue
-                    agent_commands += f"\n### {extension_name}\nDescription: {extension_description}\n"
-                    for command in enabled_commands:
-                        command_friendly_name = command["friendly_name"]
-                        command_description = command["description"]
-                        agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:\n"
-                        agent_commands += (
-                            f"<execute>\n<name>{command_friendly_name}</name>\n"
-                        )
-                        for arg_name in command["command_args"].keys():
-                            if arg_name != "chain_name":
-                                agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
-                            else:
-                                agent_commands += f"<chain_name>{command_friendly_name}</chain_name>\n"
-                        agent_commands += "</execute>\n"
-                agent_commands += f"""## Command Execution Guidelines
-- **The assistant has commands available to use if they would be useful to provide a better user experience.**
-- Reference examples for correct syntax and usage of commands.
-- To execute a command, the assistant should use the following format:
-
-<execute>
-<name>COMMAND_NAME</name>
-<ARG1_NAME>ARG1_VALUE</ARG1_NAME>
-<ARG2_NAME>ARG2_VALUE</ARG2_NAME>
-...
-</execute>
-
-- All inputs are strings and must be appropriately filled in with the correct values.
-- The assistant can execute a command anywhere in the response, and the commands will be executed in the order they appear.
-- If referencing a file path, use the assistant's working directory as the file path. The assistant's working directory is {working_directory}.
-- Only reference files in the working directory! The assistant cannot access files outside of the working directory.
-- All files in the working directory will be immediately available to the user and agent in this folder: {conversation_outputs}
-- The assistant will receive the command output before the user does and will be able to reference the output in the response.
-- The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
-- Once the assistant executes a command, it should stop at </execute> and wait for the command output before continuing.
-- The assistant should never generate a <output> tag in the response. The assistant will receive the command output and will be able to reference the output in the response.
-- If there is an <output> tag in the assistants previous responses in context, it refers to the command execution output. Use this output to determine if the command was successful, and to course correct if needed.
-- Any time the assistant executes a command, the text generation should end with </execute>. The assistant will be informed of the command output before the user receives the response to give the assistant the opportunity to evaluate the output and ensure it is correct, exploring different options if needed.
-- After command execution, increase step budget by 5, continue thinking, executing more commands if necessary for self-error correct unless user intervention is required, and then respond to the user.
-- Command executions should all take place BEFORE the <answer> block! Never inside the <answer> block. Only the response to the user goes inside the <answer> block.
-- **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
+        agent_commands = (
+            self.agent.get_commands_prompt(conversation_id=conversation_id)
+            if "disable_commands" not in kwargs
+            else ""
+        )
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
