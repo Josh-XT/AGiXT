@@ -11,6 +11,7 @@ from DB import (
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func
 import pytz
+from MagicalAuth import convert_time
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -58,33 +59,6 @@ def get_conversation_name_by_id(conversation_id, user_id):
     conversation_name = conversation.name
     session.close()
     return conversation_name
-
-
-def get_user_timezone(user_id):
-    session = get_session()
-    user_preferences = (
-        session.query(UserPreferences)
-        .filter(
-            UserPreferences.user_id == user_id,
-            UserPreferences.pref_key == "timezone",
-        )
-        .first()
-    )
-    if not user_preferences:
-        user_preferences = UserPreferences(
-            user_id=user_id, pref_key="timezone", pref_value=getenv("TZ")
-        )
-        session.add(user_preferences)
-        session.commit()
-    timezone = user_preferences.pref_value
-    session.close()
-    return timezone
-
-
-def convert_time_to_user_timezone(utc_time, user_id):
-    gmt = pytz.timezone("GMT")
-    local_tz = pytz.timezone(get_user_timezone(user_id))
-    return gmt.localize(utc_time).astimezone(local_tz)
 
 
 class Conversations:
@@ -208,12 +182,8 @@ class Conversations:
             str(conversation.id): {
                 "name": conversation.name,
                 "agent_id": self.get_agent_id(user_id),
-                "created_at": convert_time_to_user_timezone(
-                    conversation.created_at, user_id=user_id
-                ),
-                "updated_at": convert_time_to_user_timezone(
-                    conversation.updated_at, user_id=user_id
-                ),
+                "created_at": convert_time(conversation.created_at, user_id=user_id),
+                "updated_at": convert_time(conversation.updated_at, user_id=user_id),
                 "has_notifications": notification_count > 0,
                 "summary": (
                     conversation.summary if Conversation.summary else "None available"
@@ -248,7 +218,7 @@ class Conversations:
                     "message_id": str(message.id),
                     "message": message.content,
                     "role": message.role,
-                    "timestamp": message.timestamp,
+                    "timestamp": convert_time(message.timestamp, user_id=user_id),
                 }
             )
 
@@ -302,12 +272,8 @@ class Conversations:
                 "id": message.id,
                 "role": message.role,
                 "message": message.content,
-                "timestamp": convert_time_to_user_timezone(
-                    message.timestamp, user_id=user_id
-                ),
-                "updated_at": convert_time_to_user_timezone(
-                    message.updated_at, user_id=user_id
-                ),
+                "timestamp": convert_time(message.timestamp, user_id=user_id),
+                "updated_at": convert_time(message.updated_at, user_id=user_id),
                 "updated_by": message.updated_by,
                 "feedback_received": message.feedback_received,
             }

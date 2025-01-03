@@ -37,6 +37,7 @@ import pyotp
 import logging
 import traceback
 import requests
+import pytz
 import jwt
 import json
 import uuid
@@ -1642,7 +1643,7 @@ class MagicalAuth:
                         company_id=str(invitation.company_id),
                         role_id=invitation.role_id,
                         inviter_id=str(self.user_id),
-                        created_at=datetime.now(),
+                        created_at=convert_time(datetime.now(), user_id=self.user_id),
                         is_accepted=True,
                     )
                 # Check if invitation already exists
@@ -1664,7 +1665,9 @@ class MagicalAuth:
                         company_id=str(existing_invitation.company_id),
                         role_id=existing_invitation.role_id,
                         inviter_id=str(existing_invitation.inviter_id),
-                        created_at=existing_invitation.created_at,
+                        created_at=convert_time(
+                            existing_invitation.created_at, user_id=self.user_id
+                        ),
                         is_accepted=existing_invitation.is_accepted,
                     )
                 new_invitation = Invitation(
@@ -1686,7 +1689,9 @@ class MagicalAuth:
                     "company_id": str(new_invitation.company_id),
                     "role_id": new_invitation.role_id,
                     "inviter_id": str(new_invitation.inviter_id),
-                    "created_at": new_invitation.created_at,
+                    "created_at": convert_time(
+                        new_invitation.created_at, user_id=self.user_id
+                    ),
                     "is_accepted": new_invitation.is_accepted,
                 }
                 logging.info(f"Invitation created: {response}")
@@ -2418,3 +2423,30 @@ class MagicalAuth:
         if "timezone" in user_preferences:
             return user_preferences["timezone"]
         return getenv("TZ")
+
+
+def get_user_timezone(user_id):
+    session = get_session()
+    user_preferences = (
+        session.query(UserPreferences)
+        .filter(
+            UserPreferences.user_id == user_id,
+            UserPreferences.pref_key == "timezone",
+        )
+        .first()
+    )
+    if not user_preferences:
+        user_preferences = UserPreferences(
+            user_id=user_id, pref_key="timezone", pref_value=getenv("TZ")
+        )
+        session.add(user_preferences)
+        session.commit()
+    timezone = user_preferences.pref_value
+    session.close()
+    return timezone
+
+
+def convert_time(utc_time, user_id):
+    gmt = pytz.timezone("GMT")
+    local_tz = pytz.timezone(get_user_timezone(user_id))
+    return gmt.localize(utc_time).astimezone(local_tz)
