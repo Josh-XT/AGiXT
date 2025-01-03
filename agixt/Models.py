@@ -115,14 +115,12 @@ class FileInput(BaseModel):
     file_content: str
     collection_number: Optional[Any] = "0"
     company_id: Optional[str] = None
-    user: Optional[bool] = True
 
 
 class ExternalSource(BaseModel):
     external_source: str
     collection_number: Optional[str] = "0"
     company_id: Optional[str] = None
-    user: Optional[bool] = True
 
 
 class TextMemoryInput(BaseModel):

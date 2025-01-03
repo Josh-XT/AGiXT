@@ -203,31 +203,6 @@ async def learn_file(
     return ResponseMessage(message=response)
 
 
-if str(getenv("ENT")).lower() == "true":
-
-    @app.post(
-        "/api/agent/{agent_name}/learn/file/{company_id}",
-        tags=["Memory"],
-        dependencies=[Depends(verify_api_key)],
-    )
-    async def learn_cfile(
-        agent_name: str,
-        company_id: str,
-        file: FileInput,
-        user=Depends(verify_api_key),
-        authorization: str = Header(None),
-    ) -> ResponseMessage:
-        auth = MagicalAuth(token=authorization)
-        agixt = auth.get_company_agent_session(company_id=company_id)
-        response = agixt.learn_file(
-            agent_name="AGiXT",
-            file_name=file.file_name,
-            file_content=file.file_content,
-            collection_number=file.collection_number,
-        )
-        return ResponseMessage(message=response)
-
-
 @app.post(
     "/api/agent/{agent_name}/learn/url",
     tags=["Memory"],
@@ -659,6 +634,28 @@ async def get_unique_external_sources(
 
 
 if str(getenv("ENT")).lower() == "true":
+
+    @app.post(
+        "/api/agent/{agent_name}/learn/file/{company_id}",
+        tags=["Memory"],
+        dependencies=[Depends(verify_api_key)],
+    )
+    async def learn_cfile(
+        agent_name: str,
+        company_id: str,
+        file: FileInput,
+        user=Depends(verify_api_key),
+        authorization: str = Header(None),
+    ) -> ResponseMessage:
+        auth = MagicalAuth(token=authorization)
+        agixt = auth.get_company_agent_session(company_id=company_id)
+        response = agixt.learn_file(
+            agent_name="AGiXT",
+            file_name=file.file_name,
+            file_content=file.file_content,
+            collection_number=file.collection_number,
+        )
+        return ResponseMessage(message=response)
 
     # Get unique external sources
     @app.get(
