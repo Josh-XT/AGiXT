@@ -1555,17 +1555,17 @@ class MagicalAuth:
             return response
 
     def delete_invitation(self, invitation_id: str):
-        if str(invitation.company_id) not in self.get_user_companies():
-            raise HTTPException(
-                status_code=403,
-                detail="Unauthorized. Insufficient permissions.",
-            )
         with get_session() as db:
             invitation = (
                 db.query(Invitation).filter(Invitation.id == invitation_id).first()
             )
             if not invitation:
                 raise HTTPException(status_code=404, detail="Invitation not found")
+            if str(invitation.company_id) not in self.get_user_companies():
+                raise HTTPException(
+                    status_code=403,
+                    detail="Unauthorized. Insufficient permissions.",
+                )
             db.delete(invitation)
             db.commit()
             return "Invitation deleted successfully"
