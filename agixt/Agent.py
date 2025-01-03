@@ -359,7 +359,25 @@ class Agent:
         try:
             if self.company_id:
                 agent = self.get_company_agent()
-                return agent.get_agent_extensions()
+                company_extensions = agent.get_agent_extensions()
+                agent_extensions = self.get_agent_extensions()
+                # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
+                for company_extension in company_extensions:
+                    for agent_extension in agent_extensions:
+                        if (
+                            company_extension["extension_name"]
+                            == agent_extension["extension_name"]
+                        ):
+                            for company_command in company_extension["commands"]:
+                                for agent_command in agent_extension["commands"]:
+                                    if (
+                                        company_command["friendly_name"]
+                                        == agent_command["friendly_name"]
+                                    ):
+                                        agent_command["enabled"] = company_command[
+                                            "enabled"
+                                        ]
+                return agent_extensions
         except Exception as e:
             return ""
         return ""

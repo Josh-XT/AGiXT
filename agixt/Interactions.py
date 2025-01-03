@@ -453,9 +453,13 @@ class Interactions:
         agent_commands = ""
         if "disable_commands" not in kwargs:
             if len(command_list) > 0:
-                agent_extensions = self.agent.get_agent_extensions()
                 if str(getenv("ENT").lower()) == "true":
-                    agent_extensions += self.agent.get_company_agent_extensions()
+                    try:
+                        agent_extensions = self.agent.get_company_agent_extensions()
+                    except:
+                        agent_extensions = self.agent.get_agent_extensions()
+                else:
+                    agent_extensions = self.agent.get_agent_extensions()
                 agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
                 for extension in agent_extensions:
                     if extension["commands"] == []:
