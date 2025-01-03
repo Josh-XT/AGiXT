@@ -327,11 +327,11 @@ class Agent:
         self.available_commands = self.extensions.get_available_commands()
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
-        self.company_id = str(self.auth.company_id)
-        if self.company_id == "None":
-            self.company_id = None
+        self.company_id = None
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
+            if str(self.company_id).lower() == "none":
+                self.company_id = None
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
         if self.company_id and self.company_id != "None":
             self.company_agent = self.get_company_agent()
