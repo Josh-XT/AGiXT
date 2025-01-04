@@ -450,6 +450,7 @@ class Interactions:
             if "disable_commands" not in kwargs
             else ""
         )
+        logging.info(f"Agent Commands: {agent_commands}")
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
