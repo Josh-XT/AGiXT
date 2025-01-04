@@ -95,20 +95,6 @@ async def serve_file(
         if not content_type:
             content_type = "application/octet-stream"
 
-        # Maintain a whitelist of allowed content types if needed
-        allowed_types = {
-            "text/plain",
-            "text/csv",
-            "application/json",
-            "image/jpeg",
-            "image/png",
-            "image/gif",
-            "application/pdf",
-            "application/octet-stream",
-        }
-        if content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
-
         # If using local storage, we can serve directly
         if getenv("STORAGE_BACKEND", "local").lower() == "local":
             try:
