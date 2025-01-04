@@ -70,6 +70,7 @@ RUN npm install -g prettier && \
 
 COPY . .
 
+RUN python Transcription.py
 WORKDIR /agixt
 EXPOSE 7437
 ENTRYPOINT ["python3", "DB.py"]
