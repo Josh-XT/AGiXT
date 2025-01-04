@@ -4,28 +4,15 @@ except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "apache-libcloud"])
-    from libcloud.storage.types import Provider, ContainerDoesNotExistError
-try:
-    import fasteners  # This is required for libcloud to work, but libcloud doesn't install it.
-except ImportError:
-    import sys
-    import subprocess
-
+    # `fasteners`` is required for libcloud to work, but libcloud doesn't install it.
     subprocess.check_call([sys.executable, "-m", "pip", "install", "fasteners"])
-    import fasteners
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "apache-libcloud"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "watchdog"])
+    from libcloud.storage.types import Provider, ContainerDoesNotExistError
 from libcloud.storage.providers import get_driver
 from contextlib import contextmanager
 from typing import Optional, Union, TextIO, BinaryIO, Generator, List
-
-try:
-    from watchdog.observers import Observer
-except:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "watchdog"])
-    from watchdog.observers import Observer
+from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import threading
 import queue
@@ -262,6 +249,65 @@ class WorkspaceManager(SecurityValidationMixin):
         self.driver = self._initialize_storage()
         self._ensure_container_exists()
         self.start_file_watcher()
+
+    def _initialize_storage(self):
+        """Initialize the appropriate storage backend based on environment variables"""
+        backend = getenv("STORAGE_BACKEND", "local").lower()
+
+        if backend == "local":
+            cls = get_driver(Provider.LOCAL)
+            return cls(self.workspace_dir)
+
+        elif backend == "b2":
+            required_vars = ["B2_KEY_ID", "B2_APPLICATION_KEY"]
+            missing_vars = [var for var in required_vars if not getenv(var)]
+            if missing_vars:
+                raise ValueError(
+                    f"Missing required environment variables: {', '.join(missing_vars)}"
+                )
+
+            cls = get_driver(Provider.S3)
+            return cls(
+                key=getenv("B2_KEY_ID"),
+                secret=getenv("B2_APPLICATION_KEY"),
+                region=getenv("B2_REGION", "us-west-002"),
+                host=f"s3.{getenv('B2_REGION', 'us-west-002')}.backblazeb2.com",
+            )
+
+        elif backend == "s3":
+            required_vars = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+            missing_vars = [var for var in required_vars if not getenv(var)]
+            if missing_vars:
+                raise ValueError(
+                    f"Missing required environment variables: {', '.join(missing_vars)}"
+                )
+
+            cls = get_driver(Provider.S3)
+            return cls(
+                key=getenv("AWS_ACCESS_KEY_ID"),
+                secret=getenv("AWS_SECRET_ACCESS_KEY"),
+                region=getenv("AWS_STORAGE_REGION", "us-east-1"),
+                host=getenv(
+                    "S3_ENDPOINT", None
+                ),  # For MinIO or other S3-compatible services
+            )
+
+        elif backend == "azure":
+            required_vars = ["AZURE_STORAGE_ACCOUNT_NAME", "AZURE_STORAGE_KEY"]
+            missing_vars = [var for var in required_vars if not getenv(var)]
+            if missing_vars:
+                raise ValueError(
+                    f"Missing required environment variables: {', '.join(missing_vars)}"
+                )
+
+            cls = get_driver(Provider.AZURE_BLOBS)
+            return cls(
+                key=getenv("AZURE_STORAGE_ACCOUNT_NAME"),
+                secret=getenv("AZURE_STORAGE_KEY"),
+            )
+
+        else:
+            raise ValueError(f"Unsupported storage backend: {backend}")
 
     def _get_local_cache_path(
         self, agent_id: str, conversation_id: str, filename: str
