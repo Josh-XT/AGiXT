@@ -588,6 +588,12 @@ class Agent:
                         github_sso = True
                     if str(provider.name).lower() == "walmart":
                         walmart_sso = True
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if str(user.email).lower().endswith(".xt"):
+            microsoft_sso = False
+            google_sso = False
+            github_sso = False
+            walmart_sso = False
         session.close()
         for extension in extensions:
             if str(extension["extension_name"]).lower() == "microsoft":
