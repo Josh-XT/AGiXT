@@ -67,7 +67,6 @@ class WorkspaceManager:
     def _initialize_storage(self):
         """Initialize the appropriate storage backend based on environment variables"""
         backend = getenv("STORAGE_BACKEND", "local").lower()
-        container_name = getenv("STORAGE_CONTAINER", "agixt-workspace")
 
         if backend == "local":
             cls = get_driver(Provider.LOCAL)
@@ -253,4 +252,4 @@ class WorkspaceManager:
 
 
 # Create a singleton instance
-workspace_manager = WorkspaceManager()
+# workspace_manager = WorkspaceManager()

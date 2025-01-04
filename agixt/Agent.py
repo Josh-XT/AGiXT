@@ -956,14 +956,12 @@ class Agent:
                 for available_command in self.company_agent.available_commands
                 if available_command["enabled"] == True
             ]
-            # If anything in command_list is also in company_command_list, remove it from command_list
-            command_list = [
-                command
-                for command in command_list
-                if command not in company_command_list
-            ]
-            # Add company commands to command_list
-            command_list.extend(company_command_list)
+            # Check if anything enabled in company commands
+            if len(company_command_list) > 0:
+                # Check if the enabled items are already enabled for the user available commands
+                for company_command in company_command_list:
+                    if company_command not in command_list:
+                        command_list.append(company_command)
         if len(command_list) > 0:
             working_directory = f"{self.working_directory}/{conversation_id}"
             conversation_outputs = (
