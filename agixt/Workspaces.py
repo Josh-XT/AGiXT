@@ -252,4 +252,4 @@ class WorkspaceManager:
 
 
 # Create a singleton instance
-# workspace_manager = WorkspaceManager()
+workspace_manager = WorkspaceManager()
