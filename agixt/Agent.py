@@ -491,6 +491,8 @@ class Agent:
         if str(getenv("ENT").lower()) == "true":
             company_id = config["settings"].get("company_id")
             if company_id:
+                if str(self.user).endswith(".xt"):
+                    return config
                 company_agent = self.get_company_agent()
                 if company_agent:
                     company_agent_config = company_agent.get_agent_config()
