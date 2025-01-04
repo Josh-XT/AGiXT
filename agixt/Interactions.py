@@ -450,7 +450,6 @@ class Interactions:
             agent_commands = self.agent.get_commands_prompt(
                 conversation_id=conversation_id
             )
-        logging.info(f"Agent Commands: {agent_commands}")
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,

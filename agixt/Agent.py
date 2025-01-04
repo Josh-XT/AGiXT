@@ -381,10 +381,10 @@ class Agent:
             return None
 
     def get_company_agent_extensions(self):
+        agent_extensions = self.get_agent_extensions()
         if self.company_id:
             agent = self.get_company_agent()
             company_extensions = agent.get_agent_extensions()
-            agent_extensions = self.get_agent_extensions()
             # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
             for company_extension in company_extensions:
                 for agent_extension in agent_extensions:
@@ -406,7 +406,7 @@ class Agent:
             return agent_extensions
         else:
             logging.info("No company_id found.")
-            return self.get_agent_extensions()
+            return agent_extensions
 
     def load_config_keys(self):
         config_keys = [
