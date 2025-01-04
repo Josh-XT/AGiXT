@@ -101,7 +101,7 @@ class WorkspaceManager:
             return cls(
                 key=getenv("AWS_ACCESS_KEY_ID"),
                 secret=getenv("AWS_SECRET_ACCESS_KEY"),
-                region=getenv("AWS_REGION", "us-east-1"),
+                region=getenv("AWS_STORAGE_REGION", "us-east-1"),
                 host=getenv(
                     "S3_ENDPOINT", None
                 ),  # For MinIO or other S3-compatible services
@@ -119,13 +119,6 @@ class WorkspaceManager:
             return cls(
                 key=getenv("AZURE_STORAGE_ACCOUNT_NAME"),
                 secret=getenv("AZURE_STORAGE_KEY"),
-            )
-
-        elif backend == "gcs":
-            cls = get_driver(Provider.GOOGLE_STORAGE)
-            return cls(
-                getenv("GCS_PROJECT_ID"),
-                json_credentials_path=getenv("GOOGLE_APPLICATION_CREDENTIALS"),
             )
 
         else:
