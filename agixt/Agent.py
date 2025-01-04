@@ -399,9 +399,11 @@ class Agent:
                                         company_command["friendly_name"]
                                         == agent_command["friendly_name"]
                                     ):
-                                        agent_command["enabled"] = company_command[
-                                            "enabled"
-                                        ]
+                                        if (
+                                            str(company_command["enabled"]).lower()
+                                            == "true"
+                                        ):
+                                            agent_command["enabled"] = True
                 return agent_extensions
         except Exception as e:
             return ""

@@ -445,11 +445,11 @@ class Interactions:
         for arg in kwargs:
             if arg in skip_args:
                 del args[arg]
-        agent_commands = (
-            self.agent.get_commands_prompt(conversation_id=conversation_id)
-            if "disable_commands" not in kwargs
-            else ""
-        )
+        agent_commands = ""
+        if "disable_commands" not in kwargs:
+            agent_commands = self.agent.get_commands_prompt(
+                conversation_id=conversation_id
+            )
         logging.info(f"Agent Commands: {agent_commands}")
         formatted_prompt = self.custom_format(
             string=prompt,
