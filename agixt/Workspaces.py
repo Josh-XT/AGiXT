@@ -6,7 +6,14 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "apache-libcloud"])
     from libcloud.storage.types import Provider, ContainerDoesNotExistError
+try:
+    import fasteners
+except ImportError:
+    import sys
+    import subprocess
 
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "fasteners"])
+    import fasteners
 from libcloud.storage.providers import get_driver
 from contextlib import contextmanager
 from typing import Optional, Union, TextIO, BinaryIO, Generator, List
