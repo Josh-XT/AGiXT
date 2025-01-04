@@ -31,3 +31,6 @@ opencv-python
 pyzbar
 pytesseract
 black
+fasteners
+apache-libcloud
+watchdog
