@@ -72,4 +72,4 @@ COPY . .
 
 WORKDIR /agixt
 EXPOSE 7437
-ENTRYPOINT ["sh", "-c", "./launch-backend.sh"]
+ENTRYPOINT ["python3", "DB.py"]

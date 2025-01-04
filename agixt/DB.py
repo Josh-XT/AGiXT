@@ -1003,6 +1003,8 @@ def ensure_conversation_summary():
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     logging.info("Connecting to database...")
     if getenv("DATABASE_TYPE") != "sqlite":
         time.sleep(30)
@@ -1030,4 +1032,11 @@ if __name__ == "__main__":
     from SeedImports import import_all_data
 
     import_all_data()
-    time.sleep(3)
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=7437,
+        log_level=str(getenv("LOG_LEVEL")).lower(),
+        workers=int(getenv("UVICORN_WORKERS")),
+        proxy_headers=True,
+    )

@@ -21,7 +21,7 @@ from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
-
+from TaskMonitor import TaskMonitor
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -33,17 +33,40 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+workspace_manager = WorkspaceManager()
+task_monitor = TaskMonitor()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     workspace_manager.start_file_watcher()
+    task_monitor.start()
+    NGROK_TOKEN = getenv("NGROK_TOKEN")
+    if NGROK_TOKEN:
+        from pyngrok import ngrok
+
+        try:
+            ngrok.set_auth_token(NGROK_TOKEN)
+            public_url = ngrok.connect(7437)
+            logging.info(f"[ngrok] Public Tunnel: {public_url.public_url}")
+            ngrok_url = public_url.public_url
+        except Exception as e:
+            logging.error(f"[ngrok] Error: {e}")
+            ngrok_url = ""
+        if ngrok_url:
+            logging.info(f"[ngrok] Public Tunnel: {ngrok_url}")
 
     try:
         yield
     finally:
         # Shutdown
         workspace_manager.stop_file_watcher()
+        task_monitor.stop()
+        if NGROK_TOKEN:
+            try:
+                ngrok.kill()
+            except Exception as e:
+                pass
 
 
 # Register signal handlers for unexpected shutdowns
@@ -62,7 +85,7 @@ app = FastAPI(
     docs_url="/",
     lifespan=lifespan,
 )
-workspace_manager = WorkspaceManager()
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -227,7 +250,3 @@ async def serve_file(
     except Exception as e:
         logging.error(f"Unexpected error serving file: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7437)
