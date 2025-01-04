@@ -73,16 +73,15 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         .first()
     )
     if agent:
-        session.close()
-        return {"message": f"Agent {agent_name} already exists."}
-    agent = (
-        session.query(AgentModel)
-        .filter(AgentModel.name == agent_name, AgentModel.user.has(email=DEFAULT_USER))
-        .first()
-    )
-    if agent:
-        session.close()
-        return {"message": f"Agent {agent_name} already exists."}
+        i = 1
+        while not agent:
+            agent_name = f"{agent_name} {i}"
+            agent = (
+                session.query(AgentModel)
+                .filter(AgentModel.name == agent_name, AgentModel.user.has(email=user))
+                .first()
+            )
+            i += 1
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
 
@@ -237,6 +236,7 @@ class Agent:
         self.user_id = get_user_id(user=self.user)
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
+        self.company_id = None
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -353,7 +353,6 @@ class Agent:
         self.available_commands = self.extensions.get_available_commands()
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
-        self.company_id = None
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
             if str(self.company_id).lower() == "none":
@@ -490,6 +489,7 @@ class Agent:
         if str(getenv("ENT").lower()) == "true":
             company_id = config["settings"].get("company_id")
             if company_id:
+                self.company_id = company_id
                 if str(self.user).endswith(".xt"):
                     return config
                 company_agent = self.get_company_agent()

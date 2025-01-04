@@ -61,7 +61,10 @@ class DefaultProvider:
         translate=False,
     ):
         self.w = WhisperModel(
-            self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
+            self.TRANSCRIPTION_MODEL,
+            download_root="models",
+            device="cpu",
+            compute_type="int8",
         )
         segments, _ = self.w.transcribe(
             audio_path,
