@@ -17,7 +17,15 @@ except ImportError:
 from libcloud.storage.providers import get_driver
 from contextlib import contextmanager
 from typing import Optional, Union, TextIO, BinaryIO, Generator, List
-from watchdog.observers import Observer
+
+try:
+    from watchdog.observers import Observer
+except:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "watchdog"])
+    from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import threading
 import queue
