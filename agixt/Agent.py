@@ -236,6 +236,7 @@ class Agent:
         self.user_id = get_user_id(user=self.user)
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
+        self.company_id = None
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -352,7 +353,6 @@ class Agent:
         self.available_commands = self.extensions.get_available_commands()
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
-        self.company_id = None
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
             if str(self.company_id).lower() == "none":
