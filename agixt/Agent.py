@@ -26,7 +26,6 @@ from MagicalAuth import MagicalAuth, get_user_id
 from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
-from Workspaces import workspace_manager
 import logging
 import json
 import numpy as np

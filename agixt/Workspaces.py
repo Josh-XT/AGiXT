@@ -7,7 +7,7 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "apache-libcloud"])
     from libcloud.storage.types import Provider, ContainerDoesNotExistError
 try:
-    import fasteners
+    import fasteners  # This is required for libcloud to work, but libcloud doesn't install it.
 except ImportError:
     import sys
     import subprocess
@@ -17,58 +17,134 @@ except ImportError:
 from libcloud.storage.providers import get_driver
 from contextlib import contextmanager
 from typing import Optional, Union, TextIO, BinaryIO, Generator, List
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import threading
+import queue
 import os
 import tempfile
 import shutil
-from datetime import datetime, timedelta
 import logging
 from Globals import getenv
-import threading
 
 
-class CacheManager:
-    """Manages local file cache with cleanup"""
+class WorkspaceEventHandler(FileSystemEventHandler):
+    def __init__(self, workspace_manager):
+        self.workspace_manager = workspace_manager
+        self.sync_queue = queue.Queue()
+        self.start_sync_worker()
 
-    def __init__(self, cache_dir: str, max_age: timedelta = timedelta(days=1)):
-        self.cache_dir = cache_dir
-        self.max_age = max_age
-        self.cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
-        self.cleanup_thread.start()
+    def start_sync_worker(self):
+        def sync_worker():
+            while True:
+                try:
+                    # Get the next file event from the queue
+                    event_type, local_path = self.sync_queue.get()
+                    if local_path.endswith(".tmp") or local_path.endswith(".swp"):
+                        continue
 
-    def _cleanup_loop(self):
-        while True:
+                    # Get relative path from workspace root
+                    rel_path = os.path.relpath(
+                        local_path, self.workspace_manager.workspace_dir
+                    )
+                    parts = rel_path.split(os.sep)
+
+                    if len(parts) >= 2:
+                        agent_id = parts[0]
+                        filename = parts[-1]
+                        conversation_id = parts[1] if len(parts) >= 3 else None
+
+                        # Handle different event types
+                        if event_type in ("created", "modified"):
+                            object_path = self.workspace_manager._get_object_path(
+                                agent_id, conversation_id, filename
+                            )
+                            try:
+                                self.workspace_manager.container.upload_object(
+                                    local_path, object_path
+                                )
+                                logging.info(f"Synced {local_path} to storage backend")
+                            except Exception as e:
+                                logging.error(f"Failed to sync {local_path}: {e}")
+
+                        elif event_type == "deleted":
+                            object_path = self.workspace_manager._get_object_path(
+                                agent_id, conversation_id, filename
+                            )
+                            try:
+                                obj = self.workspace_manager.container.get_object(
+                                    object_path
+                                )
+                                obj.delete()
+                                logging.info(
+                                    f"Deleted {object_path} from storage backend"
+                                )
+                            except Exception as e:
+                                logging.error(f"Failed to delete {object_path}: {e}")
+
+                except Exception as e:
+                    logging.error(f"Error in sync worker: {e}")
+                finally:
+                    self.sync_queue.task_done()
+
+        sync_thread = threading.Thread(target=sync_worker, daemon=True)
+        sync_thread.start()
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self.sync_queue.put(("created", event.src_path))
+
+    def on_modified(self, event):
+        if not event.is_directory:
+            self.sync_queue.put(("modified", event.src_path))
+
+    def on_deleted(self, event):
+        if not event.is_directory:
+            self.sync_queue.put(("deleted", event.src_path))
+
+
+def add_to_workspace_manager(workspace_manager_class):
+    def start_file_watcher(self):
+        """Start watching the workspace directory for changes"""
+        if getenv("STORAGE_BACKEND", "local").lower() != "local":
+            if not hasattr(self, "observer") or not self.observer.is_alive():
+                self.event_handler = WorkspaceEventHandler(self)
+                self.observer = Observer()
+                self.observer.schedule(
+                    self.event_handler, self.workspace_dir, recursive=True
+                )
+                self.observer.daemon = True  # Make sure it's a daemon thread
+                self.observer.start()
+                logging.info(
+                    f"Started watching workspace directory: {self.workspace_dir}"
+                )
+
+    def stop_file_watcher(self):
+        """Stop the file watcher"""
+        if hasattr(self, "observer"):
             try:
-                self.cleanup_old_files()
+                if self.observer.is_alive():
+                    self.observer.stop()
+                    self.observer.join(timeout=5)  # Add timeout to prevent hanging
+                    if self.observer.is_alive():
+                        logging.warning("File watcher didn't stop cleanly")
             except Exception as e:
-                logging.error(f"Error in cache cleanup: {e}")
-            threading.Event().wait(3600)  # Run cleanup every hour
+                logging.error(f"Error stopping file watcher: {e}")
+            finally:
+                logging.info("Stopped workspace file watcher")
 
-    def cleanup_old_files(self):
-        """Remove files older than max_age"""
-        now = datetime.now()
-        for root, _, files in os.walk(self.cache_dir):
-            for filename in files:
-                filepath = os.path.join(root, filename)
-                file_time = datetime.fromtimestamp(os.path.getmtime(filepath))
-                if now - file_time > self.max_age:
-                    try:
-                        os.remove(filepath)
-                        # Try to remove empty directories
-                        current_dir = os.path.dirname(filepath)
-                        while current_dir != self.cache_dir:
-                            if os.listdir(current_dir) == []:
-                                os.rmdir(current_dir)
-                            current_dir = os.path.dirname(current_dir)
-                    except OSError as e:
-                        logging.error(f"Error removing cached file {filepath}: {e}")
+    # Add the new methods to the class
+    workspace_manager_class.start_file_watcher = start_file_watcher
+    workspace_manager_class.stop_file_watcher = stop_file_watcher
+    return workspace_manager_class
 
 
+@add_to_workspace_manager
 class WorkspaceManager:
     def __init__(self):
         self.workspace_dir = os.path.join(os.getcwd(), "WORKSPACE")
         os.makedirs(self.workspace_dir, exist_ok=True)
         self.driver = self._initialize_storage()
-        self.cache = CacheManager(self.workspace_dir)
         self._ensure_container_exists()
 
     def _initialize_storage(self):
@@ -256,7 +332,3 @@ class WorkspaceManager:
                 if not chunk:
                     break
                 yield chunk
-
-
-# Create a singleton instance
-workspace_manager = WorkspaceManager()
