@@ -1013,7 +1013,7 @@ class Agent:
 - To execute a command, the assistant should use the following format:
 
 <execute>
-<name>COMMAND_NAME</name>
+<name>FULL COMMAND NAME</name>
 <ARG1_NAME>ARG1_VALUE</ARG1_NAME>
 <ARG2_NAME>ARG2_VALUE</ARG2_NAME>
 ...
@@ -1032,6 +1032,7 @@ class Agent:
 - Any time the assistant executes a command, the text generation should end with </execute>. The assistant will be informed of the command output before the user receives the response to give the assistant the opportunity to evaluate the output and ensure it is correct, exploring different options if needed.
 - After command execution, increase step budget by 5, continue thinking, executing more commands if necessary for self-error correct unless user intervention is required, and then respond to the user.
 - Command executions should all take place BEFORE the <answer> block! Never inside the <answer> block. Only the response to the user goes inside the <answer> block.
+- Ensure that command names are EXACTLY as written in the command execution examples. A natural language friendly name is used.
 - **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
             return agent_commands
         return ""
