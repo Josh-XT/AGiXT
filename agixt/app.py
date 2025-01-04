@@ -4,6 +4,7 @@ import sys
 import logging
 import signal
 import mimetypes
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -72,8 +73,8 @@ app.add_middleware(
 )
 
 
-@app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}")
-@app.get("/outputs/{agent_id}/{filename:path}")
+@app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
+@app.get("/outputs/{agent_id}/{filename:path}", tags=["Workspace"])
 async def serve_file(
     agent_id: str, filename: str, conversation_id: Optional[str] = None
 ):
@@ -106,20 +107,21 @@ async def serve_file(
                     path = workspace_manager._get_local_cache_path(
                         agent_id, "", filename
                     )
-
                 # Ensure path is safe by using resolved paths and checking if it's within workspace
                 try:
-                    path = os.path.realpath(str(path))
-                    workspace_root = os.path.realpath(
-                        str(workspace_manager.workspace_dir)
-                    )
-                    relative_path = os.path.relpath(path, workspace_root)
-                    if relative_path.startswith(os.pardir) or any(
-                        p == os.pardir for p in relative_path.split(os.sep)
-                    ):
+                    path = Path(path).resolve()
+                    workspace_root = Path(workspace_manager.workspace_dir).resolve()
+                    try:
+                        relative_path = path.relative_to(workspace_root)
+                    except ValueError:
                         logging.warning(f"Path traversal attempt detected: {path}")
                         raise HTTPException(status_code=403, detail="Access denied")
-                    path = os.path.join(workspace_root, relative_path)
+                    final_path = workspace_root / relative_path
+                    if not final_path.is_file() or not str(final_path).startswith(
+                        str(workspace_root)
+                    ):
+                        raise HTTPException(status_code=403, detail="Access denied")
+                    path = final_path
                 except Exception as e:
                     logging.error(f"Path validation error: {e}")
                     raise HTTPException(status_code=400, detail="Invalid path")
