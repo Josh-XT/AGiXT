@@ -591,7 +591,7 @@ class Agent:
                         if str(provider.name).lower() == "walmart":
                             walmart_sso = True
         for extension in extensions:
-            if str(extension["extension_name"]).lower() == "microsoft":
+            if str(extension["extension_name"]).lower() == "microsoft365":
                 if not microsoft_sso:
                     continue
             if str(extension["extension_name"]).lower() == "google":
