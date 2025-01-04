@@ -381,31 +381,32 @@ class Agent:
             return None
 
     def get_company_agent_extensions(self):
-        try:
-            if self.company_id:
-                agent = self.get_company_agent()
-                company_extensions = agent.get_agent_extensions()
-                agent_extensions = self.get_agent_extensions()
-                # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
-                for company_extension in company_extensions:
-                    for agent_extension in agent_extensions:
-                        if (
-                            company_extension["extension_name"]
-                            == agent_extension["extension_name"]
-                        ):
-                            for company_command in company_extension["commands"]:
-                                for agent_command in agent_extension["commands"]:
+        agent_extensions = self.get_agent_extensions()
+        if self.company_id:
+            agent = self.get_company_agent()
+            company_extensions = agent.get_agent_extensions()
+            # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
+            for company_extension in company_extensions:
+                for agent_extension in agent_extensions:
+                    if (
+                        company_extension["extension_name"]
+                        == agent_extension["extension_name"]
+                    ):
+                        for company_command in company_extension["commands"]:
+                            for agent_command in agent_extension["commands"]:
+                                if (
+                                    company_command["friendly_name"]
+                                    == agent_command["friendly_name"]
+                                ):
                                     if (
-                                        company_command["friendly_name"]
-                                        == agent_command["friendly_name"]
+                                        str(company_command["enabled"]).lower()
+                                        == "true"
                                     ):
-                                        agent_command["enabled"] = company_command[
-                                            "enabled"
-                                        ]
-                return agent_extensions
-        except Exception as e:
-            return ""
-        return ""
+                                        agent_command["enabled"] = True
+            return agent_extensions
+        else:
+            logging.info("No company_id found.")
+            return agent_extensions
 
     def load_config_keys(self):
         config_keys = [
@@ -477,16 +478,27 @@ class Agent:
                 )
             for setting in agent_settings:
                 config["settings"][setting.name] = setting.value
-            session.close()
             user_settings = self.get_registration_requirement_settings()
             for key, value in user_settings.items():
                 config["settings"][key] = value
-            return config
-        config = {"settings": DEFAULT_SETTINGS, "commands": {}}
-        user_settings = self.get_registration_requirement_settings()
-        for key, value in user_settings.items():
-            config["settings"][key] = value
+        else:
+            config = {"settings": DEFAULT_SETTINGS, "commands": {}}
+            user_settings = self.get_registration_requirement_settings()
+            for key, value in user_settings.items():
+                config["settings"][key] = value
         session.close()
+        if str(getenv("ENT").lower()) == "true":
+            company_id = config["settings"].get("company_id")
+            if company_id:
+                if str(self.user).endswith(".xt"):
+                    return config
+                company_agent = self.get_company_agent()
+                if company_agent:
+                    company_agent_config = company_agent.get_agent_config()
+                    company_settings = company_agent_config.get("settings")
+                    for key, value in company_settings.items():
+                        if key not in config["settings"]:
+                            config["settings"][key] = value
         return config
 
     async def inference(
@@ -956,14 +968,12 @@ class Agent:
                 for available_command in self.company_agent.available_commands
                 if available_command["enabled"] == True
             ]
-            # If anything in command_list is also in company_command_list, remove it from command_list
-            command_list = [
-                command
-                for command in command_list
-                if command not in company_command_list
-            ]
-            # Add company commands to command_list
-            command_list.extend(company_command_list)
+            # Check if anything enabled in company commands
+            if len(company_command_list) > 0:
+                # Check if the enabled items are already enabled for the user available commands
+                for company_command in company_command_list:
+                    if company_command not in command_list:
+                        command_list.append(company_command)
         if len(command_list) > 0:
             working_directory = f"{self.working_directory}/{conversation_id}"
             conversation_outputs = (
@@ -972,7 +982,10 @@ class Agent:
             if str(getenv("ENT").lower()) == "true":
                 try:
                     agent_extensions = self.get_company_agent_extensions()
-                except:
+                    if agent_extensions == "":
+                        agent_extensions = self.get_agent_extensions()
+                except Exception as e:
+                    logging.error(f"Error getting agent extensions: {str(e)}")
                     agent_extensions = self.get_agent_extensions()
             else:
                 agent_extensions = self.get_agent_extensions()

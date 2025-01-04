@@ -1,4 +1,15 @@
 services:
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server --console-address ":9001" /data
+    volumes:
+      - minio_storage:/data
   agixt:
     image: joshxt/agixt:main
     init: true
@@ -25,15 +36,24 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_CONTAINER: ${STORAGE_CONTAINER:-agixt-workspace}
+      B2_KEY_ID: ${B2_KEY_ID:-}
+      B2_APPLICATION_KEY: ${B2_APPLICATION_KEY:-}
+      B2_REGION: ${B2_REGION:-us-west-002}
+      S3_BUCKET: ${S3_BUCKET:-agixt-workspace}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      AWS_STORAGE_REGION: ${AWS_STORAGE_REGION:-us-east-1}
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
+      AZURE_STORAGE_KEY: ${AZURE_STORAGE_KEY:-}
       TZ: ${TZ:-America/New_York}
     ports:
       - "${AGIXT_PORT:-7437}:7437"
     volumes:
       - ./models:/agixt/models
       - ./WORKSPACE:/agixt/WORKSPACE
-      - ./agixt/agents:/agixt/agents
-      - ./agixt/prompts:/agixt/prompts
-      - ./agixt/chains:/agixt/chains
       - ./agixt/memories:/agixt/memories
       - ./agixt/registration_requirements.json:/agixt/registration_requirements.json
       - /var/run/docker.sock:/var/run/docker.sock
