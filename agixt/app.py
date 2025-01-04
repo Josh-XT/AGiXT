@@ -96,32 +96,68 @@ async def serve_file(
         if not content_type:
             content_type = "application/octet-stream"
 
+        def sanitize_path_component(component: str) -> str:
+            # Only allow alphanumeric chars, hyphen, underscore, dot, and forward slash
+            sanitized = (
+                "".join(c for c in component if c.isalnum() or c in "-_./")
+                .replace("..", "")
+                .strip("/")
+            )
+            return sanitized if sanitized else ""
+
+        # Sanitize user input
+        safe_agent_id = sanitize_path_component(agent_id)
+        safe_filename = sanitize_path_component(filename)
+        safe_conversation_id = (
+            "" if not conversation_id else sanitize_path_component(conversation_id)
+        )
+
+        # Validate sanitized inputs
+        if not safe_agent_id or safe_agent_id != agent_id:
+            raise HTTPException(status_code=400, detail="Invalid agent ID")
+        if not safe_filename or safe_filename != filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        if conversation_id and (
+            not safe_conversation_id or safe_conversation_id != conversation_id
+        ):
+            raise HTTPException(status_code=400, detail="Invalid conversation ID")
+
         # If using local storage, we can serve directly
         if getenv("STORAGE_BACKEND", "local").lower() == "local":
             try:
                 if conversation_id:
                     path = workspace_manager._get_local_cache_path(
-                        agent_id, conversation_id, filename
+                        safe_agent_id, safe_conversation_id, safe_filename
                     )
                 else:
                     path = workspace_manager._get_local_cache_path(
-                        agent_id, "", filename
+                        safe_agent_id, "", safe_filename
                     )
                 # Ensure path is safe by using resolved paths and checking if it's within workspace
                 try:
-                    path = Path(path).resolve()
-                    workspace_root = Path(workspace_manager.workspace_dir).resolve()
-                    try:
-                        relative_path = path.relative_to(workspace_root)
-                    except ValueError:
+                    # Normalize paths and convert to absolute
+                    path = os.path.normpath(os.path.abspath(path))
+                    workspace_root = os.path.normpath(
+                        os.path.abspath(workspace_manager.workspace_dir)
+                    )
+
+                    # Check if path is within workspace directory
+                    if not path.startswith(workspace_root):
                         logging.warning(f"Path traversal attempt detected: {path}")
                         raise HTTPException(status_code=403, detail="Access denied")
-                    final_path = workspace_root / relative_path
-                    if not final_path.is_file() or not str(final_path).startswith(
-                        str(workspace_root)
+
+                    # Convert to Path objects for further operations
+                    path = Path(path)
+                    workspace_root = Path(workspace_root)
+
+                    if not path.is_file():
+                        raise HTTPException(status_code=404, detail="File not found")
+
+                    # Double-check path is still within workspace after resolution
+                    if not str(path.resolve()).startswith(
+                        str(workspace_root.resolve())
                     ):
                         raise HTTPException(status_code=403, detail="Access denied")
-                    path = final_path
                 except Exception as e:
                     logging.error(f"Path validation error: {e}")
                     raise HTTPException(status_code=400, detail="Invalid path")
