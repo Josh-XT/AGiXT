@@ -78,51 +78,111 @@ async def serve_file(
     agent_id: str, filename: str, conversation_id: Optional[str] = None
 ):
     try:
-        # Get content type based on file extension
+        # Validate input parameters
+        try:
+            workspace_manager.validate_identifier(agent_id, "agent_id")
+            workspace_manager.validate_filename(filename)
+            if conversation_id:
+                workspace_manager.validate_identifier(
+                    conversation_id, "conversation_id"
+                )
+        except ValueError as e:
+            logging.error(f"Validation error in serve_file: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Get content type based on file extension and validate
         content_type, _ = mimetypes.guess_type(filename)
         if not content_type:
             content_type = "application/octet-stream"
 
+        # Maintain a whitelist of allowed content types if needed
+        allowed_types = {
+            "text/plain",
+            "text/csv",
+            "application/json",
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "application/pdf",
+            "application/octet-stream",
+        }
+        if content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+
         # If using local storage, we can serve directly
-        if workspace_manager.storage.__class__.__name__ == "LocalBackend":
-            if conversation_id:
-                path = workspace_manager._get_local_cache_path(
-                    agent_id, conversation_id, filename
-                )
-            else:
-                path = workspace_manager._get_local_cache_path(agent_id, "", filename)
-
-            # Ensure path is safe
+        if getenv("STORAGE_BACKEND", "local").lower() == "local":
             try:
-                path = workspace_manager._ensure_safe_path(
-                    workspace_manager.workspace_dir, path
-                )
-            except ValueError:
-                raise HTTPException(status_code=403, detail="Access denied")
+                if conversation_id:
+                    path = workspace_manager._get_local_cache_path(
+                        agent_id, conversation_id, filename
+                    )
+                else:
+                    path = workspace_manager._get_local_cache_path(
+                        agent_id, "", filename
+                    )
 
-            async def file_iterator():
-                with open(path, "rb") as f:
-                    while chunk := f.read(8192):
-                        yield chunk
+                # Ensure path is safe
+                try:
+                    path = workspace_manager.ensure_safe_path(
+                        workspace_manager.workspace_dir, path
+                    )
+                except ValueError:
+                    raise HTTPException(status_code=403, detail="Access denied")
+
+                # Check if file exists and size
+                if not path.exists():
+                    raise HTTPException(status_code=404, detail="File not found")
+
+                if path.stat().st_size > workspace_manager.MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="File too large")
+
+                async def file_iterator():
+                    try:
+                        with open(path, "rb") as f:
+                            while chunk := f.read(8192):
+                                yield chunk
+                    except Exception as e:
+                        logging.error(f"Error reading file: {e}")
+                        raise HTTPException(
+                            status_code=500, detail="Error reading file"
+                        )
+
+            except Exception as e:
+                logging.error(f"Error processing local file: {e}")
+                raise HTTPException(status_code=500, detail="Internal server error")
 
         # For cloud storage, use streaming
         else:
 
             async def file_iterator():
-                async for chunk in workspace_manager.stream_file(
-                    agent_id, conversation_id, filename
-                ):
-                    yield chunk
+                try:
+                    async for chunk in workspace_manager.stream_file(
+                        agent_id, conversation_id, filename
+                    ):
+                        yield chunk
+                except ValueError as e:
+                    logging.error(f"Validation error in stream_file: {e}")
+                    raise HTTPException(status_code=400, detail=str(e))
+                except Exception as e:
+                    logging.error(f"Error streaming file: {e}")
+                    raise HTTPException(status_code=500, detail="Error streaming file")
 
         return StreamingResponse(
             file_iterator(),
             media_type=content_type,
-            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logging.error(f"Error serving file: {str(e)}")
-        raise HTTPException(status_code=404, detail="File not found")
+        logging.error(f"Unexpected error serving file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 app.include_router(agent_endpoints)
