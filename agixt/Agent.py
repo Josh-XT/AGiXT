@@ -568,6 +568,7 @@ class Agent:
         user_oauth = (
             session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
         )
+        user = session.query(User).filter(User.id == self.user_id).first()
         microsoft_sso = False
         google_sso = False
         github_sso = False
@@ -580,21 +581,15 @@ class Agent:
                     .first()
                 )
                 if provider:
-                    if str(provider.name).lower() == "microsoft":
-                        microsoft_sso = True
-                    if str(provider.name).lower() == "google":
-                        google_sso = True
-                    if str(provider.name).lower() == "github":
-                        github_sso = True
-                    if str(provider.name).lower() == "walmart":
-                        walmart_sso = True
-        user = session.query(User).filter(User.id == self.user_id).first()
-        if str(user.email).lower().endswith(".xt"):
-            microsoft_sso = False
-            google_sso = False
-            github_sso = False
-            walmart_sso = False
-        session.close()
+                    if not str(user.email).lower().endswith(".xt"):
+                        if str(provider.name).lower() == "microsoft":
+                            microsoft_sso = True
+                        if str(provider.name).lower() == "google":
+                            google_sso = True
+                        if str(provider.name).lower() == "github":
+                            github_sso = True
+                        if str(provider.name).lower() == "walmart":
+                            walmart_sso = True
         for extension in extensions:
             if str(extension["extension_name"]).lower() == "microsoft":
                 if not microsoft_sso:
@@ -635,6 +630,7 @@ class Agent:
                     )
                 else:
                     command["enabled"] = False
+        session.close()
         return new_extensions
 
     def update_agent_config(self, new_config, config_key):
