@@ -381,33 +381,32 @@ class Agent:
             return None
 
     def get_company_agent_extensions(self):
-        try:
-            if self.company_id:
-                agent = self.get_company_agent()
-                company_extensions = agent.get_agent_extensions()
-                agent_extensions = self.get_agent_extensions()
-                # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
-                for company_extension in company_extensions:
-                    for agent_extension in agent_extensions:
-                        if (
-                            company_extension["extension_name"]
-                            == agent_extension["extension_name"]
-                        ):
-                            for company_command in company_extension["commands"]:
-                                for agent_command in agent_extension["commands"]:
+        if self.company_id:
+            agent = self.get_company_agent()
+            company_extensions = agent.get_agent_extensions()
+            agent_extensions = self.get_agent_extensions()
+            # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
+            for company_extension in company_extensions:
+                for agent_extension in agent_extensions:
+                    if (
+                        company_extension["extension_name"]
+                        == agent_extension["extension_name"]
+                    ):
+                        for company_command in company_extension["commands"]:
+                            for agent_command in agent_extension["commands"]:
+                                if (
+                                    company_command["friendly_name"]
+                                    == agent_command["friendly_name"]
+                                ):
                                     if (
-                                        company_command["friendly_name"]
-                                        == agent_command["friendly_name"]
+                                        str(company_command["enabled"]).lower()
+                                        == "true"
                                     ):
-                                        if (
-                                            str(company_command["enabled"]).lower()
-                                            == "true"
-                                        ):
-                                            agent_command["enabled"] = True
-                return agent_extensions
-        except Exception as e:
-            return ""
-        return ""
+                                        agent_command["enabled"] = True
+            return agent_extensions
+        else:
+            logging.info("No company_id found.")
+            return self.get_agent_extensions()
 
     def load_config_keys(self):
         config_keys = [
@@ -983,7 +982,10 @@ class Agent:
             if str(getenv("ENT").lower()) == "true":
                 try:
                     agent_extensions = self.get_company_agent_extensions()
-                except:
+                    if agent_extensions == "":
+                        agent_extensions = self.get_agent_extensions()
+                except Exception as e:
+                    logging.error(f"Error getting agent extensions: {str(e)}")
                     agent_extensions = self.get_agent_extensions()
             else:
                 agent_extensions = self.get_agent_extensions()
