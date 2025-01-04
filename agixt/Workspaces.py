@@ -65,9 +65,9 @@ class CacheManager:
 
 class WorkspaceManager:
     def __init__(self):
-        self.driver = self._initialize_storage()
         self.workspace_dir = os.path.join(os.getcwd(), "WORKSPACE")
         os.makedirs(self.workspace_dir, exist_ok=True)
+        self.driver = self._initialize_storage()
         self.cache = CacheManager(self.workspace_dir)
         self._ensure_container_exists()
 
