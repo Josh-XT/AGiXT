@@ -121,13 +121,22 @@ async def serve_file(
                         agent_id, "", filename
                     )
 
-                # Ensure path is safe
+                # Ensure path is safe by using resolved paths and checking if it's within workspace
                 try:
-                    path = workspace_manager.ensure_safe_path(
-                        workspace_manager.workspace_dir, path
+                    path = os.path.realpath(str(path))
+                    workspace_root = os.path.realpath(
+                        str(workspace_manager.workspace_dir)
                     )
-                except ValueError:
-                    raise HTTPException(status_code=403, detail="Access denied")
+                    relative_path = os.path.relpath(path, workspace_root)
+                    if relative_path.startswith(os.pardir) or any(
+                        p == os.pardir for p in relative_path.split(os.sep)
+                    ):
+                        logging.warning(f"Path traversal attempt detected: {path}")
+                        raise HTTPException(status_code=403, detail="Access denied")
+                    path = os.path.join(workspace_root, relative_path)
+                except Exception as e:
+                    logging.error(f"Path validation error: {e}")
+                    raise HTTPException(status_code=400, detail="Invalid path")
 
                 # Check if file exists and size
                 if not path.exists():

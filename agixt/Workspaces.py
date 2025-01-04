@@ -248,7 +248,6 @@ class WorkspaceManager(SecurityValidationMixin):
         self._validate_storage_backend()
         self.driver = self._initialize_storage()
         self._ensure_container_exists()
-        self.start_file_watcher()
 
     def _initialize_storage(self):
         """Initialize the appropriate storage backend based on environment variables"""
@@ -313,18 +312,53 @@ class WorkspaceManager(SecurityValidationMixin):
         self, agent_id: str, conversation_id: str, filename: str
     ) -> Path:
         """Get the local cache path for a file with validation"""
-        agent_id = self.validate_identifier(agent_id, "agent_id")
-        filename = self.validate_filename(filename)
+        if not isinstance(agent_id, str) or not isinstance(filename, str):
+            raise ValueError("Invalid input types")
 
-        if conversation_id:
-            conversation_id = self.validate_identifier(
-                conversation_id, "conversation_id"
+        # Strict pattern for allowed characters
+        allowed_pattern = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+
+        # Validate and sanitize components with strict rules
+        def sanitize_path_component(component: str, component_type: str) -> str:
+            if not component or not isinstance(component, str):
+                raise ValueError(f"Invalid {component_type}")
+            if len(component) > 255:
+                raise ValueError(f"{component_type} too long")
+            if not allowed_pattern.match(component):
+                raise ValueError(f"Invalid characters in {component_type}")
+            return re.sub(r"[^a-zA-Z0-9_.-]", "_", component)
+
+        # Validate and sanitize all components before path construction
+        agent_id = sanitize_path_component(
+            self.validate_identifier(agent_id, "agent_id"), "agent_id"
+        )
+        filename = sanitize_path_component(self.validate_filename(filename), "filename")
+        conversation_id = (
+            sanitize_path_component(
+                self.validate_identifier(conversation_id, "conversation_id"),
+                "conversation_id",
             )
-            path = Path(self.workspace_dir, agent_id, conversation_id, filename)
-        else:
-            path = Path(self.workspace_dir, agent_id, filename)
+            if conversation_id
+            else None
+        )
 
-        return self.ensure_safe_path(self.workspace_dir, path)
+        # Resolve workspace_dir first to ensure it's absolute
+        base_path = Path(self.workspace_dir).resolve()
+
+        try:
+            # Construct components list with sanitized values
+            path_components = [agent_id]
+            if conversation_id:
+                path_components.append(conversation_id)
+            path_components.append(filename)
+
+            # Use ensure_safe_path for final path construction
+            safe_path = self.ensure_safe_path(base_path, Path(*path_components))
+
+            return safe_path
+        except ValueError as e:
+            logging.error(f"Path validation error: {e}")
+            raise ValueError("Invalid path components")
 
     def _get_object_path(
         self, agent_id: str, conversation_id: str, filename: str
