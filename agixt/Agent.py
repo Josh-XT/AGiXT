@@ -479,16 +479,25 @@ class Agent:
                 )
             for setting in agent_settings:
                 config["settings"][setting.name] = setting.value
-            session.close()
             user_settings = self.get_registration_requirement_settings()
             for key, value in user_settings.items():
                 config["settings"][key] = value
-            return config
-        config = {"settings": DEFAULT_SETTINGS, "commands": {}}
-        user_settings = self.get_registration_requirement_settings()
-        for key, value in user_settings.items():
-            config["settings"][key] = value
+        else:
+            config = {"settings": DEFAULT_SETTINGS, "commands": {}}
+            user_settings = self.get_registration_requirement_settings()
+            for key, value in user_settings.items():
+                config["settings"][key] = value
         session.close()
+        if str(getenv("ENT").lower()) == "true":
+            company_id = config["settings"].get("company_id")
+            if company_id:
+                company_agent = self.get_company_agent()
+                if company_agent:
+                    company_agent_config = company_agent.get_agent_config()
+                    company_settings = company_agent_config.get("settings")
+                    for key, value in company_settings.items():
+                        if key not in config["settings"]:
+                            config["settings"][key] = value
         return config
 
     async def inference(
