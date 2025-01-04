@@ -73,6 +73,17 @@ app.add_middleware(
 )
 
 
+app.include_router(agent_endpoints)
+app.include_router(chain_endpoints)
+app.include_router(completions_endpoints)
+app.include_router(conversation_endpoints)
+app.include_router(extension_endpoints)
+app.include_router(memory_endpoints)
+app.include_router(prompt_endpoints)
+app.include_router(provider_endpoints)
+app.include_router(auth_endpoints)
+
+
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
 @app.get("/outputs/{agent_id}/{filename:path}", tags=["Workspace"])
 async def serve_file(
@@ -217,16 +228,6 @@ async def serve_file(
         logging.error(f"Unexpected error serving file: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-app.include_router(agent_endpoints)
-app.include_router(chain_endpoints)
-app.include_router(completions_endpoints)
-app.include_router(conversation_endpoints)
-app.include_router(extension_endpoints)
-app.include_router(memory_endpoints)
-app.include_router(prompt_endpoints)
-app.include_router(provider_endpoints)
-app.include_router(auth_endpoints)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7437)
