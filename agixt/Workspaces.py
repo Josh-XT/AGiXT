@@ -324,19 +324,47 @@ class WorkspaceManager:
     async def stream_file(
         self, agent_id: str, conversation_id: str, filename: str, chunk_size: int = 8192
     ):
-        """Stream a file from the workspace"""
+        """Stream a file from the workspace with proper path validation"""
+        # Validate and sanitize input parameters
+        if not isinstance(agent_id, str) or not agent_id or ".." in agent_id:
+            raise ValueError("Invalid agent_id")
+        if conversation_id and (
+            not isinstance(conversation_id, str) or ".." in conversation_id
+        ):
+            raise ValueError("Invalid conversation_id")
+        if not isinstance(filename, str) or not filename or ".." in filename:
+            raise ValueError("Invalid filename")
+
+        # Get paths using existing helper methods
         object_path = self._get_object_path(agent_id, conversation_id, filename)
         local_path = self._get_local_cache_path(agent_id, conversation_id, filename)
 
-        # If not in cache, download first
-        if not os.path.exists(local_path):
-            obj = self.container.get_object(object_path)
-            obj.download(local_path)
+        # Ensure the local path is safe
+        try:
+            validated_local_path = self._ensure_safe_path(
+                self.workspace_dir, local_path
+            )
+        except ValueError as e:
+            logging.error(f"Path validation failed: {e}")
+            raise ValueError("Invalid path detected")
 
-        # Stream from local cache
-        with open(local_path, "rb") as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                yield chunk
+        # If not in cache, download first
+        if not os.path.exists(validated_local_path):
+            try:
+                obj = self.container.get_object(object_path)
+                obj.download(validated_local_path)
+            except Exception as e:
+                logging.error(f"Failed to download file: {e}")
+                raise
+
+        # Stream from local cache using validated path
+        try:
+            with open(validated_local_path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+        except Exception as e:
+            logging.error(f"Error streaming file: {e}")
+            raise
