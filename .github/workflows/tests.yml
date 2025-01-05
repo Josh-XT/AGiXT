@@ -45,20 +45,6 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-      minio:
-        image: minio/minio:latest
-        ports:
-          - 9000:9000
-          - 9001:9001
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: just-a-test
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 10s
-          --health-timeout 60s
-          --health-retries 5
-          --health-start-period 2m
       agixt:
         image: ${{ inputs.image }}
         ports:
@@ -82,12 +68,6 @@ jobs:
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
-          STORAGE_BACKEND: local
-          STORAGE_CONTAINER: agixt-workspace
-          S3_BUCKET: ${S3_BUCKET:-agixt-workspace}
-          S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
-          AWS_ACCESS_KEY_ID: minioadmin
-          AWS_SECRET_ACCESS_KEY: just-a-test
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0
