@@ -294,6 +294,7 @@ class WorkspaceManager(SecurityValidationMixin):
                 host=host,  # Just the host without protocol
                 use_ssl=use_ssl,
                 verify_ssl_cert=False,  # For self-signed certs
+                ex_force_http=use_ssl,
             )
 
         elif backend == "azure":
