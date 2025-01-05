@@ -612,8 +612,15 @@ class Chain:
                 .first()
             )
             if chain:
-                session.close()
-                return None
+                # Check if chain has steps
+                chain_steps = (
+                    session.query(ChainStep)
+                    .filter(ChainStep.chain_id == chain.id)
+                    .all()
+                )
+                if chain_steps:
+                    session.close()
+                    return None
 
             # Create new chain
             chain = ChainDB(name=chain_name, user_id=self.user_id)
