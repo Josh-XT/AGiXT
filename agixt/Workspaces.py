@@ -289,6 +289,7 @@ class WorkspaceManager(SecurityValidationMixin):
                 host=getenv(
                     "S3_ENDPOINT", None
                 ),  # For MinIO or other S3-compatible services
+                use_ssl=False if getenv("S3_ENDPOINT").startswith("http://") else True,
             )
 
         elif backend == "azure":
