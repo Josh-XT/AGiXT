@@ -5,7 +5,12 @@ from Globals import getenv
 from Task import Task
 from datetime import datetime, timedelta
 from fastapi import HTTPException
+from hashlib import sha256
 import jwt
+import random
+import socket
+import os
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,17 +43,42 @@ class TaskMonitor:
     def __init__(self):
         self.running = False
         self.tasks = []
+        self._process_lock = asyncio.Lock()
+        self.worker_id = None
+        self.total_workers = int(getenv("UVICORN_WORKERS"))
+        self._initialize_worker_id()
 
-    def is_running(self):
-        """Check if the monitor is running and tasks are healthy"""
-        return self.running and any(not task.done() for task in self.tasks)
+    def _initialize_worker_id(self):
+        """Generate a unique worker ID based on process information"""
+        # Combine multiple sources of uniqueness
+        pid = os.getpid()
+        hostname = socket.gethostname()
+        # Create a hash of process-specific information
+        unique_str = f"{hostname}:{pid}:{os.getppid()}"
+        hash_obj = sha256(unique_str.encode())
+        # Use last 4 bits of hash for 0-15 worker ID range
+        self.worker_id = int(hash_obj.hexdigest()[-1], 16) % self.total_workers
+        logging.info(
+            f"Initialized worker {self.worker_id} of {self.total_workers} (PID: {pid})"
+        )
+
+    def _should_process_task(self, task_id: str) -> bool:
+        """Determine if this worker should process the given task"""
+        # Use consistent hashing to determine task ownership
+        hash_obj = sha256(task_id.encode())
+        task_num = int(hash_obj.hexdigest()[-1], 16)
+        return task_num % self.total_workers == self.worker_id
 
     async def get_all_pending_tasks(self) -> list:
-        """Get all pending tasks for all users"""
+        """Get pending tasks assigned to this worker"""
+        if self.worker_id is None:
+            logging.error("Worker ID not initialized!")
+            return []
+
         session = get_session()
-        now = datetime.now()
         try:
-            tasks = (
+            now = datetime.now()
+            all_tasks = (
                 session.query(TaskItem)
                 .filter(
                     TaskItem.completed == False,
@@ -57,64 +87,85 @@ class TaskMonitor:
                 )
                 .all()
             )
-            return tasks
+
+            # Filter tasks for this worker
+            my_tasks = [
+                task for task in all_tasks if self._should_process_task(str(task.id))
+            ]
+
+            return my_tasks
         finally:
             session.close()
 
     async def process_tasks(self):
-        """Process all pending tasks across users"""
+        """Process tasks assigned to this worker"""
         while self.running:
             try:
-                session = get_session()
-                try:
+                # Add initial delay based on worker ID
+                if not hasattr(self, "_initial_delay_done"):
+                    delay = self.worker_id * 5  # 5 second stagger
+                    logging.info(
+                        f"Worker {self.worker_id}: Initial delay of {delay} seconds"
+                    )
+                    await asyncio.sleep(delay)
+                    self._initial_delay_done = True
+
+                async with self._process_lock:
                     pending_tasks = await self.get_all_pending_tasks()
+
                     for pending_task in pending_tasks:
-                        # Create task manager with impersonated user context
-                        logging.info(
-                            f"Processing task {pending_task.id} for user {pending_task.user_id}"
-                        )
-                        logging.info(f"Task: {pending_task.title}")
-                        logging.info(f"Description: {pending_task.description}")
-                        logging.info(f"Due Date: {pending_task.due_date}")
-                        logging.info(f"Created At: {pending_task.created_at}")
-                        logging.info(f"Memory: {pending_task.memory_collection}")
-
-                        user_id = pending_task.user_id
-                        if not user_id:
-                            logging.error(
-                                f"Task {pending_task.id} does not have a user associated with it."
-                            )
-                            # Delete the task
-                            session.delete(pending_task)
-                            session.commit()
-                            continue
-
-                        task_manager = Task(
-                            token=impersonate_user(user_id=user_id),
-                        )
                         try:
-                            # Execute single task
-                            await task_manager.execute_pending_tasks()
+                            session = get_session()
+                            try:
+                                if not pending_task.user_id:
+                                    logging.error(
+                                        f"Task {pending_task.id} has no associated user"
+                                    )
+                                    session.delete(pending_task)
+                                    session.commit()
+                                    continue
+
+                                logging.info(
+                                    f"Worker {self.worker_id} processing task {pending_task.id}"
+                                )
+                                task_manager = Task(
+                                    token=impersonate_user(user_id=pending_task.user_id)
+                                )
+
+                                try:
+                                    await asyncio.wait_for(
+                                        task_manager.execute_pending_tasks(),
+                                        timeout=300,
+                                    )
+                                except asyncio.TimeoutError:
+                                    logging.error(f"Task {pending_task.id} timed out")
+                                    continue
+                            finally:
+                                session.close()
+
                         except Exception as e:
-                            logger.error(
+                            logging.error(
                                 f"Error processing task {pending_task.id}: {str(e)}"
                             )
-                            # Delete the task
-                            session.delete(pending_task)
-                            session.commit()
-                finally:
-                    session.close()
+                            continue
 
-                # Wait before next check
-                await asyncio.sleep(60)
+                # Add randomized delay between checks (55-65 seconds)
+                check_interval = 60 + random.uniform(-5, 5)
+                await asyncio.sleep(check_interval)
+
             except Exception as e:
-                logger.error(f"Error in task processing loop: {str(e)}")
+                logging.error(
+                    f"Error in main task loop (Worker {self.worker_id}): {str(e)}"
+                )
                 await asyncio.sleep(60)
 
     async def start(self):
         """Start the task monitoring service"""
+        if self.running:
+            return
+
         self.running = True
-        logger.info("Starting task monitor service...")
+        logger.info(f"Starting task monitor service on worker {self.worker_id}...")
         task = asyncio.create_task(self.process_tasks())
         self.tasks.append(task)
 
@@ -129,4 +180,4 @@ class TaskMonitor:
                 except asyncio.CancelledError:
                     pass
         self.tasks.clear()
-        logger.info("Task monitor service stopped.")
+        logger.info(f"Task monitor service stopped on worker {self.worker_id}.")

@@ -27,6 +27,9 @@ from Models import (
     ExternalSource,
     UserInput,
     FeedbackInput,
+    MemoryResponse,
+    MemoryCollectionResponse,
+    DPOResponse,
 )
 import logging
 from Globals import getenv
@@ -43,6 +46,9 @@ app = APIRouter()
     "/api/agent/{agent_name}/memory/{collection_number}/query",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=MemoryResponse,
+    summary="Query agent memories from a specific collection",
+    description="Retrieves memories based on user input with relevance scoring and limiting options.",
 )
 async def query_memories(
     agent_name: str,
@@ -74,6 +80,9 @@ async def query_memories(
     "/api/agent/{agent_name}/memory/export",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=MemoryResponse,
+    summary="Export all agent memories",
+    description="Exports all memories from all collections for the specified agent.",
 )
 async def export_agent_memories(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -92,6 +101,9 @@ async def export_agent_memories(
     "/api/agent/{agent_name}/memory/import",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Import memories into agent",
+    description="Imports a list of memories into the agent's various collections.",
 )
 async def import_agent_memories(
     agent_name: str,
@@ -113,6 +125,9 @@ async def import_agent_memories(
     "/api/agent/{agent_name}/learn/text",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Learn from text input",
+    description="Adds text content to the agent's memory with associated user input context.",
 )
 async def learn_text(
     agent_name: str,
@@ -150,6 +165,9 @@ async def learn_text(
     "/api/agent/{agent_name}/learn/file",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Learn from file content",
+    description="Processes and adds file content to the agent's memory. Supports various file types including PDFs, docs, and spreadsheets.",
 )
 async def learn_file(
     agent_name: str,
@@ -207,6 +225,9 @@ async def learn_file(
     "/api/agent/{agent_name}/learn/url",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Learn from URL content",
+    description="Scrapes and learns from content at the specified URL.",
 )
 async def learn_url(
     agent_name: str,
@@ -241,6 +262,9 @@ async def learn_url(
     "/api/agent/{agent_name}/learn/github",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Learn from GitHub repository",
+    description="Processes and learns from content in a GitHub repository.",
 )
 async def learn_github_repo(
     agent_name: str,
@@ -274,6 +298,9 @@ async def learn_github_repo(
     "/api/agent/{agent_name}/learn/arxiv",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Learn from arXiv articles",
+    description="Processes and learns from specified arXiv articles or search results.",
 )
 async def learn_arxiv(
     agent_name: str,
@@ -302,6 +329,9 @@ async def learn_arxiv(
     "/api/agent/{agent_name}/learn/youtube",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Learn from YouTube video",
+    description="Processes and learns from YouTube video captions.",
 )
 async def learn_youtube(
     agent_name: str,
@@ -326,6 +356,9 @@ async def learn_youtube(
     "/api/agent/{agent_name}/reader/{reader_name}",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Use specific reader to learn content",
+    description="Uses a specified reader (file, website, github, arxiv, youtube) to process and learn content.",
 )
 async def agent_reader(
     agent_name: str,
@@ -405,6 +438,9 @@ async def agent_reader(
     "/api/agent/{agent_name}/memory",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Delete all agent memories",
+    description="Wipes all memories for the specified agent. Requires admin access.",
 )
 async def wipe_agent_memories(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -427,6 +463,9 @@ async def wipe_agent_memories(
     "/api/agent/{agent_name}/memory/{collection_number}",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Delete memories from specific collection",
+    description="Wipes memories from a specific collection. Requires admin access.",
 )
 async def wipe_agent_memories(
     agent_name: str,
@@ -452,6 +491,9 @@ async def wipe_agent_memories(
     "/api/agent/{agent_name}/memory/{collection_number}/{memory_id}",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Delete specific memory",
+    description="Deletes a specific memory by its ID from a collection.",
 )
 async def delete_agent_memory(
     agent_name: str,
@@ -479,7 +521,9 @@ async def delete_agent_memory(
     "/api/agent/{agent_name}/memory/dataset",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
-    summary="Create a dataset from the agent's memories",
+    response_model=ResponseMessage,
+    summary="Create dataset from memories",
+    description="Creates a training dataset from the agent's memories. Requires admin access.",
 )
 async def create_dataset(
     agent_name: str,
@@ -508,7 +552,9 @@ async def create_dataset(
     "/api/agent/{agent_name}/dpo",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
-    summary="Gets a DPO response for a question",
+    response_model=DPOResponse,
+    summary="Get DPO response for question",
+    description="Generates a DPO (Direct Preference Optimization) response including prompt, chosen and rejected outputs.",
 )
 async def get_dpo_response(
     agent_name: str,
@@ -573,6 +619,9 @@ async def fine_tune_model(
     "/api/agent/{agent_name}/memories/external_source",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Delete memories from external source",
+    description="Deletes all memories from a specific external source. Requires admin access.",
 )
 async def delete_memories_from_external_source(
     agent_name: str,
@@ -614,6 +663,9 @@ async def delete_memories_from_external_source(
     "/api/agent/{agent_name}/memory/external_sources/{collection_number}",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=MemoryCollectionResponse,
+    summary="Get unique external sources",
+    description="Retrieves a list of unique external sources in the specified collection.",
 )
 async def get_unique_external_sources(
     agent_name: str,
@@ -639,6 +691,8 @@ if str(getenv("ENT")).lower() == "true":
         "/api/agent/{agent_name}/learn/file/{company_id}",
         tags=["Memory"],
         dependencies=[Depends(verify_api_key)],
+        summary="Learn from file content",
+        description="Processes and adds file content to the agent's memory. Supports various file types including PDFs, docs, and spreadsheets.",
     )
     async def learn_cfile(
         agent_name: str,
@@ -662,6 +716,9 @@ if str(getenv("ENT")).lower() == "true":
         "/api/agent/{agent_name}/memory/external_sources/{collection_number}/{company_id}",
         tags=["Memory"],
         dependencies=[Depends(verify_api_key)],
+        response_model=MemoryCollectionResponse,
+        summary="Get unique external sources",
+        description="Retrieves a list of unique external sources in the specified collection.",
     )
     async def get_cunique_external_sources(
         agent_name: str,
@@ -684,6 +741,9 @@ if str(getenv("ENT")).lower() == "true":
     "/api/agent/{agent_name}/feedback",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Submit RLHF feedback",
+    description="Submits reinforcement learning from human feedback for an interaction.",
 )
 async def rlhf(
     agent_name: str,

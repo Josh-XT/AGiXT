@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Chain, verify_api_key, get_api_client, is_admin
+from typing import List, Dict
+from uuid import UUID
 from XT import AGiXT
 from Models import (
     RunChain,
@@ -10,13 +12,21 @@ from Models import (
     StepInfo,
     ChainStep,
     ChainStepNewInfo,
+    ChainDetailsResponse,
     ResponseMessage,
 )
 
 app = APIRouter()
 
 
-@app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
+@app.get(
+    "/api/chain",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=List[str],
+    summary="Get all chains",
+    description="Retrieves a list of all available chains for the authenticated user and global chains.",
+)
 async def get_chains(user=Depends(verify_api_key), authorization: str = Header(None)):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
@@ -25,10 +35,17 @@ async def get_chains(user=Depends(verify_api_key), authorization: str = Header(N
 
 
 @app.get(
-    "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
+    "/api/chain/{chain_name}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=Dict[str, ChainDetailsResponse],
+    summary="Get chain details",
+    description="Retrieves detailed information about a specific chain, including all steps and configurations.",
 )
 async def get_chain(chain_name: str, user=Depends(verify_api_key)):
     chain_data = Chain(user=user).get_chain(chain_name=chain_name)
+    if isinstance(chain_data["id"], UUID):  # Add this check and conversion
+        chain_data["id"] = str(chain_data["id"])
     return {"chain": chain_data}
 
 
@@ -36,6 +53,9 @@ async def get_chain(chain_name: str, user=Depends(verify_api_key)):
     "/api/chain/{chain_name}/run",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=str,
+    summary="Run chain",
+    description="Executes a chain with the specified name and returns the final output.",
 )
 async def run_chain(
     chain_name: str,
@@ -72,6 +92,9 @@ async def run_chain(
     "/api/chain/{chain_name}/run/step/{step_number}",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=str,
+    summary="Run chain step",
+    description="Executes a specific step within a chain and returns the output.",
 )
 async def run_chain_step(
     chain_name: str,
@@ -121,6 +144,9 @@ async def run_chain_step(
     "/api/chain/{chain_name}/args",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=Dict[str, List[str]],
+    summary="Get chain arguments",
+    description="Retrieves the list of available arguments for a specific chain.",
 )
 async def get_chain_args(
     chain_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -131,7 +157,14 @@ async def get_chain_args(
     return {"chain_args": chain_args}
 
 
-@app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/chain",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Create new chain",
+    description="Creates a new empty chain with the specified name.",
+)
 async def add_chain(
     chain_name: ChainName,
     user=Depends(verify_api_key),
@@ -143,7 +176,14 @@ async def add_chain(
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 
-@app.post("/api/chain/import", tags=["Chain"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/chain/import",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Import chain",
+    description="Imports a chain configuration including all steps and settings.",
+)
 async def importchain(
     chain: ChainData, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
@@ -159,6 +199,9 @@ async def importchain(
     "/api/chain/{chain_name}",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Rename chain",
+    description="Renames an existing chain to a new name.",
 )
 async def rename_chain(
     chain_name: str,
@@ -178,6 +221,9 @@ async def rename_chain(
     "/api/chain/{chain_name}",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Delete chain",
+    description="Deletes a chain and all its associated steps.",
 )
 async def delete_chain(
     chain_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -192,6 +238,9 @@ async def delete_chain(
     "/api/chain/{chain_name}/step",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Add chain step",
+    description="Adds a new step to an existing chain with specified configurations.",
 )
 async def add_step(
     chain_name: str,
@@ -216,6 +265,9 @@ async def add_step(
     "/api/chain/{chain_name}/step/{step_number}",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Update chain step",
+    description="Updates the configuration of an existing step in the chain.",
 )
 async def update_step(
     chain_name: str,
@@ -242,6 +294,9 @@ async def update_step(
     "/api/chain/{chain_name}/step/move",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Move chain step",
+    description="Changes the position of a step within the chain by updating its step number.",
 )
 async def move_step(
     chain_name: str,
@@ -265,6 +320,9 @@ async def move_step(
     "/api/chain/{chain_name}/step/{step_number}",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Delete chain step",
+    description="Removes a specific step from the chain.",
 )
 async def delete_step(
     chain_name: str,

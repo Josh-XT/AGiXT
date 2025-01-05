@@ -13,6 +13,12 @@ from Models import (
     EmbeddingModel,
     TextToSpeech,
     ImageCreation,
+    ChatCompletionResponse,
+    EmbeddingResponse,
+    AudioTranscriptionResponse,
+    AudioTranslationResponse,
+    TextToSpeechResponse,
+    ImageGenerationResponse,
 )
 from XT import AGiXT
 
@@ -23,8 +29,11 @@ app = APIRouter()
 # https://platform.openai.com/docs/api-reference/chat/createChatCompletion
 @app.post(
     "/v1/chat/completions",
-    tags=["OpenAI Style Endpoints"],
+    tags=["Completions"],
     dependencies=[Depends(verify_api_key)],
+    summary="Create Chat Completion",
+    description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format.",
+    response_model=ChatCompletionResponse,
 )
 async def chat_completion(
     prompt: ChatCompletions,
@@ -58,8 +67,10 @@ async def chat_completion(
 # https://platform.openai.com/docs/api-reference/embeddings/createEmbedding
 @app.post(
     "/v1/embeddings",
-    tags=["OpenAI Style Endpoints"],
+    tags=["Completions"],
     dependencies=[Depends(verify_api_key)],
+    summary="Create Text Embeddings",
+    description="Creates embeddings for the input text. Compatible with OpenAI's embeddings API format.",
 )
 async def embedding(
     embedding: EmbeddingModel,
@@ -85,6 +96,9 @@ async def embedding(
     "/v1/audio/transcriptions",
     tags=["Audio"],
     dependencies=[Depends(verify_api_key)],
+    summary="Create Audio Transcription",
+    description="Transcribes audio into text. Compatible with OpenAI's audio transcription API format.",
+    response_model=AudioTranscriptionResponse,
 )
 async def speech_to_text(
     file: UploadFile = File(...),
@@ -115,6 +129,9 @@ async def speech_to_text(
     "/v1/audio/translations",
     tags=["Audio"],
     dependencies=[Depends(verify_api_key)],
+    summary="Create Audio Translation",
+    description="Translates audio into English text. Compatible with OpenAI's audio translation API format.",
+    response_model=AudioTranslationResponse,
 )
 async def translate_audio(
     file: UploadFile = File(...),
@@ -146,6 +163,9 @@ async def translate_audio(
     "/v1/audio/speech",
     tags=["Audio"],
     dependencies=[Depends(verify_api_key)],
+    summary="Create Text-to-Speech Audio",
+    description="Converts text into speech audio. Compatible with OpenAI's text-to-speech API format.",
+    response_model=TextToSpeechResponse,
 )
 async def text_to_speech(
     tts: TextToSpeech,
@@ -167,6 +187,9 @@ async def text_to_speech(
     "/v1/images/generations",
     tags=["Images"],
     dependencies=[Depends(verify_api_key)],
+    summary="Create Image",
+    description="Creates an image given a prompt. Compatible with OpenAI's image generation API format.",
+    response_model=ImageGenerationResponse,
 )
 async def generate_image(
     image: ImageCreation,

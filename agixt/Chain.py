@@ -600,11 +600,18 @@ class Chain:
             .first()
         )
         if chain:
-            session.close()
-            return None
-        chain = ChainDB(name=chain_name, user_id=self.user_id)
-        session.add(chain)
-        session.commit()
+            # Check if the chain has steps
+            chain_steps = (
+                session.query(ChainStep).filter(ChainStep.chain_id == chain.id).all()
+            )
+            if chain_steps:
+                logging.error(f"Chain {chain_name} already exists.")
+                session.close()
+                return None
+        else:
+            chain = ChainDB(name=chain_name, user_id=self.user_id)
+            session.add(chain)
+            session.commit()
         steps = steps["steps"] if "steps" in steps else steps
         for step_data in steps:
             agent_name = step_data["agent_name"]

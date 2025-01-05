@@ -22,7 +22,7 @@ jobs:
   build:
     uses: ./.github/workflows/docker.yml
     with:
-      registry-dockerhub-enable: ${{ github.event_name != 'pull_request' }}
+      registry-dockerhub-enable: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       registry-repo-name: AGiXT
       registry-readme: ./docs/README.md
     secrets:
