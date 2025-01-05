@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
+from pydantic.fields import Field
 from Globals import getenv
 
 
@@ -432,3 +433,163 @@ class CommandExecution(BaseModel):
 
 class TTSInput(BaseModel):
     text: str
+
+
+class ProvidersResponse(BaseModel):
+    providers: List[str]
+
+
+class ProviderSettings(BaseModel):
+    settings: Dict[str, Any]
+
+
+class ProviderWithSettings(BaseModel):
+    providers: List[Dict[str, Dict[str, Any]]]
+
+
+class EmbedderResponse(BaseModel):
+    embedders: List[str]
+
+
+class AgentResponse(BaseModel):
+    message: str
+
+
+class AgentListResponse(BaseModel):
+    agents: List[Dict[str, Any]]
+
+
+class AgentConfigResponse(BaseModel):
+    agent: Dict[str, Any]
+
+
+class AgentCommandsResponse(BaseModel):
+    commands: Dict[str, bool]
+
+
+class AgentBrowsedLinksResponse(BaseModel):
+    links: List[Dict[str, Any]]
+
+
+class AgentPromptResponse(BaseModel):
+    response: str
+
+
+class ChainStepDetail(BaseModel):
+    step: int
+    agent_name: str
+    prompt_type: str
+    prompt: Dict[str, Any]
+
+
+class ChainDetailsResponse(BaseModel):
+    id: str
+    chain_name: str
+    steps: List[ChainStepDetail]
+
+    class Config:
+        from_attributes = True
+
+
+class CommandExecution(BaseModel):
+    command_name: str
+    command_args: Dict[str, Any] = {}
+    conversation_name: Optional[str] = None
+
+
+class ExtensionSettings(BaseModel):
+    extension_settings: Dict[str, Dict[str, Any]]
+
+
+class CommandArgs(BaseModel):
+    command_args: Dict[str, Any]
+
+
+class Extension(BaseModel):
+    extension_name: str
+    description: str
+    settings: List[str]
+    commands: List[Dict[str, Any]]
+
+
+class ExtensionsModel(BaseModel):
+    extensions: List[Extension]
+
+
+class PromptArgsResponse(BaseModel):
+    prompt_args: List[str]
+
+
+# Add these to Models.py if not already present
+class ConversationListResponse(BaseModel):
+    conversations: List[str]
+    conversations_with_ids: Dict[str, str]
+
+
+class ConversationDetailResponse(BaseModel):
+    conversations: Dict[str, Dict[str, Any]]
+
+
+class ConversationHistoryResponse(BaseModel):
+    conversation_history: List[Dict[str, Any]]
+
+
+class NotificationResponse(BaseModel):
+    notifications: List[Dict[str, Any]]
+
+
+class MessageIdResponse(BaseModel):
+    message: str  # Contains the message ID
+
+
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[Dict[str, Any]]
+    usage: Dict[str, int]
+
+
+class EmbeddingData(BaseModel):
+    embedding: List[float]
+    index: int
+    object: str = "embedding"
+
+
+class EmbeddingResponse(BaseModel):
+    data: List[EmbeddingData]
+    model: str
+    object: str = "list"
+    usage: Dict[str, int]
+
+
+class AudioTranscriptionResponse(BaseModel):
+    text: str
+
+
+class AudioTranslationResponse(BaseModel):
+    text: str
+
+
+class TextToSpeechResponse(BaseModel):
+    url: str
+
+
+class ImageGenerationResponse(BaseModel):
+    created: int
+    data: List[Dict[str, str]]
+
+
+class MemoryResponse(BaseModel):
+    memories: List[Dict[str, Any]]
+
+
+class MemoryCollectionResponse(BaseModel):
+    external_sources: List[str]
+
+
+class DPOResponse(BaseModel):
+    prompt: str
+    chosen: str
+    rejected: str

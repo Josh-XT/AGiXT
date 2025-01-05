@@ -41,35 +41,14 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     workspace_manager.start_file_watcher()
-    # Start the task monitor asynchronously
     await task_monitor.start()
-
-    NGROK_TOKEN = getenv("NGROK_TOKEN")
-    if NGROK_TOKEN:
-        from pyngrok import ngrok
-
-        try:
-            ngrok.set_auth_token(NGROK_TOKEN)
-            public_url = ngrok.connect(7437)
-            logging.info(f"[ngrok] Public Tunnel: {public_url.public_url}")
-            ngrok_url = public_url.public_url
-        except Exception as e:
-            logging.error(f"[ngrok] Error: {e}")
-            ngrok_url = ""
-        if ngrok_url:
-            logging.info(f"[ngrok] Public Tunnel: {ngrok_url}")
 
     try:
         yield
     finally:
         # Shutdown
         workspace_manager.stop_file_watcher()
-        await task_monitor.stop()  # Make sure to await the stop
-        if NGROK_TOKEN:
-            try:
-                ngrok.kill()
-            except Exception as e:
-                pass
+        await task_monitor.stop()
 
 
 # Register signal handlers for unexpected shutdowns

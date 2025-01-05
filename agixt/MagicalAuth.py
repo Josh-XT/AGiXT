@@ -852,8 +852,6 @@ class MagicalAuth:
                         logging.warning(
                             f"Subscription detected with items missing relevant APP_NAME metadata: {subscription['id']}"
                         )
-                    print(product)
-                    print(relevant_app)
                     if relevant_app == getenv("APP_NAME"):
                         if relevant_to_this_app == False:
                             raise Exception(
