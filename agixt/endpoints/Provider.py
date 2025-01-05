@@ -95,3 +95,6 @@ async def get_embed_providers(user=Depends(verify_api_key)):
 )
 async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
     return {"embedders": get_providers_by_service(service="embeddings")}
+
+
+# put /v1/provider
