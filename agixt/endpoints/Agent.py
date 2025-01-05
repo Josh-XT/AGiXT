@@ -20,6 +20,12 @@ from Models import (
     AgentCommands,
     AgentSettings,
     AgentConfig,
+    AgentResponse,
+    AgentListResponse,
+    AgentConfigResponse,
+    AgentCommandsResponse,
+    AgentBrowsedLinksResponse,
+    AgentPromptResponse,
     ResponseMessage,
     UrlInput,
     TTSInput,
@@ -39,12 +45,19 @@ from MagicalAuth import MagicalAuth
 app = APIRouter()
 
 
-@app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/agent",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Create a new agent",
+    description="Creates a new agent with specified settings and optionally trains it with provided URLs.",
+    response_model=AgentResponse
+)
 async def addagent(
     agent: AgentSettings,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
-) -> Dict[str, str]:
+) -> Dict[str, str]
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     add_agent(
@@ -70,10 +83,19 @@ async def addagent(
     return {"message": "Agent added."}
 
 
-@app.post("/api/agent/import", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/agent/import",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Import an agent configuration",
+    description="Imports an existing agent configuration including settings and commands.",
+    response_model=AgentResponse
+)
 async def import_agent(
-    agent: AgentConfig, user=Depends(verify_api_key), authorization: str = Header(None)
-) -> Dict[str, str]:
+    agent: AgentConfig,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None)
+) -> Dict[str, str]
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     return add_agent(
@@ -84,17 +106,21 @@ async def import_agent(
     )
 
 
+
 @app.patch(
     "/api/agent/{agent_name}",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Rename an agent",
+    description="Changes the name of an existing agent.",
+    response_model=ResponseMessage
 )
 async def renameagent(
     agent_name: str,
     new_name: AgentNewName,
     user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
+    authorization: str = Header(None)
+) -> ResponseMessage
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     rename_agent(agent_name=agent_name, new_name=new_name.new_name, user=user)
@@ -105,13 +131,16 @@ async def renameagent(
     "/api/agent/{agent_name}",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Update agent settings",
+    description="Updates the settings for an existing agent.",
+    response_model=ResponseMessage
 )
 async def update_agent_settings(
     agent_name: str,
     settings: AgentSettings,
     user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
+    authorization: str = Header(None)
+) -> ResponseMessage
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
@@ -129,13 +158,16 @@ async def update_agent_settings(
     "/api/agent/{agent_name}/persona",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Update agent persona",
+    description="Updates the persona settings for an agent, optionally within a company context.",
+    response_model=ResponseMessage
 )
 async def update_persona(
     agent_name: str,
     persona: PersonaInput,
     user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
+    authorization: str = Header(None)
+) -> ResponseMessage
     ApiClient = get_api_client(authorization=authorization)
     if persona.company_id is not None:
         auth = MagicalAuth(token=authorization)
@@ -158,6 +190,9 @@ async def update_persona(
     "/api/agent/{agent_name}/persona",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Get agent persona",
+    description="Retrieves the current persona settings for an agent.",
+    response_model=Dict[str, str]
 )
 async def get_persona(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -227,6 +262,9 @@ if str(getenv("ENT")).lower() == "true":
     "/api/agent/{agent_name}/commands",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Update agent commands",
+    description="Updates the available commands for an agent.",
+    response_model=ResponseMessage
 )
 async def update_agent_commands(
     agent_name: str,
@@ -243,10 +281,14 @@ async def update_agent_commands(
     return ResponseMessage(message=update_config)
 
 
+
 @app.delete(
     "/api/agent/{agent_name}",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Delete an agent",
+    description="Deletes an agent and all associated data including memory and configurations.",
+    response_model=ResponseMessage
 )
 async def deleteagent(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -265,7 +307,14 @@ async def deleteagent(
     return ResponseMessage(message=f"Agent {agent_name} deleted.")
 
 
-@app.get("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.get(
+    "/api/agent",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get all agents",
+    description="Retrieves a list of all available agents for the authenticated user.",
+    response_model=AgentListResponse
+)
 async def getagents(user=Depends(verify_api_key), authorization: str = Header(None)):
     agents = get_agents(user=user)
     create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
@@ -296,6 +345,9 @@ async def getagents(user=Depends(verify_api_key), authorization: str = Header(No
     "/api/agent/{agent_name}",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Get agent configuration",
+    description="Retrieves the complete configuration for a specific agent.",
+    response_model=AgentConfigResponse
 )
 async def get_agentconfig(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -318,10 +370,14 @@ async def get_agentconfig(
     return {"agent": agent_config}
 
 
+
 @app.post(
     "/api/agent/{agent_name}/prompt",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Prompt an agent",
+    description="Sends a prompt to an agent and receives a response. Can include various prompt arguments and conversation context.",
+    response_model=AgentPromptResponse
 )
 async def prompt_agent(
     agent_name: str,
@@ -430,6 +486,9 @@ async def prompt_agent(
     "/api/agent/{agent_name}/command",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Get agent commands",
+    description="Retrieves the list of available commands for an agent.",
+    response_model=AgentCommandsResponse
 )
 async def get_commands(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -445,6 +504,9 @@ async def get_commands(
     "/api/agent/{agent_name}/command",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Toggle agent command",
+    description="Enables or disables a specific command for an agent.",
+    response_model=ResponseMessage
 )
 async def toggle_command(
     agent_name: str,
@@ -463,10 +525,14 @@ async def toggle_command(
 
 
 # Get agent browsed links
+
 @app.get(
     "/api/agent/{agent_name}/browsed_links/{collection_number}",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Get agent browsed links",
+    description="Retrieves the list of URLs that have been browsed by the agent in a specific collection.",
+    response_model=AgentBrowsedLinksResponse
 )
 async def get_agent_browsed_links(
     agent_name: str,
@@ -486,6 +552,9 @@ async def get_agent_browsed_links(
     "/api/agent/{agent_name}/browsed_links",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Delete browsed link",
+    description="Removes a specific URL from the agent's browsed links history.",
+    response_model=ResponseMessage
 )
 async def delete_browsed_link(
     agent_name: str,
@@ -512,6 +581,9 @@ async def delete_browsed_link(
     "/api/agent/{agent_name}/text_to_speech",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Convert text to speech",
+    description="Converts text to speech using the agent's configured TTS provider.",
+    response_model=Dict[str, str]
 )
 async def text_to_speech(
     agent_name: str,
@@ -538,10 +610,14 @@ async def text_to_speech(
 
 
 # Plan task
+
 @app.post(
     "/api/agent/{agent_name}/plan/task",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Plan a task",
+    description="Creates a task plan for the agent to execute, optionally including web search capabilities.",
+    response_model=Dict[str, str]
 )
 async def plan_task(
     agent_name: str,
@@ -570,6 +646,9 @@ async def plan_task(
     "/v1/agent/think",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
+    summary="Make agent think",
+    description="Triggers the agent to perform deep thinking and reflection on the provided input.",
+    response_model=Dict[str, str]
 )
 async def think(
     agent_prompt: ThinkingPrompt,

@@ -448,3 +448,27 @@ class ProviderWithSettings(BaseModel):
 
 class EmbedderResponse(BaseModel):
     embedders: List[str]
+
+
+class AgentResponse(BaseModel):
+    message: str
+
+
+class AgentListResponse(BaseModel):
+    agents: List[Dict[str, Any]]
+
+
+class AgentConfigResponse(BaseModel):
+    agent: Dict[str, Any]
+
+
+class AgentCommandsResponse(BaseModel):
+    commands: Dict[str, bool]
+
+
+class AgentBrowsedLinksResponse(BaseModel):
+    links: List[Dict[str, Any]]
+
+
+class AgentPromptResponse(BaseModel):
+    response: str
