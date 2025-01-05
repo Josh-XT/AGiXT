@@ -40,7 +40,7 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     workspace_manager.start_file_watcher()
-    task_monitor.start()
+    await task_monitor.start()
     NGROK_TOKEN = getenv("NGROK_TOKEN")
     if NGROK_TOKEN:
         from pyngrok import ngrok
