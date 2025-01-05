@@ -129,41 +129,60 @@ class Task:
 
     async def execute_pending_tasks(self):
         """Check and execute all pending tasks"""
-        tasks = await self.get_pending_tasks()
-        for task in tasks:
-            try:
-                session = get_session()
-                if task.category.name == "Follow-ups" and task.agent_id:
-                    # Handle AI follow-ups as before
-                    agent = session.query(Agent).get(task.agent_id)
-                    if agent:
-                        conversation_name = get_conversation_name_by_id(
-                            conversation_id=task.memory_collection,
-                            user_id=self.user_id,
-                        )
-                        prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user. The user isn't exactly expecting your response, so greet them, be friendly, relate to the user with context available, and specifically follow up on the task as a new unprompted message to the user."
-                        response = self.ApiClient.prompt_agent(
-                            agent_name=agent.name,
-                            prompt_name="Think About It",
-                            prompt_args={
-                                "user_input": prompt,
-                                "conversation_name": conversation_name,
-                                "websearch": False,
-                                "analyze_user_input": False,
-                                "log_user_input": False,
-                                "log_output": True,
-                                "tts": False,
-                            },
-                        )
-                        logging.info(
-                            f"Follow-up task {task.id} executed: {response[:100]}..."
-                        )
-                # Mark the current task as completed
-                await self.mark_task_completed(str(task.id))
-                session.close()
+        try:
+            tasks = await self.get_pending_tasks()
+            for task in tasks:
+                session = None
+                try:
+                    session = get_session()
+                    if task.category.name == "Follow-ups" and task.agent_id:
+                        agent = session.query(Agent).get(task.agent_id)
+                        if agent:
+                            conversation_name = get_conversation_name_by_id(
+                                conversation_id=task.memory_collection,
+                                user_id=self.user_id,
+                            )
+                            prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user."
 
-            except Exception as e:
-                logging.error(f"Error executing task {task.id}: {str(e)}")
+                            # Use asyncio.wait_for to prevent hanging
+                            try:
+                                response = await asyncio.wait_for(
+                                    self.ApiClient.prompt_agent(
+                                        agent_name=agent.name,
+                                        prompt_name="Think About It",
+                                        prompt_args={
+                                            "user_input": prompt,
+                                            "conversation_name": conversation_name,
+                                            "websearch": False,
+                                            "analyze_user_input": False,
+                                            "log_user_input": False,
+                                            "log_output": True,
+                                            "tts": False,
+                                        },
+                                    ),
+                                    timeout=300,  # 5 minute timeout
+                                )
+                                logging.info(
+                                    f"Follow-up task {task.id} executed: {response[:100]}..."
+                                )
+                            except asyncio.TimeoutError:
+                                logging.error(
+                                    f"Task {task.id} timed out after 5 minutes"
+                                )
+                                raise
+
+                    # Mark the current task as completed
+                    await self.mark_task_completed(str(task.id))
+
+                except Exception as e:
+                    logging.error(f"Error executing task {task.id}: {str(e)}")
+                    continue
+                finally:
+                    if session:
+                        session.close()
+        except Exception as e:
+            logging.error(f"Error in execute_pending_tasks: {str(e)}")
+            raise
 
     async def get_tasks_by_category(self, category_name: str) -> list:
         """Get all tasks in a category"""

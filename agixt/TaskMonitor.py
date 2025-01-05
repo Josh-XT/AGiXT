@@ -38,9 +38,9 @@ class TaskMonitor:
     def __init__(self):
         self.running = False
         self.tasks = []
+        self._process_lock = asyncio.Lock()
 
     def is_running(self):
-        """Check if the monitor is running and tasks are healthy"""
         return self.running and any(not task.done() for task in self.tasks)
 
     async def get_all_pending_tasks(self) -> list:
@@ -57,7 +57,41 @@ class TaskMonitor:
                 )
                 .all()
             )
-            return tasks
+            # Create a copy of the results before closing the session
+            return [
+                TaskItem(
+                    **{
+                        c.name: getattr(task, c.name)
+                        for c in TaskItem.__table__.columns
+                    }
+                )
+                for task in tasks
+            ]
+        finally:
+            session.close()
+
+    async def process_single_task(self, pending_task):
+        """Process a single task with its own session"""
+        session = get_session()
+        try:
+            logging.info(
+                f"Processing task {pending_task.id} for user {pending_task.user_id}"
+            )
+
+            user_id = pending_task.user_id
+            if not user_id:
+                logging.error(f"Task {pending_task.id} has no associated user")
+                session.delete(pending_task)
+                session.commit()
+                return
+
+            task_manager = Task(token=impersonate_user(user_id=user_id))
+            try:
+                await task_manager.execute_pending_tasks()
+            except Exception as e:
+                logger.error(f"Error processing task {pending_task.id}: {str(e)}")
+                session.delete(pending_task)
+                session.commit()
         finally:
             session.close()
 
@@ -65,45 +99,17 @@ class TaskMonitor:
         """Process all pending tasks across users"""
         while self.running:
             try:
-                session = get_session()
-                try:
+                async with self._process_lock:
                     pending_tasks = await self.get_all_pending_tasks()
-                    for pending_task in pending_tasks:
-                        # Create task manager with impersonated user context
-                        logging.info(
-                            f"Processing task {pending_task.id} for user {pending_task.user_id}"
-                        )
-                        logging.info(f"Task: {pending_task.title}")
-                        logging.info(f"Description: {pending_task.description}")
-                        logging.info(f"Due Date: {pending_task.due_date}")
-                        logging.info(f"Created At: {pending_task.created_at}")
-                        logging.info(f"Memory: {pending_task.memory_collection}")
 
-                        user_id = pending_task.user_id
-                        if not user_id:
-                            logging.error(
-                                f"Task {pending_task.id} does not have a user associated with it."
-                            )
-                            # Delete the task
-                            session.delete(pending_task)
-                            session.commit()
-                            continue
-
-                        task_manager = Task(
-                            token=impersonate_user(user_id=user_id),
-                        )
-                        try:
-                            # Execute single task
-                            await task_manager.execute_pending_tasks()
-                        except Exception as e:
-                            logger.error(
-                                f"Error processing task {pending_task.id}: {str(e)}"
-                            )
-                            # Delete the task
-                            session.delete(pending_task)
-                            session.commit()
-                finally:
-                    session.close()
+                    # Process tasks concurrently with a reasonable limit
+                    chunks = [
+                        pending_tasks[i : i + 5]
+                        for i in range(0, len(pending_tasks), 5)
+                    ]
+                    for chunk in chunks:
+                        tasks = [self.process_single_task(task) for task in chunk]
+                        await asyncio.gather(*tasks, return_exceptions=True)
 
                 # Wait before next check
                 await asyncio.sleep(60)
@@ -113,6 +119,9 @@ class TaskMonitor:
 
     async def start(self):
         """Start the task monitoring service"""
+        if self.running:
+            return
+
         self.running = True
         logger.info("Starting task monitor service...")
         task = asyncio.create_task(self.process_tasks())
