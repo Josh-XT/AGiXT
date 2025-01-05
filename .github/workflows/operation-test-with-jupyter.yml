@@ -114,6 +114,12 @@ jobs:
         image: ${{ inputs.image }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
+        options: >-
+          --health-cmd "curl -f http://localhost:${{ inputs.port }}"
+          --health-interval 10s
+          --health-timeout 15s
+          --health-retries 5
+          --health-start-period 2m
         env:
           DB_CONNECTED: ${{ inputs.db-connected }}
           DATABASE_TYPE: ${{ inputs.database-type }}
@@ -132,6 +138,7 @@ jobs:
           COMPILE_SERVER: http://secondary-service:${{ inputs.secondary-image-port }}
           MFA_VERIFY: authenticator
           MODE: development
+          UVICORN_WORKERS: 1
           STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
           TZ: America/New_York
     steps:
@@ -186,7 +193,7 @@ jobs:
       - name: Wait for services
         run: |
           echo "Waiting for services to be ready..."
-          sleep 30
+          sleep 60
 
       - name: Check secondary service status
         run: |
