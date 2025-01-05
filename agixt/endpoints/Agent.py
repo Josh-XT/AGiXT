@@ -372,7 +372,7 @@ async def get_agentconfig(
     dependencies=[Depends(verify_api_key)],
     summary="Prompt an agent",
     description="Sends a prompt to an agent and receives a response. Can include various prompt arguments and conversation context.",
-    response_model=str,
+    response_model=AgentPromptResponse,
 )
 async def prompt_agent(
     agent_name: str,
@@ -645,7 +645,7 @@ async def plan_task(
     dependencies=[Depends(verify_api_key)],
     summary="Make agent think",
     description="Triggers the agent to perform deep thinking and reflection on the provided input.",
-    response_model=str,
+    response_model=AgentPromptResponse,
 )
 async def think(
     agent_prompt: ThinkingPrompt,
