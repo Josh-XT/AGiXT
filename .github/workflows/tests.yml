@@ -59,7 +59,7 @@ jobs:
           --health-timeout 60s
           --health-retries 5
           --health-start-period 2m
-          --command "server --console-address ':9001' /data"
+          --entrypoint "minio server --console-address ':9001' /data"        
       agixt:
         image: ${{ inputs.image }}
         ports:

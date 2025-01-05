@@ -472,3 +472,16 @@ class AgentBrowsedLinksResponse(BaseModel):
 
 class AgentPromptResponse(BaseModel):
     response: str
+
+
+class ChainStepDetail(BaseModel):
+    step: int
+    agent_name: str
+    prompt_type: str
+    prompt: Dict[str, Any]
+
+
+class ChainDetailsResponse(BaseModel):
+    id: str
+    chain_name: str
+    steps: List[ChainStepDetail]
