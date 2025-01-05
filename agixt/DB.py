@@ -736,7 +736,6 @@ if __name__ == "__main__":
         while True:
             try:
                 connection = engine.connect()
-                connection.execute("SELECT 1")
                 connection.close()
                 break
             except Exception as e:
