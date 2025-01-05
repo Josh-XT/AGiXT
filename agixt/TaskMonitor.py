@@ -93,10 +93,6 @@ class TaskMonitor:
                 task for task in all_tasks if self._should_process_task(str(task.id))
             ]
 
-            if all_tasks:
-                logging.info(
-                    f"Worker {self.worker_id}: Claimed {len(my_tasks)} of {len(all_tasks)} tasks"
-                )
             return my_tasks
         finally:
             session.close()

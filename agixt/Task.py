@@ -4,6 +4,7 @@ from agixtsdk import AGiXTSDK
 from MagicalAuth import MagicalAuth
 from Conversations import get_conversation_name_by_id
 from sqlalchemy.orm import joinedload
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import logging
 import asyncio
@@ -129,37 +130,40 @@ class Task:
 
     async def execute_pending_tasks(self):
         """Check and execute all pending tasks"""
-        try:
-            tasks = await self.get_pending_tasks()
-            for task in tasks:
-                session = None
-                try:
-                    session = get_session()
-                    if task.category.name == "Follow-ups" and task.agent_id:
-                        agent = session.query(Agent).get(task.agent_id)
-                        if agent:
-                            conversation_name = get_conversation_name_by_id(
-                                conversation_id=task.memory_collection,
-                                user_id=self.user_id,
-                            )
-                            prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user."
+        tasks = await self.get_pending_tasks()
+        for task in tasks:
+            try:
+                session = get_session()
+                if task.category.name == "Follow-ups" and task.agent_id:
+                    agent = session.query(Agent).get(task.agent_id)
+                    if agent:
+                        conversation_name = get_conversation_name_by_id(
+                            conversation_id=task.memory_collection,
+                            user_id=self.user_id,
+                        )
+                        prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user."
 
-                            # Use asyncio.wait_for to prevent hanging
+                        def execute_prompt():
+                            return self.ApiClient.prompt_agent(
+                                agent_name=agent.name,
+                                prompt_name="Think About It",
+                                prompt_args={
+                                    "user_input": prompt,
+                                    "conversation_name": conversation_name,
+                                    "websearch": False,
+                                    "analyze_user_input": False,
+                                    "log_user_input": False,
+                                    "log_output": True,
+                                    "tts": False,
+                                },
+                            )
+
+                        # Run the non-async prompt_agent in a thread pool
+                        loop = asyncio.get_running_loop()
+                        with ThreadPoolExecutor() as pool:
                             try:
                                 response = await asyncio.wait_for(
-                                    self.ApiClient.prompt_agent(
-                                        agent_name=agent.name,
-                                        prompt_name="Think About It",
-                                        prompt_args={
-                                            "user_input": prompt,
-                                            "conversation_name": conversation_name,
-                                            "websearch": False,
-                                            "analyze_user_input": False,
-                                            "log_user_input": False,
-                                            "log_output": True,
-                                            "tts": False,
-                                        },
-                                    ),
+                                    loop.run_in_executor(pool, execute_prompt),
                                     timeout=300,  # 5 minute timeout
                                 )
                                 logging.info(
@@ -171,18 +175,14 @@ class Task:
                                 )
                                 raise
 
-                    # Mark the current task as completed
-                    await self.mark_task_completed(str(task.id))
+                # Mark the current task as completed
+                await self.mark_task_completed(str(task.id))
 
-                except Exception as e:
-                    logging.error(f"Error executing task {task.id}: {str(e)}")
-                    continue
-                finally:
-                    if session:
-                        session.close()
-        except Exception as e:
-            logging.error(f"Error in execute_pending_tasks: {str(e)}")
-            raise
+            except Exception as e:
+                logging.error(f"Error executing task {task.id}: {str(e)}")
+            finally:
+                if session:
+                    session.close()
 
     async def get_tasks_by_category(self, category_name: str) -> list:
         """Get all tasks in a category"""
