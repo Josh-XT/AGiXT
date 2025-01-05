@@ -735,7 +735,8 @@ if __name__ == "__main__":
         logging.info("Connecting to database...")
         while True:
             try:
-                connection.execute("SELECT 1")
+                connection = engine.connect()
+                connection.close()
                 break
             except Exception as e:
                 logging.error(f"Error connecting to database: {e}")
