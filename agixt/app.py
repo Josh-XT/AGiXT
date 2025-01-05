@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         workspace_manager.stop_file_watcher()
-        task_monitor.stop()
+        await task_monitor.stop()
         if NGROK_TOKEN:
             try:
                 ngrok.kill()

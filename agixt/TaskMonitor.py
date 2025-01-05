@@ -37,6 +37,7 @@ def impersonate_user(user_id: str):
 class TaskMonitor:
     def __init__(self):
         self.running = False
+        self.tasks = []
 
     async def get_all_pending_tasks(self) -> list:
         """Get all pending tasks for all users"""
@@ -110,11 +111,13 @@ class TaskMonitor:
         """Start the task monitoring service"""
         self.running = True
         logger.info("Starting task monitor service...")
-        await self.process_tasks()
+        task = asyncio.create_task(self.process_tasks())
+        self.tasks.append(task)
 
-    def stop(self):
+    async def stop(self):
         """Stop the task monitoring service"""
         self.running = False
+        await asyncio.gather(*self.tasks)
         logger.info("Task monitor service stopped.")
 
 
