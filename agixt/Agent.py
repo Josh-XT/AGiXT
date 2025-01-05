@@ -476,6 +476,8 @@ class Agent:
                     ac.command_id == command.id and ac.state for ac in agent_commands
                 )
             for setting in agent_settings:
+                if setting.value == "":
+                    continue
                 config["settings"][setting.name] = setting.value
             user_settings = self.get_registration_requirement_settings()
             for key, value in user_settings.items():
@@ -484,6 +486,8 @@ class Agent:
             config = {"settings": DEFAULT_SETTINGS, "commands": {}}
             user_settings = self.get_registration_requirement_settings()
             for key, value in user_settings.items():
+                if value == "":
+                    continue
                 config["settings"][key] = value
         session.close()
         if str(getenv("ENT").lower()) == "true":
@@ -498,6 +502,8 @@ class Agent:
                     company_settings = company_agent_config.get("settings")
                     for key, value in company_settings.items():
                         if key not in config["settings"]:
+                            if value == "":
+                                continue
                             config["settings"][key] = value
         return config
 
