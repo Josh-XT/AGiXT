@@ -201,9 +201,12 @@ async def update_prompt(
 async def get_prompt_arg(
     prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
 ):
-    prompt_name = prompt_name.replace("%20", " ")
-    prompt_category = prompt_category.replace("%20", " ")
-    prompt = Prompts(user=user).get_prompt(
-        prompt_name=prompt_name, prompt_category=prompt_category
-    )
-    return {"prompt_args": Prompts(user=user).get_prompt_args(prompt)}
+    try:
+        prompt_name = prompt_name.replace("%20", " ")
+        prompt_category = prompt_category.replace("%20", " ")
+        prompt = Prompts(user=user).get_prompt(
+            prompt_name=prompt_name, prompt_category=prompt_category
+        )
+        return {"prompt_args": Prompts(user=user).get_prompt_args(prompt)}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Prompt not found.")
