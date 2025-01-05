@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
+from pydantic.fields import Field
 from Globals import getenv
 
 
@@ -551,10 +552,32 @@ class ChatCompletionResponse(BaseModel):
 
 
 class EmbeddingResponse(BaseModel):
-    data: List[Dict[str, Union[List[float], int, str]]]
-    model: str
-    object: str = "list"
-    usage: Dict[str, int]
+    data: List[Dict[str, Union[List[float], int, str]]] = Field(
+        description="List of embeddings, each with an embedding vector, index, and object type"
+    )
+    model: str = Field(description="The model used to generate the embeddings")
+    object: str = Field(default="list", description="Object type, always 'list'")
+    usage: Dict[str, int] = Field(description="Token usage statistics for the request")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "data": [
+                    {
+                        "embedding": [
+                            0.0023064255,
+                            -0.009327292,
+                            ...,
+                        ],  # Vector of floats
+                        "index": 0,
+                        "object": "embedding",
+                    }
+                ],
+                "model": "text-embedding-ada-002",
+                "object": "list",
+                "usage": {"prompt_tokens": 8, "total_tokens": 8},
+            }
+        }
 
 
 class AudioTranscriptionResponse(BaseModel):
