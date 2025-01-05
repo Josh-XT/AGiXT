@@ -281,15 +281,19 @@ class WorkspaceManager(SecurityValidationMixin):
                     f"Missing required environment variables: {', '.join(missing_vars)}"
                 )
 
+            endpoint = getenv("S3_ENDPOINT", "http://minio:9000")
+            use_ssl = endpoint.startswith("https://")
+            # Strip the protocol from the endpoint
+            host = endpoint.split("://")[1]
+
             cls = get_driver(Provider.S3)
             return cls(
                 key=getenv("AWS_ACCESS_KEY_ID"),
                 secret=getenv("AWS_SECRET_ACCESS_KEY"),
                 region=getenv("AWS_STORAGE_REGION", "us-east-1"),
-                host=getenv(
-                    "S3_ENDPOINT", None
-                ),  # For MinIO or other S3-compatible services
-                use_ssl=False if getenv("S3_ENDPOINT").startswith("http://") else True,
+                host=host,  # Just the host without protocol
+                use_ssl=use_ssl,
+                verify_ssl_cert=False,  # For self-signed certs
             )
 
         elif backend == "azure":
