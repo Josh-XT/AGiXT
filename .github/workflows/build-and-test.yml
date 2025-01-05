@@ -3,7 +3,7 @@ name: Build and Test
 on: ["push"]
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: Python Black Lint Check
     steps:
       - name: Check out repository

@@ -17,12 +17,12 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4.2.2
       - name: Set up Python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5.3.0
         with:
           python-version: "3.x"
       - name: Install dependencies
@@ -32,7 +32,7 @@ jobs:
       - name: Build package
         run: python -m build
       - name: Publish package
-        uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
+        uses: pypa/gh-action-pypi-publish@v1.12.3
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}

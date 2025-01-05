@@ -50,7 +50,7 @@ on:
         default: https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docs/README.md
       runs-on:
         type: string
-        default: ubuntu-latest
+        default: ubuntu-22.04
       platforms:
         type: string
         default: linux/amd64,linux/arm64/v8
