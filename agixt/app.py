@@ -38,48 +38,10 @@ workspace_manager = WorkspaceManager()
 task_monitor = TaskMonitor()
 
 
-def get_worker_id():
-    """Get the current worker ID from environment variables"""
-    try:
-        # For uvicorn workers, check WEB_CONCURRENCY and worker number
-        worker_env = os.environ.get("WORKER_ID") or "0"
-        return int(worker_env)
-    except (TypeError, ValueError):
-        return 0
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     workspace_manager.start_file_watcher()
-
-    # Calculate delay based on worker ID
-    worker_id = get_worker_id()
-    startup_delay = worker_id * 5  # 5 seconds delay per worker
-
-    if worker_id > 0:  # Only delay if not the first worker
-        logging.info(
-            f"Worker {worker_id} waiting {startup_delay} seconds before starting..."
-        )
-        await asyncio.sleep(startup_delay)
-
-    # Start the task monitor asynchronously
     await task_monitor.start()
-
-    # Handle ngrok setup if configured
-    NGROK_TOKEN = getenv("NGROK_TOKEN")
-    if NGROK_TOKEN and worker_id == 0:  # Only setup ngrok on first worker
-        from pyngrok import ngrok
-
-        try:
-            ngrok.set_auth_token(NGROK_TOKEN)
-            public_url = ngrok.connect(7437)
-            logging.info(f"[ngrok] Public Tunnel: {public_url.public_url}")
-            ngrok_url = public_url.public_url
-        except Exception as e:
-            logging.error(f"[ngrok] Error: {e}")
-            ngrok_url = ""
-        if ngrok_url:
-            logging.info(f"[ngrok] Public Tunnel: {ngrok_url}")
 
     try:
         yield
@@ -87,11 +49,6 @@ async def lifespan(app: FastAPI):
         # Shutdown
         workspace_manager.stop_file_watcher()
         await task_monitor.stop()
-        if NGROK_TOKEN and worker_id == 0:
-            try:
-                ngrok.kill()
-            except Exception:
-                pass
 
 
 # Register signal handlers for unexpected shutdowns

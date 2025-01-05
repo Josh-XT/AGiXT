@@ -16,30 +16,11 @@ from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from cryptography.fernet import Fernet
 from Globals import getenv
-import asyncio
-import os
-import socket
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
-
-
-def get_worker_id():
-    """Get the worker ID from environment or fallback to hostname-based ID"""
-    try:
-        # Try to get worker ID from hostname in container
-        hostname = socket.gethostname()
-        # Docker typically adds a hash to container names, get last digit if possible
-        worker_id = int(hostname[-1]) if hostname[-1].isdigit() else hash(hostname) % 10
-        logging.info(f"Detected worker ID {worker_id} from hostname {hostname}")
-        return worker_id
-    except Exception as e:
-        logging.warning(f"Could not determine worker ID: {e}. Using default 0")
-        return 0
-
-
 DEFAULT_USER = getenv("DEFAULT_USER")
 try:
     DATABASE_TYPE = getenv("DATABASE_TYPE")
@@ -747,33 +728,9 @@ def setup_default_roles():
         db.commit()
 
 
-class StaggeredStartupMiddleware:
-    def __init__(self, app):
-        self.app = app
-        self.initialized = False
-
-    async def __call__(self, scope, receive, send):
-        if not self.initialized:
-            worker_id = get_worker_id()
-            startup_delay = worker_id * 5  # 5 seconds delay per worker
-
-            if worker_id > 0:
-                logging.info(
-                    f"Worker {worker_id} waiting {startup_delay} seconds before starting..."
-                )
-                await asyncio.sleep(startup_delay)
-                logging.info(f"Worker {worker_id} starting...")
-
-            self.initialized = True
-
-        await self.app(scope, receive, send)
-
-
 if __name__ == "__main__":
     import uvicorn
-    from app import app
 
-    # Database connection and initialization
     if DATABASE_TYPE.lower().startswith("postgres"):
         logging.info("Connecting to database...")
         while True:
@@ -784,7 +741,6 @@ if __name__ == "__main__":
             except Exception as e:
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
-
     # Create any missing tables
     Base.metadata.create_all(engine)
     setup_default_roles()
@@ -793,11 +749,6 @@ if __name__ == "__main__":
     from SeedImports import import_all_data
 
     import_all_data()
-
-    # Add staggered startup middleware to your app
-    app.add_middleware(StaggeredStartupMiddleware)
-
-    # Run with uvicorn
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
