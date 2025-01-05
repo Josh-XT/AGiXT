@@ -593,120 +593,208 @@ class Chain:
         return responses
 
     def import_chain(self, chain_name: str, steps: dict):
+        """
+        Import a chain with its steps into the database.
+
+        Args:
+            chain_name: Name of the chain to import
+            steps: Dictionary containing chain steps data
+
+        Returns:
+            str: Success message or None if chain already exists
+        """
         session = get_session()
-        chain = (
-            session.query(ChainDB)
-            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
-            .first()
-        )
-        if chain:
-            session.close()
-            return None
-        chain = ChainDB(name=chain_name, user_id=self.user_id)
-        session.add(chain)
-        session.commit()
-        steps = steps["steps"] if "steps" in steps else steps
-        for step_data in steps:
-            agent_name = step_data["agent_name"]
-            agent = (
-                session.query(Agent)
-                .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
+        try:
+            # Check if chain already exists
+            chain = (
+                session.query(ChainDB)
+                .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
                 .first()
             )
-            if not agent:
-                # Use the first agent in the database
-                agent = (
-                    session.query(Agent).filter(Agent.user_id == self.user_id).first()
-                )
-            prompt = step_data["prompt"]
-            if "prompt_type" not in step_data:
-                step_data["prompt_type"] = "prompt"
-            prompt_type = step_data["prompt_type"].lower()
-            target_id = None
-            if prompt_type == "prompt":
-                argument_key = "prompt_name"
-                prompt_category = prompt.get("prompt_category", "Default")
-                target = (
-                    session.query(Prompt)
-                    .filter(
-                        Prompt.name == prompt[argument_key],
-                        Prompt.user_id == self.user_id,
-                        Prompt.prompt_category.has(name=prompt_category),
-                    )
-                    .first()
-                )
-                if target:
-                    target_id = target.id
-            elif prompt_type == "chain":
-                argument_key = "chain_name"
-                if "chain" in prompt:
-                    argument_key = "chain"
-                target = (
-                    session.query(ChainDB)
-                    .filter(
-                        ChainDB.name == prompt[argument_key],
-                        ChainDB.user_id == self.user_id,
-                    )
-                    .first()
-                )
-                if target:
-                    target_id = target.id
-            elif prompt_type == "command":
-                argument_key = "command_name"
-                target = (
-                    session.query(Command)
-                    .filter(Command.name == prompt[argument_key])
-                    .first()
-                )
-                if target:
-                    target_id = target.id
-            else:
-                # Handle the case where the prompt_type is not recognized
-                logging.error(f"Unrecognized prompt_type: {prompt_type}")
-                continue
+            if chain:
+                session.close()
+                return None
 
-            if target_id is None:
-                # Handle the case where the target is not found
-                logging.error(
-                    f"Target not found for {prompt_type}: {prompt[argument_key]}"
-                )
-                continue
-
-            argument_value = prompt[argument_key]
-            prompt_arguments = prompt.copy()
-            del prompt_arguments[argument_key]
-            chain_step = ChainStep(
-                chain_id=chain.id,
-                step_number=step_data["step"],
-                agent_id=agent.id,
-                prompt_type=step_data["prompt_type"],
-                prompt=argument_value,
-                target_chain_id=target_id if prompt_type == "chain" else None,
-                target_command_id=target_id if prompt_type == "command" else None,
-                target_prompt_id=target_id if prompt_type == "prompt" else None,
-            )
-            session.add(chain_step)
+            # Create new chain
+            chain = ChainDB(name=chain_name, user_id=self.user_id)
+            session.add(chain)
             session.commit()
-            for argument_name, argument_value in prompt_arguments.items():
-                argument = (
-                    session.query(Argument)
-                    .filter(Argument.name == argument_name)
+
+            # Handle steps array being nested in 'steps' key
+            steps_data = steps["steps"] if "steps" in steps else steps
+
+            # Process each step
+            for step_data in steps_data:
+                # 1. Find the agent
+                agent_name = step_data["agent_name"]
+                agent = None
+
+                # Try current user's agents
+                agent = (
+                    session.query(Agent)
+                    .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
                     .first()
                 )
-                if not argument:
-                    argument = Argument(name=argument_name)
-                    session.add(argument)
+
+                # Try DEFAULT_USER's agents
+                if not agent:
+                    default_user_id = (
+                        session.query(User)
+                        .filter(User.email == DEFAULT_USER)
+                        .first()
+                        .id
+                    )
+                    agent = (
+                        session.query(Agent)
+                        .filter(
+                            Agent.name == agent_name, Agent.user_id == default_user_id
+                        )
+                        .first()
+                    )
+
+                # Last resort: use first available agent
+                if not agent:
+                    agent = (
+                        session.query(Agent)
+                        .filter(Agent.user_id == self.user_id)
+                        .first()
+                    )
+                    if not agent:
+                        logging.error(f"No agent found for step {step_data['step']}")
+                        continue
+
+                # 2. Process prompt data
+                prompt = step_data["prompt"]
+                prompt_type = step_data.get(
+                    "prompt_type", "prompt"
+                ).lower()  # Default to "prompt" if not specified
+
+                # 3. Find target based on prompt type
+                target_id = None
+                argument_key = None
+
+                if prompt_type == "prompt":
+                    argument_key = "prompt_name"
+                    prompt_category = prompt.get("prompt_category", "Default")
+
+                    # Try user's prompts first
+                    target = (
+                        session.query(Prompt)
+                        .filter(
+                            Prompt.name == prompt[argument_key],
+                            Prompt.user_id == self.user_id,
+                            Prompt.prompt_category.has(name=prompt_category),
+                        )
+                        .first()
+                    )
+
+                    # Fall back to DEFAULT_USER's prompts
+                    if not target:
+                        target = (
+                            session.query(Prompt)
+                            .filter(
+                                Prompt.name == prompt[argument_key],
+                                Prompt.user_id
+                                == session.query(User)
+                                .filter(User.email == DEFAULT_USER)
+                                .first()
+                                .id,
+                            )
+                            .first()
+                        )
+
+                elif prompt_type == "chain":
+                    argument_key = "chain_name" if "chain_name" in prompt else "chain"
+                    target = (
+                        session.query(ChainDB)
+                        .filter(
+                            ChainDB.name == prompt[argument_key],
+                            ChainDB.user_id == self.user_id,
+                        )
+                        .first()
+                    )
+
+                    # Fall back to DEFAULT_USER's chains
+                    if not target:
+                        target = (
+                            session.query(ChainDB)
+                            .filter(
+                                ChainDB.name == prompt[argument_key],
+                                ChainDB.user_id
+                                == session.query(User)
+                                .filter(User.email == DEFAULT_USER)
+                                .first()
+                                .id,
+                            )
+                            .first()
+                        )
+
+                elif prompt_type == "command":
+                    argument_key = "command_name"
+                    target = (
+                        session.query(Command)
+                        .filter(Command.name == prompt[argument_key])
+                        .first()
+                    )
+                else:
+                    logging.error(f"Unrecognized prompt_type: {prompt_type}")
+                    continue
+
+                if not target:
+                    logging.error(
+                        f"Target not found for {prompt_type}: {prompt.get(argument_key, 'unknown')}"
+                    )
+                    continue
+
+                # 4. Create chain step
+                target_id = target.id
+                argument_value = prompt[argument_key]
+                prompt_arguments = prompt.copy()
+                del prompt_arguments[argument_key]
+
+                chain_step = ChainStep(
+                    chain_id=chain.id,
+                    step_number=step_data["step"],
+                    agent_id=agent.id,
+                    prompt_type=prompt_type,  # Store as lowercase
+                    prompt=argument_value,
+                    target_chain_id=target_id if prompt_type == "chain" else None,
+                    target_command_id=target_id if prompt_type == "command" else None,
+                    target_prompt_id=target_id if prompt_type == "prompt" else None,
+                )
+                session.add(chain_step)
+                session.commit()
+
+                # 5. Create chain step arguments
+                for argument_name, argument_value in prompt_arguments.items():
+                    # Find or create argument
+                    argument = (
+                        session.query(Argument)
+                        .filter(Argument.name == argument_name)
+                        .first()
+                    )
+                    if not argument:
+                        argument = Argument(name=argument_name)
+                        session.add(argument)
+                        session.commit()
+
+                    # Create chain step argument
+                    chain_step_argument = ChainStepArgument(
+                        chain_step_id=chain_step.id,
+                        argument_id=argument.id,
+                        value=str(argument_value),
+                    )
+                    session.add(chain_step_argument)
                     session.commit()
 
-                chain_step_argument = ChainStepArgument(
-                    chain_step_id=chain_step.id,
-                    argument_id=argument.id,
-                    value=argument_value,
-                )
-                session.add(chain_step_argument)
-                session.commit()
-        session.close()
-        return f"Imported chain: {chain_name}"
+            return f"Imported chain: {chain_name}"
+
+        except Exception as e:
+            logging.error(f"Error importing chain {chain_name}: {str(e)}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def get_chain_step_dependencies(self, chain_name):
         chain_steps = self.get_steps(chain_name=chain_name)
