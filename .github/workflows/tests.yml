@@ -1,0 +1,182 @@
+name: Run Tests
+on:
+  workflow_call:
+    inputs:
+      notebook:
+        type: string
+        required: true
+        description: file to run (ending in .ipynb), can be directory to batch run (without trailing slash)
+      image:
+        type: string
+        required: true
+      port:
+        type: string
+      port-mapping:
+        type: string
+      additional-python-dependencies:
+        type: string
+        description: add whatever pip you need here
+        default: "openai requests agixtsdk qrcode==7.4.2"
+      allow-errors:
+        type: boolean
+        description: Fail if there is an error in the execution of the notebook
+        default: false
+      additional-args:
+        type: string
+        description: additional args for nbconvert
+        default: "--log-level INFO"
+      append-logs:
+        type: boolean
+        default: false
+      clone-repo:
+        type: boolean
+        default: false
+      database-type:
+        type: string
+        default: "postgresql"
+        description: "Database type to use"
+      report-name:
+        type: string
+        default: "test-reports"
+        description: "Name of the report"
+      default-email:
+        type: string
+        default: none
+        description: Optional default email available as os.getenv('DEFAULT_EMAIL') in your notebook
+    secrets:
+      api-key:
+        description: Optional api-key available as os.getenv('API_KEY') in your notebook
+      DISCORD_WEBHOOK:
+        description: Optional discord webhook available as os.getenv('DISCORD_WEBHOOK') in your notebook
+  
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.dockerBuild.outputs.digest }}
+    services:
+      dbservice:
+        image: postgres:latest
+        ports:
+          - 5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+      agixt:
+        image: ${{ inputs.image }}
+        ports:
+          - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
+        options: >-
+          --health-cmd "curl -f http://localhost:${{ inputs.port }}"
+          --health-interval 10s
+          --health-timeout 60s
+          --health-retries 5
+          --health-start-period 2m
+        env:
+          DB_CONNECTED: ${{ inputs.db-connected }}
+          DATABASE_TYPE: ${{ inputs.database-type }}
+          DATABASE_HOST: dbservice
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres
+          DATABASE_PORT: 5432
+          DATABASE_NAME: postgres
+          LOG_LEVEL: INFO
+          AGIXT_API_KEY: just-a-test
+          AGIXT_URI: http://agixt:7437
+          WORKING_DIRECTORY: /agixt/WORKSPACE
+          TOKENIZERS_PARALLELISM: 'false'
+          UVICORN_WORKERS: 1
+          TZ: America/New_York
+    steps:
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: '3.10'
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 1
+
+      - name: Install Python dependencies
+        run: pip3 install jupyter nbconvert[webpdf] ${{ inputs.additional-python-dependencies }}
+
+      - name: Update package lists and install jupyter output generation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic curl ffmpeg
+
+      - name: Set notebook and artifact files
+        run: |
+          notebook="${{ inputs.notebook }}"
+          if ${{ endsWith( inputs.notebook, 'ipynb' ) }} ; then
+            echo "notebook-file=${notebook}" >> "$GITHUB_ENV"
+            echo "artifact-file=${notebook%.*}.pdf"  >> "$GITHUB_ENV"
+          else 
+            echo "notebook-file=${notebook}/*.ipynb" >> "$GITHUB_ENV"
+            echo "artifact-file=${notebook}/*.pdf"  >> "$GITHUB_ENV"
+          fi
+
+      - name: Check AGiXT logs
+        run: docker logs ${{ job.services.agixt.id }} --follow &
+
+      - name: Execute notebook
+        id: execute_notebook
+        env:
+          API_KEY: ${{ secrets.api-key }}
+          features: ${{ inputs.features }}
+        run: |
+          echo "Executing notebook with strict error checking..."
+          
+          # First try to execute and generate PDF
+          python3 -m nbconvert --execute --log-level INFO --to pdf ${{ env.notebook-file }}
+          STRICT_STATUS=$?
+          echo "strict_status=${STRICT_STATUS}" >> $GITHUB_ENV
+      - name: Rerun allowing errors if strict status is not 0
+        if: env.strict_status != '0'
+        run: |
+          echo "Executing notebook with error tolerance..."
+          python3 -m nbconvert --execute --allow-errors --log-level INFO --to pdf ${{ env.notebook-file }}
+      - name: Send Video to Discord
+        if: always()
+        run: |
+          # Set message based on stored test outcome
+          BRANCH_NAME=$(echo ${{ github.ref }} | awk -F'/' '{print $NF}')
+          if [ "${{ github.actor }}" == "Josh-XT" ]; then
+            DISCORD_NAME="<@381837595522367488>"
+          elif [ "${{ github.actor }}" == "JamesonRGrieve" ]; then
+            DISCORD_NAME="<@329145730725838858>"
+          elif [ "${{ github.actor }}" == "waiscodes" ]; then
+            DISCORD_NAME="<@670762167037067304>"
+          elif [ "${{ github.actor }}" == "birdup000" ]; then
+            DISCORD_NAME="<@856308374567256074>"
+          elif [ "${{ github.actor }}" == "Nick-XT" ]; then
+            DISCORD_NAME="<@381908912951001088>"
+          else
+            DISCORD_NAME="**${{ github.actor }}**"
+          fi
+
+          if [ "${{ env.strict_status }}" != "0" ]; then
+            MESSAGE="❌ **TEST FAILURE**: **${{ inputs.report-name }}** on repository **${{ github.repository }}** branch **$BRANCH_NAME** commit **${{ github.sha }}** by ${DISCORD_NAME} "
+          else
+            MESSAGE="✅ Test passed: **${{ inputs.report-name }}** on repository **${{ github.repository }}** branch **$BRANCH_NAME** commit **${{ github.sha }}** by **${{ github.actor }}**"
+          fi
+          FILE_TO_SEND="tests/report.mp4"
+          # If it doesn't exist, send the PDF
+          if [ ! -f $FILE_TO_SEND ]; then
+            FILE_TO_SEND="${{ env.artifact-file }}"
+          fi
+          echo "Sending Video: $FILE_TO_SEND"
+          curl -H "Content-Type:multipart/form-data" \
+                -F "file=@$FILE_TO_SEND" \
+                -F "content=$MESSAGE" \
+                "${{ secrets.DISCORD_WEBHOOK }}"
+
+      - uses: actions/upload-artifact@v4.4.3
+        if: always()
+        with:
+          name: ${{ inputs.report-name }}
+          path: ${{ env.artifact-file }}
+
+      - name: Exit with test status
+        if: env.strict_status != '0'
+        run: exit 1

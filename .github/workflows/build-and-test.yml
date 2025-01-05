@@ -1,0 +1,47 @@
+name: Build and Test
+
+on: ["push"]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Python Black Lint Check
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: 3.8
+
+      - name: Install Python dependencies
+        run: pip install black nbqa
+
+      - name: Run Black on Python files
+        run: black --check $(find . -type f -name "*.py")
+  build:
+    uses: ./.github/workflows/docker.yml
+    with:
+      registry-dockerhub-enable: ${{ github.event_name != 'pull_request' }}
+      registry-repo-name: AGiXT
+      registry-readme: ./docs/README.md
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+  test-agixt-postgres:
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    with:
+      notebook: tests/endpoint-tests.ipynb
+      image: ${{ needs.build.outputs.primary-image }}
+      port: "7437"
+      database-type: "postgresql"
+      report-name: "agixt-postgres-tests"
+    needs: build
+  test-agixt-sqlite:
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    with:
+      notebook: tests/endpoint-tests.ipynb
+      image: ${{ needs.build.outputs.primary-image }}
+      port: "7437"
+      database-type: "sqlite"
+      report-name: "agixt-sqlite-tests"
+    needs: build

@@ -1,4 +1,4 @@
-name: Build and publish docker containers
+name: Docker Build and Publish
 
 on:
   workflow_call:
@@ -6,10 +6,9 @@ on:
       tags:
         type: string
         default: |
-          type=schedule
-          type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{raw}}
+          type=raw,value={{branch}}
+          type=semver,pattern={{raw}},enable=${{ github.ref_type == 'tag' }}
+          type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
           type=sha
       flavor:
         type: string
@@ -42,7 +41,7 @@ on:
         default: ${{ github.event.repository.name }}
       registry-dockerhub-enable:
         type: boolean
-        default: true
+        default: false
       registry-github-enable:
         type: boolean
         default: true
@@ -54,29 +53,27 @@ on:
         default: ubuntu-latest
       platforms:
         type: string
-        default: linux/amd64
+        default: linux/amd64,linux/arm64/v8
       cache-from:
         type: string
         default: type=gha
       cache-to:
         type: string
         default: type=gha,mode=max
-      pre-free-disk-space:
-        type: boolean
-        default: false
     outputs:
       digest:
         description: "Digest of docker image"
-        value: ${{ jobs.build_publish_docker.outputs.digest }}
+        value: ${{ jobs.build.outputs.digest }}
       primary-image:
         description: "Primary full name of pushed docker image"
-        value: ${{ jobs.build_publish_docker.outputs.primary-image }}
+        value: ${{ jobs.build.outputs.primary-image }}
     secrets:
       DOCKERHUB_TOKEN:
         required: false
 
 jobs:
-  build_publish_docker:
+  build:
+    name: Docker (${{ inputs.registry-github-enable == true && inputs.registry-dockerhub-enable == true && 'GitHub, DockerHub' || inputs.registry-github-enable == true && 'GitHub' || 'DockerHub' }})
     runs-on: ${{ inputs.runs-on }}
 
     permissions:
@@ -88,31 +85,16 @@ jobs:
       primary-image: ${{ steps.get-primary-image.outputs.primary-image }}
 
     steps:
-      - name: Free Disk Space (Ubuntu)
-        if: inputs.pre-free-disk-space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          # this might remove tools that are actually needed,
-          # if set to "true" but frees about 6 GB
-          tool-cache: false
-          # all of these default to true, but feel free to set to
-          # "false" if necessary for your workflow
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
       - name: Log in to Docker Hub
         if: inputs.registry-dockerhub-enable
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.3.0
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to the Github registry
         if: inputs.registry-github-enable
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.3.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -125,16 +107,16 @@ jobs:
           echo "dockerhub-repo=${{ vars.DOCKERHUB_USERNAME }}/${{ inputs.registry-repo-name }}" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v3.2.0
 
       # Needed for cache layers on github registry
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.1.0
+        uses: docker/setup-buildx-action@v3.7.1
 
       ## Cache based contexts
       - name: Restore cached context
         if: inputs.context-cache
-        uses: actions/cache/restore@v4.0.1
+        uses: actions/cache/restore@v4.1.2
         with:
           path: cached-context
           key: ${{ inputs.context-cache }}
@@ -147,13 +129,13 @@ jobs:
 
       ## Repo based context (fixes submodules etc)
       - name: Checkout repo
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@v4.2.2
         if: inputs.context-repository
         with:
           fetch-depth: 1
 
       - name: Checkout external context
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@v4.2.2
         if: inputs.context-repository
         with:
           repository: ${{ inputs.context-repository }}
@@ -194,7 +176,7 @@ jobs:
 
       - name: Build and push Docker images
         id: dockerBuild
-        uses: docker/build-push-action@v5.1.0
+        uses: docker/build-push-action@v6.9.0
         with:
           platforms: ${{ inputs.platforms }}
           file: ${{ inputs.dockerfile }}
@@ -207,7 +189,7 @@ jobs:
           cache-to: ${{ inputs.cache-to }}
 
       # publish README on docker hub
-      - uses: actions/checkout@v4.1.1
+      - uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 1
 
