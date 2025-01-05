@@ -59,13 +59,13 @@ jobs:
           --health-timeout 60s
           --health-retries 5
           --health-start-period 2m
-          --entrypoint "minio server --console-address ':9001' /data"        
       agixt:
         image: ${{ inputs.image }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
         options: >-
-          --health-cmd "curl -f http://localhost:${{ inputs.port }}"
+          server /data --console-address ":9001"
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
           --health-interval 10s
           --health-timeout 60s
           --health-retries 5
