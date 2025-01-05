@@ -485,3 +485,28 @@ class ChainDetailsResponse(BaseModel):
     id: str
     chain_name: str
     steps: List[ChainStepDetail]
+
+
+class CommandExecution(BaseModel):
+    command_name: str
+    command_args: Dict[str, Any] = {}
+    conversation_name: Optional[str] = None
+
+
+class ExtensionSettings(BaseModel):
+    extension_settings: Dict[str, Dict[str, Any]]
+
+
+class CommandArgs(BaseModel):
+    command_args: Dict[str, Any]
+
+
+class Extension(BaseModel):
+    extension_name: str
+    description: str
+    settings: List[str]
+    commands: List[Dict[str, Any]]
+
+
+class ExtensionsModel(BaseModel):
+    extensions: List[Extension]

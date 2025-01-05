@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Extensions import Extensions
 from ApiClient import Agent, Conversations, verify_api_key, get_api_client, is_admin
-from Models import CommandExecution
+from Models import CommandExecution, CommandArgs, ExtensionsModel, ExtensionSettings
+from typing import Dict, Any
 
 
 app = APIRouter()
@@ -11,26 +12,37 @@ app = APIRouter()
     "/api/extensions/settings",
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ExtensionSettings,
+    summary="Get Extension Settings",
+    description="Retrieves all extension settings for the authenticated user. This includes settings for all available extensions and AGiXT Chains.",
 )
 async def get_extension_settings(user=Depends(verify_api_key)):
     # try:
     ApiClient = get_api_client()
     ext = Extensions(user=user, ApiClient=ApiClient)
     return {"extension_settings": ext.get_extension_settings()}
-    # except Exception:
-    #    raise HTTPException(status_code=400, detail="Unable to retrieve settings.")
 
 
 @app.get(
     "/api/extensions/{command_name}/args",
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
+    response_model=CommandArgs,
+    summary="Get Command Arguments",
+    description="Retrieves the available arguments for a specific command.",
 )
 async def get_command_args(command_name: str, user=Depends(verify_api_key)):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
-@app.get("/api/extensions", tags=["Extensions"], dependencies=[Depends(verify_api_key)])
+@app.get(
+    "/api/extensions",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ExtensionsModel,
+    summary="Get All Extensions",
+    description="Retrieves all available extensions and their commands for the authenticated user.",
+)
 async def get_extensions(user=Depends(verify_api_key)):
     ext = Extensions(user=user)
     extensions = ext.get_extensions()
@@ -41,6 +53,9 @@ async def get_extensions(user=Depends(verify_api_key)):
     "/api/agent/{agent_name}/extensions",
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
+    response_model=ExtensionsModel,
+    summary="Get Agent Extensions",
+    description="Retrieves all extensions and their enabled/disabled status for a specific agent.",
 )
 async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
     ApiClient = get_api_client()
@@ -53,6 +68,9 @@ async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
     "/api/agent/{agent_name}/command",
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
+    response_model=Dict[str, Any],
+    summary="Execute Agent Command",
+    description="Executes a specific command for an agent. This endpoint requires admin privileges.",
 )
 async def run_command(
     agent_name: str,
