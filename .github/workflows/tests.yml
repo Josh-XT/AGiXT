@@ -68,7 +68,7 @@ jobs:
           AGIXT_URI: http://agixt:7437
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
-          UVICORN_WORKERS: 1
+          UVICORN_WORKERS: 10
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0
