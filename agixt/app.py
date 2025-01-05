@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(startup_delay)
 
     # Start the task monitor asynchronously
-    await task_monitor.start(worker_id=worker_id)
+    await task_monitor.start()
 
     # Handle ngrok setup if configured
     NGROK_TOKEN = getenv("NGROK_TOKEN")
