@@ -572,3 +572,17 @@ class TextToSpeechResponse(BaseModel):
 class ImageGenerationResponse(BaseModel):
     created: int
     data: List[Dict[str, str]]
+
+
+class MemoryResponse(BaseModel):
+    memories: List[Dict[str, Any]]
+
+
+class MemoryCollectionResponse(BaseModel):
+    external_sources: List[str]
+
+
+class DPOResponse(BaseModel):
+    prompt: str
+    chosen: str
+    rejected: str
