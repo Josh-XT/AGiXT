@@ -28,7 +28,7 @@ jobs:
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
   test-agixt-postgres:
-    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    uses: ./.github/workflows/tests.yml
     with:
       notebook: tests/endpoint-tests.ipynb
       image: ${{ needs.build.outputs.primary-image }}
@@ -37,7 +37,7 @@ jobs:
       report-name: "agixt-postgres-tests"
     needs: build
   test-agixt-sqlite:
-    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    uses: ./.github/workflows/tests.yml
     with:
       notebook: tests/endpoint-tests.ipynb
       image: ${{ needs.build.outputs.primary-image }}
