@@ -3,6 +3,7 @@ import os
 import sys
 import logging
 import signal
+import asyncio
 import mimetypes
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -22,7 +23,6 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
-import threading
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -41,7 +41,9 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     workspace_manager.start_file_watcher()
-    tasks = threading.Thread(target=task_monitor.start).start()
+    # Start the task monitor asynchronously
+    await task_monitor.start()
+
     NGROK_TOKEN = getenv("NGROK_TOKEN")
     if NGROK_TOKEN:
         from pyngrok import ngrok
@@ -62,9 +64,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         workspace_manager.stop_file_watcher()
-        task_monitor.stop()
-        if tasks:
-            tasks.kill()
+        await task_monitor.stop()  # Make sure to await the stop
         if NGROK_TOKEN:
             try:
                 ngrok.kill()
@@ -73,8 +73,13 @@ async def lifespan(app: FastAPI):
 
 
 # Register signal handlers for unexpected shutdowns
-def signal_handler(signum, frame):
+async def cleanup():
     workspace_manager.stop_file_watcher()
+    await task_monitor.stop()
+
+
+def signal_handler(signum, frame):
+    asyncio.run(cleanup())
     sys.exit(0)
 
 
