@@ -217,7 +217,145 @@ def import_extensions():
         session.close()
 
 
+def check_and_import_chain_steps(chain_name, chain_data, session, user_id):
+    """
+    Helper function to check if a chain exists but has no steps, and imports steps if needed.
+
+    Args:
+        chain_name (str): Name of the chain
+        chain_data (dict): Chain data containing steps
+        session (Session): Database session
+        user_id (str): User ID
+
+    Returns:
+        bool: True if steps were imported, False if chain already had steps
+    """
+    from DB import (
+        Chain as ChainDB,
+        ChainStep,
+        Agent,
+        Command,
+        Prompt,
+        Argument,
+        ChainStepArgument,
+    )
+
+    # Check if chain exists
+    existing_chain = (
+        session.query(ChainDB).filter_by(name=chain_name, user_id=user_id).first()
+    )
+    if not existing_chain:
+        return False
+
+    # Check if chain has steps
+    existing_steps = (
+        session.query(ChainStep).filter_by(chain_id=existing_chain.id).count()
+    )
+    if existing_steps > 0:
+        return False
+
+    # Import steps for existing chain
+    steps = chain_data.get("steps", [])
+    for step_data in steps:
+        agent_name = step_data["agent_name"]
+        agent = session.query(Agent).filter_by(name=agent_name, user_id=user_id).first()
+        if not agent:
+            # Try getting default user's agent
+            default_user = session.query(User).filter_by(email=DEFAULT_USER).first()
+            agent = (
+                session.query(Agent)
+                .filter_by(name=agent_name, user_id=default_user.id)
+                .first()
+            )
+            if not agent:
+                continue
+
+        prompt = step_data["prompt"]
+        prompt_type = step_data["prompt_type"].lower()
+
+        # Handle different prompt types
+        target_id = None
+        if prompt_type == "prompt":
+            prompt_category = prompt.get("prompt_category", "Default")
+            target = (
+                session.query(Prompt)
+                .filter(
+                    Prompt.name == prompt["prompt_name"],
+                    Prompt.user_id == user_id,
+                    Prompt.prompt_category.has(name=prompt_category),
+                )
+                .first()
+            )
+            if target:
+                target_id = target.id
+        elif prompt_type == "chain":
+            chain_key = "chain_name" if "chain_name" in prompt else "chain"
+            target = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.name == prompt[chain_key],
+                    ChainDB.user_id == user_id,
+                )
+                .first()
+            )
+            if target:
+                target_id = target.id
+        elif prompt_type == "command":
+            target = (
+                session.query(Command).filter_by(name=prompt["command_name"]).first()
+            )
+            if target:
+                target_id = target.id
+
+        if target_id is None:
+            continue
+
+        # Create chain step
+        chain_step = ChainStep(
+            chain_id=existing_chain.id,
+            step_number=step_data["step"],
+            agent_id=agent.id,
+            prompt_type=step_data["prompt_type"],
+            prompt=prompt.get("prompt_name", ""),
+            target_chain_id=target_id if prompt_type == "chain" else None,
+            target_command_id=target_id if prompt_type == "command" else None,
+            target_prompt_id=target_id if prompt_type == "prompt" else None,
+        )
+        session.add(chain_step)
+        session.flush()
+
+        # Handle arguments
+        prompt_args = prompt.copy()
+        if prompt_type == "prompt":
+            del prompt_args["prompt_name"]
+            if "prompt_category" in prompt_args:
+                del prompt_args["prompt_category"]
+        elif prompt_type == "command":
+            del prompt_args["command_name"]
+        elif prompt_type == "chain":
+            if "chain_name" in prompt_args:
+                del prompt_args["chain_name"]
+            if "chain" in prompt_args:
+                del prompt_args["chain"]
+
+        for arg_name, arg_value in prompt_args.items():
+            argument = session.query(Argument).filter_by(name=arg_name).first()
+            if argument:
+                chain_step_arg = ChainStepArgument(
+                    chain_step_id=chain_step.id,
+                    argument_id=argument.id,
+                    value=str(arg_value),
+                )
+                session.add(chain_step_arg)
+
+    session.commit()
+    return True
+
+
 def import_chains(user=DEFAULT_USER):
+    """
+    Import chains from JSON files, including updating existing chains that have no steps.
+    """
     chain_dir = os.path.abspath("chains")
     chain_files = [
         file
@@ -225,60 +363,49 @@ def import_chains(user=DEFAULT_USER):
         if os.path.isfile(os.path.join(chain_dir, file)) and file.endswith(".json")
     ]
     if not chain_files:
-        logging.info(f"No JSON files found in chains directory.")
+        logging.info("No JSON files found in chains directory.")
         return
 
     from Chain import Chain
-    from DB import Chain as ChainDB
+    from DB import get_session, User
 
     chain_importer = Chain(user=user)
     session = get_session()
+    user_data = session.query(User).filter_by(email=user).first()
 
     failures = []
     for file in chain_files:
         chain_name = os.path.splitext(file)[0]
-        existing_chain = session.query(ChainDB).filter_by(name=chain_name).first()
-        if existing_chain:
-            logging.info(f"Chain {chain_name} already exists, skipping...")
-            continue
-
         file_path = os.path.join(chain_dir, file)
-        with open(file_path, "r") as f:
-            try:
+
+        try:
+            with open(file_path, "r") as f:
                 chain_data = json.load(f)
+
+            # Try to import steps for existing chain
+            steps_imported = check_and_import_chain_steps(
+                chain_name=chain_name,
+                chain_data=chain_data,
+                session=session,
+                user_id=user_data.id,
+            )
+
+            if steps_imported:
+                logging.info(f"Imported steps for existing chain: {chain_name}")
+            else:
+                # If chain doesn't exist or already has steps, try normal import
                 result = chain_importer.import_chain(chain_name, chain_data)
                 if result:
                     logging.info(result)
-            except Exception as e:
-                logging.info(f"(1/3) Error importing chain from '{file}': {str(e)}")
-                failures.append(file)
 
-    # Retry failed imports twice more
-    for retry in range(2):
-        if not failures:
-            break
-        retry_failures = failures.copy()
-        failures = []
-        for file in retry_failures:
-            chain_name = os.path.splitext(file)[0]
-            file_path = os.path.join(chain_dir, file)
-            with open(file_path, "r") as f:
-                try:
-                    chain_data = json.load(f)
-                    result = chain_importer.import_chain(chain_name, chain_data)
-                    logging.info(result)
-                except Exception as e:
-                    logging.info(
-                        f"({retry + 2}/3) Error importing chain from '{file}': {str(e)}"
-                    )
-                    failures.append(file)
-
-    if failures:
-        logging.info(
-            f"Failed to import the following chains: {', '.join([os.path.splitext(file)[0] for file in failures])}"
-        )
+        except Exception as e:
+            logging.error(f"Error importing chain from '{file}': {str(e)}")
+            failures.append(file)
 
     session.close()
+
+    if failures:
+        logging.error(f"Failed to import the following chains: {', '.join(failures)}")
 
 
 def import_prompts(user=DEFAULT_USER):
