@@ -118,7 +118,7 @@ jobs:
         run: |
           echo "Executing notebook with error tolerance..."
           python3 -m nbconvert --execute --allow-errors --log-level INFO --to pdf ${{ env.notebook-file }}
-      - name: Send Video to Discord
+      - name: Send Report to Discord
         if: always()
         run: |
           # Set message based on stored test outcome
@@ -147,7 +147,7 @@ jobs:
           if [ ! -f $FILE_TO_SEND ]; then
             FILE_TO_SEND="${{ env.artifact-file }}"
           fi
-          echo "Sending Video: $FILE_TO_SEND"
+          echo "Sending Report: $FILE_TO_SEND"
           curl -H "Content-Type:multipart/form-data" \
                 -F "file=@$FILE_TO_SEND" \
                 -F "content=$MESSAGE" \

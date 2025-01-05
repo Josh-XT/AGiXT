@@ -36,6 +36,8 @@ jobs:
       database-type: "postgresql"
       report-name: "agixt-postgres-tests"
     needs: build
+    secrets:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
   test-agixt-sqlite:
     uses: ./.github/workflows/tests.yml
     with:
@@ -45,3 +47,5 @@ jobs:
       database-type: "sqlite"
       report-name: "agixt-sqlite-tests"
     needs: build
+    secrets:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
