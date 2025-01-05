@@ -17,8 +17,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from cryptography.fernet import Fernet
 from Globals import getenv
 import asyncio
-import multiprocessing
-from concurrent.futures import ThreadPoolExecutor
+import os
+import socket
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -26,28 +26,23 @@ logging.basicConfig(
 )
 
 
-async def worker_startup(worker_id: int):
-    """Handle staggered startup for each worker"""
-    startup_delay = worker_id * 5  # 5 seconds delay per worker
-    if worker_id > 0:
-        logging.info(
-            f"Worker {worker_id} waiting {startup_delay} seconds before starting..."
-        )
-        await asyncio.sleep(startup_delay)
-    logging.info(f"Worker {worker_id} starting...")
-
-
 def get_worker_id():
-    """Get the current worker ID based on process name"""
+    """Get the worker ID from environment or fallback to hostname-based ID"""
     try:
-        current_process = multiprocessing.current_process()
-        process_name = current_process.name
-        if "Worker" in process_name:
-            # Extract worker number from process name (e.g., 'Worker-1' -> 1)
-            return int(process_name.split("-")[1])
-        return 0
-    except (ValueError, IndexError):
-        return 0
+        # Try to get worker ID from environment first
+        worker_id = int(os.environ.get("WORKER_ID", "0"))
+        return worker_id
+    except ValueError:
+        # Fallback: use last digit of hostname as worker ID
+        hostname = socket.gethostname()
+        try:
+            # Extract last number from hostname or use hash of hostname
+            worker_id = (
+                int(hostname[-1]) if hostname[-1].isdigit() else hash(hostname) % 10
+            )
+            return worker_id
+        except:
+            return 0
 
 
 DEFAULT_USER = getenv("DEFAULT_USER")
@@ -757,10 +752,33 @@ def setup_default_roles():
         db.commit()
 
 
+class StaggeredStartupMiddleware:
+    def __init__(self, app):
+        self.app = app
+        self.initialized = False
+
+    async def __call__(self, scope, receive, send):
+        if not self.initialized:
+            worker_id = get_worker_id()
+            startup_delay = worker_id * 5  # 5 seconds delay per worker
+
+            if worker_id > 0:
+                logging.info(
+                    f"Worker {worker_id} waiting {startup_delay} seconds before starting..."
+                )
+                await asyncio.sleep(startup_delay)
+                logging.info(f"Worker {worker_id} starting...")
+
+            self.initialized = True
+
+        await self.app(scope, receive, send)
+
+
 if __name__ == "__main__":
     import uvicorn
-    from uvicorn.workers import UvicornWorker
+    from app import app
 
+    # Database connection and initialization
     if DATABASE_TYPE.lower().startswith("postgres"):
         logging.info("Connecting to database...")
         while True:
@@ -771,6 +789,7 @@ if __name__ == "__main__":
             except Exception as e:
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
+
     # Create any missing tables
     Base.metadata.create_all(engine)
     setup_default_roles()
@@ -780,27 +799,17 @@ if __name__ == "__main__":
 
     import_all_data()
 
-    class StaggeredUvicornWorker(UvicornWorker):
-        def run(self):
-            # Get worker ID and run startup sequence
-            worker_id = get_worker_id()
+    # Add staggered startup middleware to your app
+    app.add_middleware(StaggeredStartupMiddleware)
 
-            # Run the startup delay in the event loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(worker_startup(worker_id))
-
-            # Continue with normal worker startup
-            super().run()
-
-    config = uvicorn.Config(
+    # Run with uvicorn
+    uvicorn.run(
         "app:app",
         host="0.0.0.0",
         port=7437,
         log_level=str(getenv("LOG_LEVEL")).lower(),
         workers=int(getenv("UVICORN_WORKERS")),
         proxy_headers=True,
-        worker_class="__main__.StaggeredUvicornWorker",
+        env_file=".env",
+        env={"WORKER_ID": "$(echo $WORKER_ID)"},  # Pass worker ID to each worker
     )
-    server = uvicorn.Server(config)
-    server.run()
