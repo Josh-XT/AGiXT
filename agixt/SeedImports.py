@@ -217,15 +217,16 @@ def import_extensions():
         session.close()
 
 
-def check_and_import_chain_steps(chain_name, chain_data, session, user_id):
+def check_and_import_chain_steps(chain_name, chain_data, session, user_id=None):
     """
     Helper function to check if a chain exists but has no steps, and imports steps if needed.
+    Will check both the specified user's chains and global/default user chains.
 
     Args:
         chain_name (str): Name of the chain
         chain_data (dict): Chain data containing steps
         session (Session): Database session
-        user_id (str): User ID
+        user_id (str, optional): User ID. If None, will only check default user
 
     Returns:
         bool: True if steps were imported, False if chain already had steps
@@ -240,19 +241,43 @@ def check_and_import_chain_steps(chain_name, chain_data, session, user_id):
         ChainStepArgument,
     )
 
-    # Check if chain exists
-    existing_chain = (
-        session.query(ChainDB).filter_by(name=chain_name, user_id=user_id).first()
+    # Get default user for global chains
+    default_user = session.query(User).filter_by(email=DEFAULT_USER).first()
+    default_user_id = default_user.id if default_user else None
+
+    # Check both user-specific and default user chains
+    chains_to_check = []
+
+    # Add default user chain
+    default_chain = (
+        session.query(ChainDB)
+        .filter_by(name=chain_name, user_id=default_user_id)
+        .first()
     )
-    if not existing_chain:
+    if default_chain:
+        chains_to_check.append(default_chain)
+
+    # Add user-specific chain if user_id provided
+    if user_id and user_id != default_user_id:
+        user_chain = (
+            session.query(ChainDB).filter_by(name=chain_name, user_id=user_id).first()
+        )
+        if user_chain:
+            chains_to_check.append(user_chain)
+
+    if not chains_to_check:
         return False
 
-    # Check if chain has steps
-    existing_steps = (
-        session.query(ChainStep).filter_by(chain_id=existing_chain.id).count()
-    )
-    if existing_steps > 0:
-        return False
+    steps_imported = False
+
+    # Process each chain that needs steps
+    for existing_chain in chains_to_check:
+        # Check if chain has steps
+        existing_steps = (
+            session.query(ChainStep).filter_by(chain_id=existing_chain.id).count()
+        )
+        if existing_steps > 0:
+            continue
 
     # Import steps for existing chain
     steps = chain_data.get("steps", [])
@@ -348,13 +373,18 @@ def check_and_import_chain_steps(chain_name, chain_data, session, user_id):
                 )
                 session.add(chain_step_arg)
 
-    session.commit()
-    return True
+        steps_imported = True
+
+    if steps_imported:
+        session.commit()
+    return steps_imported
 
 
+# Modified import_chains function
 def import_chains(user=DEFAULT_USER):
     """
     Import chains from JSON files, including updating existing chains that have no steps.
+    Will handle both user-specific and global/default user chains.
     """
     chain_dir = os.path.abspath("chains")
     chain_files = [
@@ -367,11 +397,13 @@ def import_chains(user=DEFAULT_USER):
         return
 
     from Chain import Chain
-    from DB import get_session, User
+    from DB import Chain as ChainDB, get_session, User
 
     chain_importer = Chain(user=user)
     session = get_session()
-    user_data = session.query(User).filter_by(email=user).first()
+
+    # Get all users to process chains for
+    users = session.query(User).all()
 
     failures = []
     for file in chain_files:
@@ -382,13 +414,25 @@ def import_chains(user=DEFAULT_USER):
             with open(file_path, "r") as f:
                 chain_data = json.load(f)
 
-            # Try to import steps for existing chain
+            # Process chain for default user first
+            default_user = session.query(User).filter_by(email=DEFAULT_USER).first()
             steps_imported = check_and_import_chain_steps(
                 chain_name=chain_name,
                 chain_data=chain_data,
                 session=session,
-                user_id=user_data.id,
+                user_id=default_user.id,
             )
+
+            # Then process for all other users
+            for user_data in users:
+                if user_data.email != DEFAULT_USER:
+                    user_steps_imported = check_and_import_chain_steps(
+                        chain_name=chain_name,
+                        chain_data=chain_data,
+                        session=session,
+                        user_id=user_data.id,
+                    )
+                    steps_imported = steps_imported or user_steps_imported
 
             if steps_imported:
                 logging.info(f"Imported steps for existing chain: {chain_name}")
