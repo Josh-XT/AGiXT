@@ -36,6 +36,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "REGISTRATION_DISABLED": "false",
         "CREATE_AGENT_ON_REGISTER": "true",
         "CREATE_AGIXT_AGENT": "true",
+        "SEED_DATA": "true",
     }
     if default_value != "":
         default_values[var_name] = default_value

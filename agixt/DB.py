@@ -744,11 +744,12 @@ if __name__ == "__main__":
     # Create any missing tables
     Base.metadata.create_all(engine)
     setup_default_roles()
+    seed_data = str(getenv("SEED_DATA")).lower() == "true"
+    if seed_data:
+        # Import seed data
+        from SeedImports import import_all_data
 
-    # Import seed data
-    from SeedImports import import_all_data
-
-    import_all_data()
+        import_all_data()
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
