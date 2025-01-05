@@ -432,3 +432,19 @@ class CommandExecution(BaseModel):
 
 class TTSInput(BaseModel):
     text: str
+
+
+class ProvidersResponse(BaseModel):
+    providers: List[str]
+
+
+class ProviderSettings(BaseModel):
+    settings: Dict[str, Any]
+
+
+class ProviderWithSettings(BaseModel):
+    providers: List[Dict[str, Dict[str, Any]]]
+
+
+class EmbedderResponse(BaseModel):
+    embedders: List[str]

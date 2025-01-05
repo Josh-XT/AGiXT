@@ -124,7 +124,6 @@ jobs:
         id: execute_notebook
         env:
           API_KEY: ${{ secrets.api-key }}
-          features: ${{ inputs.features }}
         run: |
           echo "Executing notebook with strict error checking..."
           
