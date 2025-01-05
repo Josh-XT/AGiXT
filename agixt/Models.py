@@ -517,3 +517,25 @@ class ExtensionsModel(BaseModel):
 
 class PromptArgsResponse(BaseModel):
     prompt_args: List[str]
+
+
+# Add these to Models.py if not already present
+class ConversationListResponse(BaseModel):
+    conversations: List[str]
+    conversations_with_ids: Dict[str, str]
+
+
+class ConversationDetailResponse(BaseModel):
+    conversations: Dict[str, Dict[str, Any]]
+
+
+class ConversationHistoryResponse(BaseModel):
+    conversation_history: List[Dict[str, Any]]
+
+
+class NotificationResponse(BaseModel):
+    notifications: List[Dict[str, Any]]
+
+
+class MessageIdResponse(BaseModel):
+    message: str  # Contains the message ID

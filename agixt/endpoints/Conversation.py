@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Header
+from typing import Dict
 from ApiClient import verify_api_key
 from Conversations import (
     Conversations,
@@ -17,6 +18,11 @@ from Models import (
     UpdateMessageModel,
     DeleteMessageModel,
     ConversationFork,
+    ConversationListResponse,
+    ConversationDetailResponse,
+    ConversationHistoryResponse,
+    NotificationResponse,
+    MessageIdResponse,
 )
 import json
 import uuid
@@ -28,6 +34,9 @@ app = APIRouter()
 
 @app.get(
     "/api/conversations",
+    response_model=ConversationListResponse,
+    summary="Get List of Conversations",
+    description="Retrieves a list of all conversations for the authenticated user, including both conversation names and their IDs.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -45,6 +54,9 @@ async def get_conversations_list(user=Depends(verify_api_key)):
 
 @app.get(
     "/v1/conversations",
+    response_model=ConversationDetailResponse,
+    summary="Get Detailed Conversations List",
+    description="Retrieves a detailed list of conversations including metadata such as creation date, update date, and notification status.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -61,6 +73,9 @@ async def get_conversations(user=Depends(verify_api_key)):
 
 @app.get(
     "/v1/conversation/{conversation_id}",
+    response_model=ConversationHistoryResponse,
+    summary="Get Conversation History by ID",
+    description="Retrieves the complete history of a specific conversation using its ID.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -89,6 +104,9 @@ async def get_conversation_history(
 
 @app.get(
     "/api/conversation",
+    response_model=ConversationHistoryResponse,
+    summary="Get Paginated Conversation History",
+    description="Retrieves conversation history with pagination support using limit and page parameters.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -120,6 +138,9 @@ async def get_conversation_history(
 
 @app.get(
     "/api/conversation/{conversation_name}",
+    response_model=ConversationHistoryResponse,
+    summary="Get Conversation History by Name",
+    description="Retrieves conversation history using the conversation name with optional pagination.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -150,6 +171,9 @@ async def get_conversation_data(
 
 @app.post(
     "/api/conversation",
+    response_model=ConversationHistoryResponse,
+    summary="Create New Conversation",
+    description="Creates a new conversation with initial content.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -165,6 +189,9 @@ async def new_conversation_history(
 
 @app.delete(
     "/api/conversation",
+    response_model=ResponseMessage,
+    summary="Delete Conversation",
+    description="Deletes an entire conversation and all its messages.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -191,6 +218,9 @@ async def delete_conversation_history(
 
 @app.delete(
     "/api/conversation/message",
+    response_model=ResponseMessage,
+    summary="Delete Conversation Message",
+    description="Deletes a specific message from a conversation.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -205,6 +235,9 @@ async def delete_history_message(
 
 @app.put(
     "/api/conversation/message",
+    response_model=ResponseMessage,
+    summary="Update Conversation Message",
+    description="Updates the content of a specific message in a conversation.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -232,6 +265,9 @@ async def update_history_message(
 
 @app.put(
     "/api/conversation/message/{message_id}",
+    response_model=ResponseMessage,
+    summary="Update Message by ID",
+    description="Updates a message's content using its specific ID.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -251,6 +287,9 @@ async def update_by_id(
 
 @app.delete(
     "/api/conversation/message/{message_id}",
+    response_model=ResponseMessage,
+    summary="Delete Message by ID",
+    description="Deletes a specific message using its ID.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -269,6 +308,9 @@ async def delete_by_id(
 
 @app.post(
     "/api/conversation/message",
+    response_model=MessageIdResponse,
+    summary="Log Conversation Interaction",
+    description="Logs a new message or interaction in the conversation and returns the message ID.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -297,6 +339,9 @@ async def log_interaction(
 # Ask AI to rename the conversation
 @app.put(
     "/api/conversation",
+    response_model=Dict[str, str],
+    summary="Rename Conversation",
+    description="Renames an existing conversation, optionally using AI to generate a new name.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -381,6 +426,9 @@ async def rename_conversation(
 
 @app.post(
     "/api/conversation/fork",
+    response_model=ResponseMessage,
+    summary="Fork Conversation",
+    description="Creates a new conversation as a fork from an existing one up to a specific message.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -395,6 +443,9 @@ async def fork_conversation(
 
 @app.get(
     "/v1/conversation/{conversation_id}/tts/{message_id}",
+    response_model=Dict[str, str],
+    summary="Get Text-to-Speech for Message",
+    description="Converts a specific message to speech and returns the audio URL.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -429,6 +480,9 @@ async def get_tts(
 
 @app.get(
     "/api/notifications",
+    response_model=NotificationResponse,
+    summary="Get User Notifications",
+    description="Retrieves all notifications for the authenticated user.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
