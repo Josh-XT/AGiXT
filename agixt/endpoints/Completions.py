@@ -71,7 +71,6 @@ async def chat_completion(
     dependencies=[Depends(verify_api_key)],
     summary="Create Text Embeddings",
     description="Creates embeddings for the input text. Compatible with OpenAI's embeddings API format.",
-    response_model=EmbeddingResponse,
 )
 async def embedding(
     embedding: EmbeddingModel,
