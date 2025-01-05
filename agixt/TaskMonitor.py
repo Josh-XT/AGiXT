@@ -104,9 +104,6 @@ class TaskMonitor:
                 # Add initial delay based on worker ID
                 if not hasattr(self, "_initial_delay_done"):
                     delay = self.worker_id * 5  # 5 second stagger
-                    logging.info(
-                        f"Worker {self.worker_id}: Initial delay of {delay} seconds"
-                    )
                     await asyncio.sleep(delay)
                     self._initial_delay_done = True
 
@@ -165,7 +162,6 @@ class TaskMonitor:
             return
 
         self.running = True
-        logger.info(f"Starting task monitor service on worker {self.worker_id}...")
         task = asyncio.create_task(self.process_tasks())
         self.tasks.append(task)
 
