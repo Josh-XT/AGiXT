@@ -54,7 +54,8 @@ jobs:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: just-a-test
         options: >-
-          --health-cmd "curl -f http://localhost:9000"
+          server /data --console-address ":9001"
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
           --health-interval 10s
           --health-timeout 60s
           --health-retries 5
@@ -64,8 +65,7 @@ jobs:
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
         options: >-
-          server /data --console-address ":9001"
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-cmd "curl -f http://localhost:${{ inputs.port }}"
           --health-interval 10s
           --health-timeout 60s
           --health-retries 5
