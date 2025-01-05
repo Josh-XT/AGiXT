@@ -748,7 +748,10 @@ class Agent:
                     .first()
                 )
                 if agent_setting:
-                    agent_setting.value = str(setting_value)
+                    if setting_value == "":
+                        session.delete(agent_setting)
+                    else:
+                        agent_setting.value = str(setting_value)
                 else:
                     agent_setting = AgentSettingModel(
                         agent_id=self.agent_id,
