@@ -50,6 +50,9 @@ async def get_chain(chain_name: str, user=Depends(verify_api_key)):
     "/api/chain/{chain_name}/run",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=str,
+    summary="Run chain",
+    description="Executes a chain with the specified name and returns the final output.",
 )
 async def run_chain(
     chain_name: str,
@@ -86,6 +89,9 @@ async def run_chain(
     "/api/chain/{chain_name}/run/step/{step_number}",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
+    response_model=str,
+    summary="Run chain step",
+    description="Executes a specific step within a chain and returns the output.",
 )
 async def run_chain_step(
     chain_name: str,
