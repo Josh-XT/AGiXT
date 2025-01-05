@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
+import threading
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -40,7 +41,7 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     workspace_manager.start_file_watcher()
-    task_monitor.start()
+    threading.Thread(target=task_monitor.start, daemon=True).start()
     NGROK_TOKEN = getenv("NGROK_TOKEN")
     if NGROK_TOKEN:
         from pyngrok import ngrok
