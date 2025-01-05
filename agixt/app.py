@@ -41,7 +41,7 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     workspace_manager.start_file_watcher()
-    threading.Thread(target=task_monitor.start).start()
+    tasks = threading.Thread(target=task_monitor.start).start()
     NGROK_TOKEN = getenv("NGROK_TOKEN")
     if NGROK_TOKEN:
         from pyngrok import ngrok
@@ -63,6 +63,8 @@ async def lifespan(app: FastAPI):
         # Shutdown
         workspace_manager.stop_file_watcher()
         task_monitor.stop()
+        if tasks:
+            tasks.kill()
         if NGROK_TOKEN:
             try:
                 ngrok.kill()
