@@ -17,20 +17,6 @@ on:
         type: string
         description: add whatever pip you need here
         default: "openai requests agixtsdk qrcode==7.4.2"
-      allow-errors:
-        type: boolean
-        description: Fail if there is an error in the execution of the notebook
-        default: false
-      additional-args:
-        type: string
-        description: additional args for nbconvert
-        default: "--log-level INFO"
-      append-logs:
-        type: boolean
-        default: false
-      clone-repo:
-        type: boolean
-        default: false
       database-type:
         type: string
         default: "postgresql"
@@ -39,10 +25,6 @@ on:
         type: string
         default: "test-reports"
         description: "Name of the report"
-      default-email:
-        type: string
-        default: none
-        description: Optional default email available as os.getenv('DEFAULT_EMAIL') in your notebook
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -51,7 +33,7 @@ on:
   
 jobs:
   run-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
