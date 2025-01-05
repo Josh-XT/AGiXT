@@ -736,11 +736,12 @@ if __name__ == "__main__":
         while True:
             try:
                 connection = engine.connect()
+                connection.execute("SELECT 1")
                 connection.close()
                 break
             except Exception as e:
                 logging.error(f"Error connecting to database: {e}")
-                time.sleep(10)
+                time.sleep(5)
     # Create any missing tables
     Base.metadata.create_all(engine)
     setup_default_roles()
