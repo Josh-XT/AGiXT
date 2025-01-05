@@ -16,11 +16,40 @@ from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from cryptography.fernet import Fernet
 from Globals import getenv
+import asyncio
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+async def worker_startup(worker_id: int):
+    """Handle staggered startup for each worker"""
+    startup_delay = worker_id * 5  # 5 seconds delay per worker
+    if worker_id > 0:
+        logging.info(
+            f"Worker {worker_id} waiting {startup_delay} seconds before starting..."
+        )
+        await asyncio.sleep(startup_delay)
+    logging.info(f"Worker {worker_id} starting...")
+
+
+def get_worker_id():
+    """Get the current worker ID based on process name"""
+    try:
+        current_process = multiprocessing.current_process()
+        process_name = current_process.name
+        if "Worker" in process_name:
+            # Extract worker number from process name (e.g., 'Worker-1' -> 1)
+            return int(process_name.split("-")[1])
+        return 0
+    except (ValueError, IndexError):
+        return 0
+
+
 DEFAULT_USER = getenv("DEFAULT_USER")
 try:
     DATABASE_TYPE = getenv("DATABASE_TYPE")
@@ -730,6 +759,7 @@ def setup_default_roles():
 
 if __name__ == "__main__":
     import uvicorn
+    from uvicorn.workers import UvicornWorker
 
     if DATABASE_TYPE.lower().startswith("postgres"):
         logging.info("Connecting to database...")
@@ -749,11 +779,28 @@ if __name__ == "__main__":
     from SeedImports import import_all_data
 
     import_all_data()
-    uvicorn.run(
+
+    class StaggeredUvicornWorker(UvicornWorker):
+        def run(self):
+            # Get worker ID and run startup sequence
+            worker_id = get_worker_id()
+
+            # Run the startup delay in the event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(worker_startup(worker_id))
+
+            # Continue with normal worker startup
+            super().run()
+
+    config = uvicorn.Config(
         "app:app",
         host="0.0.0.0",
         port=7437,
         log_level=str(getenv("LOG_LEVEL")).lower(),
         workers=int(getenv("UVICORN_WORKERS")),
         proxy_headers=True,
+        worker_class="__main__.StaggeredUvicornWorker",
     )
+    server = uvicorn.Server(config)
+    server.run()

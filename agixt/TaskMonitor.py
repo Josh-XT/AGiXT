@@ -39,6 +39,7 @@ class TaskMonitor:
         self.running = False
         self.tasks = []
         self._process_lock = asyncio.Lock()
+        self.worker_id = None
 
     def is_running(self):
         return self.running and any(not task.done() for task in self.tasks)
@@ -96,13 +97,19 @@ class TaskMonitor:
             session.close()
 
     async def process_tasks(self):
-        """Process all pending tasks across users"""
+        """Process tasks with worker-specific delays"""
         while self.running:
             try:
                 async with self._process_lock:
                     pending_tasks = await self.get_all_pending_tasks()
 
-                    # Process tasks concurrently with a reasonable limit
+                    # Add worker-specific offset to avoid simultaneous processing
+                    worker_offset = (
+                        self.worker_id * 0.5
+                    )  # Half second offset per worker
+                    await asyncio.sleep(worker_offset)
+
+                    # Process tasks in smaller chunks
                     chunks = [
                         pending_tasks[i : i + 5]
                         for i in range(0, len(pending_tasks), 5)
@@ -111,19 +118,25 @@ class TaskMonitor:
                         tasks = [self.process_single_task(task) for task in chunk]
                         await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Wait before next check
-                await asyncio.sleep(60)
+                # Add slight variation to check interval based on worker ID
+                # This helps prevent all workers from checking at exactly the same time
+                check_interval = 60 + (self.worker_id * 0.5)
+                await asyncio.sleep(check_interval)
+
             except Exception as e:
-                logger.error(f"Error in task processing loop: {str(e)}")
+                logger.error(
+                    f"Error in task processing loop (Worker {self.worker_id}): {str(e)}"
+                )
                 await asyncio.sleep(60)
 
-    async def start(self):
-        """Start the task monitoring service"""
+    async def start(self, worker_id: int = 0):
+        """Start the task monitoring service with worker ID"""
         if self.running:
             return
 
+        self.worker_id = worker_id
         self.running = True
-        logger.info("Starting task monitor service...")
+        logger.info(f"Starting task monitor service on worker {worker_id}...")
         task = asyncio.create_task(self.process_tasks())
         self.tasks.append(task)
 
