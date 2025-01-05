@@ -117,7 +117,7 @@ jobs:
         options: >-
           --health-cmd "curl -f http://localhost:${{ inputs.port }}"
           --health-interval 10s
-          --health-timeout 15s
+          --health-timeout 60s
           --health-retries 5
           --health-start-period 2m
         env:
