@@ -6,6 +6,7 @@ from Models import (
     PromptCategoryList,
     ResponseMessage,
     CustomPromptModel,
+    PromptArgsResponse,
 )
 from Globals import getenv
 import logging
@@ -22,6 +23,9 @@ logging.basicConfig(
 @app.post(
     "/api/prompt/{prompt_category}",
     tags=["Prompt"],
+    response_model=ResponseMessage,
+    summary="Add a new prompt",
+    description="Create a new prompt in the specified category. Requires admin privileges.",
     dependencies=[Depends(verify_api_key)],
 )
 async def add_prompt(
@@ -48,6 +52,8 @@ async def add_prompt(
     "/api/prompt/{prompt_category}/{prompt_name}",
     tags=["Prompt"],
     response_model=CustomPromptModel,
+    summary="Get a specific prompt",
+    description="Retrieve a prompt by its name and category.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompt_with_category(
@@ -64,24 +70,11 @@ async def get_prompt_with_category(
 
 
 @app.get(
-    "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
-    response_model=CustomPromptModel,
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_prompt(
-    prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
-):
-    prompt_content = Prompts(user=user).get_prompt(
-        prompt_name=prompt_name, prompt_category=prompt_category
-    )
-    return {"prompt_name": prompt_name, "prompt": prompt_content}
-
-
-@app.get(
     "/api/prompt",
     response_model=PromptList,
     tags=["Prompt"],
+    summary="Get all prompts",
+    description="Retrieve a list of all available prompts in the default category.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompts(user=Depends(verify_api_key)):
@@ -89,11 +82,12 @@ async def get_prompts(user=Depends(verify_api_key)):
     return {"prompts": prompts}
 
 
-# Get prompt categories
 @app.get(
     "/api/prompt/categories",
     response_model=PromptCategoryList,
     tags=["Prompt"],
+    summary="Get all prompt categories",
+    description="Retrieve a list of all available prompt categories.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompt_categories(user=Depends(verify_api_key)):
@@ -105,6 +99,8 @@ async def get_prompt_categories(user=Depends(verify_api_key)):
     "/api/prompt/{prompt_category}",
     response_model=PromptList,
     tags=["Prompt"],
+    summary="Get prompts by category",
+    description="Retrieve all prompts in a specific category.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompts(prompt_category: str = "Default", user=Depends(verify_api_key)):
@@ -115,6 +111,9 @@ async def get_prompts(prompt_category: str = "Default", user=Depends(verify_api_
 @app.delete(
     "/api/prompt/{prompt_category}/{prompt_name}",
     tags=["Prompt"],
+    response_model=ResponseMessage,
+    summary="Delete a prompt",
+    description="Delete a specific prompt from a category. Requires admin privileges.",
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_prompt(
@@ -134,10 +133,12 @@ async def delete_prompt(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-# Rename prompt
 @app.patch(
     "/api/prompt/{prompt_category}/{prompt_name}",
     tags=["Prompt"],
+    response_model=ResponseMessage,
+    summary="Rename a prompt",
+    description="Rename an existing prompt in a category. Requires admin privileges.",
     dependencies=[Depends(verify_api_key)],
 )
 async def rename_prompt(
@@ -165,6 +166,9 @@ async def rename_prompt(
 @app.put(
     "/api/prompt/{prompt_category}/{prompt_name}",
     tags=["Prompt"],
+    response_model=ResponseMessage,
+    summary="Update a prompt",
+    description="Update the content of an existing prompt. Requires admin privileges.",
     dependencies=[Depends(verify_api_key)],
 )
 async def update_prompt(
@@ -189,6 +193,9 @@ async def update_prompt(
 @app.get(
     "/api/prompt/{prompt_category}/{prompt_name}/args",
     tags=["Prompt"],
+    response_model=PromptArgsResponse,
+    summary="Get prompt arguments",
+    description="Retrieve the arguments required by a specific prompt.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompt_arg(

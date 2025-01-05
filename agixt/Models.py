@@ -513,3 +513,7 @@ class Extension(BaseModel):
 
 class ExtensionsModel(BaseModel):
     extensions: List[Extension]
+
+
+class PromptArgsResponse(BaseModel):
+    prompt_args: List[str]
