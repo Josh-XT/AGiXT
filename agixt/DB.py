@@ -29,20 +29,15 @@ logging.basicConfig(
 def get_worker_id():
     """Get the worker ID from environment or fallback to hostname-based ID"""
     try:
-        # Try to get worker ID from environment first
-        worker_id = int(os.environ.get("WORKER_ID", "0"))
-        return worker_id
-    except ValueError:
-        # Fallback: use last digit of hostname as worker ID
+        # Try to get worker ID from hostname in container
         hostname = socket.gethostname()
-        try:
-            # Extract last number from hostname or use hash of hostname
-            worker_id = (
-                int(hostname[-1]) if hostname[-1].isdigit() else hash(hostname) % 10
-            )
-            return worker_id
-        except:
-            return 0
+        # Docker typically adds a hash to container names, get last digit if possible
+        worker_id = int(hostname[-1]) if hostname[-1].isdigit() else hash(hostname) % 10
+        logging.info(f"Detected worker ID {worker_id} from hostname {hostname}")
+        return worker_id
+    except Exception as e:
+        logging.warning(f"Could not determine worker ID: {e}. Using default 0")
+        return 0
 
 
 DEFAULT_USER = getenv("DEFAULT_USER")
@@ -810,6 +805,4 @@ if __name__ == "__main__":
         log_level=str(getenv("LOG_LEVEL")).lower(),
         workers=int(getenv("UVICORN_WORKERS")),
         proxy_headers=True,
-        env_file=".env",
-        env={"WORKER_ID": "$(echo $WORKER_ID)"},  # Pass worker ID to each worker
     )
