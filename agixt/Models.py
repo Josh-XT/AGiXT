@@ -539,3 +539,36 @@ class NotificationResponse(BaseModel):
 
 class MessageIdResponse(BaseModel):
     message: str  # Contains the message ID
+
+
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[Dict[str, Any]]
+    usage: Dict[str, int]
+
+
+class EmbeddingResponse(BaseModel):
+    data: List[Dict[str, Union[List[float], int, str]]]
+    model: str
+    object: str = "list"
+    usage: Dict[str, int]
+
+
+class AudioTranscriptionResponse(BaseModel):
+    text: str
+
+
+class AudioTranslationResponse(BaseModel):
+    text: str
+
+
+class TextToSpeechResponse(BaseModel):
+    url: str
+
+
+class ImageGenerationResponse(BaseModel):
+    created: int
+    data: List[Dict[str, str]]
