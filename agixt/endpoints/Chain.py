@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Chain, verify_api_key, get_api_client, is_admin
 from typing import List, Dict
+from uuid import UUID
 from XT import AGiXT
 from Models import (
     RunChain,
@@ -37,12 +38,14 @@ async def get_chains(user=Depends(verify_api_key), authorization: str = Header(N
     "/api/chain/{chain_name}",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
-    response_model=Dict[str, ChainDetailsResponse],  # New model needed
+    response_model=Dict[str, ChainDetailsResponse],
     summary="Get chain details",
     description="Retrieves detailed information about a specific chain, including all steps and configurations.",
 )
 async def get_chain(chain_name: str, user=Depends(verify_api_key)):
     chain_data = Chain(user=user).get_chain(chain_name=chain_name)
+    if isinstance(chain_data["id"], UUID):  # Add this check and conversion
+        chain_data["id"] = str(chain_data["id"])
     return {"chain": chain_data}
 
 

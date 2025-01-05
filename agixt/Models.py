@@ -486,6 +486,9 @@ class ChainDetailsResponse(BaseModel):
     chain_name: str
     steps: List[ChainStepDetail]
 
+    class Config:
+        from_attributes = True
+
 
 class CommandExecution(BaseModel):
     command_name: str
