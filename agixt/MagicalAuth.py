@@ -33,6 +33,7 @@ from sso.github import github_sso
 from sso.google import google_sso
 from sso.microsoft import microsoft_sso
 from sso.walmart import walmart_sso
+from Agent import get_agents
 import pyotp
 import logging
 import traceback
@@ -966,10 +967,6 @@ class MagicalAuth:
                 missing_requirements.append({"verify_email": True})
                 self.send_email_verification_link()
         else:
-            if str(user_preferences["verify_email"]).lower() != "true":
-                if getenv("SENDGRID_API_KEY"):
-                    missing_requirements.append({"verify_email": True})
-                    self.send_email_verification_link()
             del user_preferences["verify_email"]
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
@@ -1362,29 +1359,6 @@ class MagicalAuth:
             decrypted_preferences[key] = value
         return decrypted_preferences
 
-    def get_decrypted_user_preferences(self):
-        self.validate_user()
-        user_preferences = self.get_user_preferences()
-        if not user_preferences:
-            return {}
-        decrypted_preferences = {}
-        for key, value in user_preferences.items():
-            if (
-                value != "password"
-                and value != ""
-                and value is not None
-                and value != "string"
-                and value != "text"
-            ):
-                if "password" in key.lower():
-                    value = decrypt(self.encryption_key, value)
-                elif "api_key" in key.lower():
-                    value = decrypt(self.encryption_key, value)
-                elif "_secret" in key.lower():
-                    value = decrypt(self.encryption_key, value)
-            decrypted_preferences[key] = value
-        return decrypted_preferences
-
     def get_token_counts(self):
         session = get_session()
         user_preferences = (
@@ -1518,6 +1492,9 @@ class MagicalAuth:
                         company_dict["primary"] = True
                     else:
                         company_dict["primary"] = False
+                    # Get agents associated with this company and user
+                    agents = get_agents(user=self.email, company=company_dict["id"])
+                    company_dict["agents"] = agents
                     response.append(company_dict)
             return response
         finally:
