@@ -74,6 +74,7 @@ def get_providers_with_details():
             documentation = documentation[1:]
         if documentation.endswith("\n"):
             documentation = documentation[:-1]
+        documentation = documentation.strip()
         providers.update(
             {
                 provider: {
