@@ -62,6 +62,10 @@ def get_providers_with_settings():
 def get_providers_with_details():
     providers = {}
     for provider in get_providers():
+        if provider == "rotation":
+            continue
+        if provider == "gpt4free":
+            continue
         module = importlib.import_module(f"providers.{provider}")
         provider_class = getattr(module, f"{provider.capitalize()}Provider")
         provider_settings = get_provider_options(provider_name=provider)
