@@ -82,9 +82,7 @@ def get_providers_with_details():
                         if hasattr(provider_class, "friendly_name")
                         else provider.capitalize()
                     ),
-                    "description": (
-                        provider_class.__doc__ if provider_class.__doc__ else ""
-                    ),
+                    "description": documentation,
                     "services": (
                         provider_class.services()
                         if hasattr(provider_class, "services")
