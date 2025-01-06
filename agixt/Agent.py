@@ -183,7 +183,7 @@ def rename_agent(agent_name, new_name, user=DEFAULT_USER):
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
-def get_agents(user=DEFAULT_USER):
+def get_agents(user=DEFAULT_USER, company=None):
     session = get_session()
     agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
     output = []
@@ -203,25 +203,15 @@ def get_agents(user=DEFAULT_USER):
                 if setting.name == "company_id":
                     company_id = setting.value
                     break
+        if company_id and company:
+            if company_id != company:
+                continue
         output.append(
             {
                 "name": agent.name,
                 "id": agent.id,
                 "status": False,
                 "company_id": company_id,
-            }
-        )
-    # Get global agents that belong to DEFAULT_USER
-    global_agents = (
-        session.query(AgentModel).filter(AgentModel.user.has(email=DEFAULT_USER)).all()
-    )
-    for agent in global_agents:
-        output.append(
-            {
-                "name": agent.name,
-                "id": agent.id,
-                "status": False,
-                "company_id": None,
             }
         )
     session.close()
