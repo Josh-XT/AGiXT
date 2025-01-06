@@ -1,7 +1,5 @@
 import requests
 
-friendly_name = "Elevenlabs"
-
 
 class ElevenlabsProvider:
     """
@@ -14,6 +12,7 @@ class ElevenlabsProvider:
         ELEVENLABS_VOICE: str = "Josh",
         **kwargs,
     ):
+        self.friendly_name = "Elevenlabs"
         self.MAX_TOKENS = 8192
         self.ELEVENLABS_API_KEY = ELEVENLABS_API_KEY
         self.ELEVENLABS_VOICE = ELEVENLABS_VOICE

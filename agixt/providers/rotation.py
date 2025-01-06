@@ -2,8 +2,6 @@ import logging
 from Providers import get_providers, Providers
 from typing import List, Dict, Any
 
-friendly_name = "AGiXT"
-
 
 class RotationProvider:
     """
@@ -15,6 +13,7 @@ class RotationProvider:
         SMARTEST_PROVIDER: str = "anthropic",  # Can be a comma-separated list
         **kwargs,
     ):
+        self.friendly_name = "AGiXT"
         self.requirements = []
         self.providers = get_providers()
         self.AGENT_SETTINGS = kwargs

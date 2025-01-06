@@ -2,8 +2,6 @@ from openai import AzureOpenAI
 import logging
 import time
 
-friendly_name = "Azure"
-
 
 class AzureProvider:
     """
@@ -22,6 +20,7 @@ class AzureProvider:
         AZURE_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
+        self.friendly_name = "Azure"
         self.requirements = ["openai"]
         self.AZURE_API_KEY = AZURE_API_KEY
         self.AZURE_OPENAI_ENDPOINT = AZURE_OPENAI_ENDPOINT

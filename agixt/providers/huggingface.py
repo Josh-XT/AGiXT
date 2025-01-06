@@ -6,8 +6,6 @@ import base64
 import io
 from PIL import Image
 
-friendly_name = "Huggingface"
-
 
 class HuggingfaceProvider:
     """
@@ -26,6 +24,7 @@ class HuggingfaceProvider:
         HUGGINGFACE_MAX_RETRIES: int = 15,
         **kwargs,
     ):
+        self.friendly_name = "Huggingface"
         self.requirements = []
         self.AI_MODEL = HUGGINGFACE_MODEL
         self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
