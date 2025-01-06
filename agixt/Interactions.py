@@ -8,7 +8,7 @@ import base64
 import uuid
 import asyncio
 from datetime import datetime
-from readers.file import FileReader
+from Memories import Memories
 from Websearch import Websearch
 from Extensions import Extensions
 from Memories import extract_keywords
@@ -49,21 +49,21 @@ class Interactions:
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
-            self.agent_memory = FileReader(
+            self.agent_memory = Memories(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection_number="0",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.positive_feedback_memories = FileReader(
+            self.positive_feedback_memories = Memories(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection_number="2",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.negative_feedback_memories = FileReader(
+            self.negative_feedback_memories = Memories(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection_number="3",
@@ -173,7 +173,7 @@ class Interactions:
                 if "inject_memories_from_collection_number" in kwargs:
                     collection_id = kwargs["inject_memories_from_collection_number"]
                     if collection_id not in ["0", "1", "2", "3", "4", "5", "6", "7"]:
-                        context += await FileReader(
+                        context += await Memories(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
                             collection_number=collection_id,
@@ -359,12 +359,6 @@ class Interactions:
             context = ""
         file_contents = ""
         if "import_files" in prompt_args:
-            file_reader = FileReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection=4,
-                user=self.user,
-            )
             # import_files should be formatted like [{"file_name": "file_content"}]
             files = []
             if "import_files" in kwargs:
@@ -391,12 +385,6 @@ class Interactions:
                     with open(file_path, "r") as f:
                         file_content = f.read()
                     file_contents += f"\n`{file_path}` content:\n{file_content}\n\n"
-                try:
-                    await file_reader.write_file_to_memory(
-                        file_path=file_path,
-                    )
-                except:
-                    pass
                 if file_name != "" and file_content != "":
                     all_files_content += file_content
             if files != []:
@@ -420,7 +408,14 @@ class Interactions:
                 else 8192
             )
             if tokens_used > agent_max_tokens or files == []:
-                fragmented_content = await file_reader.get_memories(
+                memories = Memories(
+                    agent_name=self.agent_name,
+                    agent_config=self.agent.AGENT_CONFIG,
+                    collection_number="1",
+                    ApiClient=self.ApiClient,
+                    user=self.user,
+                )
+                fragmented_content = await memories.get_memories(
                     user_input=f"{user_input} {file_list}",
                     min_relevance_score=0.3,
                     limit=top_results if top_results > 0 else 5,
