@@ -64,6 +64,9 @@ def get_providers_with_details():
     for provider in get_providers():
         module = importlib.import_module(f"providers.{provider}")
         provider_class = getattr(module, f"{provider.capitalize()}Provider")
+        provider_settings = get_provider_options(provider_name=provider)
+        if "provider" in provider_settings:
+            del provider_settings["provider"]
         providers.update(
             {
                 provider: {
@@ -80,7 +83,7 @@ def get_providers_with_details():
                         if hasattr(provider_class, "services")
                         else []
                     ),
-                    "settings": get_provider_options(provider_name=provider),
+                    "settings": provider_settings,
                 }
             }
         )
