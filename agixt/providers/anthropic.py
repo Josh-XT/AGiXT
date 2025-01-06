@@ -11,10 +11,16 @@ import base64
 import logging
 import time
 
+friendly_name = "Anthropic"
+
 
 # List of models available at https://docs.anthropic.com/claude/docs/models-overview
 # Get API key at https://console.anthropic.com/settings/keys
 class AnthropicProvider:
+    """
+    This provider uses the Anthropic API to generate text from prompts. Get your Anthroic API key at <https://console.anthropic.com/settings/keys>.
+    """
+
     def __init__(
         self,
         ANTHROPIC_API_KEY: str = "",

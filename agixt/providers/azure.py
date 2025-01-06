@@ -2,8 +2,14 @@ from openai import AzureOpenAI
 import logging
 import time
 
+friendly_name = "Azure"
+
 
 class AzureProvider:
+    """
+    This provider uses the Azure OpenAI API to generate text from prompts. Learn more about how to set it up at <https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal>.
+    """
+
     def __init__(
         self,
         AZURE_API_KEY: str = "",

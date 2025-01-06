@@ -9,9 +9,14 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
+friendly_name = "xAI"
 
 
 class XaiProvider:
+    """
+    This provider uses the xAI API to generate text from prompts. Get your xAI API key at <https://docs.x.ai/docs#getting-started>.
+    """
+
     def __init__(
         self,
         XAI_API_KEY: str = "",

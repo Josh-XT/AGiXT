@@ -17,8 +17,14 @@ except ImportError:
     import openai
 from Globals import getenv
 
+friendly_name = "ezLocalai"
+
 
 class EzlocalaiProvider:
+    """
+    This provider uses the ezLocalai API to generate text from prompts. Learn how to set up ezLocalai at <https://github.com/DevXT-LLC/ezlocalai>.
+    """
+
     def __init__(
         self,
         EZLOCALAI_API_KEY: str = "None",

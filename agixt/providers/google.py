@@ -25,8 +25,14 @@ except ImportError:
 
 import uuid
 
+friendly_name = "Google"
+
 
 class GoogleProvider:
+    """
+    This provider uses the Google AI Studio API to generate text from prompts. Get your Google API key at <https://aistudio.google.com/>.
+    """
+
     def __init__(
         self,
         GOOGLE_API_KEY: str = "None",

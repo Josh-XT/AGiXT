@@ -2,8 +2,14 @@ import logging
 from Providers import get_providers, Providers
 from typing import List, Dict, Any
 
+friendly_name = "AGiXT"
+
 
 class RotationProvider:
+    """
+    The AGiXT provider rotates between available providers to handle requested based on token limits.
+    """
+
     def __init__(
         self,
         SMARTEST_PROVIDER: str = "anthropic",  # Can be a comma-separated list

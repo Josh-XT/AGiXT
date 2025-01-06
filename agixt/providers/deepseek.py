@@ -10,8 +10,14 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
 
+friendly_name = "Deepseek"
+
 
 class DeepseekProvider:
+    """
+    This provider uses the Deepseek API to generate text from prompts. Get your Deepseek API key at <https://platform.deepseek.com/>.
+    """
+
     def __init__(
         self,
         DEEPSEEK_API_KEY: str = "",
