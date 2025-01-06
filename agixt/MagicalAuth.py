@@ -33,7 +33,6 @@ from sso.github import github_sso
 from sso.google import google_sso
 from sso.microsoft import microsoft_sso
 from sso.walmart import walmart_sso
-from Agent import get_agents
 import pyotp
 import logging
 import traceback
@@ -273,6 +272,44 @@ def decrypt(key: str, data: str):
         algorithms=["HS256"],
         leeway=timedelta(hours=5),
     )["data"]
+
+
+from DB import Agent as AgentModel, AgentSetting as AgentSettingModel
+
+
+def get_agents(email, company=None):
+    session = get_session()
+    agents = session.query(AgentModel).filter(AgentModel.user.has(email=email)).all()
+    output = []
+    for agent in agents:
+        # Check if the agent is in the output already
+        if agent.name in [a["name"] for a in output]:
+            continue
+        # Get the agent settings `company_id` if defined
+        company_id = None
+        if str(getenv("ENT").lower()) == "true":
+            agent_settings = (
+                session.query(AgentSettingModel)
+                .filter(AgentSettingModel.agent_id == agent.id)
+                .all()
+            )
+            for setting in agent_settings:
+                if setting.name == "company_id":
+                    company_id = setting.value
+                    break
+        if company_id and company:
+            if company_id != company:
+                continue
+        output.append(
+            {
+                "name": agent.name,
+                "id": agent.id,
+                "status": False,
+                "company_id": company_id,
+            }
+        )
+    session.close()
+    return output
 
 
 class MagicalAuth:
