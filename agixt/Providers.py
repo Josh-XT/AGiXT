@@ -67,6 +67,13 @@ def get_providers_with_details():
         provider_settings = get_provider_options(provider_name=provider)
         if "provider" in provider_settings:
             del provider_settings["provider"]
+        documentation = provider_class.__doc__ if provider_class.__doc__ else ""
+        # Remove first and last lines if they're \n or whitespce
+        documentation = documentation.strip()
+        if documentation.startswith("\n"):
+            documentation = documentation[1:]
+        if documentation.endswith("\n"):
+            documentation = documentation[:-1]
         providers.update(
             {
                 provider: {
