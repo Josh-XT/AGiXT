@@ -102,7 +102,6 @@ async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
     "/v1/providers",
     tags=["Provider"],
     dependencies=[Depends(verify_api_key)],
-    response_model=ProviderWithSettings,
     summary="Get All Providers with Settings",
     description="Returns a comprehensive list of all providers along with their respective configuration settings and options.",
 )
