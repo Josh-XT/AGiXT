@@ -1530,7 +1530,7 @@ class MagicalAuth:
                     else:
                         company_dict["primary"] = False
                     # Get agents associated with this company and user
-                    agents = get_agents(user=self.email, company=company_dict["id"])
+                    agents = get_agents(email=self.email, company=company_dict["id"])
                     company_dict["agents"] = agents
                     response.append(company_dict)
             return response
