@@ -9,7 +9,6 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
-friendly_name = "xAI"
 
 
 class XaiProvider:
@@ -29,6 +28,7 @@ class XaiProvider:
         XAI_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
+        self.friendly_name = "xAI"
         self.requirements = ["openai"]
         self.AI_MODEL = XAI_MODEL if XAI_MODEL else "grok-beta"
         self.AI_TEMPERATURE = XAI_TEMPERATURE if XAI_TEMPERATURE else 0.7

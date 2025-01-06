@@ -25,8 +25,6 @@ except ImportError:
 
 import uuid
 
-friendly_name = "Google"
-
 
 class GoogleProvider:
     """
@@ -41,6 +39,7 @@ class GoogleProvider:
         GOOGLE_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
+        self.friendly_name = "Google AI Studio"
         self.requirements = ["google-generativeai", "gTTS", "pydub"]
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.AI_MODEL = GOOGLE_MODEL

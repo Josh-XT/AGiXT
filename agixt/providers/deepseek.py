@@ -10,8 +10,6 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
 
-friendly_name = "Deepseek"
-
 
 class DeepseekProvider:
     """
@@ -30,6 +28,7 @@ class DeepseekProvider:
         DEEPSEEK_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
+        self.friendly_name = "Deepseek"
         self.requirements = ["openai"]
         self.AI_MODEL = DEEPSEEK_MODEL if DEEPSEEK_MODEL else "deepseek-chat"
         self.AI_TEMPERATURE = DEEPSEEK_TEMPERATURE if DEEPSEEK_TEMPERATURE else 0.1

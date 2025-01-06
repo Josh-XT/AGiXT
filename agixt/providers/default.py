@@ -11,7 +11,6 @@ import numpy as np
 # tts: google
 # transcription: faster-whisper
 # translation: faster-whisper
-friendly_name = "Default"
 
 
 class DefaultProvider:
@@ -25,6 +24,7 @@ class DefaultProvider:
         DEFAULT_MAX_TOKENS: int = 16000,
         **kwargs,
     ):
+        self.friendly_name = "Default"
         self.AI_MODEL = DEFAULT_MODEL if DEFAULT_MODEL else "mixtral-8x7b"
         self.AI_TEMPERATURE = 0.7
         self.AI_TOP_P = 0.7

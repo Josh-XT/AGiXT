@@ -11,8 +11,6 @@ import base64
 import logging
 import time
 
-friendly_name = "Anthropic"
-
 
 # List of models available at https://docs.anthropic.com/claude/docs/models-overview
 # Get API key at https://console.anthropic.com/settings/keys
@@ -32,6 +30,7 @@ class AnthropicProvider:
         ANTHROPIC_WAIT_BETWEEN_REQUESTS: int = 1,
         **kwargs,
     ):
+        self.friendly_name = "Anthropic"
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
         self.MAX_TOKENS = ANTHROPIC_MAX_TOKENS if ANTHROPIC_MAX_TOKENS else 200000
         self.AI_MODEL = (
