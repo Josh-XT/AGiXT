@@ -59,6 +59,34 @@ def get_providers_with_settings():
     return providers
 
 
+def get_providers_with_details():
+    providers = {}
+    for provider in get_providers():
+        module = importlib.import_module(f"providers.{provider}")
+        provider_class = getattr(module, f"{provider.capitalize()}Provider")
+        providers.update(
+            {
+                provider: {
+                    "name": (
+                        provider_class.friendly_name
+                        if hasattr(provider_class, "friendly_name")
+                        else provider.capitalize()
+                    ),
+                    "description": (
+                        provider_class.__doc__ if provider_class.__doc__ else ""
+                    ),
+                    "services": (
+                        provider_class.services()
+                        if hasattr(provider_class, "services")
+                        else []
+                    ),
+                    "settings": get_provider_options(provider_name=provider),
+                }
+            }
+        )
+    return providers
+
+
 def get_provider_services(provider_name="openai"):
     try:
         module = importlib.import_module(f"providers.{provider_name}")

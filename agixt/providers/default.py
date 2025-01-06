@@ -8,12 +8,17 @@ import numpy as np
 
 # Default provider uses:
 # llm: gpt4free
-# tts: Streamlabs TTS
+# tts: google
 # transcription: faster-whisper
 # translation: faster-whisper
+friendly_name = "Default"
 
 
 class DefaultProvider:
+    """
+    The default provider uses free or built-in services for various tasks like LLM, TTS, transcription, translation, and embeddings.
+    """
+
     def __init__(
         self,
         DEFAULT_MODEL: str = "mixtral-8x7b",

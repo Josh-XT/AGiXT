@@ -1,41 +1,26 @@
 import requests
-import logging
+
+friendly_name = "Elevenlabs"
 
 
-# This will create a hive agent that will create memories for itself and each agent in the rotation.
-# If one agent fails, it will move on to the next agent in the rotation.
-class AgixtProvider:
+class ElevenlabsProvider:
+    """
+    This provider uses the Elevenlabs API to generate text-to-speech audio. Get your Elevenlabs API key at <https://elevenlabs.io>.
+    """
+
     def __init__(
         self,
-        agents: list = [],
         ELEVENLABS_API_KEY: str = "",
         ELEVENLABS_VOICE: str = "Josh",
         **kwargs,
     ):
-        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.MAX_TOKENS = 8192
-        self.agents = self.ApiClient.get_agents() if agents == [] else agents
         self.ELEVENLABS_API_KEY = ELEVENLABS_API_KEY
         self.ELEVENLABS_VOICE = ELEVENLABS_VOICE
 
     @staticmethod
     def services():
-        return ["llm", "tts"]
-
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
-        for agent in self.agents:
-            try:
-                return self.ApiClient.prompt_agent(
-                    agent_name=agent,
-                    prompt_name="Custom Input",
-                    prompt_args={"user_input": prompt},
-                )
-            except Exception as e:
-                logging.warning(
-                    f"[AGiXT] {agent} failed. Error: {e}. Moving on to next agent."
-                )
-                continue
-        return "No agents available"
+        return ["tts"]
 
     async def text_to_speech(self, text: str) -> bool:
         headers = {

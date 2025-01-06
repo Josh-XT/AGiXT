@@ -6,8 +6,14 @@ import base64
 import io
 from PIL import Image
 
+friendly_name = "Huggingface"
+
 
 class HuggingfaceProvider:
+    """
+    This provider uses the Huggingface API to generate text from prompts, images, and more. Get your Huggingface API key at <https://huggingface.co/login>.
+    """
+
     def __init__(
         self,
         HUGGINGFACE_API_KEY: str = None,

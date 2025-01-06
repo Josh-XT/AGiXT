@@ -15,9 +15,14 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
+friendly_name = "OpenAI"
 
 
 class OpenaiProvider:
+    """
+    This provider uses the OpenAI API to generate text from prompts. Get your OpenAI API key at <https://platform.openai.com/account/api-keys>.
+    """
+
     def __init__(
         self,
         OPENAI_API_KEY: str = "",

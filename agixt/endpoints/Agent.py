@@ -685,3 +685,39 @@ async def think(
         user=user,
         authorization=authorization,
     )
+
+
+from Providers import get_provider_options
+
+
+# `DEL /v1/agent/{agent_id}/provider/{provider_name}` ?
+@app.delete(
+    "/v1/agent/{agent_id}/provider/{provider_name}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Delete agent provider",
+    description="Deletes a specific provider from the agent's configuration.",
+    response_model=ResponseMessage,
+)
+async def delete_provider(
+    agent_id: str,
+    provider_name: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_id, user=user, ApiClient=ApiClient)
+    provider = get_provider_options(provider_name)
+    # Find what keys have the word "KEY", "SECRET", "PASSWORD", or "TOKEN" in them
+    keys = [
+        key
+        for key in provider.keys()
+        if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD", "TOKEN"])
+    ]
+    new_settings = {key: "" for key in keys}
+    update_config = agent.update_agent_config(
+        new_config=new_settings, config_key="settings"
+    )
+    return ResponseMessage(message=update_config)

@@ -5,6 +5,7 @@ from Providers import (
     get_providers,
     get_providers_with_settings,
     get_providers_by_service,
+    get_providers_with_details,
 )
 from Models import (
     ProvidersResponse,
@@ -97,4 +98,14 @@ async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
     return {"embedders": get_providers_by_service(service="embeddings")}
 
 
-# put /v1/provider
+@app.get(
+    "/v1/providers",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ProviderWithSettings,
+    summary="Get All Providers with Settings",
+    description="Returns a comprehensive list of all providers along with their respective configuration settings and options.",
+)
+async def get_all_providers(user=Depends(verify_api_key)):
+    providers = get_providers_with_details()
+    return {"providers": providers}
