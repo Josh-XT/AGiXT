@@ -1,7 +1,7 @@
 from Interactions import Interactions
 from ApiClient import get_api_client, Conversations, Prompts, Chain
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
-from readers.file import FileReader
+from Memories import Memories
 from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
@@ -97,7 +97,7 @@ class AGiXT:
         self.input_tokens = 0
         self.file_reader = None
         if self.collection_id is not None:
-            self.file_reader = FileReader(
+            self.file_reader = Memories(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection_number=self.collection_id,

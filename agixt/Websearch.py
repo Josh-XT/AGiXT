@@ -8,11 +8,11 @@ import asyncio
 import urllib.parse
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup  # type: ignore
 from typing import List
 from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
-from readers.youtube import YoutubeReader
+from Memories import Memories
 from datetime import datetime
 from googleapiclient.discovery import build
 from MagicalAuth import MagicalAuth
@@ -71,7 +71,7 @@ class Websearch:
         else:
             self.browsed_links = []
         self.tasks = []
-        self.agent_memory = YoutubeReader(
+        self.agent_memory = Memories(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
             collection_number=str(collection_number),
