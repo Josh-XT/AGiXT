@@ -67,9 +67,8 @@ RUN pip install spacy==3.7.5 && \
 RUN npm install -g prettier && \
     playwright install-deps && \
     playwright install
-COPY Transcription.py /agixt/Transcription.py
-RUN python /agixt/Transcription.py
 COPY . .
 WORKDIR /agixt
+RUN python /agixt/Transcription.py
 EXPOSE 7437
 ENTRYPOINT ["python3", "DB.py"]
