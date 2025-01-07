@@ -304,37 +304,40 @@ class Interactions:
             persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if "persona" in self.agent.AGENT_CONFIG["settings"]:
             persona = self.agent.AGENT_CONFIG["settings"]["persona"]
-        if str(getenv("ENT").lower()) == "true":
+        try:
             company_id = self.auth.company_id
             if "company_id" in kwargs:
                 company_id = kwargs["company_id"]
-            company_training = self.auth.get_training_data(company_id=company_id)
-            persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
-            cs = self.auth.get_company_agent_session(company_id=company_id)
-            company_memories = cs.get_agent_memories(
-                agent_name="AGiXT", user_input=user_input
-            )
-            if company_memories:
-                for result in company_memories:
-                    metadata = (
-                        result["additional_metadata"]
-                        if "additional_metadata" in result
-                        else ""
-                    )
-                    external_source = (
-                        result["external_source_name"]
-                        if "external_source_name" in result
-                        else None
-                    )
-                    timestamp = (
-                        result["timestamp"]
-                        if "timestamp" in result
-                        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    )
-                    if external_source:
-                        metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
-                    if metadata not in context and metadata != "":
-                        context.append(metadata)
+            if company_id:
+                company_training = self.auth.get_training_data(company_id=company_id)
+                persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
+                cs = self.auth.get_company_agent_session(company_id=company_id)
+                company_memories = cs.get_agent_memories(
+                    agent_name="AGiXT", user_input=user_input
+                )
+                if company_memories:
+                    for result in company_memories:
+                        metadata = (
+                            result["additional_metadata"]
+                            if "additional_metadata" in result
+                            else ""
+                        )
+                        external_source = (
+                            result["external_source_name"]
+                            if "external_source_name" in result
+                            else None
+                        )
+                        timestamp = (
+                            result["timestamp"]
+                            if "timestamp" in result
+                            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        )
+                        if external_source:
+                            metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
+                        if metadata not in context and metadata != "":
+                            context.append(metadata)
+        except Exception as e:
+            pass
         if persona != "":
             context.append(
                 f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\n"

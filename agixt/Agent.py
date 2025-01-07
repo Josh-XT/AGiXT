@@ -193,16 +193,15 @@ def get_agents(user=DEFAULT_USER, company=None):
             continue
         # Get the agent settings `company_id` if defined
         company_id = None
-        if str(getenv("ENT").lower()) == "true":
-            agent_settings = (
-                session.query(AgentSettingModel)
-                .filter(AgentSettingModel.agent_id == agent.id)
-                .all()
-            )
-            for setting in agent_settings:
-                if setting.name == "company_id":
-                    company_id = setting.value
-                    break
+        agent_settings = (
+            session.query(AgentSettingModel)
+            .filter(AgentSettingModel.agent_id == agent.id)
+            .all()
+        )
+        for setting in agent_settings:
+            if setting.name == "company_id":
+                company_id = setting.value
+                break
         if company_id and company:
             if company_id != company:
                 continue
@@ -480,21 +479,20 @@ class Agent:
                     continue
                 config["settings"][key] = value
         session.close()
-        if str(getenv("ENT").lower()) == "true":
-            company_id = config["settings"].get("company_id")
-            if company_id:
-                self.company_id = company_id
-                if str(self.user).endswith(".xt"):
-                    return config
-                company_agent = self.get_company_agent()
-                if company_agent:
-                    company_agent_config = company_agent.get_agent_config()
-                    company_settings = company_agent_config.get("settings")
-                    for key, value in company_settings.items():
-                        if key not in config["settings"]:
-                            if value == "":
-                                continue
-                            config["settings"][key] = value
+        company_id = config["settings"].get("company_id")
+        if company_id:
+            self.company_id = company_id
+            if str(self.user).endswith(".xt"):
+                return config
+            company_agent = self.get_company_agent()
+            if company_agent:
+                company_agent_config = company_agent.get_agent_config()
+                company_settings = company_agent_config.get("settings")
+                for key, value in company_settings.items():
+                    if key not in config["settings"]:
+                        if value == "":
+                            continue
+                        config["settings"][key] = value
         return config
 
     async def inference(
@@ -978,15 +976,12 @@ class Agent:
             conversation_outputs = (
                 f"http://localhost:7437/outputs/{self.agent_id}/{conversation_id}/"
             )
-            if str(getenv("ENT").lower()) == "true":
-                try:
-                    agent_extensions = self.get_company_agent_extensions()
-                    if agent_extensions == "":
-                        agent_extensions = self.get_agent_extensions()
-                except Exception as e:
-                    logging.error(f"Error getting agent extensions: {str(e)}")
+            try:
+                agent_extensions = self.get_company_agent_extensions()
+                if agent_extensions == "":
                     agent_extensions = self.get_agent_extensions()
-            else:
+            except Exception as e:
+                logging.error(f"Error getting agent extensions: {str(e)}")
                 agent_extensions = self.get_agent_extensions()
             agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
             for extension in agent_extensions:

@@ -22,6 +22,8 @@ class OpenaiProvider:
     This provider uses the OpenAI API to generate text from prompts. Get your OpenAI API key at <https://platform.openai.com/account/api-keys>.
     """
 
+    friendly_name = "OpenAI"
+
     def __init__(
         self,
         OPENAI_API_KEY: str = "",
@@ -36,7 +38,6 @@ class OpenaiProvider:
         OPENAI_TRANSCRIPTION_MODEL: str = "whisper-1",
         **kwargs,
     ):
-        self.friendly_name = "OpenAI"
         self.requirements = ["openai"]
         self.AI_MODEL = OPENAI_MODEL if OPENAI_MODEL else "gpt-4o"
         self.AI_TEMPERATURE = OPENAI_TEMPERATURE if OPENAI_TEMPERATURE else 0.7
