@@ -114,16 +114,6 @@ class AgentType:
     commands: Dict[str, bool]
 
 
-@strawberry.experimental.pydantic.type(model=AgentListResponse)
-class AgentListResponseType:
-    agents: List[AgentType]
-
-
-@strawberry.experimental.pydantic.type(model=AgentResponse)
-class AgentResponseType:
-    message: str
-
-
 @strawberry.input
 class PersonaUpdateInput:
     persona: str

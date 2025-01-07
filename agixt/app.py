@@ -1,4 +1,3 @@
-import uvicorn
 import os
 import sys
 import logging
@@ -23,17 +22,6 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
-from strawberry.fastapi import GraphQLRouter
-import strawberry
-from graphqlendpoints.Agents import schema as agent_schema
-from graphqlendpoints.Auth import schema as auth_schema
-from graphqlendpoints.Chains import schema as chains_schema
-from graphqlendpoints.Completions import schema as completions_schema
-from graphqlendpoints.Conversations import schema as conversations_schema
-from graphqlendpoints.Extensions import schema as extensions_schema
-from graphqlendpoints.Memories import schema as memories_schema
-from graphqlendpoints.Prompts import schema as prompts_schema
-from graphqlendpoints.Providers import schema as providers_schema
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -251,6 +239,20 @@ async def serve_file(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+"""
+from strawberry.fastapi import GraphQLRouter
+import strawberry
+from graphqlendpoints.Agents import schema as agent_schema
+from graphqlendpoints.Auth import schema as auth_schema
+from graphqlendpoints.Chains import schema as chains_schema
+from graphqlendpoints.Completions import schema as completions_schema
+from graphqlendpoints.Conversations import schema as conversations_schema
+from graphqlendpoints.Extensions import schema as extensions_schema
+from graphqlendpoints.Memories import schema as memories_schema
+from graphqlendpoints.Prompts import schema as prompts_schema
+from graphqlendpoints.Providers import schema as providers_schema
+
+
 @strawberry.type
 class Query(
     agent_schema.Query,
@@ -287,3 +289,4 @@ graphql_app = GraphQLRouter(
     graphiql=True,  # Set to False in production if you don't want the GraphiQL interface
 )
 app.include_router(graphql_app, prefix="/graphql")
+"""
