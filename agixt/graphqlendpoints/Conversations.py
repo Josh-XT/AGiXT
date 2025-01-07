@@ -16,13 +16,7 @@ from endpoints.Conversation import (
     get_tts as rest_get_tts,
     get_notifications as rest_get_notifications,
 )
-from Providers import (
-    get_provider_options,
-    get_providers,
-    get_providers_with_settings,
-    get_providers_by_service,
-    get_providers_with_details,
-)
+from Providers import get_providers_with_details
 from ApiClient import verify_api_key
 from datetime import datetime
 from typing import AsyncGenerator
@@ -264,12 +258,6 @@ class ProviderSetting:
 
 
 @strawberry.type
-class ProviderService:
-    name: str
-    description: str
-
-
-@strawberry.type
 class ProviderDetail:
     name: str
     friendly_name: str
@@ -285,33 +273,8 @@ class Provider:
 
 
 @strawberry.type
-class EmbedderInfo:
-    name: str
-    capabilities: List[str]
-    max_chunks: int
-    chunk_size: int
-    settings: List[ProviderSetting]
-
-
-# Response types that group related data
-@strawberry.type
-class ProviderList:
-    providers: List[str]
-
-
-@strawberry.type
-class ProviderWithSettings:
-    provider: Provider
-
-
-@strawberry.type
-class ProvidersWithDetails:
+class Providers:
     providers: List[ProviderDetail]
-
-
-@strawberry.type
-class EmbedderList:
-    embedders: List[EmbedderInfo]
 
 
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
@@ -533,14 +496,7 @@ class Query:
         )
 
     @strawberry.field
-    async def providers_by_service(self, info, service: str) -> ProviderList:
-        """Get providers that offer a specific service"""
-        user = await get_user_from_context(info)
-        providers = get_providers_by_service(service=service)
-        return ProviderList(providers=providers)
-
-    @strawberry.field
-    async def providers(self, info) -> ProvidersWithDetails:
+    async def providers(self, info) -> Providers:
         """Get comprehensive provider details"""
         user = await get_user_from_context(info)
         provider_details = get_providers_with_details()
@@ -548,7 +504,7 @@ class Query:
             convert_provider_details({"name": name, **details})
             for name, details in provider_details.items()
         ]
-        return ProvidersWithDetails(providers=providers)
+        return Providers(providers=providers)
 
 
 # Response types for mutations
