@@ -281,8 +281,9 @@ class Mutation(
     pass
 
 
+graphql_schema = strawberry.Schema(query=Query, mutation=Mutation)
 graphql_app = GraphQLRouter(
-    strawberry.Schema(query=Query, mutation=Mutation),
+    graphql_schema,
     graphiql=True,  # Set to False in production if you don't want the GraphiQL interface
 )
 app.include_router(graphql_app, prefix="/graphql")
