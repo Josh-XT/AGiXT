@@ -1,14 +1,10 @@
 from typing import List, Optional
 import strawberry
-from fastapi import Depends, HTTPException
-from ApiClient import Prompts, verify_api_key, is_admin
+from fastapi import HTTPException
+from ApiClient import verify_api_key
 from Models import (
     CustomPromptModel,
     PromptName,
-    PromptList,
-    PromptCategoryList,
-    ResponseMessage as PydanticResponseMessage,
-    PromptArgsResponse,
 )
 from endpoints.Prompt import (
     add_prompt as rest_add_prompt,
@@ -23,28 +19,28 @@ from endpoints.Prompt import (
 
 
 # Convert Pydantic models to Strawberry types
-@strawberry.experimental.pydantic.type(model=CustomPromptModel)
+@strawberry.type
 class Prompt:
     prompt_name: str
     prompt: str
 
 
-@strawberry.experimental.pydantic.type(model=PydanticResponseMessage)
+@strawberry.type
 class ResponseMessage:
     message: str
 
 
-@strawberry.experimental.pydantic.type(model=PromptList)
+@strawberry.type
 class PromptListType:
     prompts: List[str]
 
 
-@strawberry.experimental.pydantic.type(model=PromptCategoryList)
+@strawberry.type
 class PromptCategoryListType:
     prompt_categories: List[str]
 
 
-@strawberry.experimental.pydantic.type(model=PromptArgsResponse)
+@strawberry.type
 class PromptArgsResponseType:
     prompt_args: List[str]
 

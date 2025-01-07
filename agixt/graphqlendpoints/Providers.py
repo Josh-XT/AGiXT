@@ -1,12 +1,7 @@
-from typing import List, Dict, Any, Optional
 import strawberry
-from fastapi import Depends, HTTPException
-from Models import (
-    ProvidersResponse,
-    ProviderSettings,
-    ProviderWithSettings,
-    EmbedderResponse,
-)
+from typing import List, Dict, Any, Optional
+from fastapi import HTTPException
+from ApiClient import verify_api_key
 from Providers import (
     get_provider_options,
     get_providers,
@@ -14,35 +9,63 @@ from Providers import (
     get_providers_by_service,
     get_providers_with_details,
 )
-from ApiClient import verify_api_key
-from endpoints.Provider import (
-    get_provider_settings as rest_get_provider_settings,
-    get_all_providers as rest_get_all_providers,
-    get_providers_by_service_name as rest_get_providers_by_service,
-    get_embed_providers as rest_get_embed_providers,
-    get_embedder_info as rest_get_embedder_info,
-)
 
 
-# Convert existing models to Strawberry types
-@strawberry.experimental.pydantic.type(model=ProvidersResponse)
-class ProvidersResponseType:
+@strawberry.type
+class ProviderSetting:
+    name: str
+    default_value: Optional[Any]
+
+
+@strawberry.type
+class ProviderService:
+    name: str
+    description: str
+
+
+@strawberry.type
+class ProviderDetail:
+    name: str
+    friendly_name: str
+    description: str
+    services: List[str]
+    settings: List[ProviderSetting]
+
+
+@strawberry.type
+class Provider:
+    name: str
+    settings: List[ProviderSetting]
+
+
+@strawberry.type
+class EmbedderInfo:
+    name: str
+    capabilities: List[str]
+    max_chunks: int
+    chunk_size: int
+    settings: List[ProviderSetting]
+
+
+# Response types that group related data
+@strawberry.type
+class ProviderList:
     providers: List[str]
 
 
-@strawberry.experimental.pydantic.type(model=ProviderSettings)
-class ProviderSettingsType:
-    settings: Dict[str, Any]
+@strawberry.type
+class ProviderWithSettings:
+    provider: Provider
 
 
-@strawberry.experimental.pydantic.type(model=ProviderWithSettings)
-class ProviderWithSettingsType:
-    providers: List[Dict[str, Dict[str, Any]]]
+@strawberry.type
+class ProvidersWithDetails:
+    providers: List[ProviderDetail]
 
 
-@strawberry.experimental.pydantic.type(model=EmbedderResponse)
-class EmbedderResponseType:
-    embedders: List[str]
+@strawberry.type
+class EmbedderList:
+    embedders: List[EmbedderInfo]
 
 
 # Helper for auth
@@ -55,87 +78,124 @@ async def get_user_from_context(info):
         raise Exception(str(e.detail))
 
 
+def convert_settings_to_type(settings_dict: Dict[str, Any]) -> List[ProviderSetting]:
+    """Convert settings dictionary to list of ProviderSetting objects"""
+    return [
+        ProviderSetting(name=key, default_value=value)
+        for key, value in settings_dict.items()
+    ]
+
+
+def convert_provider_details(details: Dict[str, Any]) -> ProviderDetail:
+    """Convert provider details dictionary to ProviderDetail object"""
+    return ProviderDetail(
+        name=details["name"],
+        friendly_name=details.get("friendly_name", details["name"]),
+        description=details["description"],
+        services=details["services"],
+        settings=convert_settings_to_type(details["settings"]),
+    )
+
+
 @strawberry.type
 class Query:
     @strawberry.field
-    async def providers(self, info) -> ProvidersResponseType:
+    async def providers(self, info) -> ProviderList:
         """Get all available providers"""
-        try:
-            result = await rest_get_all_providers(
-                user=await get_user_from_context(info)
-            )
-            return ProvidersResponseType.from_pydantic(
-                ProvidersResponse(providers=get_providers())
-            )
-        except HTTPException as e:
-            raise Exception(str(e.detail))
+        user = await get_user_from_context(info)
+        providers = get_providers()
+        return ProviderList(providers=providers)
 
     @strawberry.field
-    async def provider_settings(self, info, provider_name: str) -> ProviderSettingsType:
+    async def provider_settings(self, info, provider_name: str) -> Provider:
         """Get settings for a specific provider"""
-        try:
-            result = await rest_get_provider_settings(
-                provider_name=provider_name, user=await get_user_from_context(info)
-            )
-            return ProviderSettingsType.from_pydantic(result)
-        except HTTPException as e:
-            raise Exception(str(e.detail))
+        user = await get_user_from_context(info)
+        settings = get_provider_options(provider_name=provider_name)
+        return Provider(name=provider_name, settings=convert_settings_to_type(settings))
 
     @strawberry.field
-    async def providers_with_settings(self, info) -> ProviderWithSettingsType:
+    async def providers_with_settings(self, info) -> List[ProviderWithSettings]:
         """Get all providers with their settings"""
-        try:
-            result = await rest_get_all_providers(
-                user=await get_user_from_context(info)
+        user = await get_user_from_context(info)
+        providers_settings = get_providers_with_settings()
+        return [
+            ProviderWithSettings(
+                provider=Provider(
+                    name=list(provider.keys())[0],
+                    settings=convert_settings_to_type(list(provider.values())[0]),
+                )
             )
-            return ProviderWithSettingsType.from_pydantic(result)
-        except HTTPException as e:
-            raise Exception(str(e.detail))
+            for provider in providers_settings
+        ]
 
     @strawberry.field
-    async def providers_by_service(self, info, service: str) -> ProvidersResponseType:
+    async def providers_by_service(self, info, service: str) -> ProviderList:
         """Get providers that offer a specific service"""
-        try:
-            result = await rest_get_providers_by_service(
-                service=service, user=await get_user_from_context(info)
-            )
-            return ProvidersResponseType.from_pydantic(result)
-        except HTTPException as e:
-            raise Exception(str(e.detail))
+        user = await get_user_from_context(info)
+        providers = get_providers_by_service(service=service)
+        return ProviderList(providers=providers)
 
     @strawberry.field
-    async def embedding_providers(self, info) -> ProvidersResponseType:
+    async def embedding_providers(self, info) -> ProviderList:
         """Get providers that offer embedding services"""
-        try:
-            result = await rest_get_embed_providers(
-                user=await get_user_from_context(info)
-            )
-            return ProvidersResponseType.from_pydantic(result)
-        except HTTPException as e:
-            raise Exception(str(e.detail))
+        user = await get_user_from_context(info)
+        providers = get_providers_by_service(service="embeddings")
+        return ProviderList(providers=providers)
 
     @strawberry.field
-    async def embedders(self, info) -> EmbedderResponseType:
-        """Get detailed information about embedding providers"""
-        try:
-            result = await rest_get_embedder_info(
-                user=await get_user_from_context(info)
-            )
-            return EmbedderResponseType.from_pydantic(result)
-        except HTTPException as e:
-            raise Exception(str(e.detail))
-
-    @strawberry.field
-    async def providers_with_details(self, info) -> Dict[str, Any]:
-        """Get comprehensive provider details (v1 endpoint)"""
-        try:
-            result = await rest_get_all_providers(
-                user=await get_user_from_context(info)
-            )
-            return {"providers": get_providers_with_details()}
-        except HTTPException as e:
-            raise Exception(str(e.detail))
+    async def providers_with_details(self, info) -> ProvidersWithDetails:
+        """Get comprehensive provider details"""
+        user = await get_user_from_context(info)
+        provider_details = get_providers_with_details()
+        providers = [
+            convert_provider_details({"name": name, **details})
+            for name, details in provider_details.items()
+        ]
+        return ProvidersWithDetails(providers=providers)
 
 
-# Create the schema (no mutations needed for this endpoint)
 schema = strawberry.Schema(query=Query)
+
+# Example GraphQL Queries:
+"""
+# Get all providers
+query {
+  providers {
+    providers
+  }
+}
+
+# Get settings for a specific provider
+query {
+  providerSettings(providerName: "openai") {
+    name
+    settings {
+      name
+      defaultValue
+    }
+  }
+}
+
+# Get providers with details
+query {
+  providersWithDetails {
+    providers {
+      name
+      friendlyName
+      description
+      services
+      settings {
+        name
+        defaultValue
+      }
+    }
+  }
+}
+
+# Get providers by service
+query {
+  providersByService(service: "llm") {
+    providers
+  }
+}
+"""
