@@ -679,13 +679,21 @@ class ProviderSettingInput:
     type: str = "string"
 
 
-@strawberry.type
+@strawberry.input
 class CommandExecutionInput:
     """Input type for executing commands with proper typing"""
 
     command_name: str
-    command_args: CommandArgsInput
+    command_args: List[CommandArgInput]
     conversation_name: Optional[str] = None
+
+
+@strawberry.input
+class CommandArgInput:
+    """Input type for a single command argument"""
+
+    name: str
+    value: str
 
 
 @strawberry.input
@@ -2034,14 +2042,14 @@ class Mutation:
     async def execute_command(
         self, info, agent_name: str, input: CommandExecutionInput
     ) -> CommandResult:
-        """Execute a command for an agent with properly typed arguments"""
+        """Execute a command for an agent"""
         user, auth = await get_user_from_context(info)
 
         if not await is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         # Convert input args to dictionary format expected by extensions
-        command_args = {arg.name: arg.value.value for arg in input.command_args.args}
+        command_args = {arg.name: arg.value for arg in input.command_args}
 
         agent = Agent(agent_name=agent_name, user=user)
         agent_config = agent.get_agent_config()
