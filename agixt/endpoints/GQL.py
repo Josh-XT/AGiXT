@@ -34,7 +34,7 @@ from Chain import Chain
 from Conversations import Conversations, get_conversation_name_by_id
 from Memories import Memories
 from Extensions import Extensions
-from MagicalAuth import MagicalAuth
+from MagicalAuth import MagicalAuth, impersonate_user
 from Models import ChatCompletions
 from Globals import getenv, get_default_agent, get_agixt_training_urls
 import asyncio
@@ -1035,12 +1035,65 @@ class LoginInput:
 
 
 @strawberry.input
+class UserPreferenceUpdateInput:
+    """Input for updating a single preference"""
+
+    key: str
+    value: str
+
+
+@strawberry.input
 class UserUpdateInput:
     """Input for updating user information"""
 
-    first_name: Optional[str]
-    last_name: Optional[str]
-    preferences: Optional[dict]
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    preferences: Optional[List[UserPreferenceUpdateInput]] = None
+    phone_number: Optional[str] = None
+    timezone: Optional[str] = None
+
+
+def convert_user_update_to_dict(input: UserUpdateInput) -> dict:
+    """Convert UserUpdateInput to dictionary for backend compatibility"""
+    result = {}
+
+    if input.first_name is not None:
+        result["first_name"] = input.first_name
+    if input.last_name is not None:
+        result["last_name"] = input.last_name
+    if input.phone_number is not None:
+        result["phone_number"] = input.phone_number
+    if input.timezone is not None:
+        result["timezone"] = input.timezone
+    if input.preferences:
+        for pref in input.preferences:
+            result[pref.key] = pref.value
+
+    return result
+
+
+@strawberry.input
+class LoginParamsInput:
+    """Additional login parameters"""
+
+    referrer: Optional[str] = None
+    invitation_id: Optional[str] = None
+
+
+@strawberry.input
+class MFAVerificationInput:
+    """Input for MFA verification"""
+
+    code: str
+    email: Optional[str] = None
+
+
+@strawberry.input
+class EmailVerificationInput:
+    """Input for email verification"""
+
+    email: str
+    code: Optional[str] = None
 
 
 @strawberry.input
@@ -2870,7 +2923,10 @@ class Mutation:
         user, auth = await get_user_from_context(info)
         auth_manager = MagicalAuth(token=auth)
 
-        result = auth_manager.update_user(**input.__dict__)
+        # Convert input to dictionary format expected by backend
+        update_dict = convert_user_update_to_dict(input)
+
+        result = auth_manager.update_user(**update_dict)
         return AuthResponse(success=True, message=result)
 
     @strawberry.mutation
@@ -2949,21 +3005,37 @@ class Mutation:
         )
 
     @strawberry.mutation
-    async def verify_mfa(self, info, code: str) -> AuthResponse:
+    async def verify_mfa(self, info, input: MFAVerificationInput) -> AuthResponse:
         """Verify MFA code"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        if input.email:  # Handle case where verifying without being logged in
+            auth_manager = MagicalAuth()
+            token = impersonate_user(input.email)
+            auth_manager.token = token
+        else:
+            user, auth = await get_user_from_context(info)
+            auth_manager = MagicalAuth(token=auth)
 
-        result = auth_manager.verify_mfa(token=code)
-        return AuthResponse(success=True, message=result)
+        result = auth_manager.verify_mfa(token=input.code)
+        return AuthResponse(
+            success=result,
+            message=(
+                "MFA verified successfully" if result else "MFA verification failed"
+            ),
+        )
 
     @strawberry.mutation
-    async def verify_email(self, info, code: str) -> AuthResponse:
+    async def verify_email(self, info, input: EmailVerificationInput) -> AuthResponse:
         """Verify email address"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        auth_manager = MagicalAuth()
+        auth_manager.email = input.email
 
-        result = auth_manager.verify_email_address(code=code)
+        if not input.code:
+            auth_manager.send_email_verification_link()
+            return AuthResponse(
+                success=True, message="Verification code has been sent via email"
+            )
+
+        result = auth_manager.verify_email_address(code=input.code)
         return AuthResponse(
             success=result,
             message=(
