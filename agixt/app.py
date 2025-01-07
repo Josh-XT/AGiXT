@@ -240,10 +240,10 @@ async def serve_file(
 
 
 from strawberry.fastapi import GraphQLRouter
-from graphqlendpoints.Schema import graphql_schema
+from graphqlendpoints.Conversations import schema as conversations_schema
 
 graphql_app = GraphQLRouter(
-    graphql_schema,
+    conversations_schema,
     graphiql=True,  # Set to False in production if you don't want the GraphiQL interface
 )
 app.include_router(graphql_app, prefix="/graphql")
