@@ -130,6 +130,43 @@ class Prompts:
         session.close()
         return None
 
+    def get_global_prompts(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        global_prompts = (
+            session.query(Prompt).filter(Prompt.user_id == user_data.id).all()
+        )
+        prompts = []
+        for prompt in global_prompts:
+            # If the user has this, don't add it to prompts, if they don't, add it
+            if (
+                not session.query(Prompt)
+                .filter(
+                    Prompt.name == prompt.name,
+                    Prompt.user_id == self.user_id,
+                )
+                .first()
+            ):
+                try:
+                    prompt_args = [
+                        arg.name
+                        for arg in prompt.arguments
+                        if arg.prompt_id == prompt.id
+                    ]
+                except:
+                    prompt_args = []
+                prompts.append(
+                    {
+                        "name": prompt.name,
+                        "category": prompt.prompt_category.name,
+                        "content": prompt.content,
+                        "description": prompt.description,
+                        "arguments": prompt_args,
+                    }
+                )
+        session.close()
+        return prompts
+
     def get_prompts(self, prompt_category="Default"):
         if not prompt_category:
             prompt_category = "Default"
