@@ -16,6 +16,8 @@ class XaiProvider:
     This provider uses the xAI API to generate text from prompts. Get your xAI API key at <https://docs.x.ai/docs#getting-started>.
     """
 
+    friendly_name = "xAI"
+
     def __init__(
         self,
         XAI_API_KEY: str = "",
@@ -28,7 +30,6 @@ class XaiProvider:
         XAI_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
-        self.friendly_name = "xAI"
         self.requirements = ["openai"]
         self.AI_MODEL = XAI_MODEL if XAI_MODEL else "grok-beta"
         self.AI_TEMPERATURE = XAI_TEMPERATURE if XAI_TEMPERATURE else 0.7

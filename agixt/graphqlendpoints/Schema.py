@@ -9,7 +9,7 @@ import strawberry
 from graphqlendpoints.Conversations import schema as conversations_schema
 
 # from graphqlendpoints.Prompts import schema as prompts_schema
-from graphqlendpoints.Providers import schema as providers_schema
+# from graphqlendpoints.Providers import schema as providers_schema
 
 
 @strawberry.type
@@ -22,7 +22,7 @@ class Query(
     # memories_schema.Query,
     conversations_schema.Query,
     # prompts_schema.Query,
-    providers_schema.Query,
+    # providers_schema.Query,
 ):
     pass
 
@@ -37,7 +37,7 @@ class Mutation(
     # memories_schema.Mutation,
     conversations_schema.Mutation,
     # prompts_schema.Mutation,
-    providers_schema.Mutation,
+    # providers_schema.Mutation,
 ):
     pass
 

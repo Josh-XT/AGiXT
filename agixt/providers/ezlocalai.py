@@ -23,6 +23,8 @@ class EzlocalaiProvider:
     This provider uses the ezLocalai API to generate text from prompts. Learn how to set up ezLocalai at <https://github.com/DevXT-LLC/ezlocalai>.
     """
 
+    friendly_name = "ezLocalai"
+
     def __init__(
         self,
         EZLOCALAI_API_KEY: str = "None",
@@ -36,7 +38,6 @@ class EzlocalaiProvider:
         EZLOCALAI_TRANSCRIPTION_MODEL: str = "base",
         **kwargs,
     ):
-        self.friendly_name = "ezLocalai"
         self.requirements = ["openai"]
         self.AI_MODEL = EZLOCALAI_AI_MODEL if EZLOCALAI_AI_MODEL else "ezlocalai"
         self.MAX_TOKENS = EZLOCALAI_MAX_TOKENS if EZLOCALAI_MAX_TOKENS else 8192
