@@ -2,10 +2,6 @@ from typing import List, Optional
 import strawberry
 from fastapi import HTTPException
 from ApiClient import verify_api_key
-from Models import (
-    CustomPromptModel,
-    PromptName,
-)
 from endpoints.Prompt import (
     add_prompt as rest_add_prompt,
     get_prompt_with_category as rest_get_prompt,
@@ -23,6 +19,17 @@ from endpoints.Prompt import (
 class Prompt:
     prompt_name: str
     prompt: str
+
+
+@strawberry.type
+class CustomPromptModel:
+    prompt_name: str
+    prompt: str
+
+
+@strawberry.type
+class PromptName:
+    name: str
 
 
 @strawberry.type

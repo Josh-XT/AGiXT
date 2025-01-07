@@ -20,16 +20,6 @@ from endpoints.Conversation import (
 )
 from ApiClient import verify_api_key
 from datetime import datetime
-from Models import (
-    ConversationHistoryModel,
-    ConversationHistoryMessageModel,
-    RenameConversationModel,
-    ConversationFork,
-    LogInteraction,
-    UpdateConversationHistoryMessageModel,
-    UpdateMessageModel,
-    DeleteMessageModel,
-)
 
 
 # Helper for auth
@@ -44,6 +34,53 @@ async def get_user_and_auth_from_context(info):
 
 
 @strawberry.type
+class DeleteMessageModel:
+    conversation_name: str
+
+
+@strawberry.type
+class UpdateMessageModel:
+    conversation_name: str
+    message_id: str
+    new_message: str
+
+
+@strawberry.type
+class UpdateConversationHistoryMessageModel:
+    agent_name: Optional[str] = ""
+    conversation_name: str
+    message: str
+    new_message: str
+
+
+@strawberry.type
+class LogInteraction:
+    role: str
+    message: str
+    conversation_name: Optional[str] = ""
+
+
+@strawberry.type
+class ConversationFork:
+    conversation_name: str
+    message_id: str
+
+
+@strawberry.type
+class RenameConversationModel:
+    agent_name: str
+    conversation_name: str
+    new_conversation_name: Optional[str] = "-"
+
+
+@strawberry.type
+class ConversationHistoryMessageModel:
+    agent_name: Optional[str] = ""
+    conversation_name: str
+    message: str
+
+
+@strawberry.type
 class ConversationMessage:
     id: str
     role: str
@@ -52,6 +89,13 @@ class ConversationMessage:
     updated_at: datetime
     updated_by: Optional[str]
     feedback_received: bool
+
+
+@strawberry.type
+class ConversationHistoryModel:
+    agent_name: Optional[str] = ""
+    conversation_name: str
+    conversation_content: List["ConversationMessageInput"]
 
 
 @strawberry.type
@@ -111,17 +155,17 @@ class ConversationHistoryMessageInput:
 
 
 @strawberry.input
-class ConversationHistoryInput:
-    conversation_name: str
-    agent_name: Optional[str] = ""
-    conversation_content: List["ConversationMessageInput"]
-
-
-@strawberry.input
 class ConversationMessageInput:
     role: str
     message: str
     timestamp: Optional[datetime] = None
+
+
+@strawberry.input
+class ConversationHistoryInput:
+    conversation_name: str
+    agent_name: Optional[str] = ""
+    conversation_content: List[ConversationMessageInput] = []
 
 
 @strawberry.input
