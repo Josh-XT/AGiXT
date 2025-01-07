@@ -86,7 +86,7 @@ class AgentPromptInput:
 
 @strawberry.experimental.pydantic.type(model=AgentListResponse)
 class AgentListResponseType:
-    agents: list
+    agents: List[Dict[str, Any]]  # Be explicit about the list contents
 
 
 @strawberry.experimental.pydantic.type(model=AgentResponse)
