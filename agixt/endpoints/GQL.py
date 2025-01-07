@@ -30,11 +30,15 @@ from Agent import (
     delete_agent,
     rename_agent,
 )
-from Conversations import get_conversation_name_by_id
+from Conversations import Conversations, get_conversation_name_by_id
+from Memories import Memories
 from MagicalAuth import MagicalAuth
 from Models import ChatCompletions
 from Globals import getenv, get_default_agent, get_agixt_training_urls
+import asyncio
+import base64
 import uuid
+import os
 
 
 try:
@@ -440,6 +444,106 @@ class TaskPlanInput:
     enable_new_command: bool = True
 
 
+@strawberry.type
+class MemoryMetadata:
+    external_source_name: str
+    id: str
+    description: str
+    additional_metadata: str
+    timestamp: str
+
+
+@strawberry.type
+class Memory:
+    key: str
+    text: str
+    embedding: List[float]
+    relevance_score: Optional[float] = None
+    external_source_name: str
+    description: str
+    timestamp: str
+    additional_metadata: str
+    id: str
+
+
+@strawberry.type
+class MemoryCollection:
+    collection_name: str
+    memories: List[Memory]
+
+
+@strawberry.type
+class DatasetConfig:
+    model_name: Optional[str] = "unsloth/mistral-7b-v0.2"
+    max_seq_length: Optional[int] = 16384
+    huggingface_output_path: Optional[str] = "JoshXT/finetuned-mistral-7b-v0.2"
+    private_repo: Optional[bool] = True
+
+
+@strawberry.type
+class DPOResult:
+    prompt: str
+    chosen: str
+    rejected: str
+
+
+# Input types
+@strawberry.input
+class MemoryQueryInput:
+    user_input: str
+    limit: int = 5
+    min_relevance_score: float = 0.0
+
+
+@strawberry.input
+class TextMemoryInput:
+    user_input: str
+    text: str
+    collection_number: str = "0"
+
+
+@strawberry.input
+class FileMemoryInput:
+    file_name: str
+    file_content: str
+    collection_number: str = "0"
+    company_id: Optional[str] = None
+
+
+@strawberry.input
+class UrlMemoryInput:
+    url: str
+    collection_number: str = "0"
+
+
+@strawberry.input
+class FeedbackInput:
+    user_input: str
+    message: str
+    feedback: str
+    positive: bool = True
+    conversation_name: Optional[str] = ""
+
+
+@strawberry.input
+class DatasetInput:
+    batch_size: int = 5
+
+
+@strawberry.input
+class FineTuneInput:
+    model: Optional[str] = "unsloth/mistral-7b-v0.2"
+    max_seq_length: Optional[int] = 16384
+    huggingface_output_path: Optional[str] = "JoshXT/finetuned-mistral-7b-v0.2"
+    private_repo: Optional[bool] = True
+
+
+@strawberry.input
+class DPOInput:
+    user_input: str
+    injected_memories: Optional[int] = 10
+
+
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
@@ -818,6 +922,66 @@ class Query:
             )
 
         return provider_details
+
+    @strawberry.field
+    async def memories(
+        self,
+        info,
+        agent_name: str,
+        input: MemoryQueryInput,
+        collection_number: str = "0",
+    ) -> List[Memory]:
+        """Query agent memories from a specific collection"""
+        user, auth = await get_user_from_context(info)
+
+        agent = Agent(agent_name=agent_name, user=user)
+        memories = Memories(
+            agent_name=agent_name,
+            agent_config=agent.get_agent_config(),
+            collection_number=collection_number,
+            user=user,
+        )
+
+        results = await memories.get_memories_data(
+            user_input=input.user_input,
+            limit=input.limit,
+            min_relevance_score=input.min_relevance_score,
+        )
+
+        return [
+            Memory(
+                key=result["key"],
+                text=result["text"],
+                embedding=result["embedding"],
+                relevance_score=result.get("relevance_score"),
+                external_source_name=result["external_source_name"],
+                description=result["description"],
+                timestamp=result["timestamp"],
+                additional_metadata=result["additional_metadata"],
+                id=result["id"],
+            )
+            for result in results
+        ]
+
+    @strawberry.field
+    async def memory_collections(self, info, agent_name: str) -> List[str]:
+        """Get all memory collections for an agent"""
+        user, auth = await get_user_from_context(info)
+
+        memories = Memories(agent_name=agent_name, user=user)
+        return await memories.get_collections()
+
+    @strawberry.field
+    async def external_sources(
+        self, info, agent_name: str, collection_number: str = "0"
+    ) -> List[str]:
+        """Get unique external sources in a collection"""
+        user, auth = await get_user_from_context(info)
+
+        memories = Memories(
+            agent_name=agent_name, collection_number=collection_number, user=user
+        )
+        return await memories.get_external_data_sources()
 
 
 # Response types for mutations
@@ -1250,6 +1414,299 @@ class Mutation:
         )
 
         return AgentPromptResponse(response=result)
+
+    @strawberry.mutation
+    async def learn_text(self, info, agent_name: str, input: TextMemoryInput) -> bool:
+        """Add text content to agent's memory"""
+        user, auth = await get_user_from_context(info)
+
+        collection_number = input.collection_number
+        if len(collection_number) > 4:
+            conversation = Conversations(conversation_name=collection_number, user=user)
+            collection_number = conversation.get_conversation_id()
+
+        memories = Memories(
+            agent_name=agent_name, collection_number=collection_number, user=user
+        )
+
+        return await memories.write_text_to_memory(
+            user_input=input.user_input, text=input.text, external_source="user input"
+        )
+
+    @strawberry.mutation
+    async def learn_file(self, info, agent_name: str, input: FileMemoryInput) -> bool:
+        """Process and learn from file content"""
+        user, auth = await get_user_from_context(info)
+
+        # Handle company-specific learning if company_id provided
+        if input.company_id:
+            auth_manager = MagicalAuth(token=auth)
+            agixt = auth_manager.get_company_agent_session(company_id=input.company_id)
+            response = agixt.learn_file(
+                agent_name="AGiXT",
+                file_name=input.file_name,
+                file_content=input.file_content,
+                collection_number=input.collection_number,
+            )
+            return response
+
+        # Regular file learning
+        collection_number = str(input.collection_number)
+        conversation_name = None
+
+        if len(collection_number) > 4:
+            conversation = Conversations(conversation_name=collection_number, user=user)
+            collection_number = conversation.get_conversation_id()
+            conversation_name = collection_number
+
+        agent = AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=auth,
+            conversation_name=conversation_name,
+            collection_id=collection_number,
+        )
+
+        file_name = os.path.basename(input.file_name)
+        file_path = os.path.normpath(
+            os.path.join(agent.agent_workspace, input.collection_number, file_name)
+        )
+
+        if not file_path.startswith(agent.agent_workspace):
+            raise Exception("Path given not allowed")
+
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        try:
+            file_content = base64.b64decode(input.file_content)
+        except:
+            file_content = input.file_content.encode("utf-8")
+
+        with open(file_path, "wb") as f:
+            f.write(file_content)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        file_url = f"{agent.outputs}/{input.collection_number}/{file_name}"
+
+        response = await agent.learn_from_file(
+            file_url=file_url,
+            file_name=file_name,
+            user_input=f"File {file_name} uploaded on {timestamp}.",
+            collection_id=str(input.collection_number),
+        )
+
+        agent.conversation.log_interaction(
+            role=agent_name,
+            message=f"File [{file_name}]({file_url}) learned on {timestamp} to collection `{input.collection_number}`.",
+        )
+
+        return True
+
+    @strawberry.mutation
+    async def learn_url(self, info, agent_name: str, input: UrlMemoryInput) -> bool:
+        """Learn from URL content"""
+        user, auth = await get_user_from_context(info)
+
+        agent = Agent(agent_name=agent_name, user=user)
+        url = input.url.replace(" ", "%20")
+
+        websearch = Websearch(
+            collection_number=input.collection_number, agent=agent, user=user
+        )
+
+        timestamp = datetime.now().strftime("%Y-%m-%d")
+        conversation_name = f"{agent_name} Training on {timestamp}"
+
+        await websearch.scrape_websites(
+            user_input=f"I am browsing {url} and collecting data from it to learn more.",
+            conversation_name=conversation_name,
+        )
+
+        conversation = Conversations(conversation_name=conversation_name, user=user)
+        conversation.log_interaction(
+            role=agent_name,
+            message=f"URL [{url}]({url}) learned on {timestamp} to collection `{input.collection_number}`.",
+        )
+
+        return True
+
+    @strawberry.mutation
+    async def wipe_memories(
+        self, info, agent_name: str, collection_number: Optional[str] = None
+    ) -> bool:
+        """Wipe agent memories - optionally from specific collection"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        memories = Memories(
+            agent_name=agent_name,
+            collection_number=collection_number if collection_number else "0",
+            user=user,
+        )
+
+        return await memories.wipe_memory()
+
+    @strawberry.mutation
+    async def submit_feedback(
+        self, info, agent_name: str, input: FeedbackInput
+    ) -> bool:
+        """Submit RLHF feedback for an interaction"""
+        user, auth = await get_user_from_context(info)
+
+        agixt = AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=auth,
+            conversation_name=input.conversation_name,
+        )
+
+        conversation = agixt.conversation
+        if conversation.has_received_feedback(message=input.message):
+            return False
+
+        memory = (
+            agixt.agent_interactions.positive_feedback_memories
+            if input.positive
+            else agixt.agent_interactions.negative_feedback_memories
+        )
+
+        reflection = await agixt.inference(
+            user_input=input.user_input,
+            input_kind="positive" if input.positive else "negative",
+            assistant_response=input.message,
+            feedback=input.feedback,
+            log_user_input=False,
+            log_output=False,
+        )
+
+        memory_message = f"""## Feedback received from a similar interaction in the past:
+### User
+{input.user_input}
+
+### Assistant
+{input.message}
+
+### Feedback from User
+{input.feedback}
+
+### Reflection on the feedback
+{reflection}
+"""
+
+        await memory.write_text_to_memory(
+            user_input=input.user_input,
+            text=memory_message,
+            external_source="reflection from user feedback",
+        )
+
+        feedback_type = "Positive" if input.positive else "Negative"
+        conversation.log_interaction(
+            role=agent_name,
+            message=f"[ACTIVITY][INFO] {feedback_type} feedback received.",
+        )
+        conversation.toggle_feedback_received(message=input.message)
+
+        return True
+
+    @strawberry.mutation
+    async def create_dataset(self, info, agent_name: str, input: DatasetInput) -> bool:
+        """Create training dataset from memories"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        asyncio.create_task(
+            AGiXT(
+                agent_name=agent_name,
+                user=user,
+                api_key=auth,
+                conversation_name=f"Dataset Creation on {timestamp}",
+            ).create_dataset_from_memories(batch_size=input.batch_size)
+        )
+
+        return True
+
+    @strawberry.mutation
+    async def generate_dpo(self, info, agent_name: str, input: DPOInput) -> DPOResult:
+        """Generate DPO response for input"""
+        user, auth = await get_user_from_context(info)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        agixt = AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=auth,
+            conversation_name=f"DPO on {timestamp}",
+        )
+
+        prompt, chosen, rejected = await agixt.dpo(
+            question=input.user_input, injected_memories=input.injected_memories
+        )
+
+        return DPOResult(prompt=prompt, chosen=chosen, rejected=rejected)
+
+    @strawberry.mutation
+    async def delete_memory(
+        self, info, agent_name: str, memory_id: str, collection_number: str = "0"
+    ) -> bool:
+        """Delete a specific memory by ID"""
+        user, auth = await get_user_from_context(info)
+
+        memories = Memories(
+            agent_name=agent_name, collection_number=collection_number, user=user
+        )
+
+        return await memories.delete_memory(key=memory_id)
+
+    @strawberry.mutation
+    async def delete_external_source_memories(
+        self, info, agent_name: str, external_source: str, collection_number: str = "0"
+    ) -> bool:
+        """Delete all memories from a specific external source"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        memories = Memories(
+            agent_name=agent_name, collection_number=collection_number, user=user
+        )
+
+        return await memories.delete_memories_from_external_source(
+            external_source=external_source
+        )
+
+    @strawberry.mutation
+    async def export_memories(self, info, agent_name: str) -> List[dict]:
+        """Export all agent memories"""
+        user, auth = await get_user_from_context(info)
+
+        agent = Agent(agent_name=agent_name, user=user)
+        memories = Memories(
+            agent_name=agent_name, agent_config=agent.get_agent_config(), user=user
+        )
+
+        return await memories.export_collections_to_json()
+
+    @strawberry.mutation
+    async def import_memories(
+        self, info, agent_name: str, memories_data: List[dict]
+    ) -> bool:
+        """Import memories for an agent"""
+        user, auth = await get_user_from_context(info)
+
+        agent = Agent(agent_name=agent_name, user=user)
+        memories = Memories(
+            agent_name=agent_name, agent_config=agent.get_agent_config(), user=user
+        )
+
+        await memories.import_collections_from_json(memories_data)
+        return True
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
