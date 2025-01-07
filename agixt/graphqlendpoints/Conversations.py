@@ -260,7 +260,7 @@ class NotificationEvent:
 @strawberry.type
 class ProviderSetting:
     name: str
-    default_value: Optional[str]
+    value: Optional[str]
 
 
 @strawberry.type
@@ -317,7 +317,7 @@ class EmbedderList:
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
-        ProviderSetting(name=key, default_value=str(value))
+        ProviderSetting(name=key, value=str(value))
         for key, value in settings_dict.items()
     ]
 
@@ -533,21 +533,7 @@ class Query:
         )
 
     @strawberry.field
-    async def providers(self, info) -> ProviderList:
-        """Get all available providers"""
-        user = await get_user_from_context(info)
-        providers = get_providers()
-        return ProviderList(providers=providers)
-
-    @strawberry.field
-    async def provider_settings(self, info, provider_name: str) -> Provider:
-        """Get settings for a specific provider"""
-        user = await get_user_from_context(info)
-        settings = get_provider_options(provider_name=provider_name)
-        return Provider(name=provider_name, settings=convert_settings_to_type(settings))
-
-    @strawberry.field
-    async def providers_with_settings(self, info) -> List[ProviderWithSettings]:
+    async def providers(self, info) -> List[ProviderWithSettings]:
         """Get all providers with their settings"""
         user = await get_user_from_context(info)
         providers_settings = get_providers_with_settings()
@@ -567,24 +553,6 @@ class Query:
         user = await get_user_from_context(info)
         providers = get_providers_by_service(service=service)
         return ProviderList(providers=providers)
-
-    @strawberry.field
-    async def embedding_providers(self, info) -> ProviderList:
-        """Get providers that offer embedding services"""
-        user = await get_user_from_context(info)
-        providers = get_providers_by_service(service="embeddings")
-        return ProviderList(providers=providers)
-
-    @strawberry.field
-    async def providers_with_details(self, info) -> ProvidersWithDetails:
-        """Get comprehensive provider details"""
-        user = await get_user_from_context(info)
-        provider_details = get_providers_with_details()
-        providers = [
-            convert_provider_details({"name": name, **details})
-            for name, details in provider_details.items()
-        ]
-        return ProvidersWithDetails(providers=providers)
 
 
 # Response types for mutations
