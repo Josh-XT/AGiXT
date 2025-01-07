@@ -823,6 +823,31 @@ class ChainInput:
 
 
 @strawberry.input
+class ChainArgumentValue:
+    """Represents a single argument value that can be a string, int, float, or bool"""
+
+    string_value: Optional[str] = None
+    int_value: Optional[int] = None
+    float_value: Optional[float] = None
+    bool_value: Optional[bool] = None
+
+
+@strawberry.input
+class ChainArgument:
+    """A single chain argument with name and value"""
+
+    name: str
+    value: ChainArgumentValue
+
+
+@strawberry.input
+class ChainArguments:
+    """Collection of chain arguments"""
+
+    args: List[ChainArgument]
+
+
+@strawberry.input
 class RunChainInput:
     """Input for running a chain"""
 
@@ -830,7 +855,7 @@ class RunChainInput:
     agent_override: Optional[str] = None
     all_responses: bool = False
     from_step: int = 1
-    chain_args: Optional[dict] = None
+    chain_args: Optional[ChainArguments] = None
     conversation_name: Optional[str] = None
 
 
@@ -840,9 +865,29 @@ class RunChainStepInput:
 
     prompt: str
     agent_override: Optional[str] = None
-    chain_args: Optional[dict] = None
+    chain_args: Optional[ChainArguments] = None
     chain_run_id: Optional[str] = None
     conversation_name: Optional[str] = None
+
+
+def convert_chain_args_to_dict(chain_args: Optional[ChainArguments]) -> dict:
+    """Helper function to convert ChainArguments to a dictionary for backwards compatibility"""
+    if not chain_args:
+        return {}
+
+    result = {}
+    for arg in chain_args.args:
+        # Get the first non-None value from the ChainArgumentValue
+        if arg.value.string_value is not None:
+            result[arg.name] = arg.value.string_value
+        elif arg.value.int_value is not None:
+            result[arg.name] = arg.value.int_value
+        elif arg.value.float_value is not None:
+            result[arg.name] = arg.value.float_value
+        elif arg.value.bool_value is not None:
+            result[arg.name] = arg.value.bool_value
+
+    return result
 
 
 @strawberry.input
@@ -2596,7 +2641,7 @@ class Mutation:
             raise Exception("Access Denied")
 
         agent_name = input.agent_override or "gpt4free"
-
+        chain_args = convert_chain_args_to_dict(input.chain_args)
         chain_response = await AGiXT(
             user=user,
             agent_name=agent_name,
@@ -2607,7 +2652,7 @@ class Mutation:
             user_input=input.prompt,
             agent_override=input.agent_override,
             from_step=input.from_step,
-            chain_args=input.chain_args or {},
+            chain_args=chain_args,
             log_user_input=False,
         )
 
