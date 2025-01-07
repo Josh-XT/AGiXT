@@ -18,9 +18,26 @@ from endpoints.Conversation import (
 )
 from Providers import get_providers_with_details
 from Prompts import Prompts
-from ApiClient import verify_api_key
+from Websearch import Websearch
+from ApiClient import verify_api_key, is_admin
 from datetime import datetime
 from typing import AsyncGenerator
+from XT import AGiXT
+from Agent import (
+    Agent,
+    get_agents,
+    add_agent,
+    get_default_agent,
+    get_agixt_training_urls,
+    delete_agent,
+    rename_agent,
+)
+from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
+from MagicalAuth import MagicalAuth
+from Models import ChatCompletions
+from Globals import getenv
+import uuid
+
 
 try:
     from broadcaster import Broadcast
@@ -322,6 +339,109 @@ class RenamePromptInput:
     category: str = "Default"
 
 
+@strawberry.type
+class AgentSetting:
+    name: str
+    value: str
+
+
+@strawberry.type
+class AgentCommand:
+    name: str
+    enabled: bool
+
+
+@strawberry.type
+class AgentType:
+    id: str
+    name: str
+    status: bool
+    company_id: Optional[str]
+    settings: List[AgentSetting]
+    commands: List[AgentCommand]
+
+
+@strawberry.type
+class ProviderDetail:
+    name: str
+    connected: bool
+    friendly_name: str
+    description: str
+    settings: List[AgentSetting]
+
+
+@strawberry.type
+class AgentResponse:
+    success: bool
+    message: str
+
+
+@strawberry.type
+class AgentPromptResponse:
+    response: str
+
+
+# Input types
+@strawberry.input
+class AgentSettingInput:
+    name: str
+    value: str
+
+
+@strawberry.input
+class AgentCommandInput:
+    name: str
+    enabled: bool
+
+
+@strawberry.input
+class CreateAgentInput:
+    name: str
+    settings: List[AgentSettingInput]
+    commands: List[AgentCommandInput]
+    training_urls: Optional[List[str]] = None
+
+
+@strawberry.input
+class UpdateAgentSettingsInput:
+    settings: List[AgentSettingInput]
+
+
+@strawberry.input
+class UpdateAgentCommandsInput:
+    commands: List[AgentCommandInput]
+
+
+@strawberry.input
+class PromptArgInput:
+    conversation_name: Optional[str] = None
+    user_input: Optional[str] = None
+    log_user_input: Optional[bool] = False
+    log_output: Optional[bool] = False
+    tts: Optional[bool] = False
+    context_results: Optional[int] = None
+    conversation_results: Optional[int] = 10
+    file_urls: Optional[List[str]] = None
+    prompt_category: Optional[str] = "Default"
+
+
+@strawberry.input
+class AgentPromptInput:
+    prompt_name: str
+    prompt_args: PromptArgInput
+
+
+@strawberry.input
+class TaskPlanInput:
+    user_input: str
+    websearch: bool = False
+    websearch_depth: int = 3
+    conversation_name: str = "AGiXT Task Planning"
+    log_user_input: bool = True
+    log_output: bool = True
+    enable_new_command: bool = True
+
+
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
@@ -587,6 +707,120 @@ class Query:
         prompt_manager = Prompts(user=user)
         return prompt_manager.get_prompt_categories()
 
+    @strawberry.field
+    async def agents(self, info) -> List[AgentType]:
+        """Get all available agents"""
+        user, auth = await get_user_from_context(info)
+        agents = get_agents(user=user)
+
+        # Handle auto-creation of default agent if needed
+        create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
+        if create_agent:
+            agent_list = [agent["name"] for agent in agents]
+            agent_name = getenv("AGIXT_AGENT")
+            if agent_name not in agent_list:
+                agent_config = get_default_agent()
+                agent_settings = agent_config["settings"]
+                agent_commands = agent_config["commands"]
+                create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
+                training_urls = (
+                    get_agixt_training_urls()
+                    if create_agixt_agent and agent_name == "AGiXT"
+                    else agent_config["training_urls"]
+                )
+
+                add_agent(
+                    agent_name=agent_name,
+                    provider_settings=agent_settings,
+                    commands=agent_commands,
+                    user=user,
+                )
+                agents = get_agents(user=user)  # Refresh agent list
+
+        return [
+            AgentType(
+                id=agent["id"],
+                name=agent["name"],
+                status=agent["status"],
+                company_id=agent.get("company_id"),
+                settings=[],  # These would need to be populated if needed
+                commands=[],  # These would need to be populated if needed
+            )
+            for agent in agents
+        ]
+
+    @strawberry.field
+    async def agent(self, info, name: str) -> AgentType:
+        """Get a specific agent's configuration"""
+        user, auth = await get_user_from_context(info)
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        agent = Agent(agent_name=name, user=user)
+        config = agent.get_agent_config()
+
+        settings = [
+            AgentSetting(
+                name=k,
+                value=(
+                    "HIDDEN"
+                    if any(
+                        x in k.upper() for x in ["KEY", "SECRET", "PASSWORD", "TOKEN"]
+                    )
+                    else v
+                ),
+            )
+            for k, v in config["settings"].items()
+        ]
+
+        commands = [
+            AgentCommand(name=k, enabled=v) for k, v in config["commands"].items()
+        ]
+
+        return AgentType(
+            id=agent.agent_id,
+            name=name,
+            status=False,  # This could be updated if there's a status to track
+            company_id=config["settings"].get("company_id"),
+            settings=settings,
+            commands=commands,
+        )
+
+    @strawberry.field
+    async def agent_providers(self, info, agent_name: str) -> List[ProviderDetail]:
+        """Get providers available to an agent"""
+        user, auth = await get_user_from_context(info)
+        agent = Agent(agent_name=agent_name, user=user)
+        agent_settings = agent.AGENT_CONFIG["settings"]
+        providers = get_providers_with_details()
+
+        provider_details = []
+        for provider in providers:
+            provider_name = list(provider.keys())[0]
+            details = list(provider.values())[0]
+            provider_settings = details["settings"]
+
+            # Check if provider is connected
+            connected = any(
+                key in agent_settings and agent_settings[key] != ""
+                for key in provider_settings
+            )
+
+            provider_details.append(
+                ProviderDetail(
+                    name=provider_name,
+                    connected=connected,
+                    friendly_name=details.get("friendly_name", provider_name),
+                    description=details["description"],
+                    settings=[
+                        AgentSetting(name=k, value=v)
+                        for k, v in provider_settings.items()
+                    ],
+                )
+            )
+
+        return provider_details
+
 
 # Response types for mutations
 @strawberry.type
@@ -836,6 +1070,188 @@ class Mutation:
             )
         except Exception as e:
             return PromptResponse(success=False, message=str(e))
+
+    @strawberry.mutation
+    async def create_agent(self, info, input: CreateAgentInput) -> AgentResponse:
+        """Create a new agent"""
+        user, auth = await get_user_from_context(info)
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        settings = {s.name: s.value for s in input.settings}
+        commands = {c.name: c.enabled for c in input.commands}
+
+        result = add_agent(
+            agent_name=input.name,
+            provider_settings=settings,
+            commands=commands,
+            user=user,
+        )
+
+        if input.training_urls:
+            agent = Agent(agent_name=input.name, user=user)
+            reader = Websearch(collection_number="0", agent=agent, user=user)
+            for url in input.training_urls:
+                await reader.get_web_content(url=url)
+            message = "Agent created and trained successfully"
+        else:
+            message = "Agent created successfully"
+
+        return AgentResponse(success=True, message=message)
+
+    @strawberry.mutation
+    async def update_agent_settings(
+        self, info, agent_name: str, input: UpdateAgentSettingsInput
+    ) -> AgentResponse:
+        """Update an agent's settings"""
+        user, auth = await get_user_from_context(info)
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        agent = Agent(agent_name=agent_name, user=user)
+        settings = {s.name: s.value for s in input.settings}
+
+        # Filter out HIDDEN values to not overwrite sensitive data
+        new_settings = {k: v for k, v in settings.items() if v != "HIDDEN"}
+
+        result = agent.update_agent_config(
+            new_config=new_settings, config_key="settings"
+        )
+
+        return AgentResponse(success=True, message=result)
+
+    @strawberry.mutation
+    async def update_agent_commands(
+        self, info, agent_name: str, input: UpdateAgentCommandsInput
+    ) -> AgentResponse:
+        """Update an agent's commands"""
+        user, auth = await get_user_from_context(info)
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        agent = Agent(agent_name=agent_name, user=user)
+        commands = {c.name: c.enabled for c in input.commands}
+
+        result = agent.update_agent_config(new_config=commands, config_key="commands")
+
+        return AgentResponse(success=True, message=result)
+
+    @strawberry.mutation
+    async def delete_agent(self, info, name: str) -> AgentResponse:
+        """Delete an agent"""
+        user, auth = await get_user_from_context(info)
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        agent = Agent(agent_name=name, user=user)
+        websearch = Websearch(collection_number="0", agent=agent, user=user)
+        await websearch.agent_memory.wipe_memory()
+
+        result = delete_agent(agent_name=name, user=user)
+        return AgentResponse(success=True, message=f"Agent {name} deleted successfully")
+
+    @strawberry.mutation
+    async def rename_agent(self, info, old_name: str, new_name: str) -> AgentResponse:
+        """Rename an agent"""
+        user, auth = await get_user_from_context(info)
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        result = rename_agent(agent_name=old_name, new_name=new_name, user=user)
+        return AgentResponse(
+            success=True, message=f"Agent renamed from {old_name} to {new_name}"
+        )
+
+    @strawberry.mutation
+    async def prompt_agent(
+        self, info, agent_name: str, input: AgentPromptInput
+    ) -> AgentPromptResponse:
+        """Send a prompt to an agent"""
+        user, auth = await get_user_from_context(info)
+
+        conversation_name = input.prompt_args.conversation_name or None
+        if conversation_name != "-":
+            try:
+                conversation_id = str(uuid.UUID(conversation_name))
+                if conversation_id:
+                    auth = MagicalAuth(token=auth)
+                    conversation_name = get_conversation_name_by_id(
+                        conversation_id=conversation_id, user_id=auth.user_id
+                    )
+            except:
+                pass
+
+        agent = AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=auth,
+            conversation_name=conversation_name,
+        )
+
+        # Convert input to messages format
+        messages = []
+        if input.prompt_args.file_urls:
+            content = [{"type": "text", "text": input.prompt_args.user_input or ""}]
+            for url in input.prompt_args.file_urls:
+                content.append({"type": "file_url", "file_url": {"url": url}})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": content,
+                    **{
+                        k: v
+                        for k, v in input.prompt_args.__dict__.items()
+                        if k not in ["user_input", "file_urls"]
+                    },
+                }
+            )
+        else:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": input.prompt_args.user_input or "",
+                    **{
+                        k: v
+                        for k, v in input.prompt_args.__dict__.items()
+                        if k != "user_input"
+                    },
+                }
+            )
+
+        response = await agent.chat_completions(
+            prompt=ChatCompletions(
+                model=agent_name, user=conversation_name, messages=messages
+            )
+        )
+
+        return AgentPromptResponse(
+            response=response["choices"][0]["message"]["content"]
+        )
+
+    @strawberry.mutation
+    async def plan_task(
+        self, info, agent_name: str, input: TaskPlanInput
+    ) -> AgentPromptResponse:
+        """Plan a task for the agent"""
+        user, auth = await get_user_from_context(info)
+
+        agent = AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=auth,
+            conversation_name=input.conversation_name,
+        )
+
+        result = await agent.plan_task(
+            user_input=input.user_input,
+            websearch=input.websearch,
+            websearch_depth=input.websearch_depth,
+            log_user_input=input.log_user_input,
+            log_output=input.log_output,
+            enable_new_command=input.enable_new_command,
+        )
+
+        return AgentPromptResponse(response=result)
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
