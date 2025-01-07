@@ -695,10 +695,39 @@ class ExtensionSettingInput:
 
 
 @strawberry.type
-class PromptsType:
-    """Represents a list of prompts"""
+class MemoryExportCollection:
+    """Represents a collection of memories for export/import"""
 
-    prompts: List[PromptType]
+    collection_id: str
+    memories: List["MemoryExportEntry"]
+
+
+@strawberry.type
+class MemoryExportEntry:
+    """Represents a single memory entry for export/import"""
+
+    external_source_name: str
+    description: str
+    text: str
+    timestamp: str
+
+
+@strawberry.input
+class MemoryImportCollection:
+    """Input type for importing a collection of memories"""
+
+    collection_id: str
+    memories: List["MemoryImportEntry"]
+
+
+@strawberry.input
+class MemoryImportEntry:
+    """Input type for importing a single memory entry"""
+
+    external_source_name: str
+    description: str
+    text: str
+    timestamp: Optional[str] = None
 
 
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
@@ -1941,20 +1970,38 @@ class Mutation:
         )
 
     @strawberry.mutation
-    async def export_memories(self, info, agent_name: str) -> List[dict]:
+    async def export_memories(
+        self, info, agent_name: str
+    ) -> List[MemoryExportCollection]:
         """Export all agent memories"""
         user, auth = await get_user_from_context(info)
-
         agent = Agent(agent_name=agent_name, user=user)
         memories = Memories(
             agent_name=agent_name, agent_config=agent.get_agent_config(), user=user
         )
 
-        return await memories.export_collections_to_json()
+        raw_data = await memories.export_collections_to_json()
+
+        # Convert raw dictionary data to proper types
+        return [
+            MemoryExportCollection(
+                collection_id=collection_id,
+                memories=[
+                    MemoryExportEntry(
+                        external_source_name=memory["external_source_name"],
+                        description=memory["description"],
+                        text=memory["text"],
+                        timestamp=memory["timestamp"],
+                    )
+                    for memory in memories
+                ],
+            )
+            for collection_id, memories in raw_data.items()
+        ]
 
     @strawberry.mutation
     async def import_memories(
-        self, info, agent_name: str, memories_data: List[dict]
+        self, info, agent_name: str, collections: List[MemoryImportCollection]
     ) -> bool:
         """Import memories for an agent"""
         user, auth = await get_user_from_context(info)
@@ -1964,7 +2011,23 @@ class Mutation:
             agent_name=agent_name, agent_config=agent.get_agent_config(), user=user
         )
 
-        await memories.import_collections_from_json(memories_data)
+        # Convert typed data to format expected by import function
+        import_data = [
+            {
+                collection.collection_id: [
+                    {
+                        "external_source_name": memory.external_source_name,
+                        "description": memory.description,
+                        "text": memory.text,
+                        "timestamp": memory.timestamp or datetime.now().isoformat(),
+                    }
+                    for memory in collection.memories
+                ]
+            }
+            for collection in collections
+        ]
+
+        await memories.import_collections_from_json(import_data)
         return True
 
     @strawberry.mutation
