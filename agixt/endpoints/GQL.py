@@ -17,6 +17,7 @@ from endpoints.Conversation import (
     get_notifications as rest_get_notifications,
 )
 from Providers import get_providers_with_details
+from Prompts import Prompts
 from ApiClient import verify_api_key
 from datetime import datetime
 from typing import AsyncGenerator
@@ -254,7 +255,7 @@ class NotificationEvent:
 @strawberry.type
 class ProviderSetting:
     name: str
-    default_value: Optional[str]
+    value: Optional[str]
 
 
 @strawberry.type
@@ -267,20 +268,64 @@ class ProviderDetail:
 
 
 @strawberry.type
-class Provider:
-    name: str
-    settings: List[ProviderSetting]
+class Providers:
+    providers: List[ProviderDetail]
 
 
 @strawberry.type
-class Providers:
-    providers: List[ProviderDetail]
+class PromptArgument:
+    name: str
+
+
+@strawberry.type
+class PromptType:
+    name: str
+    content: str
+    category: str
+    description: str
+    arguments: List[PromptArgument]
+
+
+@strawberry.type
+class PromptCategory:
+    name: str
+    description: str
+
+
+@strawberry.type
+class PromptResponse:
+    success: bool
+    message: str
+
+
+# Input types
+@strawberry.input
+class CreatePromptInput:
+    name: str
+    content: str
+    category: str = "Default"
+    description: str = ""
+
+
+@strawberry.input
+class UpdatePromptInput:
+    name: str
+    content: str
+    category: str = "Default"
+    description: str = ""
+
+
+@strawberry.input
+class RenamePromptInput:
+    old_name: str
+    new_name: str
+    category: str = "Default"
 
 
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
-        ProviderSetting(name=key, default_value=str(value))
+        ProviderSetting(name=key, value=str(value))
         for key, value in settings_dict.items()
     ]
 
@@ -506,6 +551,42 @@ class Query:
         ]
         return Providers(providers=providers)
 
+    @strawberry.field
+    async def prompt(self, info, name: str, category: str = "Default") -> PromptType:
+        """Get a specific prompt by name and category"""
+        user = await verify_api_key(info.context["request"])
+        prompt_manager = Prompts(user=user)
+
+        content = prompt_manager.get_prompt(prompt_name=name, prompt_category=category)
+        if not content:
+            raise Exception(f"Prompt {name} not found in category {category}")
+
+        arguments = [
+            PromptArgument(name=arg) for arg in prompt_manager.get_prompt_args(content)
+        ]
+
+        return PromptType(
+            name=name,
+            content=content,
+            category=category,
+            description="",  # Could be enhanced to store/retrieve descriptions
+            arguments=arguments,
+        )
+
+    @strawberry.field
+    async def prompts(self, info, category: str = "Default") -> List[str]:
+        """Get all prompts in a category"""
+        user = await verify_api_key(info.context["request"])
+        prompt_manager = Prompts(user=user)
+        return prompt_manager.get_prompts(prompt_category=category)
+
+    @strawberry.field
+    async def prompt_categories(self, info) -> List[str]:
+        """Get all prompt categories"""
+        user = await verify_api_key(info.context["request"])
+        prompt_manager = Prompts(user=user)
+        return prompt_manager.get_prompt_categories()
+
 
 # Response types for mutations
 @strawberry.type
@@ -688,6 +769,73 @@ class Mutation:
                 )
 
         return MutationResponse(success=True, message=result.message)
+
+    @strawberry.mutation
+    async def create_prompt(self, info, input: CreatePromptInput) -> PromptResponse:
+        """Create a new prompt"""
+        user, auth = await get_user_from_context(info)
+        try:
+            prompt_manager = Prompts(user=user)
+            prompt_manager.add_prompt(
+                prompt_name=input.name,
+                prompt=input.content,
+                prompt_category=input.category,
+            )
+            return PromptResponse(
+                success=True, message=f"Prompt '{input.name}' created successfully"
+            )
+        except Exception as e:
+            return PromptResponse(success=False, message=str(e))
+
+    @strawberry.mutation
+    async def update_prompt(self, info, input: UpdatePromptInput) -> PromptResponse:
+        """Update an existing prompt"""
+        user, auth = await get_user_from_context(info)
+        try:
+            prompt_manager = Prompts(user=user)
+            prompt_manager.update_prompt(
+                prompt_name=input.name,
+                prompt=input.content,
+                prompt_category=input.category,
+            )
+            return PromptResponse(
+                success=True, message=f"Prompt '{input.name}' updated successfully"
+            )
+        except Exception as e:
+            return PromptResponse(success=False, message=str(e))
+
+    @strawberry.mutation
+    async def delete_prompt(
+        self, info, name: str, category: str = "Default"
+    ) -> PromptResponse:
+        """Delete a prompt"""
+        user, auth = await get_user_from_context(info)
+        try:
+            prompt_manager = Prompts(user=user)
+            prompt_manager.delete_prompt(prompt_name=name, prompt_category=category)
+            return PromptResponse(
+                success=True, message=f"Prompt '{name}' deleted successfully"
+            )
+        except Exception as e:
+            return PromptResponse(success=False, message=str(e))
+
+    @strawberry.mutation
+    async def rename_prompt(self, info, input: RenamePromptInput) -> PromptResponse:
+        """Rename a prompt"""
+        user, auth = await get_user_from_context(info)
+        try:
+            prompt_manager = Prompts(user=user)
+            prompt_manager.rename_prompt(
+                prompt_name=input.old_name,
+                new_prompt_name=input.new_name,
+                prompt_category=input.category,
+            )
+            return PromptResponse(
+                success=True,
+                message=f"Prompt '{input.old_name}' renamed to '{input.new_name}' successfully",
+            )
+        except Exception as e:
+            return PromptResponse(success=False, message=str(e))
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
