@@ -8,7 +8,6 @@ from Models import (
     AgentSettings,
     AgentConfig,
     AgentResponse,
-    AgentListResponse,
     AgentConfigResponse,
     AgentCommandsResponse,
     AgentBrowsedLinksResponse,
@@ -85,6 +84,30 @@ class AgentPromptInput:
 
 
 @strawberry.type
+class AgentSetting:
+    key: str
+    value: str
+
+
+@strawberry.type
+class AgentCommand:
+    name: str
+    enabled: bool
+
+
+@strawberry.type
+class Agent:
+    name: str
+    settings: List[AgentSetting]
+    commands: List[AgentCommand]
+
+
+@strawberry.type
+class AgentListResponse:
+    agents: List[Agent]
+
+
+@strawberry.type
 class AgentType:
     name: str
     settings: Dict[str, str]
@@ -120,13 +143,32 @@ async def get_user_from_context(info):
 @strawberry.type
 class Query:
     @strawberry.field
-    async def agents(self, info) -> AgentListResponseType:
+    async def agents(self, info) -> AgentListResponse:
         """Get all agents"""
         response = await rest_get_agents(
             user=await get_user_from_context(info),
             authorization=info.context["request"].headers.get("authorization"),
         )
-        return AgentListResponseType.from_pydantic(response)
+
+        agents = []
+        for agent_data in response["agents"]:
+            # Convert dict settings to list of AgentSetting objects
+            settings = [
+                AgentSetting(key=k, value=v)
+                for k, v in agent_data.get("settings", {}).items()
+            ]
+
+            # Convert dict commands to list of AgentCommand objects
+            commands = [
+                AgentCommand(name=k, enabled=v)
+                for k, v in agent_data.get("commands", {}).items()
+            ]
+
+            agents.append(
+                Agent(name=agent_data["name"], settings=settings, commands=commands)
+            )
+
+        return AgentListResponse(agents=agents)
 
     @strawberry.field
     async def agent_config(self, info, agent_name: str) -> AgentConfigResponseType:
