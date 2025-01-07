@@ -1,24 +1,32 @@
-from Models import (
+from Models import (  # type: ignore
     Detail,
     Login,
     Register,
+    WebhookModel,
+    CompanyResponse,
+    InvitationCreate,
+    InvitationResponse,
+    ToggleCommandPayload,
+    ResponseMessage,
 )
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
-from MagicalAuth import MagicalAuth, verify_api_key, impersonate_user
-from typing import List
-from Globals import getenv
+from DB import get_session, User, UserPreferences  # type: ignore
+from MagicalAuth import MagicalAuth, verify_api_key, impersonate_user  # type: ignore
+from Agent import Agent  # type: ignore
+from typing import List, Optional
+from Globals import getenv  # type: ignore
 import logging
 import pyotp
 
 
-app = APIRouter(tags=["Auth"])
+app = APIRouter()
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
 
 
-@app.post("/v1/user", summary="Register a new user")
+@app.post("/v1/user", summary="Register a new user", tags=["Auth"])
 def register(register: Register):
     auth = MagicalAuth()
     user_exists = auth.user_exists(email=register.email)
@@ -43,12 +51,79 @@ def register(register: Register):
     return {"otp_uri": otp_uri, "magic_link": magic_link}
 
 
+# Get invitations is auth.get_invitations(company_id)
+@app.get("/v1/invitations", summary="Get all invitations", tags=["Companies"])
+async def get_invitations(
+    email: str = Depends(verify_api_key),
+    company_id: str = None,
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        invites = auth.get_invitations()
+        return {"invitations": invites}
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching the invitations: {str(e)}",
+        )
+
+
+# Get invitations is auth.get_invitations(company_id)
+@app.get(
+    "/v1/invitations/{company_id}",
+    summary="Get all invitations for a company",
+    tags=["Companies"],
+)
+async def get_invitations(
+    email: str = Depends(verify_api_key),
+    company_id: str = None,
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        invites = auth.get_invitations(company_id)
+        return {"invitations": invites}
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching the invitations: {str(e)}",
+        )
+
+
+# delete invitation is auth.delete_invitation(invitation_id)
+@app.delete(
+    "/v1/invitation/{invitation_id}", summary="Delete an invitation", tags=["Companies"]
+)
+async def delete_invitation(
+    invitation_id: str,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        auth.delete_invitation(invitation_id)
+        return {"detail": "Invitation deleted successfully."}
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while deleting the invitation: {str(e)}",
+        )
+
+
 @app.get(
     "/v1/user/exists",
     response_model=bool,
     summary="Check if user exists",
+    tags=["Auth"],
 )
-def get_user(email: str) -> bool:
+def get_user_exists(email: str) -> bool:
     try:
         return MagicalAuth().user_exists(email=email)
     except:
@@ -59,8 +134,9 @@ def get_user(email: str) -> bool:
     "/v1/user",
     dependencies=[Depends(verify_api_key)],
     summary="Get user details",
+    tags=["Auth"],
 )
-def log_in(
+def get_user(
     request: Request,
     authorization: str = Header(None),
 ):
@@ -85,6 +161,7 @@ def log_in(
     "/v1/login",
     response_model=Detail,
     summary="Login with email and OTP token",
+    tags=["Auth"],
 )
 async def send_magic_link(request: Request, login: Login):
     auth = MagicalAuth()
@@ -104,6 +181,7 @@ async def send_magic_link(request: Request, login: Login):
     dependencies=[Depends(verify_api_key)],
     response_model=Detail,
     summary="Update user details",
+    tags=["Auth"],
 )
 async def update_user(
     request: Request, authorization: str = Header(None), email=Depends(verify_api_key)
@@ -120,6 +198,7 @@ async def update_user(
     dependencies=[Depends(verify_api_key)],
     response_model=Detail,
     summary="Delete user",
+    tags=["Auth"],
 )
 def delete_user(
     user=Depends(verify_api_key),
@@ -129,7 +208,44 @@ def delete_user(
     return Detail(detail="User deleted successfully.")
 
 
-@app.post("/v1/user/verify/mfa", response_model=Detail)
+@app.put(
+    "/v1/companies/{company_id}", response_model=CompanyResponse, tags=["Companies"]
+)
+async def update_company(
+    company_id: str,
+    name: str,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        return auth.update_company(company_id, name)
+    except Exception as e:
+        logging.error(f"Error in update_company endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while updating the company: {str(e)}",
+        )
+
+
+@app.post("/v1/invitations", response_model=InvitationResponse, tags=["Companies"])
+async def create_invitations(
+    invitation: InvitationCreate,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        return auth.create_invitation(invitation)
+    except Exception as e:
+        logging.error(f"Error in create_invitation endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while creating the invitation: {str(e)}",
+        )
+
+
+@app.post("/v1/user/verify/mfa", response_model=Detail, tags=["Auth"])
 async def user_verify_mfa(request: Request, authorization: str = Header(None)):
     data = await request.json()
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
@@ -139,7 +255,7 @@ async def user_verify_mfa(request: Request, authorization: str = Header(None)):
     return {"detail": auth.verify_mfa(token=data["code"])}
 
 
-@app.post("/v1/user/verify/sms", response_model=Detail)
+@app.post("/v1/user/verify/sms", response_model=Detail, tags=["Auth"])
 async def user_verify_sms(request: Request, authorization: str = Header(None)):
     data = await request.json()
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
@@ -149,8 +265,8 @@ async def user_verify_sms(request: Request, authorization: str = Header(None)):
     return {"detail": auth.verify_sms(code=data["code"])}
 
 
-@app.post("/v1/user/verify/email", response_model=Detail)
-async def user_verify(request: Request):
+@app.post("/v1/user/verify/email", response_model=Detail, tags=["Auth"])
+async def user_verify_email(request: Request):
     data = await request.json()
     if "email" not in data:
         raise HTTPException(status_code=400, detail="Email is required.")
@@ -195,7 +311,7 @@ async def user_verify(request: Request):
     return {"detail": auth.verify_email_address(code=data["code"])}
 
 
-@app.post("/v1/user/mfa/sms", response_model=Detail)
+@app.post("/v1/user/mfa/sms", response_model=Detail, tags=["Auth"])
 async def send_mfa_sms(request: Request):
     data = await request.json()
     email = data["email"]
@@ -204,7 +320,7 @@ async def send_mfa_sms(request: Request):
     return auth.send_sms_code()
 
 
-@app.post("/v1/user/mfa/email", response_model=Detail)
+@app.post("/v1/user/mfa/email", response_model=Detail, tags=["Auth"])
 async def send_mfa_email(request: Request):
     data = await request.json()
     email = data["email"]
@@ -217,6 +333,7 @@ async def send_mfa_email(request: Request):
     "/v1/oauth2/{provider}",
     response_model=Detail,
     summary="Login using OAuth2 provider",
+    tags=["Auth"],
 )
 async def oauth_login(
     request: Request, provider: str = "microsoft", authorization: str = Header(None)
@@ -254,6 +371,7 @@ async def oauth_login(
     dependencies=[Depends(verify_api_key)],
     response_model=Detail,
     summary="Update OAuth2 provider access token",
+    tags=["Auth"],
 )
 async def update_oauth_token(
     request: Request, provider: str, authorization: str = Header(None)
@@ -273,6 +391,7 @@ async def update_oauth_token(
     "/v1/oauth2",
     response_model=List[str],
     summary="List of currently connected OAuth2 providers for the user",
+    tags=["Auth"],
 )
 async def get_oauth_providers(
     email: str = Depends(verify_api_key),
@@ -293,8 +412,85 @@ async def get_oauth_providers(
     "/v1/oauth2/{provider}",
     response_model=Detail,
     summary="Delete OAuth2 provider access token",
+    tags=["Auth"],
 )
 async def delete_oauth_token(provider: str, authorization: str = Header(None)):
     auth = MagicalAuth(token=authorization)
     response = auth.disconnect_sso(provider_name=provider)
     return Detail(detail=response)
+
+
+@app.get("/v1/companies", response_model=List[CompanyResponse], tags=["Companies"])
+async def get_companies(
+    email: str = Depends(verify_api_key), authorization: str = Header(None)
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        companies = auth.get_all_companies()
+        return companies
+    except Exception as e:
+        logging.error(f"Error in get_companies endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching companies: {str(e)}",
+        )
+
+
+@app.post("/v1/companies", response_model=CompanyResponse, tags=["Companies"])
+async def create_company(
+    name: str,
+    parent_company_id: Optional[str] = None,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        new_company = auth.create_company(name, parent_company_id)
+        return new_company
+    except Exception as e:
+        logging.error(f"Error in create_company endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while creating the company: {str(e)}",
+        )
+
+
+@app.get(
+    "/v1/companies/{company_id}/extensions",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_extensions(
+    company_id: str = None,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    ApiClient = auth.get_company_agent_session(company_id=company_id)
+    token = ApiClient.headers.get("Authorization")
+    company_auth = MagicalAuth(token=token)
+    agent = Agent(agent_name="AGiXT", user=company_auth.email, ApiClient=ApiClient)
+    extensions = agent.get_agent_extensions()
+    return {"extensions": extensions}
+
+
+@app.patch(
+    "/v1/companies/{company_id}/command",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def toggle_command(
+    company_id: str,
+    payload: ToggleCommandPayload,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    ApiClient = auth.get_company_agent_session(company_id=company_id)
+    token = ApiClient.headers.get("Authorization")
+    company_auth = MagicalAuth(token=token)
+    agent = Agent(agent_name="AGiXT", user=company_auth.email, ApiClient=ApiClient)
+    update_config = agent.update_agent_config(
+        new_config={payload.command_name: payload.enable}, config_key="commands"
+    )
+    return ResponseMessage(message=update_config)

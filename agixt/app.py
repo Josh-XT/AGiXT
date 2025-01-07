@@ -1,4 +1,3 @@
-import uvicorn
 import os
 import sys
 import logging
@@ -23,6 +22,7 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -237,3 +237,13 @@ async def serve_file(
     except Exception as e:
         logging.error(f"Unexpected error serving file: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+from strawberry.fastapi import GraphQLRouter
+from endpoints.GQL import schema as graphql_schema
+
+graphql_app = GraphQLRouter(
+    graphql_schema,
+    graphiql=True,  # Set to False in production if you don't want the GraphiQL interface
+)
+app.include_router(graphql_app, prefix="/graphql")

@@ -287,16 +287,15 @@ def get_agents(email, company=None):
             continue
         # Get the agent settings `company_id` if defined
         company_id = None
-        if str(getenv("ENT").lower()) == "true":
-            agent_settings = (
-                session.query(AgentSettingModel)
-                .filter(AgentSettingModel.agent_id == agent.id)
-                .all()
-            )
-            for setting in agent_settings:
-                if setting.name == "company_id":
-                    company_id = setting.value
-                    break
+        agent_settings = (
+            session.query(AgentSettingModel)
+            .filter(AgentSettingModel.agent_id == agent.id)
+            .all()
+        )
+        for setting in agent_settings:
+            if setting.name == "company_id":
+                company_id = setting.value
+                break
         if company_id and company:
             if company_id != company:
                 continue
@@ -686,7 +685,6 @@ class MagicalAuth:
         new_user.email = new_user.email.lower()
         self.email = new_user.email
         mfa_token = pyotp.random_base32()
-        ent = str(getenv("ENT")).lower() == "true"
         try:
             session = get_session()
             # Check if user already exists
@@ -726,32 +724,31 @@ class MagicalAuth:
             session.flush()  # Flush to get the new user's ID
             self.user_id = str(new_user_db.id)
             company_id = None
-            if ent:
-                if invitation:
-                    # User was invited - use invitation details
-                    verify_email = True
-                    company_id = invitation.company_id
-                    role_id = invitation.role_id
-                    invitation.is_accepted = True
-                    # Create user-company association
-                    user_company = UserCompany(
-                        user_id=new_user_db.id,
-                        company_id=company_id,
-                        role_id=role_id,
+            if invitation:
+                # User was invited - use invitation details
+                verify_email = True
+                company_id = invitation.company_id
+                role_id = invitation.role_id
+                invitation.is_accepted = True
+                # Create user-company association
+                user_company = UserCompany(
+                    user_id=new_user_db.id,
+                    company_id=company_id,
+                    role_id=role_id,
+                )
+                session.add(user_company)
+                session.commit()
+            else:
+                # If email ends in .xt, skip this part
+                if not self.email.endswith(".xt"):
+                    # Create a new company for the user
+                    company_name = (
+                        f"{new_user.first_name}'s Company"
+                        if new_user.first_name
+                        else "My Company"
                     )
-                    session.add(user_company)
-                    session.commit()
-                else:
-                    # If email ends in .xt, skip this part
-                    if not self.email.endswith(".xt"):
-                        # Create a new company for the user
-                        company_name = (
-                            f"{new_user.first_name}'s Company"
-                            if new_user.first_name
-                            else "My Company"
-                        )
-                        new_company = self.create_company(name=company_name)
-                        company_id = new_company["id"]
+                    new_company = self.create_company(name=company_name)
+                    company_id = new_company["id"]
             # Add default user preferences
             default_preferences = [
                 ("timezone", getenv("TZ")),
