@@ -20,7 +20,6 @@ from endpoints.Conversation import (
 )
 from ApiClient import verify_api_key
 from datetime import datetime
-from strawberry.types import default_factory
 
 
 # Helper for auth
@@ -166,7 +165,7 @@ class ConversationMessageInput:
 class ConversationHistoryInput:
     conversation_name: str
     agent_name: Optional[str] = ""
-    conversation_content: List[ConversationMessageInput] = default_factory(list)
+    conversation_content: Optional[List[ConversationMessageInput]]
 
 
 @strawberry.input
