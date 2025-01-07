@@ -53,9 +53,15 @@ class AgentConfigResponseType:
     agent: Dict[str, Any]
 
 
-@strawberry.experimental.pydantic.type(model=AgentCommandsResponse)
+@strawberry.type
+class CommandOption:
+    name: str
+    enabled: bool
+
+
+@strawberry.type
 class AgentCommandsResponseType:
-    commands: Dict[str, bool]
+    commands: List[CommandOption]
 
 
 @strawberry.experimental.pydantic.type(model=AgentBrowsedLinksResponse)

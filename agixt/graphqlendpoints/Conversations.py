@@ -120,15 +120,14 @@ class ConversationNotification:
 
 
 @strawberry.type
-class ConversationList:
-    conversations: List[str]
-    conversations_with_ids: List["ConversationIdentifier"]
-
-
-@strawberry.type
 class ConversationIdentifier:
     id: str
     name: str
+
+
+@strawberry.type
+class ConversationList:
+    conversations: List["ConversationIdentifier"]
 
 
 @strawberry.type
@@ -198,23 +197,6 @@ class ConversationForkInput:
 @strawberry.type
 class Query:
     @strawberry.field
-    async def conversations(self, info) -> ConversationList:
-        """Get list of all conversations"""
-        user = await verify_api_key(info.context["request"])
-        result = await rest_get_conversations_list(user=user)
-
-        # Convert dictionary to strongly typed objects
-        conversation_identifiers = [
-            ConversationIdentifier(id=id, name=name)
-            for id, name in result.conversations_with_ids.items()
-        ]
-
-        return ConversationList(
-            conversations=result.conversations,
-            conversations_with_ids=conversation_identifiers,
-        )
-
-    @strawberry.field
     async def conversation_details(self, info) -> ConversationDetail:
         """Get detailed conversations list"""
         user = await verify_api_key(info.context["request"])
@@ -235,35 +217,6 @@ class Query:
         ]
 
         return ConversationDetail(conversations=conversation_metadata)
-
-    @strawberry.field
-    async def conversation_history_by_name(
-        self, info, conversation_name: str, limit: int = 100, page: int = 1
-    ) -> ConversationHistory:
-        """Get conversation history by name with pagination"""
-        user, auth = await get_user_and_auth_from_context(info)
-        result = await rest_get_conversation_data(
-            conversation_name=conversation_name,
-            limit=limit,
-            page=page,
-            user=user,
-            authorization=auth,
-        )
-
-        messages = [
-            ConversationMessage(
-                id=msg["id"],
-                role=msg["role"],
-                message=msg["message"],
-                timestamp=msg["timestamp"],
-                updated_at=msg["updated_at"],
-                updated_by=msg["updated_by"],
-                feedback_received=msg["feedback_received"],
-            )
-            for msg in result.conversation_history
-        ]
-
-        return ConversationHistory(messages=messages)
 
     @strawberry.field
     async def conversation_history(
