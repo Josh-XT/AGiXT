@@ -42,4 +42,6 @@ class Mutation(
     pass
 
 
-graphql_schema = strawberry.Schema(query=Query, mutation=Mutation)
+graphql_schema = strawberry.Schema(
+    query=conversations_schema.Query, mutation=conversations_schema.Mutation
+)
