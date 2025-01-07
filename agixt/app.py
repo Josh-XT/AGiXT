@@ -24,7 +24,17 @@ from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
 from strawberry.fastapi import GraphQLRouter
-from graphql.schema import schema as graphql_schema
+import strawberry
+from graphql.Agents import schema as agent_schema
+from graphql.Auth import schema as auth_schema
+from graphql.Chains import schema as chains_schema
+from graphql.Completions import schema as completions_schema
+from graphql.Conversations import schema as conversations_schema
+from graphql.Extensions import schema as extensions_schema
+from graphql.Memories import schema as memories_schema
+from graphql.Prompts import schema as prompts_schema
+from graphql.Providers import schema as providers_schema
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -241,8 +251,38 @@ async def serve_file(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@strawberry.type
+class Query(
+    agent_schema.Query,
+    auth_schema.Query,
+    chains_schema.Query,
+    completions_schema.Query,
+    conversations_schema.Query,
+    extensions_schema.Query,
+    memories_schema.Query,
+    prompts_schema.Query,
+    providers_schema.Query,
+):
+    pass
+
+
+@strawberry.type
+class Mutation(
+    agent_schema.Mutation,
+    auth_schema.Mutation,
+    chains_schema.Mutation,
+    completions_schema.Mutation,
+    conversations_schema.Mutation,
+    extensions_schema.Mutation,
+    memories_schema.Mutation,
+    prompts_schema.Mutation,
+    providers_schema.Mutation,
+):
+    pass
+
+
 graphql_app = GraphQLRouter(
-    graphql_schema,
+    strawberry.Schema(query=Query, mutation=Mutation),
     graphiql=True,  # Set to False in production if you don't want the GraphiQL interface
 )
 app.include_router(graphql_app, prefix="/graphql")
