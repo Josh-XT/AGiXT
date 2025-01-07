@@ -1,20 +1,16 @@
 from typing import List, Dict, Any, Optional
 import strawberry
-from fastapi import Depends, HTTPException, Header
+from fastapi import HTTPException
 from Models import (
     AgentMemoryQuery,
     TextMemoryInput,
     FileInput,
     UrlInput,
-    ResponseMessage,
     Dataset,
     FinetuneAgentModel,
     ExternalSource,
     UserInput,
     FeedbackInput,
-    MemoryResponse,
-    MemoryCollectionResponse,
-    DPOResponse,
 )
 from endpoints.Memory import (
     query_memories as rest_query_memories,
@@ -35,23 +31,35 @@ from endpoints.Memory import (
 from ApiClient import verify_api_key
 
 
+@strawberry.type
+class Memory:
+    external_source_name: str
+    id: str
+    description: str
+    text: str
+    embedding: str
+    additional_metadata: str
+    key: str
+    timestamp: str
+
+
 # Convert Pydantic models to Strawberry types
-@strawberry.experimental.pydantic.type(model=MemoryResponse)
+@strawberry.type
 class MemoryResponseType:
-    memories: List[Dict[str, Any]]
+    memories: List[Memory]
 
 
-@strawberry.experimental.pydantic.type(model=MemoryCollectionResponse)
+@strawberry.type
 class MemoryCollectionResponseType:
     external_sources: List[str]
 
 
-@strawberry.experimental.pydantic.type(model=ResponseMessage)
+@strawberry.type
 class ResponseMessageType:
     message: str
 
 
-@strawberry.experimental.pydantic.type(model=DPOResponse)
+@strawberry.type
 class DPOResponseType:
     prompt: str
     chosen: str
