@@ -84,6 +84,16 @@ class AgentPromptInput:
     prompt_args: Dict[str, Any]
 
 
+@strawberry.experimental.pydantic.type(model=AgentListResponse)
+class AgentListResponseType:
+    agents: list
+
+
+@strawberry.experimental.pydantic.type(model=AgentResponse)
+class AgentResponseType:
+    message: str
+
+
 @strawberry.input
 class PersonaUpdateInput:
     persona: str
@@ -103,12 +113,13 @@ async def get_user_from_context(info):
 @strawberry.type
 class Query:
     @strawberry.field
-    async def agents(self, info) -> AgentListResponse:
+    async def agents(self, info) -> AgentListResponseType:
         """Get all agents"""
-        return await rest_get_agents(
+        response = await rest_get_agents(
             user=await get_user_from_context(info),
             authorization=info.context["request"].headers.get("authorization"),
         )
+        return AgentListResponseType.from_pydantic(response)
 
     @strawberry.field
     async def agent_config(self, info, agent_name: str) -> AgentConfigResponseType:
