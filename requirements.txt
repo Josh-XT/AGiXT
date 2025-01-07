@@ -35,3 +35,4 @@ fasteners
 apache-libcloud
 watchdog
 strawberry-graphql[fastapi]
+broadcaster
