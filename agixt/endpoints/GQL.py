@@ -27,7 +27,6 @@ from Agent import (
     Agent,
     get_agents,
     add_agent,
-    get_default_agent,
     get_agixt_training_urls,
     delete_agent,
     rename_agent,
@@ -35,7 +34,7 @@ from Agent import (
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from MagicalAuth import MagicalAuth
 from Models import ChatCompletions
-from Globals import getenv
+from Globals import getenv, get_default_agent
 import uuid
 
 
