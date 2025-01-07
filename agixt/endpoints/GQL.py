@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import strawberry
 from fastapi import HTTPException
 from endpoints.Conversation import (
@@ -32,6 +32,7 @@ from Agent import (
 )
 from Conversations import Conversations, get_conversation_name_by_id
 from Memories import Memories
+from Extensions import Extensions
 from MagicalAuth import MagicalAuth
 from Models import ChatCompletions
 from Globals import getenv, get_default_agent, get_agixt_training_urls
@@ -544,6 +545,49 @@ class DPOInput:
     injected_memories: Optional[int] = 10
 
 
+@strawberry.type
+class ExtensionCommand:
+    friendly_name: str
+    description: str
+    enabled: bool
+    command_args: Dict[str, Any]
+    extension_name: str
+
+
+@strawberry.type
+class Extension:
+    extension_name: str
+    description: str
+    settings: List[str]
+    commands: List[ExtensionCommand]
+    missing_keys: Optional[List[str]] = None
+
+
+@strawberry.type
+class ExtensionSetting:
+    name: str
+    value: str
+
+
+@strawberry.type
+class CommandResult:
+    response: str
+
+
+# Input types
+@strawberry.input
+class CommandExecutionInput:
+    command_name: str
+    command_args: Dict[str, Any]
+    conversation_name: Optional[str] = None
+
+
+@strawberry.input
+class ExtensionSettingInput:
+    name: str
+    value: str
+
+
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
@@ -982,6 +1026,82 @@ class Query:
             agent_name=agent_name, collection_number=collection_number, user=user
         )
         return await memories.get_external_data_sources()
+
+    @strawberry.field
+    async def extension_settings(self, info) -> List[ExtensionSetting]:
+        """Get all extension settings"""
+        user, auth = await get_user_from_context(info)
+
+        extensions = Extensions(user=user)
+        settings = extensions.get_extension_settings()
+
+        return [
+            ExtensionSetting(name=name, value=value) for name, value in settings.items()
+        ]
+
+    @strawberry.field
+    async def command_args(self, info, command_name: str) -> Dict[str, Any]:
+        """Get arguments for a specific command"""
+        user, _ = await get_user_from_context(info)
+
+        extensions = Extensions()
+        return extensions.get_command_args(command_name=command_name)
+
+    @strawberry.field
+    async def extensions(self, info) -> List[Extension]:
+        """Get all available extensions"""
+        user, _ = await get_user_from_context(info)
+
+        extensions = Extensions(user=user)
+        extension_list = extensions.get_extensions()
+
+        return [
+            Extension(
+                extension_name=ext["extension_name"],
+                description=ext["description"],
+                settings=ext["settings"],
+                commands=[
+                    ExtensionCommand(
+                        friendly_name=cmd["friendly_name"],
+                        description=cmd["description"],
+                        enabled=cmd["enabled"],
+                        command_args=cmd["command_args"],
+                        extension_name=ext["extension_name"],
+                    )
+                    for cmd in ext["commands"]
+                ],
+                missing_keys=ext.get("missing_keys", []),
+            )
+            for ext in extension_list
+        ]
+
+    @strawberry.field
+    async def agent_extensions(self, info, agent_name: str) -> List[Extension]:
+        """Get extensions for a specific agent"""
+        user, auth = await get_user_from_context(info)
+
+        agent = Agent(agent_name=agent_name, user=user)
+        extension_list = agent.get_agent_extensions()
+
+        return [
+            Extension(
+                extension_name=ext["extension_name"],
+                description=ext["description"],
+                settings=ext["settings"],
+                commands=[
+                    ExtensionCommand(
+                        friendly_name=cmd["friendly_name"],
+                        description=cmd["description"],
+                        enabled=cmd["enabled"],
+                        command_args=cmd["command_args"],
+                        extension_name=ext["extension_name"],
+                    )
+                    for cmd in ext["commands"]
+                ],
+                missing_keys=ext.get("missing_keys", []),
+            )
+            for ext in extension_list
+        ]
 
 
 # Response types for mutations
@@ -1707,6 +1827,47 @@ class Mutation:
 
         await memories.import_collections_from_json(memories_data)
         return True
+
+    @strawberry.mutation
+    async def execute_command(
+        self, info, agent_name: str, input: CommandExecutionInput
+    ) -> CommandResult:
+        """Execute a command for an agent"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        agent = Agent(agent_name=agent_name, user=user)
+        agent_config = agent.get_agent_config()
+
+        conversation = None
+        conversation_id = None
+        if input.conversation_name:
+            conversation = Conversations(conversation_name=input.conversation_name)
+            conversation_id = conversation.get_conversation_id()
+
+        extensions = Extensions(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            agent_id=agent.agent_id,
+            conversation_name=input.conversation_name,
+            conversation_id=conversation_id,
+            user=user,
+            api_key=auth,
+        )
+
+        command_output = await extensions.execute_command(
+            command_name=input.command_name, command_args=input.command_args
+        )
+
+        if input.conversation_name and command_output:
+            conversation = Conversations(
+                conversation_name=input.conversation_name, user=user
+            )
+            conversation.log_interaction(role=agent_name, message=command_output)
+
+        return CommandResult(response=command_output if command_output else "")
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
