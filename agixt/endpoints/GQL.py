@@ -30,6 +30,7 @@ from Agent import (
     delete_agent,
     rename_agent,
 )
+from Chain import Chain
 from Conversations import Conversations, get_conversation_name_by_id
 from Memories import Memories
 from Extensions import Extensions
@@ -738,6 +739,120 @@ class MemoryImportEntry:
     timestamp: Optional[str] = None
 
 
+@strawberry.type
+class ChainPrompt:
+    """Represents a chain step's prompt configuration"""
+
+    prompt_name: Optional[str] = None
+    command_name: Optional[str] = None
+    chain_name: Optional[str] = None
+    prompt_category: Optional[str] = "Default"
+
+
+@strawberry.type
+class ChainStep:
+    """Represents a step in a chain"""
+
+    step: int
+    agent_name: str
+    prompt_type: str
+    prompt: ChainPrompt
+
+
+@strawberry.type
+class ChainConfig:
+    """Represents a chain's complete configuration"""
+
+    id: str
+    chain_name: str
+    steps: List[ChainStep]
+
+
+@strawberry.type
+class ChainStepResponse:
+    """Represents a response from a chain step execution"""
+
+    step_number: int
+    content: str
+    timestamp: datetime
+
+
+@strawberry.type
+class ChainRunResponse:
+    """Represents the output of a chain run"""
+
+    chain_run_id: str
+    steps: List[ChainStepResponse]
+
+
+@strawberry.type
+class ChainDependency:
+    """Represents dependencies between chain steps"""
+
+    step_number: str
+    dependencies: List[int]
+
+
+# Input types
+@strawberry.input
+class ChainPromptInput:
+    """Input for chain step prompt configuration"""
+
+    prompt_name: Optional[str] = None
+    command_name: Optional[str] = None
+    chain_name: Optional[str] = None
+    prompt_category: Optional[str] = "Default"
+
+
+@strawberry.input
+class ChainStepInput:
+    """Input for creating/updating a chain step"""
+
+    step_number: int
+    agent_name: str
+    prompt_type: str
+    prompt: ChainPromptInput
+
+
+@strawberry.input
+class ChainInput:
+    """Input for creating a new chain"""
+
+    chain_name: str
+    steps: Optional[List[ChainStepInput]] = None
+
+
+@strawberry.input
+class RunChainInput:
+    """Input for running a chain"""
+
+    prompt: str
+    agent_override: Optional[str] = None
+    all_responses: bool = False
+    from_step: int = 1
+    chain_args: Optional[dict] = None
+    conversation_name: Optional[str] = None
+
+
+@strawberry.input
+class RunChainStepInput:
+    """Input for running a specific chain step"""
+
+    prompt: str
+    agent_override: Optional[str] = None
+    chain_args: Optional[dict] = None
+    chain_run_id: Optional[str] = None
+    conversation_name: Optional[str] = None
+
+
+@strawberry.input
+class MoveStepInput:
+    """Input for moving a step within a chain"""
+
+    old_step_number: int
+    new_step_number: int
+
+
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
@@ -1277,6 +1392,66 @@ class Query:
                 missing_keys=ext.get("missing_keys", []),
             )
             for ext in extension_list
+        ]
+
+    @strawberry.field
+    async def chains(self, info) -> List[str]:
+        """Get all available chains"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        return chain_manager.get_chains()
+
+    @strawberry.field
+    async def chain(self, info, chain_name: str) -> ChainConfig:
+        """Get details of a specific chain"""
+        user, _ = await get_user_from_context(info)
+
+        chain_manager = Chain(user=user)
+        chain_data = chain_manager.get_chain(chain_name=chain_name)
+
+        if not chain_data:
+            raise Exception(f"Chain {chain_name} not found")
+
+        return ChainConfig(
+            id=str(chain_data["id"]),
+            chain_name=chain_data["chain_name"],
+            steps=[
+                ChainStep(
+                    step=step["step"],
+                    agent_name=step["agent_name"],
+                    prompt_type=step["prompt_type"],
+                    prompt=ChainPrompt(**step["prompt"]),
+                )
+                for step in chain_data["steps"]
+            ],
+        )
+
+    @strawberry.field
+    async def chain_args(self, info, chain_name: str) -> List[str]:
+        """Get available arguments for a chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        return chain_manager.get_chain_args(chain_name=chain_name)
+
+    @strawberry.field
+    async def chain_dependencies(self, info, chain_name: str) -> List[ChainDependency]:
+        """Get dependencies between chain steps"""
+        user, _ = await get_user_from_context(info)
+
+        chain_manager = Chain(user=user)
+        deps = chain_manager.get_chain_step_dependencies(chain_name=chain_name)
+
+        return [
+            ChainDependency(step_number=step_num, dependencies=deps)
+            for step_num, deps in deps.items()
         ]
 
 
@@ -2080,6 +2255,192 @@ class Mutation:
             conversation.log_interaction(role=agent_name, message=command_output)
 
         return CommandResult(response=command_output if command_output else "")
+
+    @strawberry.mutation
+    async def create_chain(self, info, input: ChainInput) -> bool:
+        """Create a new chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_manager.add_chain(chain_name=input.chain_name)
+
+        if input.steps:
+            for step in input.steps:
+                chain_manager.add_chain_step(
+                    chain_name=input.chain_name,
+                    step_number=step.step_number,
+                    agent_name=step.agent_name,
+                    prompt_type=step.prompt_type,
+                    prompt=step.prompt.__dict__,
+                )
+
+        return True
+
+    @strawberry.mutation
+    async def delete_chain(self, info, chain_name: str) -> bool:
+        """Delete an existing chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_manager.delete_chain(chain_name=chain_name)
+        return True
+
+    @strawberry.mutation
+    async def rename_chain(self, info, old_name: str, new_name: str) -> bool:
+        """Rename an existing chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_manager.rename_chain(chain_name=old_name, new_name=new_name)
+        return True
+
+    @strawberry.mutation
+    async def add_chain_step(self, info, chain_name: str, step: ChainStepInput) -> bool:
+        """Add a step to an existing chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_manager.add_chain_step(
+            chain_name=chain_name,
+            step_number=step.step_number,
+            agent_name=step.agent_name,
+            prompt_type=step.prompt_type,
+            prompt=step.prompt.__dict__,
+        )
+        return True
+
+    @strawberry.mutation
+    async def update_chain_step(
+        self, info, chain_name: str, step: ChainStepInput
+    ) -> bool:
+        """Update an existing chain step"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_manager.update_step(
+            chain_name=chain_name,
+            step_number=step.step_number,
+            agent_name=step.agent_name,
+            prompt_type=step.prompt_type,
+            prompt=step.prompt.__dict__,
+        )
+        return True
+
+    @strawberry.mutation
+    async def delete_chain_step(self, info, chain_name: str, step_number: int) -> bool:
+        """Delete a step from a chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_manager.delete_step(chain_name=chain_name, step_number=step_number)
+        return True
+
+    @strawberry.mutation
+    async def move_chain_step(
+        self, info, chain_name: str, input: MoveStepInput
+    ) -> bool:
+        """Move a step to a new position in the chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_manager.move_step(
+            chain_name=chain_name,
+            current_step_number=input.old_step_number,
+            new_step_number=input.new_step_number,
+        )
+        return True
+
+    @strawberry.mutation
+    async def run_chain(self, info, chain_name: str, input: RunChainInput) -> str:
+        """Execute a chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        agent_name = input.agent_override or "gpt4free"
+
+        chain_response = await AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=auth,
+            conversation_name=input.conversation_name,
+        ).execute_chain(
+            chain_name=chain_name,
+            user_input=input.prompt,
+            agent_override=input.agent_override,
+            from_step=input.from_step,
+            chain_args=input.chain_args or {},
+            log_user_input=False,
+        )
+
+        if "Chain failed to complete" in chain_response:
+            raise Exception(chain_response)
+
+        return chain_response
+
+    @strawberry.mutation
+    async def run_chain_step(
+        self, info, chain_name: str, step_number: int, input: RunChainStepInput
+    ) -> str:
+        """Execute a specific step in a chain"""
+        user, auth = await get_user_from_context(info)
+
+        if not await is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
+
+        chain_manager = Chain(user=user)
+        chain_steps = chain_manager.get_chain(chain_name=chain_name)
+
+        try:
+            step = chain_steps["steps"][step_number - 1]  # Convert to 0-based index
+        except Exception as e:
+            raise Exception(f"Step {step_number} not found. {e}")
+
+        agent_name = input.agent_override or step["agent_name"]
+
+        chain_step_response = await AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=auth,
+            conversation_name=input.conversation_name,
+        ).run_chain_step(
+            chain_run_id=input.chain_run_id,
+            step=step,
+            chain_name=chain_name,
+            user_input=input.prompt,
+            agent_override=input.agent_override,
+            chain_args=input.chain_args or {},
+        )
+
+        if chain_step_response is None:
+            raise Exception(f"Error running step {step_number} in chain {chain_name}")
+
+        if "Chain failed to complete" in chain_step_response:
+            raise Exception(chain_step_response)
+
+        return chain_step_response
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
