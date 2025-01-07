@@ -679,6 +679,7 @@ class ProviderSettingInput:
     type: str = "string"
 
 
+@strawberry.type
 class CommandExecutionInput:
     """Input type for executing commands with proper typing"""
 
@@ -691,6 +692,13 @@ class CommandExecutionInput:
 class ExtensionSettingInput:
     name: str
     value: str
+
+
+@strawberry.type
+class PromptsType:
+    """Represents a list of prompts"""
+
+    prompts: List[PromptType]
 
 
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
@@ -962,7 +970,7 @@ class Query:
         )
 
     @strawberry.field
-    async def prompts(self, info, category: str = "Default") -> List[str]:
+    async def prompts(self, info, category: str = "Default") -> List[PromptType]:
         """Get all prompts in a category"""
         user = await verify_api_key(info.context["request"])
         prompt_manager = Prompts(user=user)
