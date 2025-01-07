@@ -360,7 +360,7 @@ class AgentType:
 
 
 @strawberry.type
-class ProviderDetail:
+class ProviderDetails:
     name: str
     connected: bool
     friendly_name: str
@@ -785,7 +785,7 @@ class Query:
         )
 
     @strawberry.field
-    async def agent_providers(self, info, agent_name: str) -> List[ProviderDetail]:
+    async def agent_providers(self, info, agent_name: str) -> List[ProviderDetails]:
         """Get providers available to an agent"""
         user, auth = await get_user_from_context(info)
         agent = Agent(agent_name=agent_name, user=user)
@@ -805,7 +805,7 @@ class Query:
             )
 
             provider_details.append(
-                ProviderDetail(
+                ProviderDetails(
                     name=provider_name,
                     connected=connected,
                     friendly_name=details.get("friendly_name", provider_name),
