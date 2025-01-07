@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 import strawberry
 from fastapi import HTTPException
 from endpoints.Conversation import (
@@ -16,6 +16,13 @@ from endpoints.Conversation import (
     get_tts as rest_get_tts,
     get_notifications as rest_get_notifications,
 )
+from Providers import (
+    get_provider_options,
+    get_providers,
+    get_providers_with_settings,
+    get_providers_by_service,
+    get_providers_with_details,
+)
 from ApiClient import verify_api_key
 from datetime import datetime
 from typing import AsyncGenerator
@@ -32,7 +39,7 @@ from contextlib import asynccontextmanager
 
 
 # Helper for auth
-async def get_user_and_auth_from_context(info):
+async def get_user_from_context(info):
     request = info.context["request"]
     try:
         user = verify_api_key(request)
@@ -250,6 +257,82 @@ class NotificationEvent:
     notification: ConversationNotification
 
 
+@strawberry.type
+class ProviderSetting:
+    name: str
+    default_value: Optional[str]
+
+
+@strawberry.type
+class ProviderService:
+    name: str
+    description: str
+
+
+@strawberry.type
+class ProviderDetail:
+    name: str
+    friendly_name: str
+    description: str
+    services: List[str]
+    settings: List[ProviderSetting]
+
+
+@strawberry.type
+class Provider:
+    name: str
+    settings: List[ProviderSetting]
+
+
+@strawberry.type
+class EmbedderInfo:
+    name: str
+    capabilities: List[str]
+    max_chunks: int
+    chunk_size: int
+    settings: List[ProviderSetting]
+
+
+# Response types that group related data
+@strawberry.type
+class ProviderList:
+    providers: List[str]
+
+
+@strawberry.type
+class ProviderWithSettings:
+    provider: Provider
+
+
+@strawberry.type
+class ProvidersWithDetails:
+    providers: List[ProviderDetail]
+
+
+@strawberry.type
+class EmbedderList:
+    embedders: List[EmbedderInfo]
+
+
+def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
+    """Convert settings dictionary to list of ProviderSetting objects"""
+    return [
+        ProviderSetting(name=key, default_value=str(value))
+        for key, value in settings_dict.items()
+    ]
+
+
+def convert_provider_details(details: Dict[str, str]) -> ProviderDetail:
+    """Convert provider details dictionary to ProviderDetail object"""
+    return ProviderDetail(
+        name=details["name"],
+        friendly_name=details.get("friendly_name", details["name"]),
+        description=details["description"],
+        services=details["services"],
+        settings=convert_settings_to_type(details["settings"]),
+    )
+
+
 # Initialize broadcaster for pub/sub
 broadcast = Broadcast("memory://")
 
@@ -363,7 +446,7 @@ class Query:
         self, info, conversation_id: str, pagination: Optional[PaginationInput] = None
     ) -> ConversationDetail:
         """Get conversation details and paginated messages"""
-        user, auth = await get_user_and_auth_from_context(info)
+        user, auth = await get_user_from_context(info)
 
         # Get conversation metadata
         result = await rest_get_conversations(user=user)
@@ -449,6 +532,60 @@ class Query:
             page_info=page_info, edges=notifications[start_idx:end_idx]
         )
 
+    @strawberry.field
+    async def providers(self, info) -> ProviderList:
+        """Get all available providers"""
+        user = await get_user_from_context(info)
+        providers = get_providers()
+        return ProviderList(providers=providers)
+
+    @strawberry.field
+    async def provider_settings(self, info, provider_name: str) -> Provider:
+        """Get settings for a specific provider"""
+        user = await get_user_from_context(info)
+        settings = get_provider_options(provider_name=provider_name)
+        return Provider(name=provider_name, settings=convert_settings_to_type(settings))
+
+    @strawberry.field
+    async def providers_with_settings(self, info) -> List[ProviderWithSettings]:
+        """Get all providers with their settings"""
+        user = await get_user_from_context(info)
+        providers_settings = get_providers_with_settings()
+        return [
+            ProviderWithSettings(
+                provider=Provider(
+                    name=list(provider.keys())[0],
+                    settings=convert_settings_to_type(list(provider.values())[0]),
+                )
+            )
+            for provider in providers_settings
+        ]
+
+    @strawberry.field
+    async def providers_by_service(self, info, service: str) -> ProviderList:
+        """Get providers that offer a specific service"""
+        user = await get_user_from_context(info)
+        providers = get_providers_by_service(service=service)
+        return ProviderList(providers=providers)
+
+    @strawberry.field
+    async def embedding_providers(self, info) -> ProviderList:
+        """Get providers that offer embedding services"""
+        user = await get_user_from_context(info)
+        providers = get_providers_by_service(service="embeddings")
+        return ProviderList(providers=providers)
+
+    @strawberry.field
+    async def providers_with_details(self, info) -> ProvidersWithDetails:
+        """Get comprehensive provider details"""
+        user = await get_user_from_context(info)
+        provider_details = get_providers_with_details()
+        providers = [
+            convert_provider_details({"name": name, **details})
+            for name, details in provider_details.items()
+        ]
+        return ProvidersWithDetails(providers=providers)
+
 
 # Response types for mutations
 @strawberry.type
@@ -488,7 +625,7 @@ class Mutation:
         self, info, input: ConversationHistoryInput
     ) -> MutationResponse:
         """Delete a conversation"""
-        user, auth = await get_user_and_auth_from_context(info)
+        user, auth = await get_user_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
         result = await rest_delete_conversation(
             history=model, user=user, authorization=auth
@@ -504,7 +641,7 @@ class Mutation:
         new_conversation_name: str = "-",
     ) -> MutationResponse:
         """Rename a conversation"""
-        user, auth = await get_user_and_auth_from_context(info)
+        user, auth = await get_user_from_context(info)
         model = RenameConversationModel(
             agent_name=agent_name,
             conversation_name=conversation_name,
@@ -521,7 +658,7 @@ class Mutation:
     @strawberry.mutation
     async def update_message(self, info, input: UpdateMessageInput) -> MutationResponse:
         """Update a conversation message"""
-        user, auth = await get_user_and_auth_from_context(info)
+        user, auth = await get_user_from_context(info)
         model = UpdateConversationHistoryMessageModel(**input.__dict__)
         result = await rest_update_message(history=model, user=user, authorization=auth)
         return MutationResponse(success=True, message=result.message)
@@ -575,7 +712,7 @@ class Mutation:
         self, info, conversation_id: str, message_id: str
     ) -> MutationResponse:
         """Generate text-to-speech for a message"""
-        user, auth = await get_user_and_auth_from_context(info)
+        user, auth = await get_user_from_context(info)
         result = await rest_get_tts(
             conversation_id=conversation_id,
             message_id=message_id,
@@ -589,7 +726,7 @@ class Mutation:
         self, info, input: LogInteractionInput
     ) -> MutationResponse:
         """Log a conversation interaction"""
-        user, auth = await get_user_and_auth_from_context(info)
+        user, auth = await get_user_from_context(info)
         model = LogInteraction(**input.__dict__)
         result = await rest_log_interaction(
             log_interaction=model, user=user, authorization=auth

@@ -1,7 +1,5 @@
-from typing import List, Dict, Any, Optional
 import strawberry
 from fastapi import HTTPException
-from Models import CommandExecution
 from ApiClient import verify_api_key, is_admin
 from endpoints.Extension import (
     get_extension_settings as rest_get_extension_settings,
@@ -62,14 +60,6 @@ from endpoints.Extension import (
  }
  }
 """
-
-
-# Input types
-@strawberry.input
-class CommandExecutionInput:
-    command_name: str
-    command_args: Dict[str, Any]
-    conversation_name: Optional[str] = None
 
 
 @strawberry.type
