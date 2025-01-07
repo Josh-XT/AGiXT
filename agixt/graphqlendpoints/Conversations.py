@@ -100,6 +100,7 @@ class ConversationHistoryModel:
 
 @strawberry.type
 class ConversationMetadata:
+    id: str
     name: str
     agent_id: Optional[str]
     created_at: datetime
@@ -197,7 +198,7 @@ class ConversationForkInput:
 @strawberry.type
 class Query:
     @strawberry.field
-    async def conversation_details(self, info) -> ConversationDetail:
+    async def conversations(self, info) -> ConversationDetail:
         """Get detailed conversations list"""
         user = await verify_api_key(info.context["request"])
         result = await rest_get_conversations(user=user)
@@ -205,6 +206,7 @@ class Query:
         # Convert dictionary to strongly typed objects
         conversation_metadata = [
             ConversationMetadata(
+                id=details["id"],
                 name=details["name"],
                 agent_id=details["agent_id"],
                 created_at=details["created_at"],
@@ -219,9 +221,7 @@ class Query:
         return ConversationDetail(conversations=conversation_metadata)
 
     @strawberry.field
-    async def conversation_history(
-        self, info, conversation_id: str
-    ) -> ConversationHistory:
+    async def conversation(self, info, conversation_id: str) -> ConversationHistory:
         """Get conversation history by ID"""
         user, auth = await get_user_and_auth_from_context(info)
         result = await rest_get_conversation_history(
