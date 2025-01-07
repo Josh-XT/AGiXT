@@ -199,60 +199,59 @@ async def get_persona(
     return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
 
 
-if str(getenv("ENT")).lower() == "true":
-
-    @app.get(
-        "/api/agent/{agent_name}/persona/{company_id}",
-        dependencies=[Depends(verify_api_key)],
-        summary="Get agent persona",
-        tags=["Agent"],
-    )
-    async def get_persona(
-        agent_name: str,
-        company_id: str,
-        user=Depends(verify_api_key),
-        authorization: str = Header(None),
-    ) -> ResponseMessage:
-        auth = MagicalAuth(token=authorization)
-        user_persona = False
-        if auth.get_user_role(company_id) > 2:
-            user_persona = True
-        if user_persona:
-            ApiClient = get_api_client(authorization=authorization)
-            agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-            return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
-        else:
-            response = auth.get_training_data(id if company_id is None else company_id)
-            return {"message": response}
-
-    @app.put(
-        "/api/agent/{agent_name}/persona/{company_id}",
-        tags=["Agent"],
-        dependencies=[Depends(verify_api_key)],
-    )
-    async def update_persona(
-        agent_name: str,
-        company_id: str,
-        persona: PersonaInput,
-        user=Depends(verify_api_key),
-        authorization: str = Header(None),
-    ) -> ResponseMessage:
+@app.get(
+    "/api/agent/{agent_name}/persona/{company_id}",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent persona",
+    tags=["Agent"],
+)
+async def get_persona(
+    agent_name: str,
+    company_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    user_persona = False
+    if auth.get_user_role(company_id) > 2:
+        user_persona = True
+    if user_persona:
         ApiClient = get_api_client(authorization=authorization)
-        if company_id is not None:
-            auth = MagicalAuth(token=authorization)
-            if auth.get_user_role(company_id) > 2:
-                raise HTTPException(status_code=403, detail="Access Denied")
-            else:
-                response = auth.set_training_data(
-                    training_data=persona.persona, company_id=company_id
-                )
-                return ResponseMessage(message=response)
-        update_config = Agent(
-            agent_name=agent_name, user=user, ApiClient=ApiClient
-        ).update_agent_config(
-            new_config={"persona": persona.persona}, config_key="settings"
-        )
-        return ResponseMessage(message=update_config)
+        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+        return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
+    else:
+        response = auth.get_training_data(id if company_id is None else company_id)
+        return {"message": response}
+
+
+@app.put(
+    "/api/agent/{agent_name}/persona/{company_id}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_persona(
+    agent_name: str,
+    company_id: str,
+    persona: PersonaInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    if company_id is not None:
+        auth = MagicalAuth(token=authorization)
+        if auth.get_user_role(company_id) > 2:
+            raise HTTPException(status_code=403, detail="Access Denied")
+        else:
+            response = auth.set_training_data(
+                training_data=persona.persona, company_id=company_id
+            )
+            return ResponseMessage(message=response)
+    update_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).update_agent_config(
+        new_config={"persona": persona.persona}, config_key="settings"
+    )
+    return ResponseMessage(message=update_config)
 
 
 @app.put(
