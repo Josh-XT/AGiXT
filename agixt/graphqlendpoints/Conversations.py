@@ -18,6 +18,17 @@ from endpoints.Conversation import (
 )
 from ApiClient import verify_api_key
 from datetime import datetime
+from typing import AsyncGenerator
+
+try:
+    from broadcaster import Broadcast
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "broadcaster"])
+    from broadcaster import Broadcast
+from contextlib import asynccontextmanager
 
 
 # Helper for auth
@@ -205,18 +216,6 @@ class PageInfo:
     items_per_page: int
 
 
-# Types
-@strawberry.type
-class ConversationMessage:
-    id: str
-    role: str
-    message: str
-    timestamp: datetime
-    updated_at: datetime
-    updated_by: Optional[str]
-    feedback_received: bool
-
-
 @strawberry.type
 class ConversationDetail:
     metadata: ConversationMetadata
@@ -233,6 +232,82 @@ class ConversationConnection:
 class NotificationConnection:
     page_info: PageInfo
     edges: List["ConversationNotification"]
+
+
+@strawberry.type
+class MessageEvent:
+    conversation_id: str
+    message: ConversationMessage
+
+
+@strawberry.type
+class ConversationEvent:
+    conversation: ConversationMetadata
+
+
+@strawberry.type
+class NotificationEvent:
+    notification: ConversationNotification
+
+
+# Initialize broadcaster for pub/sub
+broadcast = Broadcast("memory://")
+
+
+@asynccontextmanager
+async def get_broadcaster():
+    await broadcast.connect()
+    try:
+        yield broadcast
+    finally:
+        await broadcast.disconnect()
+
+
+@strawberry.type
+class Subscription:
+    @strawberry.subscription
+    async def message_added(
+        self, info, conversation_id: str
+    ) -> AsyncGenerator[MessageEvent, None]:
+        """Subscribe to new messages in a specific conversation"""
+        user = await verify_api_key(info.context["request"])
+
+        async with get_broadcaster() as broadcaster:
+            async with broadcaster.subscribe(
+                channel=f"messages_{conversation_id}"
+            ) as subscriber:
+                async for event in subscriber:
+                    yield MessageEvent(
+                        conversation_id=conversation_id, message=event.message
+                    )
+
+    @strawberry.subscription
+    async def conversation_updated(
+        self, info
+    ) -> AsyncGenerator[ConversationEvent, None]:
+        """Subscribe to conversation updates (creation, deletion, renaming)"""
+        user = await verify_api_key(info.context["request"])
+
+        async with get_broadcaster() as broadcaster:
+            async with broadcaster.subscribe(
+                channel=f"conversations_{user}"
+            ) as subscriber:
+                async for event in subscriber:
+                    yield ConversationEvent(conversation=event.conversation)
+
+    @strawberry.subscription
+    async def notification_received(
+        self, info
+    ) -> AsyncGenerator[NotificationEvent, None]:
+        """Subscribe to new notifications"""
+        user = await verify_api_key(info.context["request"])
+
+        async with get_broadcaster() as broadcaster:
+            async with broadcaster.subscribe(
+                channel=f"notifications_{user}"
+            ) as subscriber:
+                async for event in subscriber:
+                    yield NotificationEvent(notification=event.notification)
 
 
 # Query type with pagination
@@ -444,18 +519,6 @@ class Mutation:
         )
 
     @strawberry.mutation
-    async def log_interaction(
-        self, info, input: LogInteractionInput
-    ) -> MutationResponse:
-        """Log a conversation interaction"""
-        user, auth = await get_user_and_auth_from_context(info)
-        model = LogInteraction(**input.__dict__)
-        result = await rest_log_interaction(
-            log_interaction=model, user=user, authorization=auth
-        )
-        return MutationResponse(success=True, message=result.message)
-
-    @strawberry.mutation
     async def update_message(self, info, input: UpdateMessageInput) -> MutationResponse:
         """Update a conversation message"""
         user, auth = await get_user_and_auth_from_context(info)
@@ -521,5 +584,53 @@ class Mutation:
         )
         return MutationResponse(success=True, message=result["message"])
 
+    @strawberry.mutation
+    async def log_interaction(
+        self, info, input: LogInteractionInput
+    ) -> MutationResponse:
+        """Log a conversation interaction"""
+        user, auth = await get_user_and_auth_from_context(info)
+        model = LogInteraction(**input.__dict__)
+        result = await rest_log_interaction(
+            log_interaction=model, user=user, authorization=auth
+        )
 
-schema = strawberry.Schema(query=Query, mutation=Mutation)
+        # Create message event
+        message = ConversationMessage(
+            id=result.message,
+            role=input.role,
+            message=input.message,
+            timestamp=datetime.now(),
+            updated_at=datetime.now(),
+            updated_by=None,
+            feedback_received=False,
+        )
+
+        # Broadcast the new message
+        async with get_broadcaster() as broadcaster:
+            await broadcaster.publish(
+                channel=f"messages_{input.conversation_name}",
+                message=MessageEvent(
+                    conversation_id=input.conversation_name, message=message
+                ),
+            )
+
+            # If this is a notification, broadcast it as well
+            if not input.message.startswith("[ACTIVITY]"):
+                notification = ConversationNotification(
+                    conversation_id=input.conversation_name,
+                    conversation_name=input.conversation_name,
+                    message_id=result.message,
+                    message=input.message,
+                    role=input.role,
+                    timestamp=datetime.now(),
+                )
+                await broadcaster.publish(
+                    channel=f"notifications_{user}",
+                    message=NotificationEvent(notification=notification),
+                )
+
+        return MutationResponse(success=True, message=result.message)
+
+
+schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
