@@ -853,6 +853,137 @@ class MoveStepInput:
     new_step_number: int
 
 
+@strawberry.type
+class UserDetail:
+    """Core user information"""
+
+    id: str
+    email: str
+    first_name: Optional[str]
+    last_name: Optional[str]
+    companies: List["CompanyInfo"]
+    preferences: Optional[dict]
+
+
+@strawberry.type
+class CompanyInfo:
+    """Basic company information"""
+
+    id: str
+    name: str
+    company_id: Optional[str]
+    agents: List["AgentInfo"]
+    role_id: Optional[int]
+    primary: bool
+
+
+@strawberry.type
+class AgentInfo:
+    """Agent information within a company"""
+
+    name: str
+    id: str
+    status: bool
+    company_id: Optional[str]
+
+
+@strawberry.type
+class InvitationInfo:
+    """Invitation details"""
+
+    id: str
+    email: str
+    company_id: str
+    role_id: int
+    inviter_id: str
+    created_at: datetime
+    is_accepted: bool
+
+
+@strawberry.type
+class AuthResponse:
+    """Response for auth operations"""
+
+    success: bool
+    message: str
+    token: Optional[str] = None
+    otp_uri: Optional[str] = None
+    magic_link: Optional[str] = None
+    email: Optional[str] = None
+
+
+@strawberry.type
+class RegistrationResponse:
+    """Response for registration"""
+
+    success: bool
+    message: str
+    otp_uri: Optional[str] = None
+    magic_link: Optional[str] = None
+    mfa_token: Optional[str] = None
+
+
+@strawberry.type
+class SSOProviderInfo:
+    """Information about an SSO provider"""
+
+    name: str
+    connected: bool
+    account_name: Optional[str]
+
+
+# Input types
+@strawberry.input
+class RegisterInput:
+    """Input for user registration"""
+
+    email: str
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
+    invitation_id: Optional[str] = None
+
+
+@strawberry.input
+class LoginInput:
+    """Input for login attempts"""
+
+    email: str
+    token: str
+
+
+@strawberry.input
+class UserUpdateInput:
+    """Input for updating user information"""
+
+    first_name: Optional[str]
+    last_name: Optional[str]
+    preferences: Optional[dict]
+
+
+@strawberry.input
+class InvitationCreateInput:
+    """Input for creating invitations"""
+
+    email: str
+    company_id: Optional[str] = None
+    role_id: int
+
+
+@strawberry.input
+class CompanyCreateInput:
+    """Input for creating a company"""
+
+    name: str
+    parent_company_id: Optional[str] = None
+
+
+@strawberry.input
+class CompanyUpdateInput:
+    """Input for updating a company"""
+
+    name: str
+
+
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
@@ -1452,6 +1583,91 @@ class Query:
         return [
             ChainDependency(step_number=step_num, dependencies=deps)
             for step_num, deps in deps.items()
+        ]
+
+    @strawberry.field
+    async def user(self, info) -> UserDetail:
+        """Get current user's details"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        user_data = auth_manager.login(ip_address=info.context["request"].client.host)
+        preferences = auth_manager.get_user_preferences()
+        companies = auth_manager.get_user_companies_with_roles()
+
+        return UserDetail(
+            id=str(user_data.id),
+            email=user_data.email,
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
+            companies=[
+                CompanyInfo(
+                    id=str(company["id"]),
+                    name=company["name"],
+                    company_id=(
+                        str(company["company_id"])
+                        if company.get("company_id")
+                        else None
+                    ),
+                    agents=[
+                        AgentInfo(
+                            name=agent["name"],
+                            id=agent["id"],
+                            status=agent["status"],
+                            company_id=agent.get("company_id"),
+                        )
+                        for agent in company.get("agents", [])
+                    ],
+                    role_id=company.get("role_id"),
+                    primary=company.get("primary", False),
+                )
+                for company in companies
+            ],
+            preferences=preferences,
+        )
+
+    @strawberry.field
+    async def user_exists(self, info, email: str) -> bool:
+        """Check if a user exists"""
+        auth_manager = MagicalAuth()
+        return auth_manager.user_exists(email=email)
+
+    @strawberry.field
+    async def invitations(
+        self, info, company_id: Optional[str] = None
+    ) -> List[InvitationInfo]:
+        """Get company invitations"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        invites = auth_manager.get_invitations(company_id)
+        return [
+            InvitationInfo(
+                id=invite["id"],
+                email=invite["email"],
+                company_id=invite["company_id"],
+                role_id=invite["role_id"],
+                inviter_id=invite["inviter_id"],
+                created_at=invite["created_at"],
+                is_accepted=invite["is_accepted"],
+            )
+            for invite in invites
+        ]
+
+    @strawberry.field
+    async def sso_providers(self, info) -> List[SSOProviderInfo]:
+        """Get SSO provider connections"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        connections = auth_manager.get_sso_connections()
+        return [
+            SSOProviderInfo(
+                name=provider,
+                connected=True,
+                account_name=None,  # Could be enhanced to include account info
+            )
+            for provider in connections
         ]
 
 
@@ -2441,6 +2657,186 @@ class Mutation:
             raise Exception(chain_step_response)
 
         return chain_step_response
+
+    @strawberry.mutation
+    async def register(self, info, input: RegisterInput) -> RegistrationResponse:
+        """Register a new user"""
+        auth_manager = MagicalAuth()
+
+        if auth_manager.user_exists(email=input.email):
+            return RegistrationResponse(
+                success=False, message="User with this email already exists"
+            )
+
+        result = auth_manager.register(
+            new_user=input, invitation_id=input.invitation_id
+        )
+
+        if isinstance(result, dict) and "error" in result:
+            return RegistrationResponse(success=False, message=result["error"])
+
+        return RegistrationResponse(
+            success=True,
+            message="Registration successful",
+            otp_uri=result.get("otp_uri"),
+            magic_link=result.get("magic_link"),
+            mfa_token=result.get("mfa_token"),
+        )
+
+    @strawberry.mutation
+    async def login(self, info, input: LoginInput) -> AuthResponse:
+        """Login with email and OTP"""
+        request = info.context["request"]
+        auth_manager = MagicalAuth()
+
+        magic_link = auth_manager.send_magic_link(
+            ip_address=request.client.host, login=input, referrer=None
+        )
+
+        return AuthResponse(
+            success=True,
+            message=(
+                "Login successful" if "has been sent" not in magic_link else magic_link
+            ),
+            token=auth_manager.token,
+            email=input.email,
+        )
+
+    @strawberry.mutation
+    async def update_user(self, info, input: UserUpdateInput) -> AuthResponse:
+        """Update user details"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.update_user(**input.__dict__)
+        return AuthResponse(success=True, message=result)
+
+    @strawberry.mutation
+    async def delete_user(self, info) -> AuthResponse:
+        """Delete current user"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.delete_user()
+        return AuthResponse(success=True, message=result)
+
+    @strawberry.mutation
+    async def create_invitation(
+        self, info, input: InvitationCreateInput
+    ) -> InvitationInfo:
+        """Create a company invitation"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.create_invitation(input)
+        return InvitationInfo(
+            id=result.id,
+            email=result.email,
+            company_id=result.company_id,
+            role_id=result.role_id,
+            inviter_id=result.inviter_id,
+            created_at=result.created_at,
+            is_accepted=result.is_accepted,
+        )
+
+    @strawberry.mutation
+    async def delete_invitation(self, info, invitation_id: str) -> AuthResponse:
+        """Delete an invitation"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.delete_invitation(invitation_id)
+        return AuthResponse(success=True, message=result)
+
+    @strawberry.mutation
+    async def create_company(self, info, input: CompanyCreateInput) -> CompanyInfo:
+        """Create a new company"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.create_company(
+            name=input.name, parent_company_id=input.parent_company_id
+        )
+
+        return CompanyInfo(
+            id=result["id"],
+            name=result["name"],
+            company_id=None,
+            agents=[],
+            role_id=2,  # Company admin by default
+            primary=True,
+        )
+
+    @strawberry.mutation
+    async def update_company(
+        self, info, company_id: str, input: CompanyUpdateInput
+    ) -> CompanyInfo:
+        """Update company details"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.update_company(company_id=company_id, name=input.name)
+
+        return CompanyInfo(
+            id=result.id,
+            name=result.name,
+            company_id=result.company_id,
+            agents=[],
+            role_id=None,
+            primary=False,
+        )
+
+    @strawberry.mutation
+    async def verify_mfa(self, info, code: str) -> AuthResponse:
+        """Verify MFA code"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.verify_mfa(token=code)
+        return AuthResponse(success=True, message=result)
+
+    @strawberry.mutation
+    async def verify_email(self, info, code: str) -> AuthResponse:
+        """Verify email address"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.verify_email_address(code=code)
+        return AuthResponse(
+            success=result,
+            message=(
+                "Email verified successfully" if result else "Email verification failed"
+            ),
+        )
+
+    @strawberry.mutation
+    async def connect_sso(
+        self, info, provider: str, code: str, referrer: Optional[str] = None
+    ) -> AuthResponse:
+        """Connect SSO provider"""
+        request = info.context["request"]
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.sso(
+            provider=provider,
+            code=code,
+            ip_address=request.client.host,
+            referrer=referrer,
+        )
+
+        return AuthResponse(
+            success=True, message="SSO connected successfully", magic_link=result
+        )
+
+    @strawberry.mutation
+    async def disconnect_sso(self, info, provider: str) -> AuthResponse:
+        """Disconnect SSO provider"""
+        user, auth = await get_user_from_context(info)
+        auth_manager = MagicalAuth(token=auth)
+
+        result = auth_manager.disconnect_sso(provider_name=provider)
+        return AuthResponse(success=True, message=result)
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
