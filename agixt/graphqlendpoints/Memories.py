@@ -196,7 +196,7 @@ class Query:
 class Mutation:
     @strawberry.mutation
     async def import_memories(
-        self, info, agent_name: str, memories: List[Dict[str, Any]]
+        self, info, agent_name: str, memories: List[Memory]
     ) -> ResponseMessageType:
         """Import memories into agent"""
         user, auth = await get_auth_context(info)
