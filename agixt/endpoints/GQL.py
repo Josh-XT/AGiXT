@@ -899,6 +899,44 @@ class MoveStepInput:
 
 
 @strawberry.type
+class UserPreference:
+    """A single user preference setting"""
+
+    key: str
+    value: str
+
+
+@strawberry.input
+class UserPreferenceInput:
+    """Input for updating a user preference"""
+
+    key: str
+    value: str
+
+
+@strawberry.type
+class MissingRequirement:
+    """Represents a missing requirement for a user"""
+
+    requirement_name: str
+    requirement_value: str
+
+
+@strawberry.type
+class UserPreferences:
+    """Collection of all user preferences"""
+
+    timezone: Optional[str] = None
+    input_tokens: Optional[int] = 0
+    output_tokens: Optional[int] = 0
+    phone_number: Optional[str] = ""
+    stripe_id: Optional[str] = None
+    missing_requirements: Optional[List[MissingRequirement]] = None
+    custom_preferences: Optional[List[UserPreference]] = None
+
+
+# Update UserDetail to use UserPreferences
+@strawberry.type
 class UserDetail:
     """Core user information"""
 
@@ -907,7 +945,7 @@ class UserDetail:
     first_name: Optional[str]
     last_name: Optional[str]
     companies: List["CompanyInfo"]
-    preferences: Optional[dict]
+    preferences: UserPreferences  # Replace dict with structured type
 
 
 @strawberry.type
@@ -1027,6 +1065,84 @@ class CompanyUpdateInput:
     """Input for updating a company"""
 
     name: str
+
+
+def convert_preferences_to_type(pref_dict: dict) -> UserPreferences:
+    """Convert preference dictionary to UserPreferences type"""
+    custom_prefs = []
+    missing_reqs = []
+
+    # Handle known preferences
+    timezone = pref_dict.get("timezone")
+    input_tokens = int(pref_dict.get("input_tokens", 0))
+    output_tokens = int(pref_dict.get("output_tokens", 0))
+    phone_number = pref_dict.get("phone_number", "")
+    stripe_id = pref_dict.get("stripe_id")
+
+    # Handle missing requirements
+    if "missing_requirements" in pref_dict:
+        for req in pref_dict["missing_requirements"]:
+            for key, value in req.items():
+                missing_reqs.append(
+                    MissingRequirement(
+                        requirement_name=key, requirement_value=str(value)
+                    )
+                )
+
+    # Handle any other custom preferences
+    known_keys = {
+        "timezone",
+        "input_tokens",
+        "output_tokens",
+        "phone_number",
+        "stripe_id",
+        "missing_requirements",
+        "email",
+        "first_name",
+        "last_name",
+    }
+
+    for key, value in pref_dict.items():
+        if key not in known_keys:
+            custom_prefs.append(UserPreference(key=key, value=str(value)))
+
+    return UserPreferences(
+        timezone=timezone,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        phone_number=phone_number,
+        stripe_id=stripe_id,
+        missing_requirements=missing_reqs if missing_reqs else None,
+        custom_preferences=custom_prefs if custom_prefs else None,
+    )
+
+
+def convert_preferences_to_dict(prefs: UserPreferences) -> dict:
+    """Convert UserPreferences type back to dictionary"""
+    result = {}
+
+    if prefs.timezone:
+        result["timezone"] = prefs.timezone
+    if prefs.input_tokens is not None:
+        result["input_tokens"] = prefs.input_tokens
+    if prefs.output_tokens is not None:
+        result["output_tokens"] = prefs.output_tokens
+    if prefs.phone_number:
+        result["phone_number"] = prefs.phone_number
+    if prefs.stripe_id:
+        result["stripe_id"] = prefs.stripe_id
+
+    if prefs.missing_requirements:
+        result["missing_requirements"] = [
+            {req.requirement_name: req.requirement_value}
+            for req in prefs.missing_requirements
+        ]
+
+    if prefs.custom_preferences:
+        for pref in prefs.custom_preferences:
+            result[pref.key] = pref.value
+
+    return result
 
 
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
@@ -1637,7 +1753,8 @@ class Query:
         auth_manager = MagicalAuth(token=auth)
 
         user_data = auth_manager.login(ip_address=info.context["request"].client.host)
-        preferences = auth_manager.get_user_preferences()
+        preferences_dict = auth_manager.get_user_preferences()
+        preferences = convert_preferences_to_type(preferences_dict)
         companies = auth_manager.get_user_companies_with_roles()
 
         return UserDetail(
