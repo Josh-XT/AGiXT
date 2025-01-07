@@ -1,23 +1,6 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 import strawberry
-from fastapi import Depends, HTTPException, Header
-from Models import (
-    HistoryModel,
-    ConversationHistoryModel,
-    ConversationHistoryMessageModel,
-    UpdateConversationHistoryMessageModel,
-    ResponseMessage,
-    LogInteraction,
-    RenameConversationModel,
-    UpdateMessageModel,
-    DeleteMessageModel,
-    ConversationFork,
-    ConversationListResponse,
-    ConversationDetailResponse,
-    ConversationHistoryResponse,
-    NotificationResponse,
-    MessageIdResponse,
-)
+from fastapi import HTTPException
 from endpoints.Conversation import (
     get_conversations_list as rest_get_conversations_list,
     get_conversations as rest_get_conversations,
@@ -36,47 +19,109 @@ from endpoints.Conversation import (
     get_notifications as rest_get_notifications,
 )
 from ApiClient import verify_api_key
-from MagicalAuth import MagicalAuth
+from datetime import datetime
+from Models import (
+    ConversationHistoryModel,
+    ConversationHistoryMessageModel,
+    RenameConversationModel,
+    ConversationFork,
+    LogInteraction,
+    UpdateConversationHistoryMessageModel,
+    UpdateMessageModel,
+    DeleteMessageModel,
+)
 
 
-# Convert Pydantic models to Strawberry types
-@strawberry.experimental.pydantic.type(model=ConversationListResponse)
+# Helper for auth
+async def get_user_and_auth_from_context(info):
+    request = info.context["request"]
+    try:
+        user = await verify_api_key(request)
+        auth = request.headers.get("authorization")
+        return user, auth
+    except HTTPException as e:
+        raise Exception(str(e.detail))
+
+
+@strawberry.type
+class ConversationMessage:
+    id: str
+    role: str
+    message: str
+    timestamp: datetime
+    updated_at: datetime
+    updated_by: Optional[str]
+    feedback_received: bool
+
+
+@strawberry.type
+class ConversationMetadata:
+    name: str
+    agent_id: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    has_notifications: bool
+    summary: str
+    attachment_count: int
+
+
+@strawberry.type
+class ConversationNotification:
+    conversation_id: str
+    conversation_name: str
+    message_id: str
+    message: str
+    role: str
+    timestamp: datetime
+
+
+@strawberry.type
 class ConversationList:
     conversations: List[str]
-    conversations_with_ids: Dict[str, str]
+    conversations_with_ids: List["ConversationIdentifier"]
 
 
-@strawberry.experimental.pydantic.type(model=ConversationHistoryResponse)
-class ConversationHistory:
-    conversation_history: List[Dict[str, Any]]
+@strawberry.type
+class ConversationIdentifier:
+    id: str
+    name: str
 
 
-@strawberry.experimental.pydantic.type(model=ConversationDetailResponse)
+@strawberry.type
 class ConversationDetail:
-    conversations: Dict[str, Dict[str, Any]]
+    conversations: List["ConversationMetadata"]
 
 
-@strawberry.experimental.pydantic.type(model=NotificationResponse)
-class Notifications:
-    notifications: List[Dict[str, Any]]
+@strawberry.type
+class ConversationHistory:
+    messages: List[ConversationMessage]
 
 
-@strawberry.experimental.pydantic.type(model=ResponseMessage)
-class Response:
+@strawberry.type
+class NotificationList:
+    notifications: List[ConversationNotification]
+
+
+# Input types for mutations
+@strawberry.input
+class ConversationHistoryMessageInput:
+    conversation_name: str
+    agent_name: Optional[str] = ""
     message: str
 
 
-@strawberry.experimental.pydantic.type(model=MessageIdResponse)
-class MessageId:
-    message: str
-
-
-# Input types
 @strawberry.input
 class ConversationHistoryInput:
     conversation_name: str
     agent_name: Optional[str] = ""
-    conversation_content: List[Dict[str, Any]] = strawberry.field(default_factory=list)
+    conversation_content: List["ConversationMessageInput"]
+
+
+@strawberry.input
+class ConversationMessageInput:
+    role: str
+    message: str
+    timestamp: Optional[datetime] = None
 
 
 @strawberry.input
@@ -105,17 +150,7 @@ class ConversationForkInput:
     message_id: str
 
 
-# Helper for auth
-async def get_user_and_auth_from_context(info):
-    request = info.context["request"]
-    try:
-        user = await verify_api_key(request)
-        auth = request.headers.get("authorization")
-        return user, auth
-    except HTTPException as e:
-        raise Exception(str(e.detail))
-
-
+# Updated Query type
 @strawberry.type
 class Query:
     @strawberry.field
@@ -123,31 +158,45 @@ class Query:
         """Get list of all conversations"""
         user = await verify_api_key(info.context["request"])
         result = await rest_get_conversations_list(user=user)
-        return ConversationList.from_pydantic(result)
+
+        # Convert dictionary to strongly typed objects
+        conversation_identifiers = [
+            ConversationIdentifier(id=id, name=name)
+            for id, name in result.conversations_with_ids.items()
+        ]
+
+        return ConversationList(
+            conversations=result.conversations,
+            conversations_with_ids=conversation_identifiers,
+        )
 
     @strawberry.field
     async def conversation_details(self, info) -> ConversationDetail:
         """Get detailed conversations list"""
         user = await verify_api_key(info.context["request"])
         result = await rest_get_conversations(user=user)
-        return ConversationDetail.from_pydantic(result)
+
+        # Convert dictionary to strongly typed objects
+        conversation_metadata = [
+            ConversationMetadata(
+                name=details["name"],
+                agent_id=details["agent_id"],
+                created_at=details["created_at"],
+                updated_at=details["updated_at"],
+                has_notifications=details["has_notifications"],
+                summary=details["summary"],
+                attachment_count=details["attachment_count"],
+            )
+            for details in result.conversations.values()
+        ]
+
+        return ConversationDetail(conversations=conversation_metadata)
 
     @strawberry.field
-    async def conversation_history_by_id(
-        self, info, conversation_id: str
-    ) -> ConversationHistory:
-        """Get conversation history by ID"""
-        user, auth = await get_user_and_auth_from_context(info)
-        result = await rest_get_conversation_history(
-            conversation_id=conversation_id, user=user, authorization=auth
-        )
-        return ConversationHistory.from_pydantic(result)
-
-    @strawberry.field
-    async def conversation_history(
+    async def conversation_history_by_name(
         self, info, conversation_name: str, limit: int = 100, page: int = 1
     ) -> ConversationHistory:
-        """Get conversation history with pagination"""
+        """Get conversation history by name with pagination"""
         user, auth = await get_user_and_auth_from_context(info)
         result = await rest_get_conversation_data(
             conversation_name=conversation_name,
@@ -156,14 +205,75 @@ class Query:
             user=user,
             authorization=auth,
         )
-        return ConversationHistory.from_pydantic(result)
+
+        messages = [
+            ConversationMessage(
+                id=msg["id"],
+                role=msg["role"],
+                message=msg["message"],
+                timestamp=msg["timestamp"],
+                updated_at=msg["updated_at"],
+                updated_by=msg["updated_by"],
+                feedback_received=msg["feedback_received"],
+            )
+            for msg in result.conversation_history
+        ]
+
+        return ConversationHistory(messages=messages)
 
     @strawberry.field
-    async def notifications(self, info) -> Notifications:
+    async def conversation_history(
+        self, info, conversation_id: str
+    ) -> ConversationHistory:
+        """Get conversation history by ID"""
+        user, auth = await get_user_and_auth_from_context(info)
+        result = await rest_get_conversation_history(
+            conversation_id=conversation_id, user=user, authorization=auth
+        )
+
+        # Convert dictionary to strongly typed objects
+        messages = [
+            ConversationMessage(
+                id=msg["id"],
+                role=msg["role"],
+                message=msg["message"],
+                timestamp=msg["timestamp"],
+                updated_at=msg["updated_at"],
+                updated_by=msg["updated_by"],
+                feedback_received=msg["feedback_received"],
+            )
+            for msg in result.conversation_history
+        ]
+
+        return ConversationHistory(messages=messages)
+
+    @strawberry.field
+    async def notifications(self, info) -> NotificationList:
         """Get user notifications"""
         user = await verify_api_key(info.context["request"])
         result = await rest_get_notifications(user=user)
-        return Notifications.from_pydantic(result)
+
+        # Convert dictionary to strongly typed objects
+        notifications = [
+            ConversationNotification(
+                conversation_id=notif["conversation_id"],
+                conversation_name=notif["conversation_name"],
+                message_id=notif["message_id"],
+                message=notif["message"],
+                role=notif["role"],
+                timestamp=notif["timestamp"],
+            )
+            for notif in result.notifications
+        ]
+
+        return NotificationList(notifications=notifications)
+
+
+# Response types for mutations
+@strawberry.type
+class MutationResponse:
+    success: bool
+    message: str
 
 
 @strawberry.type
@@ -176,69 +286,33 @@ class Mutation:
         user = await verify_api_key(info.context["request"])
         model = ConversationHistoryModel(**input.__dict__)
         result = await rest_new_conversation(history=model, user=user)
-        return ConversationHistory.from_pydantic(result)
+
+        messages = [
+            ConversationMessage(
+                id=msg["id"],
+                role=msg["role"],
+                message=msg["message"],
+                timestamp=msg["timestamp"],
+                updated_at=msg["updated_at"],
+                updated_by=msg["updated_by"],
+                feedback_received=msg["feedback_received"],
+            )
+            for msg in result.conversation_history
+        ]
+
+        return ConversationHistory(messages=messages)
 
     @strawberry.mutation
     async def delete_conversation(
         self, info, input: ConversationHistoryInput
-    ) -> Response:
+    ) -> MutationResponse:
         """Delete a conversation"""
         user, auth = await get_user_and_auth_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
         result = await rest_delete_conversation(
             history=model, user=user, authorization=auth
         )
-        return Response.from_pydantic(result)
-
-    @strawberry.mutation
-    async def log_interaction(self, info, input: LogInteractionInput) -> MessageId:
-        """Log a conversation interaction"""
-        user, auth = await get_user_and_auth_from_context(info)
-        model = LogInteraction(**input.__dict__)
-        result = await rest_log_interaction(
-            log_interaction=model, user=user, authorization=auth
-        )
-        return MessageId.from_pydantic(result)
-
-    @strawberry.mutation
-    async def update_message(self, info, input: UpdateMessageInput) -> Response:
-        """Update a conversation message"""
-        user, auth = await get_user_and_auth_from_context(info)
-        model = UpdateConversationHistoryMessageModel(**input.__dict__)
-        result = await rest_update_message(history=model, user=user, authorization=auth)
-        return Response.from_pydantic(result)
-
-    @strawberry.mutation
-    async def update_message_by_id(
-        self, info, message_id: str, input: MessageByIdInput
-    ) -> Response:
-        """Update a message by its ID"""
-        user = await verify_api_key(info.context["request"])
-        model = UpdateMessageModel(**input.__dict__)
-        result = await rest_update_by_id(
-            message_id=message_id, history=model, user=user
-        )
-        return Response.from_pydantic(result)
-
-    @strawberry.mutation
-    async def delete_message_by_id(
-        self, info, message_id: str, conversation_name: str
-    ) -> Response:
-        """Delete a message by its ID"""
-        user = await verify_api_key(info.context["request"])
-        model = DeleteMessageModel(conversation_name=conversation_name)
-        result = await rest_delete_by_id(
-            message_id=message_id, history=model, user=user
-        )
-        return Response.from_pydantic(result)
-
-    @strawberry.mutation
-    async def fork_conversation(self, info, input: ConversationForkInput) -> Response:
-        """Fork a conversation"""
-        user = await verify_api_key(info.context["request"])
-        model = ConversationFork(**input.__dict__)
-        result = await rest_fork_conversation(fork=model, user=user)
-        return Response.from_pydantic(result)
+        return MutationResponse(success=True, message=result.message)
 
     @strawberry.mutation
     async def rename_conversation(
@@ -247,7 +321,7 @@ class Mutation:
         agent_name: str,
         conversation_name: str,
         new_conversation_name: str = "-",
-    ) -> Dict[str, str]:
+    ) -> MutationResponse:
         """Rename a conversation"""
         user, auth = await get_user_and_auth_from_context(info)
         model = RenameConversationModel(
@@ -255,23 +329,91 @@ class Mutation:
             conversation_name=conversation_name,
             new_conversation_name=new_conversation_name,
         )
-        return await rest_rename_conversation(
+        result = await rest_rename_conversation(
             rename=model, user=user, authorization=auth
         )
+        return MutationResponse(
+            success=True,
+            message=f"Conversation renamed to {result['conversation_name']}",
+        )
+
+    @strawberry.mutation
+    async def log_interaction(
+        self, info, input: LogInteractionInput
+    ) -> MutationResponse:
+        """Log a conversation interaction"""
+        user, auth = await get_user_and_auth_from_context(info)
+        model = LogInteraction(**input.__dict__)
+        result = await rest_log_interaction(
+            log_interaction=model, user=user, authorization=auth
+        )
+        return MutationResponse(success=True, message=result.message)
+
+    @strawberry.mutation
+    async def update_message(self, info, input: UpdateMessageInput) -> MutationResponse:
+        """Update a conversation message"""
+        user, auth = await get_user_and_auth_from_context(info)
+        model = UpdateConversationHistoryMessageModel(**input.__dict__)
+        result = await rest_update_message(history=model, user=user, authorization=auth)
+        return MutationResponse(success=True, message=result.message)
+
+    @strawberry.mutation
+    async def update_message_by_id(
+        self, info, message_id: str, input: MessageByIdInput
+    ) -> MutationResponse:
+        """Update a message by its ID"""
+        user = await verify_api_key(info.context["request"])
+        model = UpdateMessageModel(**input.__dict__)
+        result = await rest_update_by_id(
+            message_id=message_id, history=model, user=user
+        )
+        return MutationResponse(success=True, message=result.message)
+
+    @strawberry.mutation
+    async def delete_message(
+        self, info, input: ConversationHistoryMessageInput
+    ) -> MutationResponse:
+        """Delete a message by its content"""
+        user = await verify_api_key(info.context["request"])
+        model = ConversationHistoryMessageModel(**input.__dict__)
+        result = await rest_delete_message(history=model, user=user)
+        return MutationResponse(success=True, message=result.message)
+
+    @strawberry.mutation
+    async def delete_message_by_id(
+        self, info, message_id: str, conversation_name: str
+    ) -> MutationResponse:
+        """Delete a message by its ID"""
+        user = await verify_api_key(info.context["request"])
+        model = DeleteMessageModel(conversation_name=conversation_name)
+        result = await rest_delete_by_id(
+            message_id=message_id, history=model, user=user
+        )
+        return MutationResponse(success=True, message=result.message)
+
+    @strawberry.mutation
+    async def fork_conversation(
+        self, info, input: ConversationForkInput
+    ) -> MutationResponse:
+        """Fork a conversation"""
+        user = await verify_api_key(info.context["request"])
+        model = ConversationFork(**input.__dict__)
+        result = await rest_fork_conversation(fork=model, user=user)
+        return MutationResponse(success=True, message=result.message)
 
     @strawberry.mutation
     async def generate_message_tts(
         self, info, conversation_id: str, message_id: str
-    ) -> Dict[str, str]:
+    ) -> MutationResponse:
         """Generate text-to-speech for a message"""
         user, auth = await get_user_and_auth_from_context(info)
-        return await rest_get_tts(
+        result = await rest_get_tts(
             conversation_id=conversation_id,
             message_id=message_id,
             user=user,
             authorization=auth,
         )
+        return MutationResponse(success=True, message=result["message"])
 
 
-# Create the schema
 schema = strawberry.Schema(query=Query, mutation=Mutation)
