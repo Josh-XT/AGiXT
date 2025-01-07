@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 import strawberry
 from fastapi import HTTPException
 from endpoints.Conversation import (
@@ -589,14 +589,14 @@ class CommandResult:
 class CommandArgValue:
     """Represents a single command argument value"""
 
-    value: Any
+    value: str
 
 
 @strawberry.input
 class CommandArgValueInput:
     """Input type for command argument values"""
 
-    value: Any
+    value: str
 
 
 @strawberry.type
@@ -637,7 +637,7 @@ class ExtensionCommandArg:
     description: str
     required: bool
     type: str
-    default: Optional[Any] = None
+    default: Optional[str] = None
 
 
 @strawberry.type
@@ -1166,7 +1166,8 @@ class Query:
         settings = extensions.get_extension_settings()
 
         return [
-            ExtensionSetting(name=name, value=value) for name, value in settings.items()
+            ExtensionSetting(name=name, value=str(value))
+            for name, value in settings.items()
         ]
 
     @strawberry.field
@@ -1179,7 +1180,7 @@ class Query:
 
         # Convert dictionary to CommandArgs type
         args = [
-            CommandArg(name=name, value=CommandArgValue(value=value))
+            CommandArg(name=name, value=CommandArgValue(value=str(value)))
             for name, value in raw_args.items()
         ]
 
