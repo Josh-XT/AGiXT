@@ -546,11 +546,22 @@ class DPOInput:
 
 
 @strawberry.type
+class ExtensionCommandArgs:
+    """Represents the arguments configuration for an extension command"""
+
+    required: List[str]
+    optional: List[str]
+    description: str
+
+
+@strawberry.type
 class ExtensionCommand:
+    """Represents an extension command with proper typing"""
+
     friendly_name: str
     description: str
     enabled: bool
-    command_args: Dict[str, Any]
+    command_args: ExtensionCommandArgs
     extension_name: str
 
 
@@ -574,11 +585,105 @@ class CommandResult:
     response: str
 
 
-# Input types
+@strawberry.type
+class CommandArgValue:
+    """Represents a single command argument value"""
+
+    value: Any
+
+
 @strawberry.input
+class CommandArgValueInput:
+    """Input type for command argument values"""
+
+    value: Any
+
+
+@strawberry.type
+class CommandArgs:
+    """Represents the arguments for a command"""
+
+    args: List["CommandArg"]
+
+
+@strawberry.type
+class CommandArg:
+    """Represents a single command argument with name and value"""
+
+    name: str
+    value: CommandArgValue
+
+
+@strawberry.input
+class CommandArgInput:
+    """Input type for a single command argument"""
+
+    name: str
+    value: CommandArgValueInput
+
+
+@strawberry.input
+class CommandArgsInput:
+    """Input type for command arguments"""
+
+    args: List[CommandArgInput]
+
+
+@strawberry.type
+class ExtensionCommandArg:
+    """Represents a single extension command argument"""
+
+    name: str
+    description: str
+    required: bool
+    type: str
+    default: Optional[Any] = None
+
+
+@strawberry.type
+class ExtensionCommandMetadata:
+    """Represents metadata about an extension command"""
+
+    name: str
+    description: str
+    args: List[ExtensionCommandArg]
+    enabled: bool = False
+
+
+@strawberry.type
+class ProviderConfig:
+    """Represents provider configuration"""
+
+    settings: List["ProviderSetting"]
+
+
+@strawberry.type
+class ProviderSetting:
+    """Represents a single provider setting"""
+
+    name: str
+    value: str
+    description: Optional[str] = None
+    required: bool = False
+    type: str = "string"
+
+
+@strawberry.input
+class ProviderSettingInput:
+    """Input type for provider settings"""
+
+    name: str
+    value: str
+    description: Optional[str] = None
+    required: bool = False
+    type: str = "string"
+
+
 class CommandExecutionInput:
+    """Input type for executing commands with proper typing"""
+
     command_name: str
-    command_args: Dict[str, Any]
+    command_args: CommandArgsInput
     conversation_name: Optional[str] = None
 
 
@@ -604,6 +709,23 @@ def convert_provider_details(details: Dict[str, str]) -> ProviderDetail:
         description=details["description"],
         services=details["services"],
         settings=convert_settings_to_type(details["settings"]),
+    )
+
+
+def convert_extension_command(raw_command: dict) -> ExtensionCommand:
+    """Helper to convert raw command data to ExtensionCommand type"""
+    command_args = ExtensionCommandArgs(
+        required=raw_command["command_args"].get("required", []),
+        optional=raw_command["command_args"].get("optional", []),
+        description=raw_command["command_args"].get("description", ""),
+    )
+
+    return ExtensionCommand(
+        friendly_name=raw_command["friendly_name"],
+        description=raw_command["description"],
+        enabled=raw_command["enabled"],
+        command_args=command_args,
+        extension_name=raw_command["extension_name"],
     )
 
 
@@ -1040,12 +1162,20 @@ class Query:
         ]
 
     @strawberry.field
-    async def command_args(self, info, command_name: str) -> Dict[str, Any]:
+    async def command_args(self, info, command_name: str) -> CommandArgs:
         """Get arguments for a specific command"""
         user, _ = await get_user_from_context(info)
 
         extensions = Extensions()
-        return extensions.get_command_args(command_name=command_name)
+        raw_args = extensions.get_command_args(command_name=command_name)
+
+        # Convert dictionary to CommandArgs type
+        args = [
+            CommandArg(name=name, value=CommandArgValue(value=value))
+            for name, value in raw_args.items()
+        ]
+
+        return CommandArgs(args=args)
 
     @strawberry.field
     async def extensions(self, info) -> List[Extension]:
@@ -1832,16 +1962,18 @@ class Mutation:
     async def execute_command(
         self, info, agent_name: str, input: CommandExecutionInput
     ) -> CommandResult:
-        """Execute a command for an agent"""
+        """Execute a command for an agent with properly typed arguments"""
         user, auth = await get_user_from_context(info)
 
         if not await is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
+        # Convert input args to dictionary format expected by extensions
+        command_args = {arg.name: arg.value.value for arg in input.command_args.args}
+
         agent = Agent(agent_name=agent_name, user=user)
         agent_config = agent.get_agent_config()
 
-        conversation = None
         conversation_id = None
         if input.conversation_name:
             conversation = Conversations(conversation_name=input.conversation_name)
@@ -1858,7 +1990,7 @@ class Mutation:
         )
 
         command_output = await extensions.execute_command(
-            command_name=input.command_name, command_args=input.command_args
+            command_name=input.command_name, command_args=command_args
         )
 
         if input.conversation_name and command_output:
