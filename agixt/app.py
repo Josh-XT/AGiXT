@@ -25,15 +25,15 @@ from typing import Optional
 from TaskMonitor import TaskMonitor
 from strawberry.fastapi import GraphQLRouter
 import strawberry
-from graphql.Agents import schema as agent_schema
-from graphql.Auth import schema as auth_schema
-from graphql.Chains import schema as chains_schema
-from graphql.Completions import schema as completions_schema
-from graphql.Conversations import schema as conversations_schema
-from graphql.Extensions import schema as extensions_schema
-from graphql.Memories import schema as memories_schema
-from graphql.Prompts import schema as prompts_schema
-from graphql.Providers import schema as providers_schema
+from graphqlendpoints.Agents import schema as agent_schema
+from graphqlendpoints.Auth import schema as auth_schema
+from graphqlendpoints.Chains import schema as chains_schema
+from graphqlendpoints.Completions import schema as completions_schema
+from graphqlendpoints.Conversations import schema as conversations_schema
+from graphqlendpoints.Extensions import schema as extensions_schema
+from graphqlendpoints.Memories import schema as memories_schema
+from graphqlendpoints.Prompts import schema as prompts_schema
+from graphqlendpoints.Providers import schema as providers_schema
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
