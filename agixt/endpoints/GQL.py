@@ -533,8 +533,6 @@ class DPOInput:
 
 @strawberry.type
 class ExtensionCommandArgs:
-    """Represents the arguments configuration for an extension command"""
-
     required: List[str]
     optional: List[str]
     description: str
@@ -542,8 +540,6 @@ class ExtensionCommandArgs:
 
 @strawberry.type
 class ExtensionCommand:
-    """Represents an extension command with proper typing"""
-
     friendly_name: str
     description: str
     command_args: ExtensionCommandArgs
@@ -1587,9 +1583,7 @@ class Query:
         providers = get_providers_with_details()
 
         provider_details = []
-        for provider in providers:
-            provider_name = provider["name"]
-            details = provider["details"]
+        for provider_name, details in providers.items():
             provider_settings = details["settings"]
 
             # Check if provider is connected
@@ -1602,7 +1596,7 @@ class Query:
                 ProviderDetails(
                     name=provider_name,
                     connected=connected,
-                    friendly_name=details.get("friendly_name", provider_name),
+                    friendly_name=details.get("name", provider_name),
                     description=details["description"],
                     settings=[
                         AgentSetting(name=k, value=v)
@@ -1723,9 +1717,10 @@ class Query:
     @strawberry.field
     async def extensions(self, info) -> List[Extension]:
         """Get all available extensions"""
-        user, _ = await get_user_from_context(info)
-
-        extensions = Extensions(user=user)
+        user, auth = await get_user_from_context(info)
+        magic = MagicalAuth(token=auth)
+        ApiClient = magic.get_user_agent_session()
+        extensions = Extensions(user=user, ApiClient=ApiClient)
         extension_list = extensions.get_extensions()
 
         return [
@@ -1737,7 +1732,11 @@ class Query:
                     ExtensionCommand(
                         friendly_name=cmd["friendly_name"],
                         description=cmd["description"],
-                        command_args=cmd["command_args"],
+                        command_args=ExtensionCommandArgs(
+                            required=cmd["command_args"].get("required", []),
+                            optional=cmd["command_args"].get("optional", []),
+                            description=cmd["command_args"].get("description", ""),
+                        ),
                         extension_name=ext["extension_name"],
                     )
                     for cmd in ext["commands"]
