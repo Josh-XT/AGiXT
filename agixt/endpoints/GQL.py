@@ -546,7 +546,6 @@ class ExtensionCommand:
 
     friendly_name: str
     description: str
-    enabled: bool
     command_args: ExtensionCommandArgs
     extension_name: str
 
@@ -624,16 +623,6 @@ class ExtensionCommandArg:
     required: bool
     type: str
     default: Optional[str] = None
-
-
-@strawberry.type
-class ExtensionCommandMetadata:
-    """Represents metadata about an extension command"""
-
-    name: str
-    description: str
-    args: List[ExtensionCommandArg]
-    enabled: bool = False
 
 
 @strawberry.type
@@ -1220,14 +1209,9 @@ def convert_extension_command(raw_command: dict) -> ExtensionCommand:
         description=raw_command.get("command_args", {}).get("description", ""),
     )
 
-    enabled = raw_command.get("enabled", False)
-    if not isinstance(enabled, bool):
-        enabled = False
-
     return ExtensionCommand(
         friendly_name=raw_command.get("friendly_name", ""),
         description=raw_command.get("description", ""),
-        enabled=enabled,
         command_args=command_args,
         extension_name=raw_command.get("extension_name", ""),
     )
@@ -1398,7 +1382,7 @@ class Query:
     ) -> NotificationConnection:
         """Get paginated notifications"""
         user, auth = await get_user_from_context(info)
-        result = (Conversations(user=user).get_notifications(),)
+        result = Conversations(user=user).get_notifications()
 
         notifications = [
             ConversationNotification(
@@ -1530,8 +1514,7 @@ class Query:
                     value=(
                         v
                         if not any(
-                            x in k.upper()
-                            for x in ["KEY", "SECRET", "PASSWORD", "TOKEN"]
+                            x in k.upper() for x in ["KEY", "SECRET", "PASSWORD"]
                         )
                         else "HIDDEN"
                     ),
@@ -1605,8 +1588,8 @@ class Query:
 
         provider_details = []
         for provider in providers:
-            provider_name = list(provider.keys())[0]
-            details = list(provider.values())[0]
+            provider_name = provider["name"]
+            details = provider["details"]
             provider_settings = details["settings"]
 
             # Check if provider is connected
@@ -1754,7 +1737,6 @@ class Query:
                     ExtensionCommand(
                         friendly_name=cmd["friendly_name"],
                         description=cmd["description"],
-                        enabled=cmd["enabled"],
                         command_args=cmd["command_args"],
                         extension_name=ext["extension_name"],
                     )
