@@ -769,29 +769,56 @@ class DetailedChain:
     steps: List[ChainStep]
 
 
-def convert_chain_to_detailed(chain_data: dict, is_global: bool) -> DetailedChain:
+def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
     """Helper to convert chain data to DetailedChain type"""
-    steps = [
-        ChainStep(
-            step=step["step"],
-            agent_name=step["agent_name"],
-            prompt_type=step["prompt_type"],
-            prompt=ChainPrompt(
-                prompt_name=step["prompt"].get("prompt_name"),
-                command_name=step["prompt"].get("command_name"),
-                chain_name=step["prompt"].get("chain_name"),
-                prompt_category=step["prompt"].get("prompt_category", "Default"),
-            ),
-        )
-        for step in chain_data["steps"]
-    ]
+    steps = []
+    chain_steps = chain_data.get("steps", [])
+
+    for step in chain_steps:
+        try:
+            if hasattr(step, "step_number"):  # Handle ChainStep object
+                prompt_data = step.prompt if hasattr(step, "prompt") else {}
+                steps.append(
+                    ChainStep(
+                        step=step.step_number,
+                        agent_name=step.agent_name,
+                        prompt_type=step.prompt_type,
+                        prompt=ChainPrompt(
+                            prompt_name=getattr(prompt_data, "prompt_name", None),
+                            command_name=getattr(prompt_data, "command_name", None),
+                            chain_name=getattr(prompt_data, "chain_name", None),
+                            prompt_category=getattr(
+                                prompt_data, "prompt_category", "Default"
+                            ),
+                        ),
+                    )
+                )
+            else:  # Handle dictionary
+                prompt = step.get("prompt", {})
+                if not isinstance(prompt, dict):
+                    prompt = {}
+
+                steps.append(
+                    ChainStep(
+                        step=step.get("step"),
+                        agent_name=step.get("agent_name"),
+                        prompt_type=step.get("prompt_type"),
+                        prompt=ChainPrompt(
+                            prompt_name=prompt.get("prompt_name"),
+                            command_name=prompt.get("command_name"),
+                            chain_name=prompt.get("chain_name"),
+                            prompt_category=prompt.get("prompt_category", "Default"),
+                        ),
+                    )
+                )
+        except Exception as e:
+            continue
 
     return DetailedChain(
-        id=str(chain_data["id"]),
-        chain_name=chain_data["chain_name"],
+        id=str(chain_data.get("id", "")),
+        chain_name=chain_data.get("chain_name", ""),
         description=chain_data.get("description"),
         steps=steps,
-        is_global=is_global,
     )
 
 
@@ -1832,17 +1859,51 @@ class Query:
         user, auth = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         global_chains = chain_manager.get_global_chains()
-        return [convert_chain_to_detailed(chain, True) for chain in global_chains]
+
+        result = []
+        for chain in global_chains:
+            try:
+                result.append(
+                    convert_chain_to_detailed(
+                        {
+                            "id": chain.get("id"),
+                            "chain_name": chain.get("name"),
+                            "description": chain.get("description"),
+                            "steps": chain.get("steps", []),
+                        },
+                        True,
+                    )
+                )
+            except Exception as e:
+                continue
+
+        return result
 
     @strawberry.field
     async def chains(self, info) -> List[DetailedChain]:
         """Get all user-specific chains"""
         user, auth = await get_user_from_context(info)
         chain_manager = Chain(user=user)
-        return [
-            convert_chain_to_detailed(chain, False)
-            for chain in chain_manager.get_user_chains()
-        ]
+        user_chains = chain_manager.get_user_chains()
+
+        result = []
+        for chain in user_chains:
+            try:
+                result.append(
+                    convert_chain_to_detailed(
+                        {
+                            "id": chain.get("id"),
+                            "chain_name": chain.get("name"),
+                            "description": chain.get("description"),
+                            "steps": chain.get("steps", []),
+                        },
+                        False,
+                    )
+                )
+            except Exception as e:
+                continue
+
+        return result
 
     @strawberry.field
     async def chain(self, info, chain_name: str) -> ChainConfig:
