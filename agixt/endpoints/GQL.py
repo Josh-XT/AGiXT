@@ -29,6 +29,7 @@ import os
 from broadcaster import Broadcast
 from contextlib import asynccontextmanager
 import logging
+import json
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -773,19 +774,24 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
 
     for step in chain_steps:
         try:
-            if hasattr(step, "step_number"):  # Handle ChainStep object
-                prompt_data = step.prompt if hasattr(step, "prompt") else {}
+            if hasattr(step, "step_number"):  # Handle DB.ChainStep object
+                # Parse prompt data from the DB object's prompt field
+                try:
+                    prompt_data = json.loads(step.prompt) if step.prompt else {}
+                except:
+                    prompt_data = {}
+
                 steps.append(
                     ChainStep(
                         step=step.step_number,
-                        agent_name=step.agent_name,
-                        prompt_type=step.prompt_type,
+                        agent_name=step.agent.name if hasattr(step, "agent") else "",
+                        prompt_type=step.prompt_type or "",
                         prompt=ChainPrompt(
-                            prompt_name=getattr(prompt_data, "prompt_name", None),
-                            command_name=getattr(prompt_data, "command_name", None),
-                            chain_name=getattr(prompt_data, "chain_name", None),
-                            prompt_category=getattr(
-                                prompt_data, "prompt_category", "Default"
+                            prompt_name=prompt_data.get("prompt_name"),
+                            command_name=prompt_data.get("command_name"),
+                            chain_name=prompt_data.get("chain_name"),
+                            prompt_category=prompt_data.get(
+                                "prompt_category", "Default"
                             ),
                         ),
                     )
@@ -797,9 +803,11 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
 
                 steps.append(
                     ChainStep(
-                        step=step.get("step"),
-                        agent_name=step.get("agent_name"),
-                        prompt_type=step.get("prompt_type"),
+                        step=step.get(
+                            "step_number", 0
+                        ),  # Changed from "step" to "step_number"
+                        agent_name=step.get("agent_name", ""),
+                        prompt_type=step.get("prompt_type", ""),
                         prompt=ChainPrompt(
                             prompt_name=prompt.get("prompt_name"),
                             command_name=prompt.get("command_name"),
@@ -809,11 +817,12 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
                     )
                 )
         except Exception as e:
-            continue
+            logging.error(f"Error converting chain step: {e}")
+            continue  # Skip invalid steps instead of returning empty list
 
     return DetailedChain(
         id=str(chain_data.get("id", "")),
-        chain_name=chain_data.get("chain_name", ""),
+        chain_name=chain_data.get("name", ""),
         description=chain_data.get("description"),
         steps=steps,
     )
