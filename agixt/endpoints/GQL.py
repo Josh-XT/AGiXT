@@ -729,6 +729,37 @@ class ChainStep:
     prompt: ChainPrompt
 
 
+class ChainDetails:
+    """Represents a chain's full details"""
+
+    id: str
+    name: str
+    description: Optional[str]
+    steps: List[ChainStep]
+    created_at: datetime
+    updated_at: datetime
+    user_id: str
+
+
+@strawberry.type
+class ChainRun:
+    """Represents a single execution run of a chain"""
+
+    id: str
+    timestamp: datetime
+    completed: bool
+
+
+@strawberry.type
+class DetailedChain:
+    """Represents a chain with full details"""
+
+    name: str
+    description: Optional[str]
+    steps: List[ChainStep]
+    runs: List[ChainRun]
+
+
 @strawberry.type
 class ChainConfig:
     """Represents a chain's complete configuration"""
@@ -1761,12 +1792,64 @@ class Query:
         return [convert_extension(ext) for ext in extension_list]
 
     @strawberry.field
-    async def chains(self, info) -> List[str]:
+    async def chain_library(self, info) -> List[DetailedChain]:
+        """Get all global chains"""
         user, auth = await get_user_from_context(info)
-        if not is_admin(email=user, api_key=auth):
-            raise Exception("Access Denied")
         chain_manager = Chain(user=user)
-        return chain_manager.get_chains()
+        global_chains = chain_manager.get_global_chains()
+
+        return [
+            DetailedChain(
+                name=chain["name"],
+                description=chain["description"],
+                steps=[
+                    ChainStep(
+                        step_number=step.step_number,
+                        agent_name=step.agent_name,
+                        prompt_type=step.prompt_type,
+                        prompt_content=step.prompt,
+                    )
+                    for step in chain["steps"]
+                ],
+                runs=[
+                    ChainRun(
+                        id=str(run.id),
+                        timestamp=run.timestamp,
+                        completed=True,  # You may want to add a completed field to your DB model
+                    )
+                    for run in chain["runs"]
+                ],
+            )
+            for chain in global_chains
+        ]
+
+    @strawberry.field
+    async def chains(self, info) -> List[DetailedChain]:
+        """Get all user-specific chains"""
+        user, auth = await get_user_from_context(info)
+        chain_manager = Chain(user=user)
+        user_chains = chain_manager.get_user_chains()
+
+        return [
+            DetailedChain(
+                name=chain["name"],
+                description=chain["description"],
+                steps=[
+                    ChainStep(
+                        step_number=step.step_number,
+                        agent_name=step.agent_name,
+                        prompt_type=step.prompt_type,
+                        prompt_content=step.prompt,
+                    )
+                    for step in chain["steps"]
+                ],
+                runs=[
+                    ChainRun(id=str(run.id), timestamp=run.timestamp, completed=True)
+                    for run in chain["runs"]
+                ],
+            )
+            for chain in user_chains
+        ]
 
     @strawberry.field
     async def chain(self, info, chain_name: str) -> ChainConfig:
