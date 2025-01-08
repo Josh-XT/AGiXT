@@ -167,6 +167,31 @@ class Prompts:
         session.close()
         return prompts
 
+    def get_user_prompts(self):
+        session = get_session()
+        user_prompts = (
+            session.query(Prompt).filter(Prompt.user_id == self.user_id).all()
+        )
+        prompts = []
+        for prompt in user_prompts:
+            try:
+                prompt_args = [
+                    arg.name for arg in prompt.arguments if arg.prompt_id == prompt.id
+                ]
+            except:
+                prompt_args = []
+            prompts.append(
+                {
+                    "name": prompt.name,
+                    "category": prompt.prompt_category.name,
+                    "content": prompt.content,
+                    "description": prompt.description,
+                    "arguments": prompt_args,
+                }
+            )
+        session.close()
+        return prompts
+
     def get_prompts(self, prompt_category="Default"):
         if not prompt_category:
             prompt_category = "Default"
