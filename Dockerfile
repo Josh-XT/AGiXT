@@ -69,6 +69,6 @@ RUN npm install -g prettier && \
     playwright install
 COPY . .
 WORKDIR /agixt
-RUN python /agixt/Transcription.py
+# RUN python /agixt/Transcription.py
 EXPOSE 7437
 ENTRYPOINT ["python3", "DB.py"]
