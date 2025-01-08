@@ -58,8 +58,8 @@ from contextlib import asynccontextmanager
 async def get_user_from_context(info):
     request = info.context["request"]
     try:
-        user = verify_api_key(request)
         auth = request.headers.get("authorization")
+        user = verify_api_key(auth)
         return user, auth
     except HTTPException as e:
         raise Exception(str(e.detail))
