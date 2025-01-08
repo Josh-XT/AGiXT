@@ -1398,9 +1398,7 @@ class Query:
     ) -> NotificationConnection:
         """Get paginated notifications"""
         user, auth = await get_user_from_context(info)
-        result = {
-            "notifications": Conversations(user=user).get_notifications(),
-        }
+        result = (Conversations(user=user).get_notifications(),)
 
         notifications = [
             ConversationNotification(
@@ -1411,7 +1409,7 @@ class Query:
                 role=notif["role"],
                 timestamp=notif["timestamp"],
             )
-            for notif in result.notifications
+            for notif in result
         ]
 
         # Handle pagination
@@ -1515,33 +1513,15 @@ class Query:
         user, auth = await get_user_from_context(info)
         agents = get_agents(user=user)
 
-        # Handle auto-creation of default agent if needed
-        create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
-        if create_agent:
-            agent_list = [agent["name"] for agent in agents]
-            agent_name = getenv("AGIXT_AGENT")
-            if agent_name not in agent_list:
-                agent_config = get_default_agent()
-                agent_settings = agent_config["settings"]
-                agent_commands = agent_config["commands"]
-                create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
-                training_urls = (
-                    get_agixt_training_urls()
-                    if create_agixt_agent and agent_name == "AGiXT"
-                    else agent_config["training_urls"]
-                )
-
-                add_agent(
-                    agent_name=agent_name,
-                    provider_settings=agent_settings,
-                    commands=agent_commands,
-                    user=user,
-                )
-                agents = get_agents(user=user)  # Refresh agent list
-
         result = []
+        magic = MagicalAuth(token=auth)
+
         for agent in agents:
-            agent_instance = Agent(agent_name=agent["name"], user=user)
+            agent_instance = Agent(
+                agent_name=agent["name"],
+                user=user,
+                ApiClient=magic.get_user_agent_session(),
+            )
             config = agent_instance.get_agent_config()
 
             settings = [
@@ -1616,7 +1596,10 @@ class Query:
     async def agent_providers(self, info, agent_name: str) -> List[ProviderDetails]:
         """Get providers available to an agent"""
         user, auth = await get_user_from_context(info)
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         agent_settings = agent.AGENT_CONFIG["settings"]
         providers = get_providers_with_details()
 
@@ -1659,12 +1642,15 @@ class Query:
         user, auth = await get_user_from_context(info)
         if not auth:
             raise Exception("Authorization required")
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        ApiClient = magic.get_user_agent_session()
+        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
             agent_name=agent_name,
             agent_config=agent.get_agent_config(),
             collection_number=collection_number,
             user=user,
+            ApiClient=ApiClient,
         )
 
         results = await memories.get_memories_data(
@@ -1691,12 +1677,15 @@ class Query:
     @strawberry.field
     async def memory_collections(self, info, agent_name: str) -> List[str]:
         user, auth = await get_user_from_context(info)
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        ApiClient = magic.get_user_agent_session()
+        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
             agent_name=agent_name,
             agent_config=agent.get_agent_config(),
             collection_number="0",
             user=user,
+            ApiClient=ApiClient,
         )
         return await memories.get_collections()
 
@@ -1705,7 +1694,9 @@ class Query:
         self, info, agent_name: str, collection_number: str = "0"
     ) -> List[str]:
         user, auth = await get_user_from_context(info)
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        ApiClient = magic.get_user_agent_session()
+        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         agent_config = agent.get_agent_config()
 
         memories = Memories(
@@ -1713,6 +1704,7 @@ class Query:
             agent_config=agent_config,
             collection_number=collection_number,
             user=user,
+            ApiClient=ApiClient,
         )
         return await memories.get_external_data_sources()
 
@@ -1779,7 +1771,10 @@ class Query:
         if not auth:
             raise Exception("Authorization required")
 
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         extension_list = agent.get_agent_extensions()
 
         return [convert_extension(ext) for ext in extension_list]
@@ -2192,7 +2187,12 @@ class Mutation:
         )
 
         if input.training_urls:
-            agent = Agent(agent_name=input.name, user=user)
+            magic = MagicalAuth(token=auth)
+            agent = Agent(
+                agent_name=input.name,
+                user=user,
+                ApiClient=magic.get_user_agent_session(),
+            )
             reader = Websearch(collection_number="0", agent=agent, user=user)
             for url in input.training_urls:
                 await reader.get_web_content(url=url)
@@ -2211,7 +2211,10 @@ class Mutation:
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         settings = {s.name: s.value for s in input.settings}
 
         # Filter out HIDDEN values to not overwrite sensitive data
@@ -2232,7 +2235,10 @@ class Mutation:
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         commands = {c.name: c.enabled for c in input.commands}
 
         result = agent.update_agent_config(new_config=commands, config_key="commands")
@@ -2246,7 +2252,10 @@ class Mutation:
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
-        agent = Agent(agent_name=name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         websearch = Websearch(collection_number="0", agent=agent, user=user)
         await websearch.agent_memory.wipe_memory()
 
@@ -2365,9 +2374,12 @@ class Mutation:
         if len(collection_number) > 4:
             conversation = Conversations(conversation_name=collection_number, user=user)
             collection_number = conversation.get_conversation_id()
-
+        magic = MagicalAuth(token=auth)
         memories = Memories(
-            agent_name=agent_name, collection_number=collection_number, user=user
+            agent_name=agent_name,
+            collection_number=collection_number,
+            user=user,
+            ApiClient=magic.get_user_agent_session(),
         )
 
         return await memories.write_text_to_memory(
@@ -2448,7 +2460,10 @@ class Mutation:
         """Learn from URL content"""
         user, auth = await get_user_from_context(info)
 
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         url = input.url.replace(" ", "%20")
 
         websearch = Websearch(
@@ -2480,11 +2495,12 @@ class Mutation:
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
-
+        magic = MagicalAuth(token=auth)
         memories = Memories(
             agent_name=agent_name,
             collection_number=collection_number if collection_number else "0",
             user=user,
+            ApiClient=magic.get_user_agent_session(),
         )
 
         return await memories.wipe_memory()
@@ -2597,9 +2613,12 @@ class Mutation:
     ) -> bool:
         """Delete a specific memory by ID"""
         user, auth = await get_user_from_context(info)
-
+        magic = MagicalAuth(token=auth)
         memories = Memories(
-            agent_name=agent_name, collection_number=collection_number, user=user
+            agent_name=agent_name,
+            collection_number=collection_number,
+            user=user,
+            ApiClient=magic.get_user_agent_session(),
         )
 
         return await memories.delete_memory(key=memory_id)
@@ -2613,9 +2632,12 @@ class Mutation:
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
-
+        magic = MagicalAuth(token=auth)
         memories = Memories(
-            agent_name=agent_name, collection_number=collection_number, user=user
+            agent_name=agent_name,
+            collection_number=collection_number,
+            user=user,
+            ApiClient=magic.get_user_agent_session(),
         )
 
         return await memories.delete_memories_from_external_source(
@@ -2628,9 +2650,14 @@ class Mutation:
     ) -> List[MemoryExportCollection]:
         """Export all agent memories"""
         user, auth = await get_user_from_context(info)
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        ApiClient = magic.get_user_agent_session()
+        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
-            agent_name=agent_name, agent_config=agent.get_agent_config(), user=user
+            agent_name=agent_name,
+            agent_config=agent.get_agent_config(),
+            user=user,
+            ApiClient=ApiClient,
         )
 
         raw_data = await memories.export_collections_to_json()
@@ -2659,9 +2686,14 @@ class Mutation:
         """Import memories for an agent"""
         user, auth = await get_user_from_context(info)
 
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        ApiClient = magic.get_user_agent_session()
+        agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
-            agent_name=agent_name, agent_config=agent.get_agent_config(), user=user
+            agent_name=agent_name,
+            agent_config=agent.get_agent_config(),
+            user=user,
+            ApiClient=ApiClient,
         )
 
         # Convert typed data to format expected by import function
@@ -2696,7 +2728,10 @@ class Mutation:
         # Convert input args to dictionary format expected by extensions
         command_args = {arg.name: arg.value for arg in input.command_args}
 
-        agent = Agent(agent_name=agent_name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         agent_config = agent.get_agent_config()
 
         conversation_id = None
