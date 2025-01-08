@@ -1303,7 +1303,7 @@ class Query:
         """Get paginated list of conversations with details"""
         user, auth = await get_user_from_context(info)
         c = Conversations(user=user)
-        result = {"conversations": c.get_conversations_with_detail()}
+        result = c.get_conversations_with_detail()
 
         # Convert dictionary to list and sort by updated_at
         conversations = [
@@ -1317,7 +1317,7 @@ class Query:
                 summary=details["summary"],
                 attachment_count=details["attachment_count"],
             )
-            for id, details in result.conversations.items()
+            for id, details in result.items()
         ]
         conversations.sort(key=lambda x: x.updated_at, reverse=True)
 
@@ -1579,7 +1579,10 @@ class Query:
     @strawberry.field
     async def agent(self, info, name: str) -> AgentType:
         user, auth = await get_user_from_context(info)
-        agent = Agent(agent_name=name, user=user)
+        magic = MagicalAuth(token=auth)
+        agent = Agent(
+            agent_name=name, user=user, ApiClient=magic.get_user_agent_session()
+        )
         config = agent.get_agent_config()
 
         settings = [
