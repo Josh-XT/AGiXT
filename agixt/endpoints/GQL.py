@@ -1469,11 +1469,38 @@ class Query:
         )
 
     @strawberry.field
-    async def prompts(self, info, category: str = "Default") -> List[PromptType]:
+    async def prompts(self, info) -> List[PromptType]:
         """Get all prompts in a category"""
         user, auth = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
-        return prompt_manager.get_prompts(prompt_category=category)
+        result = prompt_manager.get_user_prompts()
+        return [
+            PromptType(
+                name=prompt["name"],
+                content=prompt["content"],
+                category=prompt["category"],
+                description=prompt["description"],
+                arguments=[PromptArgument(name=arg) for arg in prompt["arguments"]],
+            )
+            for prompt in result
+        ]
+
+    @strawberry.field
+    async def promptLibrary(self, info) -> List[PromptType]:
+        """Get all prompts in a category"""
+        user, auth = await get_user_from_context(info)
+        prompt_manager = Prompts(user=user)
+        result = prompt_manager.get_global_prompts()
+        return [
+            PromptType(
+                name=prompt["name"],
+                content=prompt["content"],
+                category=prompt["category"],
+                description=prompt["description"],
+                arguments=[PromptArgument(name=arg) for arg in prompt["arguments"]],
+            )
+            for prompt in result
+        ]
 
     @strawberry.field
     async def prompt_categories(self, info) -> List[str]:
