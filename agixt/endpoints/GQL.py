@@ -2548,7 +2548,7 @@ class Mutation:
 
         return True
 
-    @strawberry.mutation
+    # @strawberry.mutation
     async def create_dataset(self, info, agent_name: str, input: DatasetInput) -> bool:
         """Create training dataset from memories"""
         user, auth = await get_user_from_context(info)
@@ -2569,7 +2569,7 @@ class Mutation:
 
         return True
 
-    @strawberry.mutation
+    # @strawberry.mutation
     async def generate_dpo(self, info, agent_name: str, input: DPOInput) -> DPOResult:
         """Generate DPO response for input"""
         user, auth = await get_user_from_context(info)
