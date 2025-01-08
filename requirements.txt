@@ -36,3 +36,4 @@ apache-libcloud
 watchdog
 strawberry-graphql[fastapi]
 broadcaster
+gql
