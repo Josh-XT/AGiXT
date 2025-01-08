@@ -244,6 +244,7 @@ from endpoints.GQL import schema as graphql_schema
 
 graphql_app = GraphQLRouter(
     graphql_schema,
+    subscription_protocols=["graphql-ws", "graphql-transport-ws"],
     graphiql=True,  # Set to False in production if you don't want the GraphiQL interface
 )
 app.include_router(graphql_app, prefix="/graphql")
