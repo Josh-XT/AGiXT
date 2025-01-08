@@ -106,6 +106,44 @@ class Chain:
         session.close()
         return chain_data
 
+    def get_global_chains(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        global_chains = (
+            session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
+        )
+        chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
+        chain_list = []
+        for chain in global_chains:
+            if chain in chains:
+                continue
+            chain_list.append(
+                {
+                    "name": chain.name,
+                    "description": chain.description,
+                    "steps": chain.steps,
+                    "runs": chain.runs,
+                }
+            )
+        session.close()
+        return chain_list
+
+    def get_user_chains(self):
+        session = get_session()
+        chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
+        chain_list = []
+        for chain in chains:
+            chain_list.append(
+                {
+                    "name": chain.name,
+                    "description": chain.description,
+                    "steps": chain.steps,
+                    "runs": chain.runs,
+                }
+            )
+        session.close()
+        return chain_list
+
     def get_chains(self):
         session = get_session()
         user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
