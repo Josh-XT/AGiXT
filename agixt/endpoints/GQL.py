@@ -1346,50 +1346,196 @@ async def get_broadcaster():
 
 
 @strawberry.type
+class AppState:
+    """Represents the complete application state"""
+
+    user: UserDetail
+    conversations: ConversationConnection
+    current_conversation: Optional[ConversationDetail] = None
+    notifications: Optional[List[ConversationNotification]] = None
+
+
+@strawberry.type
+class AppStateEvent:
+    """Event type for app state updates"""
+
+    state: AppState
+
+
+@strawberry.type
 class Subscription:
     @strawberry.subscription
-    async def message_added(
-        self, info, conversation_id: str
-    ) -> AsyncGenerator[MessageEvent, None]:
-        """Subscribe to new messages in a specific conversation"""
+    async def app_state(
+        self,
+        info,
+        conversation_id: Optional[str] = None,
+        pagination: Optional[PaginationInput] = None,
+    ) -> AsyncGenerator[AppStateEvent, None]:
+        """
+        Subscribe to app state updates including user details, conversations list,
+        and optionally a specific conversation's details.
+        """
         user, auth = await get_user_from_context(info)
 
-        async with get_broadcaster() as broadcaster:
-            async with broadcaster.subscribe(
-                channel=f"messages_{conversation_id}"
-            ) as subscriber:
-                async for event in subscriber:
-                    yield MessageEvent(
-                        conversation_id=conversation_id, message=event.message
+        # Get user details
+        auth_manager = MagicalAuth(token=auth)
+        user_data = auth_manager.login(ip_address=info.context["request"].client.host)
+        preferences_dict = auth_manager.get_user_preferences()
+        preferences = convert_preferences_to_type(preferences_dict)
+        companies = auth_manager.get_user_companies_with_roles()
+
+        user_detail = UserDetail(
+            id=str(user_data.id),
+            email=user_data.email,
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
+            companies=[
+                CompanyInfo(
+                    id=str(company["id"]),
+                    name=company["name"],
+                    company_id=(
+                        str(company["company_id"])
+                        if company.get("company_id")
+                        else None
+                    ),
+                    agents=[
+                        AgentInfo(
+                            name=agent["name"],
+                            id=agent["id"],
+                            status=agent["status"],
+                            company_id=agent.get("company_id"),
+                        )
+                        for agent in company.get("agents", [])
+                    ],
+                    role_id=company.get("role_id"),
+                    primary=company.get("primary", False),
+                )
+                for company in companies
+            ],
+            preferences=preferences,
+        )
+
+        # Setup initial state
+        async def get_app_state():
+            # Get conversations
+            c = Conversations(user=user)
+            result = c.get_conversations_with_detail()
+
+            conversations = [
+                ConversationMetadata(
+                    id=id,
+                    name=details["name"],
+                    agent_id=details["agent_id"],
+                    created_at=details["created_at"],
+                    updated_at=details["updated_at"],
+                    has_notifications=details["has_notifications"],
+                    summary=details["summary"],
+                    attachment_count=details["attachment_count"],
+                )
+                for id, details in result.items()
+            ]
+            conversations.sort(key=lambda x: x.updated_at, reverse=True)
+
+            # Handle pagination
+            page = pagination.page if pagination else 1
+            limit = pagination.limit if pagination else 100
+            total_items = len(conversations)
+            total_pages = -(-total_items // limit)  # Ceiling division
+            start_idx = (page - 1) * limit
+            end_idx = start_idx + limit
+
+            page_info = PageInfo(
+                has_next_page=end_idx < total_items,
+                has_previous_page=page > 1,
+                total_pages=total_pages,
+                total_items=total_items,
+                current_page=page,
+                items_per_page=limit,
+            )
+
+            conversation_connection = ConversationConnection(
+                page_info=page_info, edges=conversations[start_idx:end_idx]
+            )
+
+            # Get current conversation if ID provided
+            current_conversation = None
+            if conversation_id:
+                conversation_name = get_conversation_name_by_id(conversation_id)
+                c = Conversations(user=user, conversation_name=conversation_name)
+                conv_result = {"conversations": c.get_conversations_with_detail()}
+
+                if conversation_id in conv_result["conversations"]:
+                    details = conv_result["conversations"][conversation_id]
+                    metadata = ConversationMetadata(
+                        id=conversation_id,
+                        name=details["name"],
+                        agent_id=details["agent_id"],
+                        created_at=details["created_at"],
+                        updated_at=details["updated_at"],
+                        has_notifications=details["has_notifications"],
+                        summary=details["summary"],
+                        attachment_count=details["attachment_count"],
                     )
 
-    @strawberry.subscription
-    async def conversation_updated(
-        self, info
-    ) -> AsyncGenerator[ConversationEvent, None]:
-        """Subscribe to conversation updates (creation, deletion, renaming)"""
-        user, auth = await get_user_from_context(info)
+                    c = Conversations(user=user, conversation_name=metadata.name)
+                    history_result = c.get_conversation()
 
+                    messages = [
+                        ConversationMessage(
+                            id=msg["id"],
+                            role=msg["role"],
+                            message=msg["message"],
+                            timestamp=msg["timestamp"],
+                            updated_at=msg["updated_at"],
+                            updated_by=msg["updated_by"],
+                            feedback_received=msg["feedback_received"],
+                        )
+                        for msg in history_result.conversation_history
+                    ]
+
+                    current_conversation = ConversationDetail(
+                        metadata=metadata, messages=messages
+                    )
+            notification_data = c.get_notifications()
+            notifications = [
+                ConversationNotification(
+                    conversation_id=notif["conversation_id"],
+                    conversation_name=notif["conversation_name"],
+                    message_id=notif["message_id"],
+                    message=notif["message"],
+                    role=notif["role"],
+                    timestamp=notif["timestamp"],
+                )
+                for notif in notification_data
+            ]
+
+            return AppState(
+                user=user_detail,
+                conversations=conversation_connection,
+                current_conversation=current_conversation,
+                notifications=(notifications if notifications else None),
+            )
+
+        # Subscribe to all relevant channels
         async with get_broadcaster() as broadcaster:
-            async with broadcaster.subscribe(
-                channel=f"conversations_{user}"
-            ) as subscriber:
-                async for event in subscriber:
-                    yield ConversationEvent(conversation=event.conversation)
+            # Create combined channel name
+            channels = [f"conversations_{user}"]
+            if conversation_id:
+                channels.append(f"messages_{conversation_id}")
+            channels.append(f"notifications_{user}")
+            # Subscribe to all channels
+            combined_subscriber = broadcaster.subscribe(channels=channels)
 
-    @strawberry.subscription
-    async def notification_received(
-        self, info
-    ) -> AsyncGenerator[NotificationEvent, None]:
-        """Subscribe to new notifications"""
-        user, auth = await get_user_from_context(info)
+            # Send initial state
+            initial_state = await get_app_state()
+            yield AppStateEvent(state=initial_state)
 
-        async with get_broadcaster() as broadcaster:
-            async with broadcaster.subscribe(
-                channel=f"notifications_{user}"
-            ) as subscriber:
+            # Listen for updates
+            async with combined_subscriber as subscriber:
                 async for event in subscriber:
-                    yield NotificationEvent(notification=event.notification)
+                    # Get fresh state after any update
+                    updated_state = await get_app_state()
+                    yield AppStateEvent(state=updated_state)
 
 
 # Query type with pagination
