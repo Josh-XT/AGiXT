@@ -769,63 +769,83 @@ class DetailedChain:
 
 def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
     """Helper to convert chain data to DetailedChain type"""
+    logging.info(f"Converting chain data: {chain_data}")
     steps = []
     chain_steps = chain_data.get("steps", [])
 
+    # Handle case where chain_steps might be a SQLAlchemy relationship
+    if hasattr(chain_steps, "all"):
+        chain_steps = chain_steps.all()
+
+    logging.info(f"Processing chain steps: {chain_steps}")
+
     for step in chain_steps:
         try:
-            if hasattr(step, "step_number"):  # Handle DB.ChainStep object
-                # Parse prompt data from the DB object's prompt field
+            if hasattr(step, "_sa_instance_state"):  # SQLAlchemy model object
+                logging.info(f"Processing SQLAlchemy step: {step.__dict__}")
+                # Get agent name through relationship if it exists
+                agent_name = ""
+                if hasattr(step, "agent"):
+                    agent = step.agent
+                    if agent:
+                        agent_name = agent.name
+
+                # Parse prompt JSON if it exists
                 try:
-                    prompt_data = json.loads(step.prompt) if step.prompt else {}
-                except:
-                    prompt_data = {}
+                    prompt_dict = json.loads(step.prompt) if step.prompt else {}
+                except (json.JSONDecodeError, TypeError):
+                    prompt_dict = {}
 
-                steps.append(
-                    ChainStep(
-                        step=step.step_number,
-                        agent_name=step.agent.name if hasattr(step, "agent") else "",
-                        prompt_type=step.prompt_type or "",
-                        prompt=ChainPrompt(
-                            prompt_name=prompt_data.get("prompt_name"),
-                            command_name=prompt_data.get("command_name"),
-                            chain_name=prompt_data.get("chain_name"),
-                            prompt_category=prompt_data.get(
-                                "prompt_category", "Default"
-                            ),
-                        ),
-                    )
+                logging.info(f"Parsed prompt data: {prompt_dict}")
+
+                new_step = ChainStep(
+                    step=step.step_number,
+                    agent_name=agent_name,
+                    prompt_type=step.prompt_type or "",
+                    prompt=ChainPrompt(
+                        prompt_name=prompt_dict.get("prompt_name"),
+                        command_name=prompt_dict.get("command_name"),
+                        chain_name=prompt_dict.get("chain_name"),
+                        prompt_category=prompt_dict.get("prompt_category", "Default"),
+                    ),
                 )
-            else:  # Handle dictionary
+                steps.append(new_step)
+            else:  # Dictionary
+                logging.info(f"Processing dictionary step: {step}")
                 prompt = step.get("prompt", {})
-                if not isinstance(prompt, dict):
-                    prompt = {}
+                if isinstance(prompt, str):
+                    try:
+                        prompt = json.loads(prompt)
+                    except json.JSONDecodeError:
+                        prompt = {}
 
-                steps.append(
-                    ChainStep(
-                        step=step.get(
-                            "step_number", 0
-                        ),  # Changed from "step" to "step_number"
-                        agent_name=step.get("agent_name", ""),
-                        prompt_type=step.get("prompt_type", ""),
-                        prompt=ChainPrompt(
-                            prompt_name=prompt.get("prompt_name"),
-                            command_name=prompt.get("command_name"),
-                            chain_name=prompt.get("chain_name"),
-                            prompt_category=prompt.get("prompt_category", "Default"),
-                        ),
-                    )
+                new_step = ChainStep(
+                    step=step.get("step_number", 0),
+                    agent_name=step.get("agent_name", ""),
+                    prompt_type=step.get("prompt_type", ""),
+                    prompt=ChainPrompt(
+                        prompt_name=prompt.get("prompt_name"),
+                        command_name=prompt.get("command_name"),
+                        chain_name=prompt.get("chain_name"),
+                        prompt_category=prompt.get("prompt_category", "Default"),
+                    ),
                 )
-        except Exception as e:
-            logging.error(f"Error converting chain step: {e}")
-            continue  # Skip invalid steps instead of returning empty list
+                steps.append(new_step)
 
-    return DetailedChain(
-        id=str(chain_data.get("id", "")),
-        chain_name=chain_data.get("name", ""),
-        description=chain_data.get("description"),
-        steps=steps,
+        except Exception as e:
+            logging.error(f"Error converting step: {str(e)}", exc_info=True)
+            continue
+
+    # Get ID and name, handling both dictionary and SQLAlchemy object cases
+    chain_id = str(getattr(chain_data, "id", chain_data.get("id", "")))
+    chain_name = getattr(chain_data, "name", chain_data.get("name", ""))
+    description = getattr(chain_data, "description", chain_data.get("description"))
+
+    result = DetailedChain(
+        id=chain_id, chain_name=chain_name, description=description, steps=steps
     )
+    logging.info(f"Conversion result: {result}")
+    return result
 
 
 @strawberry.type
@@ -1865,25 +1885,37 @@ class Query:
         user, auth = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         global_chains = chain_manager.get_global_chains()
-        logging.info(f"Global chains: {global_chains}")
+        logging.info(f"Raw global chains from manager: {global_chains}")
 
         result = []
         for chain in global_chains:
             try:
-                result.append(
-                    convert_chain_to_detailed(
-                        {
-                            "id": chain.get("id"),
-                            "chain_name": chain.get("name"),
-                            "description": chain.get("description"),
-                            "steps": chain.get("steps", []),
-                        },
-                        True,
-                    )
+                logging.info(f"Converting global chain: {chain}")
+                logging.info(f"Chain steps: {chain.get('steps', [])}")
+
+                # Log each step's data
+                for step in chain.get("steps", []):
+                    if hasattr(step, "__dict__"):
+                        logging.info(f"Step attributes: {step.__dict__}")
+                    else:
+                        logging.info(f"Step data: {step}")
+
+                converted_chain = convert_chain_to_detailed(
+                    {
+                        "id": chain.get("id"),
+                        "name": chain.get("name"),
+                        "description": chain.get("description"),
+                        "steps": chain.get("steps", []),
+                    }
                 )
+                logging.info(f"Converted global chain: {converted_chain}")
+                if converted_chain:
+                    result.append(converted_chain)
             except Exception as e:
+                logging.error(f"Error converting global chain {chain.get('name')}: {e}")
                 continue
 
+        logging.info(f"Final global chains result: {result}")
         return result
 
     @strawberry.field
@@ -1892,24 +1924,37 @@ class Query:
         user, auth = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         user_chains = chain_manager.get_user_chains()
-        logging.info(f"User chains: {user_chains}")
+        logging.info(f"Raw user chains from manager: {user_chains}")
+
         result = []
         for chain in user_chains:
             try:
-                result.append(
-                    convert_chain_to_detailed(
-                        {
-                            "id": chain.get("id"),
-                            "chain_name": chain.get("name"),
-                            "description": chain.get("description"),
-                            "steps": chain.get("steps", []),
-                        },
-                        False,
-                    )
+                logging.info(f"Converting user chain: {chain}")
+                logging.info(f"Chain steps: {chain.get('steps', [])}")
+
+                # Log each step's data
+                for step in chain.get("steps", []):
+                    if hasattr(step, "__dict__"):
+                        logging.info(f"Step attributes: {step.__dict__}")
+                    else:
+                        logging.info(f"Step data: {step}")
+
+                converted_chain = convert_chain_to_detailed(
+                    {
+                        "id": chain.get("id"),
+                        "name": chain.get("name"),
+                        "description": chain.get("description"),
+                        "steps": chain.get("steps", []),
+                    }
                 )
+                logging.info(f"Converted user chain: {converted_chain}")
+                if converted_chain:
+                    result.append(converted_chain)
             except Exception as e:
+                logging.error(f"Error converting user chain {chain.get('name')}: {e}")
                 continue
 
+        logging.info(f"Final user chains result: {result}")
         return result
 
     @strawberry.field
