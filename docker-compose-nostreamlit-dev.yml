@@ -37,6 +37,7 @@ services:
       AWS_STORAGE_REGION: ${AWS_STORAGE_REGION:-us-east-1}
       AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
       AZURE_STORAGE_KEY: ${AZURE_STORAGE_KEY:-}
+      GRAPHIQL: ${GRAPHIQL:-true}
       TZ: ${TZ:-America/New_York}
     ports:
       - "${AGIXT_PORT:-7437}:7437"
