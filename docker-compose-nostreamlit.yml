@@ -1,15 +1,4 @@
 services:
-  minio:
-    image: minio/minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: ${AGIXT_API_KEY:-None}
-    command: server --console-address ":9001" /data
-    volumes:
-      - ./WORKSPACE:/data
   agixt:
     image: joshxt/agixt:latest
     init: true
@@ -53,6 +42,7 @@ services:
       - "${AGIXT_PORT:-7437}:7437"
     volumes:
       - ./models:/agixt/models
+      - ./WORKSPACE:/agixt/WORKSPACE
       - ./agixt/agents:/agixt/agents
       - ./agixt/prompts:/agixt/prompts
       - ./agixt/chains:/agixt/chains
