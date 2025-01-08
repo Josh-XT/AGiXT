@@ -21,22 +21,19 @@ from Memories import Memories
 from Extensions import Extensions
 from MagicalAuth import MagicalAuth, impersonate_user
 from Models import ChatCompletions
-from Globals import getenv, get_default_agent, get_agixt_training_urls
+from Globals import getenv
 import asyncio
 import base64
 import uuid
 import os
-
-
-try:
-    from broadcaster import Broadcast
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "broadcaster"])
-    from broadcaster import Broadcast
+from broadcaster import Broadcast
 from contextlib import asynccontextmanager
+import logging
+
+logging.basicConfig(
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
+)
 
 
 # Helper for auth
@@ -1859,6 +1856,7 @@ class Query:
         user, auth = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         global_chains = chain_manager.get_global_chains()
+        logging.info(f"Global chains: {global_chains}")
 
         result = []
         for chain in global_chains:
@@ -1885,7 +1883,7 @@ class Query:
         user, auth = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         user_chains = chain_manager.get_user_chains()
-
+        logging.info(f"User chains: {user_chains}")
         result = []
         for chain in user_chains:
             try:
