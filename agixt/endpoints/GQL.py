@@ -1198,6 +1198,17 @@ def convert_preferences_to_dict(prefs: UserPreferences) -> dict:
     return result
 
 
+def convert_extension(ext: dict) -> Extension:
+    """Helper to convert raw extension data to Extension type"""
+    return Extension(
+        extension_name=ext.get("extension_name", ""),
+        description=ext.get("description", ""),
+        settings=ext.get("settings", []),
+        commands=[convert_extension_command(cmd) for cmd in ext.get("commands", [])],
+        missing_keys=ext.get("missing_keys", []),
+    )
+
+
 def convert_settings_to_type(settings_dict: Dict[str, str]) -> List[ProviderSetting]:
     """Convert settings dictionary to list of ProviderSetting objects"""
     return [
@@ -1218,17 +1229,20 @@ def convert_provider_details(details: Dict[str, str]) -> ProviderDetail:
 
 
 def convert_extension_command(raw_command: dict) -> ExtensionCommand:
-    """Helper to convert raw command data to ExtensionCommand type"""
     command_args = ExtensionCommandArgs(
         required=raw_command.get("command_args", {}).get("required", []),
         optional=raw_command.get("command_args", {}).get("optional", []),
         description=raw_command.get("command_args", {}).get("description", ""),
     )
 
+    enabled = raw_command.get("enabled", False)
+    if not isinstance(enabled, bool):
+        enabled = False
+
     return ExtensionCommand(
         friendly_name=raw_command.get("friendly_name", ""),
         description=raw_command.get("description", ""),
-        enabled=raw_command.get("enabled", False),
+        enabled=enabled,
         command_args=command_args,
         extension_name=raw_command.get("extension_name", ""),
     )
@@ -1254,7 +1268,7 @@ class Subscription:
         self, info, conversation_id: str
     ) -> AsyncGenerator[MessageEvent, None]:
         """Subscribe to new messages in a specific conversation"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
 
         async with get_broadcaster() as broadcaster:
             async with broadcaster.subscribe(
@@ -1270,7 +1284,7 @@ class Subscription:
         self, info
     ) -> AsyncGenerator[ConversationEvent, None]:
         """Subscribe to conversation updates (creation, deletion, renaming)"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
 
         async with get_broadcaster() as broadcaster:
             async with broadcaster.subscribe(
@@ -1284,7 +1298,7 @@ class Subscription:
         self, info
     ) -> AsyncGenerator[NotificationEvent, None]:
         """Subscribe to new notifications"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
 
         async with get_broadcaster() as broadcaster:
             async with broadcaster.subscribe(
@@ -1302,8 +1316,8 @@ class Query:
         self, info, pagination: Optional[PaginationInput] = None
     ) -> ConversationConnection:
         """Get paginated list of conversations with details"""
-        user = await verify_api_key(info.context["request"])
-        result = await rest_get_conversations(user=user)
+        user, auth = await get_user_from_context(info)
+        result = await rest_get_conversations(user=user, authorization=auth)
 
         # Convert dictionary to list and sort by updated_at
         conversations = [
@@ -1397,8 +1411,8 @@ class Query:
         self, info, pagination: Optional[PaginationInput] = None
     ) -> NotificationConnection:
         """Get paginated notifications"""
-        user = await verify_api_key(info.context["request"])
-        result = await rest_get_notifications(user=user)
+        user, auth = await get_user_from_context(info)
+        result = await rest_get_notifications(user=user, authorization=auth)
 
         notifications = [
             ConversationNotification(
@@ -1447,7 +1461,7 @@ class Query:
     @strawberry.field
     async def prompt(self, info, name: str, category: str = "Default") -> PromptType:
         """Get a specific prompt by name and category"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
 
         content = prompt_manager.get_prompt(prompt_name=name, prompt_category=category)
@@ -1469,14 +1483,14 @@ class Query:
     @strawberry.field
     async def prompts(self, info, category: str = "Default") -> List[PromptType]:
         """Get all prompts in a category"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
         return prompt_manager.get_prompts(prompt_category=category)
 
     @strawberry.field
     async def prompt_categories(self, info) -> List[str]:
         """Get all prompt categories"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
         return prompt_manager.get_prompt_categories()
 
@@ -1674,9 +1688,11 @@ class Query:
     ) -> List[str]:
         user, auth = await get_user_from_context(info)
         agent = Agent(agent_name=agent_name, user=user)
+        agent_config = agent.get_agent_config()
+
         memories = Memories(
             agent_name=agent_name,
-            agent_config=agent.get_agent_config(),
+            agent_config=agent_config,
             collection_number=collection_number,
             user=user,
         )
@@ -1748,29 +1764,13 @@ class Query:
         agent = Agent(agent_name=agent_name, user=user)
         extension_list = agent.get_agent_extensions()
 
-        return [
-            Extension(
-                extension_name=ext["extension_name"],
-                description=ext["description"],
-                settings=ext["settings"],
-                commands=[
-                    ExtensionCommand(
-                        friendly_name=cmd["friendly_name"],
-                        description=cmd["description"],
-                        enabled=cmd["enabled"],
-                        command_args=cmd["command_args"],
-                        extension_name=ext["extension_name"],
-                    )
-                    for cmd in ext["commands"]
-                ],
-                missing_keys=ext.get("missing_keys", []),
-            )
-            for ext in extension_list
-        ]
+        return [convert_extension(ext) for ext in extension_list]
 
     @strawberry.field
     async def chains(self, info) -> List[str]:
         user, auth = await get_user_from_context(info)
+        if not is_admin(email=user, api_key=auth):
+            raise Exception("Access Denied")
         chain_manager = Chain(user=user)
         return chain_manager.get_chains()
 
@@ -1804,7 +1804,7 @@ class Query:
         """Get available arguments for a chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -1924,7 +1924,7 @@ class Mutation:
         self, info, input: ConversationHistoryInput
     ) -> ConversationHistory:
         """Create a new conversation"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
         result = await rest_new_conversation(history=model, user=user)
 
@@ -1991,7 +1991,7 @@ class Mutation:
         self, info, message_id: str, input: MessageByIdInput
     ) -> MutationResponse:
         """Update a message by its ID"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         model = UpdateMessageModel(**input.__dict__)
         result = await rest_update_by_id(
             message_id=message_id, history=model, user=user
@@ -2003,7 +2003,7 @@ class Mutation:
         self, info, input: ConversationHistoryMessageInput
     ) -> MutationResponse:
         """Delete a message by its content"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         model = ConversationHistoryMessageModel(**input.__dict__)
         result = await rest_delete_message(history=model, user=user)
         return MutationResponse(success=True, message=result.message)
@@ -2013,7 +2013,7 @@ class Mutation:
         self, info, message_id: str, conversation_name: str
     ) -> MutationResponse:
         """Delete a message by its ID"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         model = DeleteMessageModel(conversation_name=conversation_name)
         result = await rest_delete_by_id(
             message_id=message_id, history=model, user=user
@@ -2025,7 +2025,7 @@ class Mutation:
         self, info, input: ConversationForkInput
     ) -> MutationResponse:
         """Fork a conversation"""
-        user = await verify_api_key(info.context["request"])
+        user, auth = await get_user_from_context(info)
         model = ConversationFork(**input.__dict__)
         result = await rest_fork_conversation(fork=model, user=user)
         return MutationResponse(success=True, message=result.message)
@@ -2163,7 +2163,7 @@ class Mutation:
     async def create_agent(self, info, input: CreateAgentInput) -> AgentResponse:
         """Create a new agent"""
         user, auth = await get_user_from_context(info)
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         settings = {s.name: s.value for s in input.settings}
@@ -2193,7 +2193,7 @@ class Mutation:
     ) -> AgentResponse:
         """Update an agent's settings"""
         user, auth = await get_user_from_context(info)
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         agent = Agent(agent_name=agent_name, user=user)
@@ -2214,7 +2214,7 @@ class Mutation:
     ) -> AgentResponse:
         """Update an agent's commands"""
         user, auth = await get_user_from_context(info)
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         agent = Agent(agent_name=agent_name, user=user)
@@ -2228,7 +2228,7 @@ class Mutation:
     async def delete_agent(self, info, name: str) -> AgentResponse:
         """Delete an agent"""
         user, auth = await get_user_from_context(info)
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         agent = Agent(agent_name=name, user=user)
@@ -2242,7 +2242,7 @@ class Mutation:
     async def rename_agent(self, info, old_name: str, new_name: str) -> AgentResponse:
         """Rename an agent"""
         user, auth = await get_user_from_context(info)
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         result = rename_agent(agent_name=old_name, new_name=new_name, user=user)
@@ -2463,7 +2463,7 @@ class Mutation:
         """Wipe agent memories - optionally from specific collection"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         memories = Memories(
@@ -2541,7 +2541,7 @@ class Mutation:
         """Create training dataset from memories"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2596,7 +2596,7 @@ class Mutation:
         """Delete all memories from a specific external source"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         memories = Memories(
@@ -2675,7 +2675,7 @@ class Mutation:
         """Execute a command for an agent"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         # Convert input args to dictionary format expected by extensions
@@ -2716,7 +2716,7 @@ class Mutation:
         """Create a new chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -2739,7 +2739,7 @@ class Mutation:
         """Delete an existing chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -2751,7 +2751,7 @@ class Mutation:
         """Rename an existing chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -2763,7 +2763,7 @@ class Mutation:
         """Add a step to an existing chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -2783,7 +2783,7 @@ class Mutation:
         """Update an existing chain step"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -2801,7 +2801,7 @@ class Mutation:
         """Delete a step from a chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -2815,7 +2815,7 @@ class Mutation:
         """Move a step to a new position in the chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
@@ -2831,7 +2831,7 @@ class Mutation:
         """Execute a chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         agent_name = input.agent_override or "gpt4free"
@@ -2862,7 +2862,7 @@ class Mutation:
         """Execute a specific step in a chain"""
         user, auth = await get_user_from_context(info)
 
-        if not await is_admin(email=user, api_key=auth):
+        if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         chain_manager = Chain(user=user)
