@@ -1,21 +1,6 @@
 from typing import List, Optional, Dict
 import strawberry
 from fastapi import HTTPException
-from endpoints.Conversation import (
-    get_conversations as rest_get_conversations,
-    get_conversation_history as rest_get_conversation_history,
-    new_conversation_history as rest_new_conversation,
-    delete_conversation_history as rest_delete_conversation,
-    delete_history_message as rest_delete_message,
-    update_history_message as rest_update_message,
-    update_by_id as rest_update_by_id,
-    delete_by_id as rest_delete_by_id,
-    log_interaction as rest_log_interaction,
-    rename_conversation as rest_rename_conversation,
-    fork_conversation as rest_fork_conversation,
-    get_tts as rest_get_tts,
-    get_notifications as rest_get_notifications,
-)
 from Providers import get_providers_with_details
 from Prompts import Prompts
 from Websearch import Websearch
@@ -1317,7 +1302,8 @@ class Query:
     ) -> ConversationConnection:
         """Get paginated list of conversations with details"""
         user, auth = await get_user_from_context(info)
-        result = await rest_get_conversations(user=user, authorization=auth)
+        c = Conversations(user=user)
+        result = {"conversations": c.get_conversations_with_detail()}
 
         # Convert dictionary to list and sort by updated_at
         conversations = [
@@ -1362,9 +1348,10 @@ class Query:
     ) -> ConversationDetail:
         """Get conversation details and paginated messages"""
         user, auth = await get_user_from_context(info)
-
+        conversation_name = get_conversation_name_by_id(conversation_id)
         # Get conversation metadata
-        result = await rest_get_conversations(user=user)
+        c = Conversations(user=user, conversation_name=conversation_name)
+        result = {"conversations": c.get_conversations_with_detail()}
         if conversation_id not in result.conversations:
             raise Exception(f"Conversation {conversation_id} not found")
 
@@ -1381,9 +1368,8 @@ class Query:
         )
 
         # Get messages with pagination
-        history_result = await rest_get_conversation_history(
-            conversation_id=conversation_id, user=user, authorization=auth
-        )
+        c = Conversations(user=user, conversation_name=metadata.name)
+        history_result = c.get_conversation()
 
         messages = [
             ConversationMessage(
@@ -1412,7 +1398,9 @@ class Query:
     ) -> NotificationConnection:
         """Get paginated notifications"""
         user, auth = await get_user_from_context(info)
-        result = await rest_get_notifications(user=user, authorization=auth)
+        result = {
+            "notifications": Conversations(user=user).get_notifications(),
+        }
 
         notifications = [
             ConversationNotification(
@@ -1926,7 +1914,12 @@ class Mutation:
         """Create a new conversation"""
         user, auth = await get_user_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
-        result = await rest_new_conversation(history=model, user=user)
+        c = Conversations(user=user)
+        result = {
+            "conversation_history": c.new_conversation(
+                conversation_content=model.conversation_content,
+            )
+        }
 
         messages = [
             ConversationMessage(
@@ -1950,10 +1943,9 @@ class Mutation:
         """Delete a conversation"""
         user, auth = await get_user_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
-        result = await rest_delete_conversation(
-            history=model, user=user, authorization=auth
-        )
-        return MutationResponse(success=True, message=result.message)
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.delete_conversation()
+        return MutationResponse(success=True, message=result)
 
     @strawberry.mutation
     async def rename_conversation(
@@ -1970,12 +1962,13 @@ class Mutation:
             conversation_name=conversation_name,
             new_conversation_name=new_conversation_name,
         )
-        result = await rest_rename_conversation(
-            rename=model, user=user, authorization=auth
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.rename_conversation(
+            new_conversation_name=model.new_conversation_name
         )
         return MutationResponse(
             success=True,
-            message=f"Conversation renamed to {result['conversation_name']}",
+            message=f"Conversation renamed to {result}",
         )
 
     @strawberry.mutation
@@ -1983,7 +1976,8 @@ class Mutation:
         """Update a conversation message"""
         user, auth = await get_user_from_context(info)
         model = UpdateConversationHistoryMessageModel(**input.__dict__)
-        result = await rest_update_message(history=model, user=user, authorization=auth)
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.update_message(message=model.message, new_message=model.new_message)
         return MutationResponse(success=True, message=result.message)
 
     @strawberry.mutation
@@ -1993,10 +1987,11 @@ class Mutation:
         """Update a message by its ID"""
         user, auth = await get_user_from_context(info)
         model = UpdateMessageModel(**input.__dict__)
-        result = await rest_update_by_id(
-            message_id=message_id, history=model, user=user
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.update_message_by_id(
+            message_id=message_id, new_message=model.new_message
         )
-        return MutationResponse(success=True, message=result.message)
+        return MutationResponse(success=True, message=result)
 
     @strawberry.mutation
     async def delete_message(
@@ -2005,8 +2000,9 @@ class Mutation:
         """Delete a message by its content"""
         user, auth = await get_user_from_context(info)
         model = ConversationHistoryMessageModel(**input.__dict__)
-        result = await rest_delete_message(history=model, user=user)
-        return MutationResponse(success=True, message=result.message)
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.delete_message(message=model.message)
+        return MutationResponse(success=True, message=result)
 
     @strawberry.mutation
     async def delete_message_by_id(
@@ -2015,9 +2011,8 @@ class Mutation:
         """Delete a message by its ID"""
         user, auth = await get_user_from_context(info)
         model = DeleteMessageModel(conversation_name=conversation_name)
-        result = await rest_delete_by_id(
-            message_id=message_id, history=model, user=user
-        )
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.delete_message_by_id(message_id=message_id)
         return MutationResponse(success=True, message=result.message)
 
     @strawberry.mutation
@@ -2027,22 +2022,11 @@ class Mutation:
         """Fork a conversation"""
         user, auth = await get_user_from_context(info)
         model = ConversationFork(**input.__dict__)
-        result = await rest_fork_conversation(fork=model, user=user)
-        return MutationResponse(success=True, message=result.message)
-
-    @strawberry.mutation
-    async def generate_message_tts(
-        self, info, conversation_id: str, message_id: str
-    ) -> MutationResponse:
-        """Generate text-to-speech for a message"""
-        user, auth = await get_user_from_context(info)
-        result = await rest_get_tts(
-            conversation_id=conversation_id,
-            message_id=message_id,
-            user=user,
-            authorization=auth,
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.fork_conversation(
+            message_id=model.message_id,
         )
-        return MutationResponse(success=True, message=result["message"])
+        return MutationResponse(success=True, message=result.message)
 
     @strawberry.mutation
     async def log_interaction(
@@ -2051,10 +2035,11 @@ class Mutation:
         """Log a conversation interaction"""
         user, auth = await get_user_from_context(info)
         model = LogInteraction(**input.__dict__)
-        result = await rest_log_interaction(
-            log_interaction=model, user=user, authorization=auth
+        c = Conversations(user=user, conversation_name=model.conversation_name)
+        result = c.log_interaction(
+            message=model.message,
+            role=model.role,
         )
-
         # Create message event
         message = ConversationMessage(
             id=result.message,
