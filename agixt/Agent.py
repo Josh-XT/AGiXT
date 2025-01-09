@@ -197,7 +197,16 @@ def get_agents(user=DEFAULT_USER, company=None):
     # Check if there is an "agent_id" in the user_preferences_keys
     default_agent_id = ""
     if "agent_id" in user_preferences_keys:
-        default_agent_id = user_preferences_keys["agent_id"]
+        try:
+            default_agent_id = str(
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == user_data.id)
+                .filter(UserPreferences.pref_key == "agent_id")
+                .first()
+                .pref_value
+            )
+        except:
+            default_agent_id = ""
     agents = session.query(AgentModel).filter(AgentModel.user_id == user_data.id).all()
     if not default_agent_id:
         # Add a user preference of the first agent's ID in the agent list
