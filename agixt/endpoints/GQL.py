@@ -1370,7 +1370,6 @@ class Subscription:
     async def app_state(
         self,
         info,
-        auth_token: str,
         conversation_id: Optional[str] = None,
         pagination: Optional[PaginationInput] = None,
     ) -> AsyncGenerator[AppStateEvent, None]:
@@ -1380,7 +1379,8 @@ class Subscription:
         """
         try:
             # Initialize auth manager with provided token
-            auth_manager = MagicalAuth(token=auth_token)
+            user, auth = await get_user_from_context(info)
+            auth_manager = MagicalAuth(token=auth)
             user = auth_manager.get_user_email()
 
             if not user:
