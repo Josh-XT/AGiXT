@@ -185,7 +185,32 @@ def rename_agent(agent_name, new_name, user=DEFAULT_USER):
 
 def get_agents(user=DEFAULT_USER, company=None):
     session = get_session()
-    agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_preferences = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == user_data.id)
+        .all()
+    )
+    user_preferences_keys = []
+    for key in user_preferences:
+        user_preferences_keys.append(key.pref_key)
+    # Check if there is an "agent_id" in the user_preferences_keys
+    default_agent_id = ""
+    if "agent_id" in user_preferences_keys:
+        default_agent_id = user_preferences_keys["agent_id"]
+    agents = session.query(AgentModel).filter(AgentModel.user_id == user_data.id).all()
+    if not default_agent_id:
+        # Add a user preference of the first agent's ID in the agent list
+        if agents:
+            user_preference = UserPreferences(
+                user_id=user_data.id, pref_key="agent_id", pref_value=agents[0].id
+            )
+            session.add(user_preference)
+            session.commit()
+            default_agent_id = agents[0].id
+        else:
+            session.close()
+            return []
     output = []
     for agent in agents:
         # Check if the agent is in the output already
@@ -211,6 +236,7 @@ def get_agents(user=DEFAULT_USER, company=None):
                 "id": agent.id,
                 "status": False,
                 "company_id": company_id,
+                "default": str(agent.id) == str(default_agent_id),
             }
         )
     session.close()

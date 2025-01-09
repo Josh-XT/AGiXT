@@ -343,6 +343,7 @@ class AgentType:
     id: str
     name: str
     status: bool
+    default: bool
     company_id: Optional[str]
     settings: List[AgentSetting]
     commands: List[AgentCommand]
