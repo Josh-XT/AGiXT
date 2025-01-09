@@ -1,12 +1,19 @@
-from typing import List, Optional, Dict
-import strawberry
-from fastapi import HTTPException
+from MagicalAuth import MagicalAuth, impersonate_user, verify_api_key, is_admin
+from Conversations import Conversations, get_conversation_name_by_id
 from Providers import get_providers_with_details
-from Prompts import Prompts
-from Websearch import Websearch
-from ApiClient import verify_api_key, is_admin
-from datetime import datetime
+from contextlib import asynccontextmanager
+from typing import List, Optional, Dict
+from Models import ChatCompletions
+from fastapi import HTTPException
 from typing import AsyncGenerator
+from broadcaster import Broadcast
+from Extensions import Extensions
+from Websearch import Websearch
+from Memories import Memories
+from datetime import datetime
+from Prompts import Prompts
+from Globals import getenv
+from Chain import Chain
 from XT import AGiXT
 from Agent import (
     Agent,
@@ -15,21 +22,13 @@ from Agent import (
     delete_agent,
     rename_agent,
 )
-from Chain import Chain
-from Conversations import Conversations, get_conversation_name_by_id
-from Memories import Memories
-from Extensions import Extensions
-from MagicalAuth import MagicalAuth, impersonate_user
-from Models import ChatCompletions
-from Globals import getenv
+import strawberry
 import asyncio
+import logging
 import base64
+import json
 import uuid
 import os
-from broadcaster import Broadcast
-from contextlib import asynccontextmanager
-import logging
-import json
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -67,8 +66,9 @@ async def get_user_from_context(info):
         if auth and not auth.startswith("Bearer "):
             auth = f"Bearer {auth}"
 
-        user = verify_api_key(auth)
+        user_data = verify_api_key(auth)
         magical = MagicalAuth(token=auth)
+        user = magical.email
         return user, auth, magical
     except HTTPException as e:
         logging.error(f"Auth error: {str(e.detail)}")
@@ -3548,12 +3548,10 @@ class Mutation:
     async def verify_mfa(self, info, input: MFAVerificationInput) -> AuthResponse:
         """Verify MFA code"""
         if input.email:  # Handle case where verifying without being logged in
-            auth_manager = MagicalAuth()
             token = impersonate_user(input.email)
-            auth_manager.token = token
+            auth_manager = MagicalAuth(token=token)
         else:
-            user, auth, auth_manager = await get_user_from_context(info)
-
+            raise Exception("Please include email address to verify MFA")
         result = auth_manager.verify_mfa(token=input.code)
         return AuthResponse(
             success=result,
@@ -3567,19 +3565,9 @@ class Mutation:
         """Verify email address"""
         auth_manager = MagicalAuth()
         auth_manager.email = input.email
-
-        if not input.code:
-            auth_manager.send_email_verification_link()
-            return AuthResponse(
-                success=True, message="Verification code has been sent via email"
-            )
-
-        result = auth_manager.verify_email_address(code=input.code)
+        auth_manager.send_email_verification_link()
         return AuthResponse(
-            success=result,
-            message=(
-                "Email verified successfully" if result else "Email verification failed"
-            ),
+            success=True, message="Verification code has been sent via email"
         )
 
     @strawberry.mutation
