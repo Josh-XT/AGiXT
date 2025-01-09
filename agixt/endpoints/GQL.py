@@ -1493,7 +1493,9 @@ class Subscription:
                 # Get current conversation if ID provided
                 current_conversation = None
                 if conversation_id:
-                    conversation_name = get_conversation_name_by_id(conversation_id)
+                    conversation_name = get_conversation_name_by_id(
+                        conversation_id=conversation_id, user_id=auth_manager.user_id
+                    )
                     c = Conversations(user=user, conversation_name=conversation_name)
                     conv_result = {"conversations": c.get_conversations_with_detail()}
 
