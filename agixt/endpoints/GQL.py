@@ -68,7 +68,8 @@ async def get_user_from_context(info):
             auth = f"Bearer {auth}"
 
         user = verify_api_key(auth)
-        return user, auth
+        magical = MagicalAuth(token=auth)
+        return user, auth, magical
     except HTTPException as e:
         logging.error(f"Auth error: {str(e.detail)}")
         raise Exception(str(e.detail))
@@ -1405,8 +1406,7 @@ class Subscription:
         """
         try:
             # Initialize auth manager with provided token
-            user, auth = await get_user_from_context(info)
-            auth_manager = MagicalAuth(token=auth)
+            user, auth, auth_manager = await get_user_from_context(info)
 
             async def get_app_state():
                 # Get user details
@@ -1713,7 +1713,7 @@ class Query:
         self, info, pagination: Optional[PaginationInput] = None
     ) -> ConversationConnection:
         """Get paginated list of conversations with details"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         c = Conversations(user=user)
         result = c.get_conversations_with_detail()
 
@@ -1759,8 +1759,7 @@ class Query:
         self, info, conversation_id: str, pagination: Optional[PaginationInput] = None
     ) -> ConversationDetail:
         """Get conversation details and paginated messages"""
-        user, auth = await get_user_from_context(info)
-        magical = MagicalAuth(token=auth)
+        user, auth, magical = await get_user_from_context(info)
         conversation_name = get_conversation_name_by_id(
             conversation_id=conversation_id, user_id=magical.user_id
         )
@@ -1812,7 +1811,7 @@ class Query:
         self, info, pagination: Optional[PaginationInput] = None
     ) -> NotificationConnection:
         """Get paginated notifications"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         result = Conversations(user=user).get_notifications()
 
         notifications = [
@@ -1862,7 +1861,7 @@ class Query:
     @strawberry.field
     async def prompt(self, info, name: str, category: str = "Default") -> PromptType:
         """Get a specific prompt by name and category"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
 
         content = prompt_manager.get_prompt(prompt_name=name, prompt_category=category)
@@ -1884,7 +1883,7 @@ class Query:
     @strawberry.field
     async def prompts(self, info) -> List[PromptType]:
         """Get all prompts in a category"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
         result = prompt_manager.get_user_prompts()
         return [
@@ -1901,7 +1900,7 @@ class Query:
     @strawberry.field
     async def promptLibrary(self, info) -> List[PromptType]:
         """Get all prompts in a category"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
         result = prompt_manager.get_global_prompts()
         return [
@@ -1918,18 +1917,17 @@ class Query:
     @strawberry.field
     async def prompt_categories(self, info) -> List[str]:
         """Get all prompt categories"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         prompt_manager = Prompts(user=user)
         return prompt_manager.get_prompt_categories()
 
     @strawberry.field
     async def agents(self, info) -> List[AgentType]:
         """Get all available agents"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
         agents = get_agents(user=user)
 
         result = []
-        magic = MagicalAuth(token=auth)
         user_preferences = magic.get_user_preferences()
         user_agent_id = user_preferences.get("agent_id")
 
@@ -1975,8 +1973,7 @@ class Query:
 
     @strawberry.field
     async def agent(self, info, name: str) -> AgentType:
-        user, auth = await get_user_from_context(info)
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         agent = Agent(
             agent_name=name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -2022,8 +2019,7 @@ class Query:
     @strawberry.field
     async def agent_providers(self, info, agent_name: str) -> List[ProviderDetails]:
         """Get providers available to an agent"""
-        user, auth = await get_user_from_context(info)
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         agent = Agent(
             agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -2064,10 +2060,9 @@ class Query:
         collection_number: str = "0",
     ) -> List[Memory]:
         """Query agent memories from a specific collection"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
         if not auth:
             raise Exception("Authorization required")
-        magic = MagicalAuth(token=auth)
         ApiClient = magic.get_user_agent_session()
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
@@ -2101,8 +2096,7 @@ class Query:
 
     @strawberry.field
     async def memory_collections(self, info, agent_name: str) -> List[str]:
-        user, auth = await get_user_from_context(info)
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         ApiClient = magic.get_user_agent_session()
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
@@ -2118,8 +2112,7 @@ class Query:
     async def external_sources(
         self, info, agent_name: str, collection_number: str = "0"
     ) -> List[str]:
-        user, auth = await get_user_from_context(info)
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         ApiClient = magic.get_user_agent_session()
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         agent_config = agent.get_agent_config()
@@ -2136,7 +2129,7 @@ class Query:
     @strawberry.field
     async def extension_settings(self, info) -> List[ExtensionSetting]:
         """Get all extension settings"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         extensions = Extensions(user=user)
         settings = extensions.get_extension_settings()
@@ -2165,8 +2158,7 @@ class Query:
     @strawberry.field
     async def extensions(self, info) -> List[Extension]:
         """Get all available extensions"""
-        user, auth = await get_user_from_context(info)
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         ApiClient = magic.get_user_agent_session()
         extensions = Extensions(user=user, ApiClient=ApiClient)
         extension_list = extensions.get_extensions()
@@ -2196,11 +2188,9 @@ class Query:
 
     @strawberry.field
     async def agent_extensions(self, info, agent_name: str) -> List[Extension]:
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
         if not auth:
             raise Exception("Authorization required")
-
-        magic = MagicalAuth(token=auth)
         agent = Agent(
             agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -2211,7 +2201,7 @@ class Query:
     @strawberry.field
     async def chain_library(self, info) -> List[DetailedChain]:
         """Get all global chains"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         global_chains = chain_manager.get_global_chains()
         logging.info(f"Raw global chains from manager: {global_chains}")
@@ -2250,7 +2240,7 @@ class Query:
     @strawberry.field
     async def chains(self, info) -> List[DetailedChain]:
         """Get all user-specific chains"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         user_chains = chain_manager.get_user_chains()
         logging.info(f"Raw user chains from manager: {user_chains}")
@@ -2314,7 +2304,7 @@ class Query:
     @strawberry.field
     async def chain_args(self, info, chain_name: str) -> List[str]:
         """Get available arguments for a chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -2338,9 +2328,7 @@ class Query:
     @strawberry.field
     async def user(self, info) -> UserDetail:
         """Get current user's details"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
-
+        user, auth, auth_manager = await get_user_from_context(info)
         user_data = auth_manager.login(ip_address=info.context["request"].client.host)
         preferences_dict = auth_manager.get_user_preferences()
         preferences = convert_preferences_to_type(preferences_dict)
@@ -2394,8 +2382,7 @@ class Query:
         self, info, company_id: Optional[str] = None
     ) -> List[InvitationInfo]:
         """Get company invitations"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         invites = auth_manager.get_invitations(company_id)
         return [
@@ -2414,9 +2401,7 @@ class Query:
     @strawberry.field
     async def sso_providers(self, info) -> List[SSOProviderInfo]:
         """Get SSO provider connections"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
-
+        user, auth, auth_manager = await get_user_from_context(info)
         connections = auth_manager.get_sso_connections()
         return [
             SSOProviderInfo(
@@ -2442,7 +2427,7 @@ class Mutation:
         self, info, input: ConversationHistoryInput
     ) -> ConversationHistory:
         """Create a new conversation"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
         c = Conversations(user=user)
         result = c.new_conversation(
@@ -2469,7 +2454,7 @@ class Mutation:
         self, info, input: ConversationHistoryInput
     ) -> MutationResponse:
         """Delete a conversation"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
         c = Conversations(user=user, conversation_name=model.conversation_name)
         result = c.delete_conversation()
@@ -2484,7 +2469,7 @@ class Mutation:
         new_conversation_name: str = "-",
     ) -> MutationResponse:
         """Rename a conversation"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = RenameConversationModel(
             agent_name=agent_name,
             conversation_name=conversation_name,
@@ -2502,7 +2487,7 @@ class Mutation:
     @strawberry.mutation
     async def update_message(self, info, input: UpdateMessageInput) -> MutationResponse:
         """Update a conversation message"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = UpdateConversationHistoryMessageModel(**input.__dict__)
         c = Conversations(user=user, conversation_name=model.conversation_name)
         result = c.update_message(message=model.message, new_message=model.new_message)
@@ -2513,7 +2498,7 @@ class Mutation:
         self, info, message_id: str, input: MessageByIdInput
     ) -> MutationResponse:
         """Update a message by its ID"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = UpdateMessageModel(**input.__dict__)
         c = Conversations(user=user, conversation_name=model.conversation_name)
         result = c.update_message_by_id(
@@ -2526,7 +2511,7 @@ class Mutation:
         self, info, input: ConversationHistoryMessageInput
     ) -> MutationResponse:
         """Delete a message by its content"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = ConversationHistoryMessageModel(**input.__dict__)
         c = Conversations(user=user, conversation_name=model.conversation_name)
         result = c.delete_message(message=model.message)
@@ -2537,7 +2522,7 @@ class Mutation:
         self, info, message_id: str, conversation_name: str
     ) -> MutationResponse:
         """Delete a message by its ID"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = DeleteMessageModel(conversation_name=conversation_name)
         c = Conversations(user=user, conversation_name=model.conversation_name)
         result = c.delete_message_by_id(message_id=message_id)
@@ -2548,7 +2533,7 @@ class Mutation:
         self, info, input: ConversationForkInput
     ) -> MutationResponse:
         """Fork a conversation"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = ConversationFork(**input.__dict__)
         c = Conversations(user=user, conversation_name=model.conversation_name)
         result = c.fork_conversation(
@@ -2561,7 +2546,7 @@ class Mutation:
         self, info, input: LogInteractionInput
     ) -> MutationResponse:
         """Log a conversation interaction"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         model = LogInteraction(**input.__dict__)
         c = Conversations(user=user, conversation_name=model.conversation_name)
         result = c.log_interaction(
@@ -2608,7 +2593,7 @@ class Mutation:
     @strawberry.mutation
     async def create_prompt(self, info, input: CreatePromptInput) -> PromptResponse:
         """Create a new prompt"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         try:
             prompt_manager = Prompts(user=user)
             prompt_manager.add_prompt(
@@ -2625,7 +2610,7 @@ class Mutation:
     @strawberry.mutation
     async def update_prompt(self, info, input: UpdatePromptInput) -> PromptResponse:
         """Update an existing prompt"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         try:
             prompt_manager = Prompts(user=user)
             prompt_manager.update_prompt(
@@ -2644,7 +2629,7 @@ class Mutation:
         self, info, name: str, category: str = "Default"
     ) -> PromptResponse:
         """Delete a prompt"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         try:
             prompt_manager = Prompts(user=user)
             prompt_manager.delete_prompt(prompt_name=name, prompt_category=category)
@@ -2657,7 +2642,7 @@ class Mutation:
     @strawberry.mutation
     async def rename_prompt(self, info, input: RenamePromptInput) -> PromptResponse:
         """Rename a prompt"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         try:
             prompt_manager = Prompts(user=user)
             prompt_manager.rename_prompt(
@@ -2675,7 +2660,7 @@ class Mutation:
     @strawberry.mutation
     async def create_agent(self, info, input: CreateAgentInput) -> AgentResponse:
         """Create a new agent"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
@@ -2690,7 +2675,6 @@ class Mutation:
         )
 
         if input.training_urls:
-            magic = MagicalAuth(token=auth)
             agent = Agent(
                 agent_name=input.name,
                 user=user,
@@ -2710,11 +2694,10 @@ class Mutation:
         self, info, agent_name: str, input: UpdateAgentSettingsInput
     ) -> AgentResponse:
         """Update an agent's settings"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
-        magic = MagicalAuth(token=auth)
         agent = Agent(
             agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -2734,11 +2717,10 @@ class Mutation:
         self, info, agent_name: str, input: UpdateAgentCommandsInput
     ) -> AgentResponse:
         """Update an agent's commands"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
-        magic = MagicalAuth(token=auth)
         agent = Agent(
             agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -2751,11 +2733,10 @@ class Mutation:
     @strawberry.mutation
     async def delete_agent(self, info, name: str) -> AgentResponse:
         """Delete an agent"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
-        magic = MagicalAuth(token=auth)
         agent = Agent(
             agent_name=name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -2768,7 +2749,7 @@ class Mutation:
     @strawberry.mutation
     async def rename_agent(self, info, old_name: str, new_name: str) -> AgentResponse:
         """Rename an agent"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
@@ -2782,14 +2763,13 @@ class Mutation:
         self, info, agent_name: str, input: AgentPromptInput
     ) -> AgentPromptResponse:
         """Send a prompt to an agent"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
 
         conversation_name = input.prompt_args.conversation_name or None
         if conversation_name != "-":
             try:
                 conversation_id = str(uuid.UUID(conversation_name))
                 if conversation_id:
-                    auth = MagicalAuth(token=auth)
                     conversation_name = get_conversation_name_by_id(
                         conversation_id=conversation_id, user_id=auth.user_id
                     )
@@ -2848,7 +2828,7 @@ class Mutation:
         self, info, agent_name: str, input: TaskPlanInput
     ) -> AgentPromptResponse:
         """Plan a task for the agent"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         agent = AGiXT(
             user=user,
@@ -2871,13 +2851,12 @@ class Mutation:
     @strawberry.mutation
     async def learn_text(self, info, agent_name: str, input: TextMemoryInput) -> bool:
         """Add text content to agent's memory"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
 
         collection_number = input.collection_number
         if len(collection_number) > 4:
             conversation = Conversations(conversation_name=collection_number, user=user)
             collection_number = conversation.get_conversation_id()
-        magic = MagicalAuth(token=auth)
         memories = Memories(
             agent_name=agent_name,
             collection_number=collection_number,
@@ -2892,11 +2871,10 @@ class Mutation:
     @strawberry.mutation
     async def learn_file(self, info, agent_name: str, input: FileMemoryInput) -> bool:
         """Process and learn from file content"""
-        user, auth = await get_user_from_context(info)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         # Handle company-specific learning if company_id provided
         if input.company_id:
-            auth_manager = MagicalAuth(token=auth)
             agixt = auth_manager.get_company_agent_session(company_id=input.company_id)
             response = agixt.learn_file(
                 agent_name="AGiXT",
@@ -2961,9 +2939,8 @@ class Mutation:
     @strawberry.mutation
     async def learn_url(self, info, agent_name: str, input: UrlMemoryInput) -> bool:
         """Learn from URL content"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
 
-        magic = MagicalAuth(token=auth)
         agent = Agent(
             agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -2994,11 +2971,10 @@ class Mutation:
         self, info, agent_name: str, collection_number: Optional[str] = None
     ) -> bool:
         """Wipe agent memories - optionally from specific collection"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
-        magic = MagicalAuth(token=auth)
         memories = Memories(
             agent_name=agent_name,
             collection_number=collection_number if collection_number else "0",
@@ -3013,7 +2989,7 @@ class Mutation:
         self, info, agent_name: str, input: FeedbackInput
     ) -> bool:
         """Submit RLHF feedback for an interaction"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         agixt = AGiXT(
             user=user,
@@ -3073,7 +3049,7 @@ class Mutation:
     # @strawberry.mutation
     async def create_dataset(self, info, agent_name: str, input: DatasetInput) -> bool:
         """Create training dataset from memories"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3094,7 +3070,7 @@ class Mutation:
     # @strawberry.mutation
     async def generate_dpo(self, info, agent_name: str, input: DPOInput) -> DPOResult:
         """Generate DPO response for input"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         agixt = AGiXT(
@@ -3115,8 +3091,7 @@ class Mutation:
         self, info, agent_name: str, memory_id: str, collection_number: str = "0"
     ) -> bool:
         """Delete a specific memory by ID"""
-        user, auth = await get_user_from_context(info)
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         memories = Memories(
             agent_name=agent_name,
             collection_number=collection_number,
@@ -3131,11 +3106,10 @@ class Mutation:
         self, info, agent_name: str, external_source: str, collection_number: str = "0"
     ) -> bool:
         """Delete all memories from a specific external source"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
-        magic = MagicalAuth(token=auth)
         memories = Memories(
             agent_name=agent_name,
             collection_number=collection_number,
@@ -3152,8 +3126,7 @@ class Mutation:
         self, info, agent_name: str
     ) -> List[MemoryExportCollection]:
         """Export all agent memories"""
-        user, auth = await get_user_from_context(info)
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         ApiClient = magic.get_user_agent_session()
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
@@ -3187,9 +3160,7 @@ class Mutation:
         self, info, agent_name: str, collections: List[MemoryImportCollection]
     ) -> bool:
         """Import memories for an agent"""
-        user, auth = await get_user_from_context(info)
-
-        magic = MagicalAuth(token=auth)
+        user, auth, magic = await get_user_from_context(info)
         ApiClient = magic.get_user_agent_session()
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
@@ -3223,15 +3194,13 @@ class Mutation:
         self, info, agent_name: str, input: CommandExecutionInput
     ) -> CommandResult:
         """Execute a command for an agent"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magic = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
 
         # Convert input args to dictionary format expected by extensions
         command_args = {arg.name: arg.value for arg in input.command_args}
-
-        magic = MagicalAuth(token=auth)
         agent = Agent(
             agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
         )
@@ -3267,7 +3236,7 @@ class Mutation:
     @strawberry.mutation
     async def create_chain(self, info, input: ChainInput) -> bool:
         """Create a new chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3290,7 +3259,7 @@ class Mutation:
     @strawberry.mutation
     async def delete_chain(self, info, chain_name: str) -> bool:
         """Delete an existing chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3302,7 +3271,7 @@ class Mutation:
     @strawberry.mutation
     async def rename_chain(self, info, old_name: str, new_name: str) -> bool:
         """Rename an existing chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3314,7 +3283,7 @@ class Mutation:
     @strawberry.mutation
     async def add_chain_step(self, info, chain_name: str, step: ChainStepInput) -> bool:
         """Add a step to an existing chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3334,7 +3303,7 @@ class Mutation:
         self, info, chain_name: str, step: ChainStepInput
     ) -> bool:
         """Update an existing chain step"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3352,7 +3321,7 @@ class Mutation:
     @strawberry.mutation
     async def delete_chain_step(self, info, chain_name: str, step_number: int) -> bool:
         """Delete a step from a chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3366,7 +3335,7 @@ class Mutation:
         self, info, chain_name: str, input: MoveStepInput
     ) -> bool:
         """Move a step to a new position in the chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3382,7 +3351,7 @@ class Mutation:
     @strawberry.mutation
     async def run_chain(self, info, chain_name: str, input: RunChainInput) -> str:
         """Execute a chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3413,7 +3382,7 @@ class Mutation:
         self, info, chain_name: str, step_number: int, input: RunChainStepInput
     ) -> str:
         """Execute a specific step in a chain"""
-        user, auth = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         if not is_admin(email=user, api_key=auth):
             raise Exception("Access Denied")
@@ -3497,8 +3466,7 @@ class Mutation:
     @strawberry.mutation
     async def update_user(self, info, input: UserUpdateInput) -> AuthResponse:
         """Update user details"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         # Convert input to dictionary format expected by backend
         update_dict = convert_user_update_to_dict(input)
@@ -3509,8 +3477,7 @@ class Mutation:
     @strawberry.mutation
     async def delete_user(self, info) -> AuthResponse:
         """Delete current user"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.delete_user()
         return AuthResponse(success=True, message=result)
@@ -3520,8 +3487,7 @@ class Mutation:
         self, info, input: InvitationCreateInput
     ) -> InvitationInfo:
         """Create a company invitation"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.create_invitation(input)
         return InvitationInfo(
@@ -3537,8 +3503,7 @@ class Mutation:
     @strawberry.mutation
     async def delete_invitation(self, info, invitation_id: str) -> AuthResponse:
         """Delete an invitation"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.delete_invitation(invitation_id)
         return AuthResponse(success=True, message=result)
@@ -3546,8 +3511,7 @@ class Mutation:
     @strawberry.mutation
     async def create_company(self, info, input: CompanyCreateInput) -> CompanyInfo:
         """Create a new company"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.create_company(
             name=input.name, parent_company_id=input.parent_company_id
@@ -3567,8 +3531,7 @@ class Mutation:
         self, info, company_id: str, input: CompanyUpdateInput
     ) -> CompanyInfo:
         """Update company details"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.update_company(company_id=company_id, name=input.name)
 
@@ -3589,8 +3552,7 @@ class Mutation:
             token = impersonate_user(input.email)
             auth_manager.token = token
         else:
-            user, auth = await get_user_from_context(info)
-            auth_manager = MagicalAuth(token=auth)
+            user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.verify_mfa(token=input.code)
         return AuthResponse(
@@ -3626,8 +3588,7 @@ class Mutation:
     ) -> AuthResponse:
         """Connect SSO provider"""
         request = info.context["request"]
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.sso(
             provider=provider,
@@ -3643,8 +3604,7 @@ class Mutation:
     @strawberry.mutation
     async def disconnect_sso(self, info, provider: str) -> AuthResponse:
         """Disconnect SSO provider"""
-        user, auth = await get_user_from_context(info)
-        auth_manager = MagicalAuth(token=auth)
+        user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.disconnect_sso(provider_name=provider)
         return AuthResponse(success=True, message=result)
