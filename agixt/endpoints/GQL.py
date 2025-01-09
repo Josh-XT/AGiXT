@@ -2176,7 +2176,12 @@ class Query:
         preferences_dict = auth_manager.get_user_preferences()
         preferences = convert_preferences_to_type(preferences_dict)
         companies = auth_manager.get_user_companies_with_roles()
-
+        agents = get_agents(user=user)
+        default_agent_id = None
+        for agent in agents:
+            if agent["default"]:
+                default_agent_id = agent["id"]
+                break
         return UserDetail(
             id=str(user_data.id),
             email=user_data.email,
@@ -2196,7 +2201,7 @@ class Query:
                             name=agent["name"],
                             id=agent["id"],
                             status=agent["status"],
-                            default=agent["default"],
+                            default=default_agent_id == agent["id"],
                             company_id=agent.get("company_id"),
                         )
                         for agent in company.get("agents", [])
