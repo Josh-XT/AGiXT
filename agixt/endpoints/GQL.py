@@ -1057,6 +1057,7 @@ class AgentInfo:
     name: str
     id: str
     status: bool
+    default: bool
     company_id: Optional[str]
 
 
@@ -1404,6 +1405,7 @@ class Subscription:
                             name=agent["name"],
                             id=agent["id"],
                             status=agent["status"],
+                            default=agent["default"],
                             company_id=agent.get("company_id"),
                         )
                         for agent in company.get("agents", [])
@@ -1793,6 +1795,7 @@ class Query:
                     id=agent["id"],
                     name=agent["name"],
                     status=agent["status"],
+                    default=agent["default"],
                     company_id=agent.get("company_id"),
                     settings=settings,
                     commands=commands,
@@ -1809,6 +1812,7 @@ class Query:
             agent_name=name, user=user, ApiClient=magic.get_user_agent_session()
         )
         config = agent.get_agent_config()
+        agents = get_agents(user=user)
 
         settings = [
             AgentSetting(
@@ -1827,11 +1831,20 @@ class Query:
         commands = [
             AgentCommand(name=k, enabled=v) for k, v in config["commands"].items()
         ]
+        # Default is a bool from agents
+        default = False
+        status = False
+        for a in agents:
+            if a["name"] == name:
+                default = a["default"]
+                status = a["status"]
+                break
 
         return AgentType(
             id=agent.agent_id,
             name=name,
-            status=False,
+            status=status,
+            default=default,
             company_id=config["settings"].get("company_id"),
             settings=settings,
             commands=commands,
@@ -2183,6 +2196,7 @@ class Query:
                             name=agent["name"],
                             id=agent["id"],
                             status=agent["status"],
+                            default=agent["default"],
                             company_id=agent.get("company_id"),
                         )
                         for agent in company.get("agents", [])
