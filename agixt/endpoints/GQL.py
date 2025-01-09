@@ -1525,7 +1525,7 @@ class Subscription:
                                 updated_by=msg["updated_by"],
                                 feedback_received=msg["feedback_received"],
                             )
-                            for msg in history_result
+                            for msg in history_result["interactions"]
                         ]
 
                         current_conversation = ConversationDetail(
@@ -1796,7 +1796,7 @@ class Query:
                 updated_by=msg["updated_by"],
                 feedback_received=msg["feedback_received"],
             )
-            for msg in history_result
+            for msg in history_result["interactions"]
         ]
 
         # Apply pagination if provided
