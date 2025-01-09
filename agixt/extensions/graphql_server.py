@@ -49,6 +49,7 @@ class graphql_server(Extensions):
             "Custom GraphQL Query": self.execute_query,
             "Get GraphQL Schema": self.get_schema,
             "Chat with GraphQL Server": self.chat_with_graphql,
+            "Get GraphQL Query": self.get_graphql,
         }
 
     def get_client(self) -> Optional[Client]:
@@ -92,13 +93,8 @@ class graphql_server(Extensions):
         except Exception as e:
             logging.error(f"Error executing GraphQL Query: {str(e)}")
             # Reformat the query if it is invalid
-            new_query = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Validate GraphQL",
-                prompt_args={
-                    "schema": await self.get_schema(),
-                    "query": query,
-                },
+            new_query = await self.get_graphql(
+                request=f"The following query is invalid: {query}\n\nPlease provide a valid query."
             )
             return await self.execute_query(query=new_query)
 
@@ -189,9 +185,11 @@ class graphql_server(Extensions):
             logging.error(f"Error fetching GraphQL schema: {str(e)}")
             return f"Error fetching schema: {str(e)}"
 
-    async def chat_with_graphql(self, request: str) -> str:
+    async def get_graphql(self, request: str) -> str:
         """
-        Chat with the GraphQL server using natural language query.
+        Get a GraphQL query or mutation based on a natural language query. This function generates a GraphQL query based on the schema of the user's defined GraphQL server automatically.
+
+        The assistant will take the user's input and turn it into a detailed natural language request to say what the user needs for the GraphQL AI to process. The AI will then generate a GraphQL query based on the schema of the server and return the GraphQL query.
 
         Args:
         request (str): The natural language query to chat with the server.
@@ -235,6 +233,18 @@ In the <answer> block, provide the GraphQL query that will retrieve the informat
                 "conversation_name": self.conversation_name,
             },
         )
+        return graphql_query
 
+    async def chat_with_graphql(self, request: str) -> str:
+        """
+        Chat with the GraphQL server using natural language query. This function generates a GraphQL query based on the schema of the user's defined GraphQL server automatically and executes the query. The result of the query is returned.
+
+        Args:
+        request (str): The natural language query to chat with the server.
+
+        Returns:
+        str: The result of the GraphQL query
+        """
+        graphql_query = await self.get_graphql(request=request)
         # Execute the query
         return await self.execute_query(query=graphql_query)
