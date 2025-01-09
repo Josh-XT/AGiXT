@@ -107,16 +107,16 @@ jobs:
           echo "dockerhub-repo=${{ vars.DOCKERHUB_USERNAME }}/${{ inputs.registry-repo-name }}" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3.2.0
+        uses: docker/setup-qemu-action@v3.3.0
 
       # Needed for cache layers on github registry
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.7.1
+        uses: docker/setup-buildx-action@v3.8.0
 
       ## Cache based contexts
       - name: Restore cached context
         if: inputs.context-cache
-        uses: actions/cache/restore@v4.1.2
+        uses: actions/cache/restore@v4.2.0
         with:
           path: cached-context
           key: ${{ inputs.context-cache }}
@@ -165,7 +165,7 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5.5.1
+        uses: docker/metadata-action@v5.6.1
         with:
           images: ${{ env.image-names }}
           # generate Docker tags based on the following events/attributes
@@ -176,7 +176,7 @@ jobs:
 
       - name: Build and push Docker images
         id: dockerBuild
-        uses: docker/build-push-action@v6.9.0
+        uses: docker/build-push-action@v6.11.0
         with:
           platforms: ${{ inputs.platforms }}
           file: ${{ inputs.dockerfile }}
