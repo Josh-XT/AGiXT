@@ -40,39 +40,36 @@ logging.basicConfig(
 async def get_user_from_context(info):
     request = info.context["request"]
     logging.info(f"Request type: {type(request)}")
-    logging.info(f"Request: {request}")
-    logging.info(f"Context keys: {info.context.keys()}")
-    logging.info(f"Context: {info.context}")
+
     try:
         # Try regular HTTP header first
         auth = request.headers.get("authorization")
 
-        # For WebSocket connections, try multiple possible locations
-        if not auth and hasattr(request, "scope"):
-            logging.info(f"Request scope: {request.scope}")
-            # Try connection params
-            connection_params = request.scope.get("connection_params", {})
-            logging.info(f"Connection params: {connection_params}")
-            auth = connection_params.get("authorization")
+        # For WebSocket connections, try connection params
+        if not auth and "connection_params" in info.context:
+            params = info.context["connection_params"]
+            # Try nested connectionParams first
+            if (
+                "connectionParams" in params
+                and "authorization" in params["connectionParams"]
+            ):
+                auth = params["connectionParams"]["authorization"]
+            # Try direct authorization
+            elif "authorization" in params:
+                auth = params["authorization"]
 
-            # Try headers in scope
-            if not auth:
-                headers = dict(request.scope.get("headers", {}))
-                logging.info(f"Scope headers: {headers}")
-                auth = headers.get(b"authorization", b"").decode()
-
-            # Try WebSocket protocol
-            if not auth:
-                protocols = request.scope.get("subprotocols", [])
-                logging.info(f"WebSocket protocols: {protocols}")
-
-            # Try any other scope items that might contain our auth
-            for key, value in request.scope.items():
-                logging.info(f"Scope {key}: {value}")
+        # Try cookies as last resort
+        if not auth and hasattr(request, "cookies"):
+            auth = request.cookies.get("jwt")
 
         logging.info(f"Final auth header: {auth}")
         if not auth:
             raise HTTPException(status_code=401, detail="No authorization header found")
+
+        # Add "Bearer" prefix if it's missing
+        if auth and not auth.startswith("Bearer "):
+            auth = f"Bearer {auth}"
+
         user = verify_api_key(auth)
         return user, auth
     except HTTPException as e:
