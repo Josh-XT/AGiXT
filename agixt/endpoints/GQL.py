@@ -2445,11 +2445,9 @@ class Mutation:
         user, auth = await get_user_from_context(info)
         model = ConversationHistoryModel(**input.__dict__)
         c = Conversations(user=user)
-        result = {
-            "conversation_history": c.new_conversation(
-                conversation_content=model.conversation_content,
-            )
-        }
+        result = c.new_conversation(
+            conversation_content=model.conversation_content,
+        )
 
         messages = [
             ConversationMessage(
@@ -2461,7 +2459,7 @@ class Mutation:
                 updated_by=msg["updated_by"],
                 feedback_received=msg["feedback_received"],
             )
-            for msg in result.conversation_history
+            for msg in result
         ]
 
         return ConversationHistory(messages=messages)
