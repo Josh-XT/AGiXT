@@ -40,11 +40,24 @@ logging.basicConfig(
 # Helper for auth
 async def get_user_from_context(info):
     request = info.context["request"]
+    logging.info(f"Request type: {type(request)}")
     try:
+        # Try regular HTTP header first
         auth = request.headers.get("authorization")
+        if not auth and hasattr(request, "scope"):
+            # Try WebSocket headers if HTTP headers don't have it
+            auth = (
+                dict(request.scope.get("headers", {}))
+                .get(b"authorization", b"")
+                .decode()
+            )
+        logging.info(f"Auth header: {auth}")
+        if not auth:
+            raise HTTPException(status_code=401, detail="No authorization header found")
         user = verify_api_key(auth)
         return user, auth
     except HTTPException as e:
+        logging.error(f"Auth error: {str(e.detail)}")
         raise Exception(str(e.detail))
 
 
