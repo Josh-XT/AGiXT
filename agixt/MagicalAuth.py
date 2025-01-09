@@ -116,6 +116,10 @@ def send_email(email: str, subject: str, body: str):
         return False
 
 
+def is_admin(email: str = "USER", api_key: str = None):
+    return True
+
+
 def get_sso_provider(provider: str, code, redirect_uri=None):
     try:
         if provider == "amazon":
