@@ -1758,7 +1758,10 @@ class Query:
     ) -> ConversationDetail:
         """Get conversation details and paginated messages"""
         user, auth = await get_user_from_context(info)
-        conversation_name = get_conversation_name_by_id(conversation_id)
+        magical = MagicalAuth(token=auth)
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=magical.user_id
+        )
         # Get conversation metadata
         c = Conversations(user=user, conversation_name=conversation_name)
         result = {"conversations": c.get_conversations_with_detail()}
