@@ -1578,35 +1578,61 @@ class Subscription:
                         tasks = []
 
                         async def handle_subscriber(subscriber):
-                            async for event in subscriber:
-                                updated_state = await get_app_state()
-                                yield AppStateEvent(state=updated_state)
+                            try:
+                                async for event in subscriber:
+                                    updated_state = await get_app_state()
+                                    return updated_state
+                            except Exception as e:
+                                logging.error(f"Subscriber handler error: {str(e)}")
+                                return None
 
-                        tasks.append(
+                        tasks = [
                             asyncio.create_task(
                                 handle_subscriber(conversations_subscriber)
-                            )
-                        )
+                            ),
+                            asyncio.create_task(
+                                handle_subscriber(notifications_subscriber)
+                            ),
+                        ]
+
                         if messages_subscriber:
                             tasks.append(
                                 asyncio.create_task(
                                     handle_subscriber(messages_subscriber)
                                 )
                             )
-                        tasks.append(
-                            asyncio.create_task(
-                                handle_subscriber(notifications_subscriber)
+
+                        while True:
+                            done, pending = await asyncio.wait(
+                                tasks, return_when=asyncio.FIRST_COMPLETED
                             )
-                        )
 
-                        # Wait for any subscription to receive an update
-                        done, pending = await asyncio.wait(
-                            tasks, return_when=asyncio.FIRST_COMPLETED
-                        )
+                            for task in done:
+                                try:
+                                    result = await task
+                                    if result:
+                                        yield AppStateEvent(state=result)
+                                except Exception as e:
+                                    logging.error(f"Task error: {str(e)}")
 
-                        # Cancel remaining tasks
-                        for task in pending:
-                            task.cancel()
+                                # Recreate the completed task
+                                if task in tasks:
+                                    index = tasks.index(task)
+                                    if index == 0:
+                                        tasks[0] = asyncio.create_task(
+                                            handle_subscriber(conversations_subscriber)
+                                        )
+                                    elif index == 1:
+                                        tasks[1] = asyncio.create_task(
+                                            handle_subscriber(notifications_subscriber)
+                                        )
+                                    elif index == 2 and messages_subscriber:
+                                        tasks[2] = asyncio.create_task(
+                                            handle_subscriber(messages_subscriber)
+                                        )
+
+                            # Keep the pending tasks
+                            tasks = list(pending)
             finally:
                 await broadcaster.disconnect()
 
