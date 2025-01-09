@@ -41,6 +41,7 @@ logging.basicConfig(
 async def get_user_from_context(info):
     request = info.context["request"]
     logging.info(f"Request type: {type(request)}")
+    logging.info(f"Request: {request}")
     try:
         # Try regular HTTP header first
         auth = request.headers.get("authorization")
