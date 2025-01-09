@@ -41,17 +41,36 @@ async def get_user_from_context(info):
     request = info.context["request"]
     logging.info(f"Request type: {type(request)}")
     logging.info(f"Request: {request}")
+    logging.info(f"Context keys: {info.context.keys()}")
+    logging.info(f"Context: {info.context}")
     try:
         # Try regular HTTP header first
         auth = request.headers.get("authorization")
 
-        # For WebSocket connections, check connection params
+        # For WebSocket connections, try multiple possible locations
         if not auth and hasattr(request, "scope"):
+            logging.info(f"Request scope: {request.scope}")
+            # Try connection params
             connection_params = request.scope.get("connection_params", {})
-            auth = connection_params.get("authorization", "")
             logging.info(f"Connection params: {connection_params}")
+            auth = connection_params.get("authorization")
 
-        logging.info(f"Auth header: {auth}")
+            # Try headers in scope
+            if not auth:
+                headers = dict(request.scope.get("headers", {}))
+                logging.info(f"Scope headers: {headers}")
+                auth = headers.get(b"authorization", b"").decode()
+
+            # Try WebSocket protocol
+            if not auth:
+                protocols = request.scope.get("subprotocols", [])
+                logging.info(f"WebSocket protocols: {protocols}")
+
+            # Try any other scope items that might contain our auth
+            for key, value in request.scope.items():
+                logging.info(f"Scope {key}: {value}")
+
+        logging.info(f"Final auth header: {auth}")
         if not auth:
             raise HTTPException(status_code=401, detail="No authorization header found")
         user = verify_api_key(auth)
