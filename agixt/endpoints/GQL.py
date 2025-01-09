@@ -1407,48 +1407,49 @@ class Subscription:
             # Initialize auth manager with provided token
             user, auth = await get_user_from_context(info)
             auth_manager = MagicalAuth(token=auth)
-            # Get user details
-            user_data = auth_manager.login(
-                ip_address=info.context["request"].client.host
-            )
-            preferences_dict = auth_manager.get_user_preferences()
-            preferences = convert_preferences_to_type(preferences_dict)
-            companies = auth_manager.get_user_companies_with_roles()
 
-            user_detail = UserDetail(
-                id=str(user_data.id),
-                email=user_data.email,
-                first_name=user_data.first_name,
-                last_name=user_data.last_name,
-                companies=[
-                    CompanyInfo(
-                        id=str(company["id"]),
-                        name=company["name"],
-                        company_id=(
-                            str(company["company_id"])
-                            if company.get("company_id")
-                            else None
-                        ),
-                        agents=[
-                            AgentInfo(
-                                name=agent["name"],
-                                id=agent["id"],
-                                status=agent["status"],
-                                default=preferences_dict.get("agent_id") == agent["id"],
-                                company_id=agent.get("company_id"),
-                            )
-                            for agent in company.get("agents", [])
-                        ],
-                        role_id=company.get("role_id"),
-                        primary=company.get("primary", False),
-                    )
-                    for company in companies
-                ],
-                preferences=preferences,
-            )
-
-            # Setup initial state
             async def get_app_state():
+                # Get user details
+                user_data = auth_manager.login(
+                    ip_address=info.context["request"].client.host
+                )
+                preferences_dict = auth_manager.get_user_preferences()
+                preferences = convert_preferences_to_type(preferences_dict)
+                companies = auth_manager.get_user_companies_with_roles()
+
+                user_detail = UserDetail(
+                    id=str(user_data.id),
+                    email=user_data.email,
+                    first_name=user_data.first_name,
+                    last_name=user_data.last_name,
+                    companies=[
+                        CompanyInfo(
+                            id=str(company["id"]),
+                            name=company["name"],
+                            company_id=(
+                                str(company["company_id"])
+                                if company.get("company_id")
+                                else None
+                            ),
+                            agents=[
+                                AgentInfo(
+                                    name=agent["name"],
+                                    id=agent["id"],
+                                    status=agent["status"],
+                                    default=preferences_dict.get("agent_id")
+                                    == agent["id"],
+                                    company_id=agent.get("company_id"),
+                                )
+                                for agent in company.get("agents", [])
+                            ],
+                            role_id=company.get("role_id"),
+                            primary=company.get("primary", False),
+                        )
+                        for company in companies
+                    ],
+                    preferences=preferences,
+                )
+
                 # Get conversations
                 c = Conversations(user=user)
                 result = c.get_conversations_with_detail()
@@ -1548,27 +1549,56 @@ class Subscription:
                     notifications=(notifications if notifications else None),
                 )
 
-            # Subscribe to all relevant channels
+            # Subscribe to relevant channels
             async with get_broadcaster() as broadcaster:
-                # Create combined channel name
-                channels = [f"conversations_{user}"]
-                if conversation_id:
-                    channels.append(f"messages_{conversation_id}")
-                channels.append(f"notifications_{user}")
+                # Subscribe to conversations channel
+                conversations_subscriber = await broadcaster.subscribe(
+                    f"conversations_{user}"
+                )
 
-                # Subscribe to all channels
-                combined_subscriber = broadcaster.subscribe(channels=channels)
+                # Subscribe to messages channel if conversation_id is provided
+                messages_subscriber = None
+                if conversation_id:
+                    messages_subscriber = await broadcaster.subscribe(
+                        f"messages_{conversation_id}"
+                    )
+
+                # Subscribe to notifications channel
+                notifications_subscriber = await broadcaster.subscribe(
+                    f"notifications_{user}"
+                )
 
                 # Send initial state
                 initial_state = await get_app_state()
                 yield AppStateEvent(state=initial_state)
 
-                # Listen for updates
-                async with combined_subscriber as subscriber:
+                # Create task to handle each subscription
+                tasks = []
+
+                async def handle_subscriber(subscriber):
                     async for event in subscriber:
-                        # Get fresh state after any update
                         updated_state = await get_app_state()
                         yield AppStateEvent(state=updated_state)
+
+                tasks.append(
+                    asyncio.create_task(handle_subscriber(conversations_subscriber))
+                )
+                if messages_subscriber:
+                    tasks.append(
+                        asyncio.create_task(handle_subscriber(messages_subscriber))
+                    )
+                tasks.append(
+                    asyncio.create_task(handle_subscriber(notifications_subscriber))
+                )
+
+                # Wait for any subscription to receive an update
+                done, pending = await asyncio.wait(
+                    tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+
+                # Cancel remaining tasks
+                for task in pending:
+                    task.cancel()
 
         except Exception as e:
             logging.error(f"Subscription error: {str(e)}")
