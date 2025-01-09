@@ -1529,6 +1529,7 @@ class Subscription:
                         current_conversation = ConversationDetail(
                             metadata=metadata, messages=messages
                         )
+
                 notification_data = c.get_notifications()
                 notifications = [
                     ConversationNotification(
@@ -1550,55 +1551,64 @@ class Subscription:
                 )
 
             # Subscribe to relevant channels
-            async with get_broadcaster() as broadcaster:
+            broadcaster = Broadcast("memory://")
+            await broadcaster.connect()
+
+            try:
                 # Subscribe to conversations channel
-                conversations_subscriber = await broadcaster.subscribe(
+                async with broadcaster.subscribe(
                     f"conversations_{user}"
-                )
+                ) as conversations_subscriber:
+                    # Subscribe to messages channel if conversation_id is provided
+                    messages_subscriber = None
+                    if conversation_id:
+                        messages_subscriber = await broadcaster.subscribe(
+                            f"messages_{conversation_id}"
+                        )
 
-                # Subscribe to messages channel if conversation_id is provided
-                messages_subscriber = None
-                if conversation_id:
-                    messages_subscriber = await broadcaster.subscribe(
-                        f"messages_{conversation_id}"
-                    )
+                    # Subscribe to notifications channel
+                    async with broadcaster.subscribe(
+                        f"notifications_{user}"
+                    ) as notifications_subscriber:
+                        # Send initial state
+                        initial_state = await get_app_state()
+                        yield AppStateEvent(state=initial_state)
 
-                # Subscribe to notifications channel
-                notifications_subscriber = await broadcaster.subscribe(
-                    f"notifications_{user}"
-                )
+                        # Create tasks to handle each subscription
+                        tasks = []
 
-                # Send initial state
-                initial_state = await get_app_state()
-                yield AppStateEvent(state=initial_state)
+                        async def handle_subscriber(subscriber):
+                            async for event in subscriber:
+                                updated_state = await get_app_state()
+                                yield AppStateEvent(state=updated_state)
 
-                # Create task to handle each subscription
-                tasks = []
+                        tasks.append(
+                            asyncio.create_task(
+                                handle_subscriber(conversations_subscriber)
+                            )
+                        )
+                        if messages_subscriber:
+                            tasks.append(
+                                asyncio.create_task(
+                                    handle_subscriber(messages_subscriber)
+                                )
+                            )
+                        tasks.append(
+                            asyncio.create_task(
+                                handle_subscriber(notifications_subscriber)
+                            )
+                        )
 
-                async def handle_subscriber(subscriber):
-                    async for event in subscriber:
-                        updated_state = await get_app_state()
-                        yield AppStateEvent(state=updated_state)
+                        # Wait for any subscription to receive an update
+                        done, pending = await asyncio.wait(
+                            tasks, return_when=asyncio.FIRST_COMPLETED
+                        )
 
-                tasks.append(
-                    asyncio.create_task(handle_subscriber(conversations_subscriber))
-                )
-                if messages_subscriber:
-                    tasks.append(
-                        asyncio.create_task(handle_subscriber(messages_subscriber))
-                    )
-                tasks.append(
-                    asyncio.create_task(handle_subscriber(notifications_subscriber))
-                )
-
-                # Wait for any subscription to receive an update
-                done, pending = await asyncio.wait(
-                    tasks, return_when=asyncio.FIRST_COMPLETED
-                )
-
-                # Cancel remaining tasks
-                for task in pending:
-                    task.cancel()
+                        # Cancel remaining tasks
+                        for task in pending:
+                            task.cancel()
+            finally:
+                await broadcaster.disconnect()
 
         except Exception as e:
             logging.error(f"Subscription error: {str(e)}")
