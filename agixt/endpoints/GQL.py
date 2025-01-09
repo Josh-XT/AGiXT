@@ -147,7 +147,7 @@ class ConversationMetadata:
     created_at: datetime
     updated_at: datetime
     has_notifications: bool
-    summary: str
+    summary: Optional[str]
     attachment_count: int
 
 
