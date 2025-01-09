@@ -1410,8 +1410,7 @@ class Subscription:
             # Initialize auth manager with provided token
             user, auth = await get_user_from_context(info)
             auth_manager = MagicalAuth(token=auth)
-            user = auth_manager.get_user_email()
-
+            user = auth_manager.email
             if not user:
                 raise Exception("Invalid authentication token")
 
