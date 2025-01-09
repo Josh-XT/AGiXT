@@ -39,8 +39,6 @@ logging.basicConfig(
 
 async def get_user_from_context(info):
     request = info.context["request"]
-    logging.info(f"Request type: {type(request)}")
-
     try:
         # Try regular HTTP header first
         auth = request.headers.get("authorization")
@@ -62,7 +60,6 @@ async def get_user_from_context(info):
         if not auth and hasattr(request, "cookies"):
             auth = request.cookies.get("jwt")
 
-        logging.info(f"Final auth header: {auth}")
         if not auth:
             raise HTTPException(status_code=401, detail="No authorization header found")
 
