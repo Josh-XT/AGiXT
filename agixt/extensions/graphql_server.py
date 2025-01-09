@@ -24,7 +24,7 @@ class graphql_server(Extensions):
     def __init__(
         self,
         GRAPHQL_ENDPOINT: str = "http://localhost:7437/graphql",
-        GRAPHQL_HEADERS: str = "",
+        GRAPHQL_HEADERS: str = "{}",
         **kwargs,
     ):
         self.GRAPHQL_ENDPOINT = GRAPHQL_ENDPOINT
@@ -32,13 +32,19 @@ class graphql_server(Extensions):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
         self.ApiClient = kwargs.get("ApiClient")
         self.conversation_name = kwargs.get("conversation_name")
-        if not GRAPHQL_HEADERS:
+        if GRAPHQL_HEADERS == "{}":
             self.GRAPHQL_HEADERS = {
                 "Content-Type": "application/json",
                 "Authorization": self.api_key,
             }
         else:
-            self.GRAPHQL_HEADERS = json.loads(GRAPHQL_HEADERS)
+            try:
+                self.GRAPHQL_HEADERS = json.loads(GRAPHQL_HEADERS)
+            except json.JSONDecodeError:
+                self.GRAPHQL_HEADERS = {
+                    "Content-Type": "application/json",
+                    "Authorization": self.api_key,
+                }
         self.commands = {
             "Custom GraphQL Query": self.execute_query,
             "Get GraphQL Schema": self.get_schema,
