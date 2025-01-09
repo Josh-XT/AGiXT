@@ -1434,7 +1434,7 @@ class Subscription:
                                 name=agent["name"],
                                 id=agent["id"],
                                 status=agent["status"],
-                                default=agent["default"],
+                                default=preferences_dict.get("agent_id") == agent["id"],
                                 company_id=agent.get("company_id"),
                             )
                             for agent in company.get("agents", [])
@@ -1797,6 +1797,8 @@ class Query:
 
         result = []
         magic = MagicalAuth(token=auth)
+        user_preferences = magic.get_user_preferences()
+        user_agent_id = user_preferences.get("agent_id")
 
         for agent in agents:
             agent_instance = Agent(
@@ -1829,7 +1831,7 @@ class Query:
                     id=agent["id"],
                     name=agent["name"],
                     status=agent["status"],
-                    default=agent["default"],
+                    default=user_agent_id == agent["id"],
                     company_id=agent.get("company_id"),
                     settings=settings,
                     commands=commands,
