@@ -385,16 +385,38 @@ class Chain:
         prompt_args = prompt.copy()
         if prompt_type == "Command":
             command_name = prompt.get("command_name")
-            del prompt_args["command_name"]
-            command = (
-                session.query(Command).filter(Command.name == command_name).first()
-            )
-            if command:
-                target_command_id = command.id
-        elif prompt_type == "Prompt":
-            prompt_name = prompt.get("prompt_name")
+            if command_name:
+                if "command_name" in prompt:
+                    del prompt_args["command_name"]
+                command = (
+                    session.query(Command).filter(Command.name == command_name).first()
+                )
+                if command:
+                    target_command_id = command.id
+            else:
+                prompt_type = "Prompt"
+        elif prompt_type == "Chain":
+            chain_name = prompt.get("chain_name")
+            if chain_name:
+                if "chain" in prompt:
+                    chain_name = prompt.get("chain")
+                    del prompt_args["chain"]
+                if "chain_name" in prompt_args:
+                    del prompt_args["chain_name"]
+                chain_obj = (
+                    session.query(ChainDB)
+                    .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
+                    .first()
+                )
+                if chain_obj:
+                    target_chain_id = chain_obj.id
+            else:
+                prompt_type = "Prompt"
+        if prompt_type == "Prompt":
+            prompt_name = prompt.get("prompt_name", "Think About It")
             prompt_category = prompt.get("prompt_category", "Default")
-            del prompt_args["prompt_name"]
+            if "prompt_name" in prompt_args:
+                del prompt_args["prompt_name"]
             if "prompt_category" in prompt_args:
                 del prompt_args["prompt_category"]
             prompt_obj = (
@@ -408,20 +430,6 @@ class Chain:
             )
             if prompt_obj:
                 target_prompt_id = prompt_obj.id
-        elif prompt_type == "Chain":
-            chain_name = prompt.get("chain_name")
-            if "chain" in prompt:
-                chain_name = prompt.get("chain")
-                del prompt_args["chain"]
-            if "chain_name" in prompt_args:
-                del prompt_args["chain_name"]
-            chain_obj = (
-                session.query(ChainDB)
-                .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
-                .first()
-            )
-            if chain_obj:
-                target_chain_id = chain_obj.id
         chain_step.agent_id = agent_id
         chain_step.prompt_type = prompt_type
         chain_step.prompt = prompt.get("prompt_name", None)
