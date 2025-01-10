@@ -2437,6 +2437,43 @@ class MagicalAuth:
             return user_preferences["timezone"]
         return getenv("TZ")
 
+    def rename_company(self, company_id, name):
+        # Check if company is in users companies
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+        with get_session() as db:
+            company = db.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+            user_role = self.get_user_role(company_id)
+            if user_role > 2:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Unauthorized. Insufficient permissions.",
+                )
+            company.name = name
+            db.commit()
+            return CompanyResponse(
+                id=str(company.id),
+                name=company.name,
+                company_id=str(company.company_id) if company.company_id else None,
+                users=[
+                    UserResponse(
+                        id=str(uc.user.id),
+                        email=uc.user.email,
+                        first_name=uc.user.first_name,
+                        last_name=uc.user.last_name,
+                        role=uc.role.name,
+                        role_id=uc.role_id,
+                    )
+                    for uc in company.users
+                ],
+                children=[],
+            )
+
 
 def get_user_timezone(user_id):
     session = get_session()
