@@ -848,6 +848,16 @@ class MagicalAuth:
     def delete_company(self, company_id):
         session = get_session()
         company = session.query(Company).filter(Company.id == company_id).first()
+        # Get users in the company and remove them from the company
+        user_companies = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id == company.id)
+            .all()
+        )
+        for user_company in user_companies:
+            session.delete(user_company)
+        session.commit()
+        # Delete the company
         session.delete(company)
         session.commit()
         session.close()
