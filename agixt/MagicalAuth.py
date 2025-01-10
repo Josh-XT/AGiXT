@@ -1896,18 +1896,26 @@ class MagicalAuth:
                 for company in user_companies:
                     # Use dictionary for deduplication based on user ID
                     unique_users = {}
-                    for user_company in company.users:
-                        user = user_company.user
-                        user_id = str(user.id)
-                        if user_id not in unique_users:
-                            unique_users[user_id] = UserResponse(
-                                id=user_id,
-                                email=user.email,
-                                first_name=user.first_name,
-                                last_name=user.last_name,
-                                role=user_company.role.name,
-                                role_id=user_company.role_id,
-                            )
+                    role_id = self.get_user_role(str(company.id))
+                    if not role_id:
+                        continue
+                    try:
+                        role_id = int(role_id)
+                    except:
+                        continue
+                    if role_id < 3:
+                        for user_company in company.users:
+                            user = user_company.user
+                            user_id = str(user.id)
+                            if user_id not in unique_users:
+                                unique_users[user_id] = UserResponse(
+                                    id=user_id,
+                                    email=user.email,
+                                    first_name=user.first_name,
+                                    last_name=user.last_name,
+                                    role=user_company.role.name,
+                                    role_id=user_company.role_id,
+                                )
 
                     company_data = {
                         "id": str(company.id),
