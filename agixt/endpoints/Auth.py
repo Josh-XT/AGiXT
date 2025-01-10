@@ -450,12 +450,36 @@ async def create_company(
             parent_company_id=company.parent_company_id,
             agent_name=company.agent_name,
         )
-        return new_company
+        return NewCompanyInput(**new_company)
     except Exception as e:
         logging.error(f"Error in create_company endpoint: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"An error occurred while creating the company: {str(e)}",
+        )
+
+
+# delete company
+@app.delete(
+    "/v1/companies/{company_id}",
+    response_model=Detail,
+    summary="Delete a company",
+    tags=["Companies"],
+)
+def delete_company(
+    company_id: str,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        auth.delete_company(company_id)
+        return Detail(detail="Company deleted successfully.")
+    except Exception as e:
+        logging.error(f"Error in delete_company endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while deleting the company: {str(e)}",
         )
 
 
