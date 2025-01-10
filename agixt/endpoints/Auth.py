@@ -2,15 +2,14 @@ from Models import (  # type: ignore
     Detail,
     Login,
     Register,
-    WebhookModel,
     CompanyResponse,
     InvitationCreate,
     InvitationResponse,
     ToggleCommandPayload,
     ResponseMessage,
+    NewCompanyInput,
 )
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
-from DB import get_session, User, UserPreferences  # type: ignore
 from MagicalAuth import MagicalAuth, verify_api_key, impersonate_user  # type: ignore
 from Agent import Agent  # type: ignore
 from typing import List, Optional
@@ -439,14 +438,17 @@ async def get_companies(
 
 @app.post("/v1/companies", response_model=CompanyResponse, tags=["Companies"])
 async def create_company(
-    name: str,
-    parent_company_id: Optional[str] = None,
+    company: NewCompanyInput,
     email: str = Depends(verify_api_key),
     authorization: str = Header(None),
 ):
     try:
         auth = MagicalAuth(token=authorization)
-        new_company = auth.create_company(name, parent_company_id)
+        new_company = auth.create_company_with_agent(
+            name=company.name,
+            parent_company_id=company.parent_company_id,
+            agent_name=company.agent_name,
+        )
         return new_company
     except Exception as e:
         logging.error(f"Error in create_company endpoint: {str(e)}")
