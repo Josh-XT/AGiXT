@@ -2071,6 +2071,26 @@ class MagicalAuth:
                 db.rollback()
                 raise HTTPException(status_code=500, detail=str(e))
 
+    def create_company_with_agent(
+        self,
+        name: str,
+        parent_company_id: Optional[str] = None,
+        agent_name: str = "AGiXT",
+    ):
+        company = self.create_company(name=name, parent_company_id=parent_company_id)
+        agixt = self.get_user_agent_session()
+        # Just create an agent associated with the company like we do at registration
+        with open("default_agent.json", "r") as file:
+            default_agent = json.load(file)
+        default_agent["settings"]["company_id"] = company["id"]
+        agixt.add_agent(
+            agent_name=agent_name,
+            settings=default_agent["settings"],
+            commands=default_agent["commands"],
+            training_urls=default_agent["training_urls"],
+        )
+        return company
+
     def update_company(self, company_id: str, name: str) -> CompanyResponse:
         with get_session() as db:
             try:

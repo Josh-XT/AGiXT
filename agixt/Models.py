@@ -593,3 +593,9 @@ class DPOResponse(BaseModel):
     prompt: str
     chosen: str
     rejected: str
+
+
+class NewCompanyInput(BaseModel):
+    name: str
+    parent_company_id: Optional[str] = None
+    agent_name: Optional[str] = getenv("AGENT_NAME")
