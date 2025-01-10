@@ -450,7 +450,7 @@ async def create_company(
             parent_company_id=company.parent_company_id,
             agent_name=company.agent_name,
         )
-        return NewCompanyInput(**new_company)
+        return NewCompanyResponse(**new_company)
     except Exception as e:
         logging.error(f"Error in create_company endpoint: {str(e)}")
         raise HTTPException(
