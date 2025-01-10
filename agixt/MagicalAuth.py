@@ -747,9 +747,9 @@ class MagicalAuth:
                 if not self.email.endswith(".xt"):
                     # Create a new company for the user
                     company_name = (
-                        f"{new_user.first_name}'s Company"
+                        f"{new_user.first_name}'s Team"
                         if new_user.first_name
-                        else "My Company"
+                        else "My Team"
                     )
                     new_company = self.create_company(name=company_name)
                     company_id = new_company["id"]
