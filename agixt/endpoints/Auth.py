@@ -495,3 +495,20 @@ async def toggle_command(
         new_config={payload.command_name: payload.enable}, config_key="commands"
     )
     return ResponseMessage(message=update_config)
+
+
+# Rename company
+@app.put(
+    "/v1/companies/{company_id}",
+    response_model=CompanyResponse,
+    summary="Rename a company",
+    tags=["Companies"],
+)
+async def rename_company(
+    company_id: str,
+    name: str,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    return auth.rename_company(company_id, name)
