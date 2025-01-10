@@ -8,6 +8,7 @@ from Models import (  # type: ignore
     ToggleCommandPayload,
     ResponseMessage,
     NewCompanyInput,
+    NewCompanyResponse,
 )
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from MagicalAuth import MagicalAuth, verify_api_key, impersonate_user  # type: ignore
@@ -436,7 +437,7 @@ async def get_companies(
         )
 
 
-@app.post("/v1/companies", response_model=CompanyResponse, tags=["Companies"])
+@app.post("/v1/companies", response_model=NewCompanyResponse, tags=["Companies"])
 async def create_company(
     company: NewCompanyInput,
     email: str = Depends(verify_api_key),

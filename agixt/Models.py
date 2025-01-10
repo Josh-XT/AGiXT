@@ -23,6 +23,11 @@ class CompanyResponse(BaseModel):
     children: List["CompanyResponse"] = []
 
 
+class NewCompanyResponse(BaseModel):
+    id: str
+    name: str
+
+
 CompanyResponse.model_rebuild()
 
 
