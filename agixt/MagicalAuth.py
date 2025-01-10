@@ -845,10 +845,10 @@ class MagicalAuth:
         session.close()
         return "User updated successfully."
 
-    def delete_company(self):
+    def delete_company(self, company_id):
         session = get_session()
-        company = session.query(Company).filter(Company.id == self.company_id).first()
-        company.is_active = False
+        company = session.query(Company).filter(Company.id == company_id).first()
+        session.delete(company)
         session.commit()
         session.close()
         return "Company deleted successfully"
