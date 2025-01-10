@@ -845,6 +845,14 @@ class MagicalAuth:
         session.close()
         return "User updated successfully."
 
+    def delete_company(self):
+        session = get_session()
+        company = session.query(Company).filter(Company.id == self.company_id).first()
+        company.is_active = False
+        session.commit()
+        session.close()
+        return "Company deleted successfully"
+
     def delete_user(self):
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
@@ -2087,7 +2095,11 @@ class MagicalAuth:
             agent_name=agent_name,
             settings=default_agent["settings"],
             commands=default_agent["commands"],
-            training_urls=default_agent["training_urls"],
+            training_urls=(
+                default_agent["training_urls"]
+                if "training_urls" in default_agent
+                else []
+            ),
         )
         return company
 
