@@ -149,6 +149,7 @@ def get_user(
     user_preferences = auth.get_user_preferences()
     companies = auth.get_user_companies_with_roles()
     return {
+        "id": auth.user_id,
         "email": user_data.email,
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
