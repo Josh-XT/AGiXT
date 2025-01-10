@@ -17,6 +17,7 @@ from endpoints.Memory import app as memory_endpoints
 from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
 from endpoints.Auth import app as auth_endpoints
+from endpoints.Health import app as health_endpoints
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
@@ -92,6 +93,7 @@ app.include_router(memory_endpoints)
 app.include_router(prompt_endpoints)
 app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
+app.include_router(health_endpoints)
 
 
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
