@@ -1229,6 +1229,7 @@ class CompanyCreateInput:
 
     name: str
     parent_company_id: Optional[str] = None
+    agent_name: Optional[str] = "AGiXT"
 
 
 @strawberry.input
@@ -3513,8 +3514,10 @@ class Mutation:
         """Create a new company"""
         user, auth, auth_manager = await get_user_from_context(info)
 
-        result = auth_manager.create_company(
-            name=input.name, parent_company_id=input.parent_company_id
+        result = auth_manager.create_company_with_agent(
+            name=input.name,
+            parent_company_id=input.parent_company_id,
+            agent_name=input.agent_name,
         )
 
         return CompanyInfo(
