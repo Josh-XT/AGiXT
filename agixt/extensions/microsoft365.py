@@ -39,7 +39,9 @@ class microsoft365(Extensions):
                 "Microsoft - Reply to Email": self.reply_to_email,
                 "Microsoft - Process Attachments": self.process_attachments,
                 "Microsoft - Get Calendar Items": self.get_calendar_items,
+                "Microsoft - Get Available Timeslots": self.get_available_timeslots,
                 "Microsoft - Add Calendar Item": self.add_calendar_item,
+                "Microsoft - Modify Calendar Item": self.modify_calendar_item,
                 "Microsoft - Remove Calendar Item": self.remove_calendar_item,
                 "Microsoft - Get Todo Tasks": self.get_todo_tasks,
                 "Microsoft - Create Todo Task": self.create_todo_task,
@@ -504,6 +506,146 @@ class microsoft365(Extensions):
             logging.error(f"Error retrieving calendar items: {str(e)}")
             return []
 
+    async def get_available_timeslots(
+        self,
+        start_date,
+        num_days=7,
+        work_day_start="09:00",
+        work_day_end="17:00",
+        duration_minutes=30,
+        buffer_minutes=0,
+    ):
+        """
+        Finds available time slots over a specified number of days.
+
+        Args:
+            start_date (datetime): Starting date to search from
+            num_days (int): Number of days to search
+            work_day_start (str): Start time of workday (HH:MM format)
+            work_day_end (str): End time of workday (HH:MM format)
+            duration_minutes (int): Desired meeting duration in minutes
+            buffer_minutes (int): Buffer time between meetings in minutes
+
+        Returns:
+            list: List of available time slots as datetime objects
+        """
+        try:
+            self.verify_user()
+
+            end_date = start_date + timedelta(days=num_days)
+
+            # Get all existing calendar events for the date range
+            existing_events = await self.get_calendar_items(
+                start_date=start_date,
+                end_date=end_date,
+                max_items=100,  # Increased to handle busy calendars
+            )
+
+            available_slots = []
+            current_date = start_date
+
+            while current_date < end_date:
+                # Convert work day times to datetime
+                day_start = datetime.strptime(work_day_start, "%H:%M").time()
+                day_end = datetime.strptime(work_day_end, "%H:%M").time()
+
+                current_slot_start = datetime.combine(current_date.date(), day_start)
+                day_end_time = datetime.combine(current_date.date(), day_end)
+
+                # Filter events for current day
+                day_events = [
+                    event
+                    for event in existing_events
+                    if datetime.fromisoformat(
+                        event["start_time"].replace("Z", "+")
+                    ).date()
+                    == current_date.date()
+                ]
+
+                # Sort events by start time
+                day_events.sort(
+                    key=lambda x: datetime.fromisoformat(
+                        x["start_time"].replace("Z", "+")
+                    )
+                )
+
+                while (
+                    current_slot_start + timedelta(minutes=duration_minutes)
+                    <= day_end_time
+                ):
+                    slot_end = current_slot_start + timedelta(minutes=duration_minutes)
+                    is_available = True
+
+                    # Check if slot conflicts with any existing events
+                    for event in day_events:
+                        event_start = datetime.fromisoformat(
+                            event["start_time"].replace("Z", "+")
+                        )
+                        event_end = datetime.fromisoformat(
+                            event["end_time"].replace("Z", "+")
+                        )
+
+                        if current_slot_start <= event_end and slot_end >= event_start:
+                            is_available = False
+                            # Move current_slot to end of conflicting event plus buffer
+                            current_slot_start = event_end + timedelta(
+                                minutes=buffer_minutes
+                            )
+                            break
+
+                    if is_available:
+                        available_slots.append(
+                            {
+                                "start_time": current_slot_start.isoformat(),
+                                "end_time": slot_end.isoformat(),
+                            }
+                        )
+                        current_slot_start += timedelta(
+                            minutes=duration_minutes + buffer_minutes
+                        )
+
+                current_date += timedelta(days=1)
+
+            return available_slots
+
+        except Exception as e:
+            logging.error(f"Error finding available timeslots: {str(e)}")
+            return []
+
+    async def check_time_availability(self, start_time, end_time):
+        """
+        Checks if a specific time slot is available.
+
+        Args:
+            start_time (datetime): Start time of proposed event
+            end_time (datetime): End time of proposed event
+
+        Returns:
+            tuple: (bool, dict) - (is_available, conflicting_event_if_any)
+        """
+        try:
+            self.verify_user()
+
+            # Get events for the day
+            existing_events = await self.get_calendar_items(
+                start_date=start_time, end_date=end_time, max_items=50
+            )
+
+            for event in existing_events:
+                event_start = datetime.fromisoformat(
+                    event["start_time"].replace("Z", "+")
+                )
+                event_end = datetime.fromisoformat(event["end_time"].replace("Z", "+"))
+
+                if start_time <= event_end and end_time >= event_start:
+                    return False, event
+
+            return True, None
+
+        except Exception as e:
+            logging.error(f"Error checking time availability: {str(e)}")
+            raise
+
     async def add_calendar_item(
         self,
         subject,
@@ -532,7 +674,20 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            self.verify_user()
+            is_available, conflict = await self.check_time_availability(
+                start_time, end_time
+            )
+
+            if not is_available:
+                return {
+                    "success": False,
+                    "message": f"The user isn't available at {start_time.strftime('%Y-%m-%d %H:%M')}. "
+                    f"There is a conflict with '{conflict['subject']}'. "
+                    f"Ask the user if they would like to schedule a different time or "
+                    f"move their scheduled item '{conflict['subject']}' to a different time.",
+                }
+
+            # Original add_calendar_item logic here
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
@@ -567,7 +722,11 @@ class microsoft365(Extensions):
             )
 
             if response.status_code == 201:
-                return "Calendar event created successfully."
+                return {
+                    "success": True,
+                    "message": "Calendar event created successfully.",
+                    "event_id": response.json().get("id"),
+                }
             else:
                 raise Exception(
                     f"Failed to create event: {response.status_code}: {response.text}"
@@ -575,7 +734,115 @@ class microsoft365(Extensions):
 
         except Exception as e:
             logging.error(f"Error creating calendar event: {str(e)}")
-            return f"Failed to create calendar event: {str(e)}"
+            return {
+                "success": False,
+                "message": f"Failed to create calendar event: {str(e)}",
+            }
+
+    async def modify_calendar_item(
+        self,
+        event_id,
+        subject=None,
+        start_time=None,
+        end_time=None,
+        location=None,
+        attendees=None,
+        body=None,
+        is_online_meeting=None,
+        reminder_minutes_before=None,
+        check_availability=True,
+    ):
+        """
+        Modifies an existing calendar event.
+
+        Args:
+            event_id (str): ID of the event to modify
+            [all other parameters are optional and match add_calendar_item]
+            subject (str): Event title/subject
+            start_time (datetime): Event start time
+            end_time (datetime): Event end time
+            location (str): Optional physical location
+            attendees (list): Optional list of attendee email addresses
+            body (str): Optional event description
+            is_online_meeting (bool): Whether to create as Teams meeting
+            reminder_minutes_before (int): Minutes before event to send reminder
+            check_availability (bool): Whether to check for conflicts before modifying time
+
+        Returns:
+            dict: Response containing success status and any conflict information
+        """
+        try:
+            self.verify_user()
+
+            # If changing time, check availability
+            if check_availability and start_time and end_time:
+                is_available, conflict = await self.check_time_availability(
+                    start_time, end_time
+                )
+
+                if not is_available:
+                    return {
+                        "success": False,
+                        "message": f"The user isn't available at {start_time.strftime('%Y-%m-%d %H:%M')}. "
+                        f"There is a conflict with '{conflict['subject']}'. "
+                        f"Ask the user if they would like to choose a different time.",
+                    }
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Build update data with only provided fields
+            update_data = {}
+
+            if subject:
+                update_data["subject"] = subject
+            if start_time:
+                update_data["start"] = {
+                    "dateTime": start_time,
+                    "timeZone": self.timezone,
+                }
+            if end_time:
+                update_data["end"] = {"dateTime": end_time, "timeZone": self.timezone}
+            if location is not None:
+                update_data["location"] = {"displayName": location}
+            if body is not None:
+                update_data["body"] = {"contentType": "HTML", "content": body}
+            if is_online_meeting is not None:
+                update_data["isOnlineMeeting"] = is_online_meeting
+            if reminder_minutes_before is not None:
+                update_data["reminderMinutesBeforeStart"] = reminder_minutes_before
+            if attendees is not None:
+                if isinstance(attendees, str):
+                    attendees = [attendees]
+                update_data["attendees"] = [
+                    {"emailAddress": {"address": email}, "type": "required"}
+                    for email in attendees
+                ]
+
+            response = requests.patch(
+                f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+                headers=headers,
+                json=update_data,
+            )
+
+            if response.status_code == 200:
+                return {
+                    "success": True,
+                    "message": "Calendar event modified successfully.",
+                }
+            else:
+                raise Exception(
+                    f"Failed to modify event: {response.status_code}: {response.text}"
+                )
+
+        except Exception as e:
+            logging.error(f"Error modifying calendar event: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Failed to modify calendar event: {str(e)}",
+            }
 
     async def remove_calendar_item(self, event_id):
         """
