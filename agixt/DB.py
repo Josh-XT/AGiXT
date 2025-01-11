@@ -74,6 +74,7 @@ class Company(Base):
     encryption_key = Column(String, nullable=False)
     token = Column(String, nullable=True)
     training_data = Column(String, nullable=True)
+    agent_name = Column(String, nullable=True, default=getenv("AGENT_NAME"))
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
