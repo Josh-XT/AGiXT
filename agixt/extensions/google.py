@@ -50,7 +50,9 @@ class google(Extensions):
                 "Google - Reply to Email": self.reply_to_email,
                 "Google - Process Attachments": self.process_attachments,
                 "Google - Get Calendar Items": self.get_calendar_items,
+                "Google - Get Available Timeslots": self.get_available_timeslots,
                 "Google - Add Calendar Item": self.add_calendar_item,
+                "Google - Modify Calendar Item": self.modify_calendar_item,
                 "Google - Remove Calendar Item": self.remove_calendar_item,
                 "Google - Get Keep Notes": self.get_keep_notes,
                 "Google - Create Keep Note": self.create_keep_note,
@@ -560,21 +562,28 @@ class google(Extensions):
             logging.info(f"Error retrieving calendar items: {str(e)}")
             return []
 
-    async def add_calendar_item(
-        self, subject, start_time, end_time, location, attendees=None
+    async def get_available_timeslots(
+        self,
+        start_date,
+        num_days=7,
+        work_day_start="09:00",
+        work_day_end="17:00",
+        duration_minutes=30,
+        buffer_minutes=0,
     ):
         """
-        Add a calendar item to the user's Google Calendar
+        Finds available time slots over a specified number of days.
 
         Args:
-        subject (str): The subject of the calendar item
-        start_time (str): The start time of the calendar item
-        end_time (str): The end time of the calendar item
-        location (str): The location of the calendar item
-        attendees (List[str]): A list of email addresses of attendees
+            start_date (datetime): Starting date to search from
+            num_days (int): Number of days to search
+            work_day_start (str): Start time of workday (HH:MM format)
+            work_day_end (str): End time of workday (HH:MM format)
+            duration_minutes (int): Desired meeting duration in minutes
+            buffer_minutes (int): Buffer time between meetings in minutes
 
         Returns:
-        str: The result of adding the calendar item
+            list: List of available time slots with start and end times
         """
         try:
             access_token = self.authenticate()
@@ -585,28 +594,326 @@ class google(Extensions):
                 always_use_jwt_access=True,
             )
 
+            end_date = start_date + timedelta(days=num_days)
+
+            # Get all existing calendar events for the date range
+            events_result = (
+                service.events()
+                .list(
+                    calendarId="primary",
+                    timeMin=start_date.isoformat() + "Z",
+                    timeMax=end_date.isoformat() + "Z",
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
+            )
+            events = events_result.get("items", [])
+
+            available_slots = []
+            current_date = start_date
+
+            while current_date < end_date:
+                # Convert work day times to datetime
+                day_start = datetime.strptime(work_day_start, "%H:%M").time()
+                day_end = datetime.strptime(work_day_end, "%H:%M").time()
+
+                current_slot_start = datetime.combine(current_date.date(), day_start)
+                day_end_time = datetime.combine(current_date.date(), day_end)
+
+                # Filter events for current day
+                day_events = [
+                    event
+                    for event in events
+                    if event["start"].get("dateTime")
+                    and datetime.fromisoformat(
+                        event["start"]["dateTime"].replace("Z", "+00:00")
+                    ).date()
+                    == current_date.date()
+                ]
+
+                # Sort events by start time
+                day_events.sort(key=lambda x: x["start"]["dateTime"])
+
+                while (
+                    current_slot_start + timedelta(minutes=duration_minutes)
+                    <= day_end_time
+                ):
+                    slot_end = current_slot_start + timedelta(minutes=duration_minutes)
+                    is_available = True
+
+                    # Check if slot conflicts with any existing events
+                    for event in day_events:
+                        event_start = datetime.fromisoformat(
+                            event["start"]["dateTime"].replace("Z", "+00:00")
+                        )
+                        event_end = datetime.fromisoformat(
+                            event["end"]["dateTime"].replace("Z", "+00:00")
+                        )
+
+                        if current_slot_start <= event_end and slot_end >= event_start:
+                            is_available = False
+                            # Move current_slot to end of conflicting event plus buffer
+                            current_slot_start = event_end + timedelta(
+                                minutes=buffer_minutes
+                            )
+                            break
+
+                    if is_available:
+                        available_slots.append(
+                            {
+                                "start_time": current_slot_start.isoformat(),
+                                "end_time": slot_end.isoformat(),
+                            }
+                        )
+                        current_slot_start += timedelta(
+                            minutes=duration_minutes + buffer_minutes
+                        )
+
+                current_date += timedelta(days=1)
+
+            return available_slots
+
+        except Exception as e:
+            logging.error(f"Error finding available timeslots: {str(e)}")
+            return []
+
+    async def check_time_availability(self, start_time, end_time):
+        """
+        Checks if a specific time slot is available.
+
+        Args:
+            start_time (datetime): Start time of proposed event
+            end_time (datetime): End time of proposed event
+
+        Returns:
+            tuple: (bool, dict) - (is_available, conflicting_event_if_any)
+        """
+        try:
+            access_token = self.authenticate()
+            service = build(
+                "calendar",
+                "v3",
+                credentials=access_token,
+                always_use_jwt_access=True,
+            )
+
+            # Get events for the time period
+            events_result = (
+                service.events()
+                .list(
+                    calendarId="primary",
+                    timeMin=start_time.isoformat() + "Z",
+                    timeMax=end_time.isoformat() + "Z",
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
+            )
+
+            events = events_result.get("items", [])
+
+            for event in events:
+                if "dateTime" not in event["start"]:  # Skip all-day events
+                    continue
+
+                event_start = datetime.fromisoformat(
+                    event["start"]["dateTime"].replace("Z", "+00:00")
+                )
+                event_end = datetime.fromisoformat(
+                    event["end"]["dateTime"].replace("Z", "+00:00")
+                )
+
+                if start_time <= event_end and end_time >= event_start:
+                    return False, {
+                        "id": event["id"],
+                        "summary": event["summary"],
+                        "start_time": event["start"]["dateTime"],
+                        "end_time": event["end"]["dateTime"],
+                    }
+
+            return True, None
+
+        except Exception as e:
+            logging.error(f"Error checking time availability: {str(e)}")
+            raise
+
+    async def add_calendar_item(
+        self,
+        subject,
+        start_time,
+        end_time,
+        location=None,
+        attendees=None,
+        description=None,
+        check_availability=True,
+    ):
+        """
+        Add a calendar item with availability checking.
+
+        Args:
+            subject (str): The subject of the calendar item
+            start_time (datetime): The start time of the calendar item
+            end_time (datetime): The end time of the calendar item
+            location (str): Optional location of the calendar item
+            attendees (List[str]): Optional list of attendee email addresses
+            description (str): Optional event description
+            check_availability (bool): Whether to check for conflicts before creating
+
+        Returns:
+            dict: Response containing success status and any conflict information
+        """
+        try:
+            if check_availability:
+                is_available, conflict = await self.check_time_availability(
+                    start_time, end_time
+                )
+
+                if not is_available:
+                    return {
+                        "success": False,
+                        "message": f"The user isn't available at {start_time.strftime('%Y-%m-%d %H:%M')}. "
+                        f"There is a conflict with '{conflict['summary']}'. "
+                        f"Ask the user if they would like to schedule a different time or "
+                        f"move their scheduled item '{conflict['summary']}' to a different time.",
+                    }
+
+            access_token = self.authenticate()
+            service = build(
+                "calendar",
+                "v3",
+                credentials=access_token,
+                always_use_jwt_access=True,
+            )
+
             event = {
                 "summary": subject,
-                "location": location,
                 "start": {
-                    "dateTime": start_time,
-                    "timeZone": "UTC",
+                    "dateTime": start_time.isoformat(),
+                    "timeZone": self.timezone,
                 },
                 "end": {
-                    "dateTime": end_time,
-                    "timeZone": "UTC",
+                    "dateTime": end_time.isoformat(),
+                    "timeZone": self.timezone,
                 },
             }
 
+            if location:
+                event["location"] = location
+
+            if description:
+                event["description"] = description
+
             if attendees:
+                if isinstance(attendees, str):
+                    attendees = [attendees]
                 event["attendees"] = [{"email": attendee} for attendee in attendees]
 
-            service.events().insert(calendarId="primary", body=event).execute()
+            created_event = (
+                service.events().insert(calendarId="primary", body=event).execute()
+            )
 
-            return "Calendar item added successfully."
+            return {
+                "success": True,
+                "message": "Calendar event created successfully.",
+                "event_id": created_event["id"],
+            }
+
         except Exception as e:
-            logging.info(f"Error adding calendar item: {str(e)}")
-            return "Failed to add calendar item."
+            logging.error(f"Error adding calendar item: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Failed to add calendar item: {str(e)}",
+            }
+
+    async def modify_calendar_item(
+        self,
+        event_id,
+        subject=None,
+        start_time=None,
+        end_time=None,
+        location=None,
+        attendees=None,
+        description=None,
+        check_availability=True,
+    ):
+        """
+        Modifies an existing calendar event.
+
+        Args:
+            event_id (str): ID of the event to modify
+            [all other parameters are optional and match add_calendar_item]
+            check_availability (bool): Whether to check for conflicts before modifying time
+
+        Returns:
+            dict: Response containing success status and any conflict information
+        """
+        try:
+            access_token = self.authenticate()
+            service = build(
+                "calendar",
+                "v3",
+                credentials=access_token,
+                always_use_jwt_access=True,
+            )
+
+            # Get existing event
+            event = (
+                service.events().get(calendarId="primary", eventId=event_id).execute()
+            )
+
+            # If changing time, check availability
+            if check_availability and start_time and end_time:
+                is_available, conflict = await self.check_time_availability(
+                    start_time, end_time
+                )
+
+                if (
+                    not is_available and conflict["id"] != event_id
+                ):  # Ignore conflict with self
+                    return {
+                        "success": False,
+                        "message": f"The user isn't available at {start_time.strftime('%Y-%m-%d %H:%M')}. "
+                        f"There is a conflict with '{conflict['summary']}'. "
+                        f"Ask the user if they would like to choose a different time.",
+                    }
+
+            # Update event data with only provided fields
+            if subject:
+                event["summary"] = subject
+            if start_time:
+                event["start"] = {
+                    "dateTime": start_time.isoformat(),
+                    "timeZone": self.timezone,
+                }
+            if end_time:
+                event["end"] = {
+                    "dateTime": end_time.isoformat(),
+                    "timeZone": self.timezone,
+                }
+            if location is not None:
+                event["location"] = location
+            if description is not None:
+                event["description"] = description
+            if attendees is not None:
+                if isinstance(attendees, str):
+                    attendees = [attendees]
+                event["attendees"] = [{"email": attendee} for attendee in attendees]
+
+            updated_event = (
+                service.events()
+                .update(calendarId="primary", eventId=event_id, body=event)
+                .execute()
+            )
+
+            return {"success": True, "message": "Calendar event modified successfully."}
+
+        except Exception as e:
+            logging.error(f"Error modifying calendar event: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Failed to modify calendar event: {str(e)}",
+            }
 
     async def remove_calendar_item(self, item_id):
         """
