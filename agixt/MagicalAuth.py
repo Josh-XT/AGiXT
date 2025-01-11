@@ -769,6 +769,8 @@ class MagicalAuth:
                 session.add(user_preference)
 
             session.commit()
+            company = session.query(Company).filter(Company.id == company_id).first()
+            agent_name = company.agent_name
             session.close()
             with open("default_agent.json", "r") as file:
                 default_agent = json.load(file)
@@ -777,7 +779,7 @@ class MagicalAuth:
             if company_id is not None:
                 default_agent["settings"]["company_id"] = str(company_id)
             agixt.add_agent(
-                agent_name=getenv("AGENT_NAME"),
+                agent_name=agent_name,
                 settings=default_agent["settings"],
                 commands=default_agent["commands"],
                 training_urls=(
@@ -2017,7 +2019,12 @@ class MagicalAuth:
 
             return str(company_id) in allowed_company_ids
 
-    def create_company(self, name: str, parent_company_id: Optional[str] = None):
+    def create_company(
+        self,
+        name: str,
+        parent_company_id: Optional[str] = None,
+        agent_name: str = "AGiXT",
+    ):
         with get_session() as db:
             try:
                 if self.company_id != None:
@@ -2032,7 +2039,7 @@ class MagicalAuth:
                                 detail="Unauthorized. Insufficient permissions.",
                             )
                 new_company = Company.create(
-                    db, name=name, company_id=parent_company_id
+                    db, name=name, company_id=parent_company_id, agent_name=agent_name
                 )
                 db.add(new_company)
                 db.commit()
@@ -2095,7 +2102,9 @@ class MagicalAuth:
         parent_company_id: Optional[str] = None,
         agent_name: str = "AGiXT",
     ):
-        company = self.create_company(name=name, parent_company_id=parent_company_id)
+        company = self.create_company(
+            name=name, parent_company_id=parent_company_id, agent_name=agent_name
+        )
         agixt = self.get_user_agent_session()
         # Just create an agent associated with the company like we do at registration
         with open("default_agent.json", "r") as file:
