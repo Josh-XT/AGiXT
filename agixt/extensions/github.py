@@ -2561,7 +2561,8 @@ Please provide new modification commands that:
 5. Ensure the file path is correct
 6. Try something else, like a shorter target that will fit and match better
 7. Do not start target or content with a new line, they're exact replacements.
-8. Modifications must be in the <answer> block to be parsed!
+8. Do not use &lt; and &gt; as replacements for < and > in the XML, it is important to use the actual characters as they're directly replaced in the code.
+9. Modifications must be in the <answer> block to be parsed!
 
 If multiple modifications are needed, repeat the <modification> block.
 
@@ -2724,6 +2725,7 @@ If multiple modifications are needed, repeat the <modification> block.
 - Ensure indentation is correct in the <content> tag, it is critical for Python code and other languages with strict indentation rules.
 - If working with NextJS, remember to include "use client" as the first line of all files declaring components that use client side hooks such as useEffect and useState.
 - Do not start target or content with a new line, they're exact replacements.
+- Do not use &lt; and &gt; as replacements for < and > in the XML, it is important to use the actual characters as they're directly replaced in the code.
 - Modifications must be in the <answer> block to be parsed! They cannot be outside of it.
 
 Example modifications:
