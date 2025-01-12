@@ -729,6 +729,63 @@ def setup_default_roles():
         db.commit()
 
 
+from sqlalchemy import text
+
+
+def migrate_company_agent_name():
+    """
+    Migration function to add agent_name column to Company table.
+    This should be run before the app starts.
+    """
+    try:
+        session = get_session()
+        connection = session.connection()
+
+        # Check if the column exists
+        if DATABASE_TYPE != "sqlite":
+            exists_query = """
+                SELECT EXISTS (
+                    SELECT 1 
+                    FROM information_schema.columns 
+                    WHERE table_name='company' AND column_name='agent_name'
+                );
+            """
+        else:
+            exists_query = """
+                SELECT COUNT(*) 
+                FROM pragma_table_info('Company') 
+                WHERE name='agent_name';
+            """
+
+        result = connection.execute(text(exists_query))
+        column_exists = result.scalar()
+
+        if not column_exists:
+            default_agent_name = getenv("AGENT_NAME")
+
+            # Add the column with different syntax based on database type
+            if DATABASE_TYPE != "sqlite":
+                alter_query = f"""
+                    ALTER TABLE "Company" 
+                    ADD COLUMN agent_name VARCHAR(255) DEFAULT '{default_agent_name}';
+                """
+            else:
+                alter_query = f"""
+                    ALTER TABLE Company 
+                    ADD COLUMN agent_name TEXT DEFAULT '{default_agent_name}';
+                """
+
+            connection.execute(text(alter_query))
+            session.commit()
+            logging.info("Successfully added agent_name column to Company table")
+    except Exception as e:
+        logging.error(f"Error during company agent_name migration: {e}")
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -743,6 +800,7 @@ if __name__ == "__main__":
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
     # Create any missing tables
+    migrate_company_agent_name()
     Base.metadata.create_all(engine)
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
