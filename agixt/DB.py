@@ -800,7 +800,10 @@ if __name__ == "__main__":
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
     # Create any missing tables
-    migrate_company_agent_name()
+    try:
+        migrate_company_agent_name()
+    except Exception as e:
+        logging.error(f"Error during migration: {e}")
     Base.metadata.create_all(engine)
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
