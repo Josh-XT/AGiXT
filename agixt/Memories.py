@@ -111,45 +111,18 @@ def query_results_to_records(results: "QueryResult"):
     return memory_records
 
 
-def get_chroma_client():
+def get_pgvector_client():
     """
-    To use an external Chroma server, set the following environment variables:
-        CHROMA_HOST: The host of the Chroma server
-        CHROMA_PORT: The port of the Chroma server
-        CHROMA_API_KEY: The API key of the Chroma server
-        CHROMA_SSL: Set to "true" if the Chroma server uses SSL
+    Get a pgvector database client instance for vector storage.
+    Environment variables for configuration:
+        PGVECTOR_HOST: The host of the Postgres server (default: localhost)
+        PGVECTOR_PORT: The port of the Postgres server (default: 5432)
+        PGVECTOR_DATABASE: The database name (default: agixt)
+        PGVECTOR_USER: The database user (default: postgres)
+        PGVECTOR_PASSWORD: The database password (default: postgres)
     """
-    chroma_host = getenv("CHROMA_HOST")
-    chroma_settings = Settings(
-        anonymized_telemetry=False,
-    )
-    if chroma_host:
-        # Use external Chroma server
-        try:
-            chroma_api_key = getenv("CHROMA_API_KEY")
-            chroma_headers = (
-                {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
-            )
-            return chromadb.HttpClient(
-                host=chroma_host,
-                port=getenv("CHROMA_PORT"),
-                ssl=(False if getenv("CHROMA_SSL").lower() != "true" else True),
-                headers=chroma_headers,
-                settings=chroma_settings,
-            )
-        except:
-            # If the external Chroma server is not available, use local memories folder
-            logging.warning(
-                f"Chroma server at {chroma_host} is not available. Using local memories folder."
-            )
-    # Persist to local memories folder
-    memories_dir = os.path.join(os.getcwd(), "memories")
-    if not os.path.exists(memories_dir):
-        os.makedirs(memories_dir)
-    return chromadb.PersistentClient(
-        path=memories_dir,
-        settings=chroma_settings,
-    )
+    from extensions.pgvector_database import pgvector_database
+    return pgvector_database()
 
 
 def hash_user_id(user: str, length: int = 8) -> str:
@@ -280,7 +253,7 @@ class Memories:
             if "settings" in self.agent_config
             else {"embeddings_provider": "default"}
         )
-        self.chroma_client = get_chroma_client()
+        self.vector_client = get_pgvector_client()
         self.ApiClient = ApiClient
         self.embedding_provider = Providers(
             name="default",
@@ -294,10 +267,11 @@ class Memories:
         self.embedder = self.embedding_provider.embedder
         self.summarize_content = summarize_content
         self.failures = 0
+        self._collection = None
 
     async def wipe_memory(self):
         try:
-            self.chroma_client.delete_collection(name=self.collection_name)
+            self.vector_client.delete_collection(self.collection_name)
             return True
         except:
             return False
@@ -365,9 +339,7 @@ class Memories:
 
     async def get_collection(self):
         try:
-            return self.chroma_client.get_or_create_collection(
-                name=self.collection_name, embedding_function=self.embedder
-            )
+            return self.vector_client
         except Exception as e:
             try:
                 logging.warning(
@@ -456,20 +428,24 @@ class Memories:
                     ).hexdigest(),
                 }
                 try:
-                    collection.add(
-                        ids=metadata["id"],
-                        metadatas=metadata,
-                        documents=chunk,
+                    embedding = self.embedder(chunk)
+                    self.vector_client.upsert_vectors(
+                        collection_name=self.collection_name,
+                        embeddings=[embedding],
+                        metadata=[metadata],
+                        contents=[chunk]
                     )
-                except:
+                except Exception as e:
                     self.failures += 1
                     for i in range(5):
                         try:
                             time.sleep(0.1)
-                            collection.add(
-                                ids=metadata["id"],
-                                metadatas=metadata,
-                                documents=chunk,
+                            embedding = self.embedder(chunk)
+                            self.vector_client.upsert_vectors(
+                                collection_name=self.collection_name,
+                                embeddings=[embedding],
+                                metadata=[metadata],
+                                contents=[chunk]
                             )
                             self.failures = 0
                             break
@@ -491,27 +467,29 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return ""
-        embedding = array(self.embedding_provider.embeddings(user_input))
-        results = collection.query(
-            query_embeddings=embedding.tolist(),
-            n_results=limit,
-            include=["embeddings", "metadatas", "documents"],
+        embedding = self.embedder(user_input)
+        results = collection.query_collection(
+            collection_name=self.collection_name,
+            query_embedding=embedding,
+            limit=limit
         )
-        embedding_array = array(results["embeddings"][0])
-        if len(embedding_array) == 0:
+        if not results:
             return []
-        embedding_array = embedding_array.reshape(embedding_array.shape[0], -1)
-        if len(embedding.shape) == 2:
-            embedding = embedding.reshape(
-                embedding.shape[1],
-            )
-        similarity_score = compute_similarity_scores(
-            embedding=embedding, embedding_array=embedding_array
-        )
+            
+        # Process results directly from pgvector format
         record_list = []
-        for record, score in zip(query_results_to_records(results), similarity_score):
-            record["relevance_score"] = score
-            record_list.append(record)
+        for result in results:
+            # Convert cosine distance to similarity score
+            distance = result.get('distance', 0)
+            similarity = 1.0 - (distance / 2.0)
+            if similarity >= min_relevance_score:
+                record = {
+                    'content': result['content'],
+                    'metadata': result['metadata'],
+                    'relevance_score': similarity
+                }
+                record_list.append(record)
+        
         sorted_results = sorted(
             record_list, key=lambda x: x["relevance_score"], reverse=True
         )
