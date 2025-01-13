@@ -610,3 +610,7 @@ class UpdateUserRole(BaseModel):
     role_id: int
     company_id: str
     user_id: str
+
+
+class RenameCompanyInput(BaseModel):
+    name: str
