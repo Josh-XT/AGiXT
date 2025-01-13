@@ -87,6 +87,10 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
 
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
+    if "company_id" not in provider_settings:
+        token = impersonate_user(user_id=str(user_id))
+        auth = MagicalAuth(token=token)
+        provider_settings["company_id"] = str(auth.company_id)
     if commands is None or commands == "" or commands == {}:
         commands = {}
     # Get provider ID based on provider name from provider_settings["provider"]
