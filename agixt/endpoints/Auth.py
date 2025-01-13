@@ -9,6 +9,7 @@ from Models import (  # type: ignore
     ResponseMessage,
     NewCompanyInput,
     NewCompanyResponse,
+    RenameCompanyInput,
     UpdateUserRole,
 )
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
@@ -534,12 +535,12 @@ async def toggle_command(
 )
 async def rename_company(
     company_id: str,
-    name: str,
+    company_name: RenameCompanyInput,
     email: str = Depends(verify_api_key),
     authorization: str = Header(None),
 ):
     auth = MagicalAuth(token=authorization)
-    return auth.rename_company(company_id, name)
+    return auth.rename_company(company_id, company_name.name)
 
 
 @app.put(
