@@ -9,6 +9,7 @@ from Models import (  # type: ignore
     ResponseMessage,
     NewCompanyInput,
     NewCompanyResponse,
+    UpdateUserRole,
 )
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from MagicalAuth import MagicalAuth, verify_api_key, impersonate_user  # type: ignore
@@ -539,3 +540,28 @@ async def rename_company(
 ):
     auth = MagicalAuth(token=authorization)
     return auth.rename_company(company_id, name)
+
+
+@app.put(
+    "/v1/user/role",
+    response_model=Detail,
+    summary="Update user role in a company",
+    tags=["Companies"],
+)
+async def update_user_role(
+    role: UpdateUserRole,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        auth.update_user_role(
+            company_id=role.company_id, user_id=role.user_id, role_id=role.role_id
+        )
+        return Detail(detail="User role updated successfully.")
+    except Exception as e:
+        logging.error(f"Error in update_user_role endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while updating the user role: {str(e)}",
+        )

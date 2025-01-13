@@ -604,3 +604,9 @@ class NewCompanyInput(BaseModel):
     name: str
     parent_company_id: Optional[str] = None
     agent_name: Optional[str] = getenv("AGENT_NAME")
+
+
+class UpdateUserRole(BaseModel):
+    role_id: int
+    company_id: str
+    user_id: str
