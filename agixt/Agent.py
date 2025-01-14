@@ -481,9 +481,25 @@ class Agent:
             )
             .first()
         )
-        self.agent_id = str(agent.id) if agent else None
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found.")
+            agent = (
+                session.query(AgentModel)
+                .filter(AgentModel.user_id == self.user_id)
+                .first()
+            )
+            if not agent:
+                # Create an agent.
+                add_agent(agent_name=self.agent_name, user=self.user)
+                # Get the agent
+                agent = (
+                    session.query(AgentModel)
+                    .filter(
+                        AgentModel.name == self.agent_name,
+                        AgentModel.user_id == self.user_id,
+                    )
+                    .first()
+                )
+        self.agent_id = str(agent.id) if agent else None
         config = {"settings": {}, "commands": {}}
         if agent:
             all_commands = session.query(Command).all()
