@@ -253,6 +253,182 @@ def get_agent_id(agent_name: str, email: str) -> str:
         session.close()
 
 
+class SQLCollection:
+    def __init__(self, session, memories_instance):
+        self.session = session
+        self.memories = memories_instance
+
+    def query(self, query_embeddings, n_results=None, include=None):
+        """Emulate ChromaDB's query method using SQL"""
+        try:
+            # Convert numpy array to list if needed
+            if isinstance(query_embeddings, np.ndarray):
+                query_embeddings = query_embeddings.tolist()
+
+            if DATABASE_TYPE == "postgresql":
+                # Use pgvector's similarity search
+                results = self.session.execute(
+                    """
+                    SELECT m.*, 
+                        1 - (m.embedding <=> :embedding::vector) as similarity
+                    FROM memory m
+                    WHERE m.agent_id = :agent_id
+                    AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                    ORDER BY m.embedding <=> :embedding::vector
+                    LIMIT :limit
+                    """,
+                    {
+                        "agent_id": self.memories.agent_id,
+                        "conversation_id": (
+                            None
+                            if self.memories.collection_number == "0"
+                            else self.memories.collection_number
+                        ),
+                        "embedding": query_embeddings[0],  # Assuming single query
+                        "limit": n_results or 10,
+                    },
+                ).fetchall()
+            else:
+                # SQLite fallback using basic similarity
+                results = self.session.execute(
+                    """
+                    SELECT m.* 
+                    FROM memory m
+                    WHERE m.agent_id = :agent_id
+                    AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                    LIMIT :limit
+                    """,
+                    {
+                        "agent_id": self.memories.agent_id,
+                        "conversation_id": (
+                            None
+                            if self.memories.collection_number == "0"
+                            else self.memories.collection_number
+                        ),
+                        "limit": n_results or 10,
+                    },
+                ).fetchall()
+
+            # Format results to match ChromaDB's expected structure
+            if not results:
+                return {
+                    "ids": [[]],
+                    "documents": [[]],
+                    "embeddings": [[]],
+                    "metadatas": [[]],
+                }
+
+            formatted_results = {
+                "ids": [[str(r.id) for r in results]],
+                "documents": [[r.text for r in results]],
+                "embeddings": [[r.embedding for r in results]],
+                "metadatas": [
+                    [
+                        {
+                            "external_source_name": r.external_source,
+                            "id": str(r.id),
+                            "description": r.description,
+                            "additional_metadata": r.additional_metadata,
+                            "timestamp": r.timestamp.isoformat(),
+                        }
+                        for r in results
+                    ]
+                ],
+            }
+
+            return formatted_results
+
+        except Exception as e:
+            logging.error(f"Error in query: {e}")
+            return {
+                "ids": [[]],
+                "documents": [[]],
+                "embeddings": [[]],
+                "metadatas": [[]],
+            }
+
+    def get(self):
+        # Existing get method remains the same...
+        memories = (
+            self.session.query(Memory)
+            .filter_by(
+                agent_id=self.memories.agent_id,
+                conversation_id=(
+                    None
+                    if self.memories.collection_number == "0"
+                    else self.memories.collection_number
+                ),
+            )
+            .all()
+        )
+
+        if not memories:
+            return {
+                "ids": [[]],
+                "documents": [[]],
+                "embeddings": [[]],
+                "metadatas": [[]],
+            }
+
+        return {
+            "ids": [[m.id for m in memories]],
+            "documents": [[m.text for m in memories]],
+            "embeddings": [[m.embedding for m in memories]],
+            "metadatas": [
+                [
+                    {
+                        "external_source_name": m.external_source,
+                        "id": m.id,
+                        "description": m.description,
+                        "additional_metadata": m.additional_metadata,
+                        "timestamp": m.timestamp.isoformat(),
+                    }
+                    for m in memories
+                ]
+            ],
+        }
+
+    def delete(self, ids):
+        if isinstance(ids, str):
+            ids = [ids]
+        try:
+            self.session.query(Memory).filter(Memory.id.in_(ids)).delete(
+                synchronize_session="fetch"
+            )
+            self.session.commit()
+            return True
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error deleting memories: {e}")
+            return False
+
+    def add(self, ids, metadatas, documents):
+        try:
+            for id, metadata, document in zip(ids, metadatas, documents):
+                embedding = embed([document])
+                memory = Memory(
+                    id=id,
+                    agent_id=self.memories.agent_id,
+                    conversation_id=(
+                        None
+                        if self.memories.collection_number == "0"
+                        else self.memories.collection_number
+                    ),
+                    embedding=embedding,
+                    text=document,
+                    external_source=metadata.get("external_source_name", "user input"),
+                    description=metadata.get("description", ""),
+                    additional_metadata=metadata.get("additional_metadata", ""),
+                )
+                self.session.add(memory)
+            self.session.commit()
+            return True
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error adding memories: {e}")
+            return False
+
+
 class Memories:
     def __init__(
         self,
@@ -392,97 +568,6 @@ class Memories:
         """Emulate ChromaDB collection interface using SQL"""
         session = get_session()
         try:
-            # Return a collection-like object that matches ChromaDB's interface
-            class SQLCollection:
-                def __init__(self, session, memories_instance):
-                    self.session = session
-                    self.memories = memories_instance
-
-                def get(self):
-                    # Emulate ChromaDB's get() format
-                    memories = (
-                        self.session.query(Memory)
-                        .filter_by(
-                            agent_id=self.memories.agent_id,
-                            conversation_id=(
-                                None
-                                if self.memories.collection_number == "0"
-                                else self.memories.collection_number
-                            ),
-                        )
-                        .all()
-                    )
-
-                    if not memories:
-                        return {
-                            "ids": [[]],
-                            "documents": [[]],
-                            "embeddings": [[]],
-                            "metadatas": [[]],
-                        }
-
-                    return {
-                        "ids": [[m.id for m in memories]],
-                        "documents": [[m.text for m in memories]],
-                        "embeddings": [[m.embedding for m in memories]],
-                        "metadatas": [
-                            [
-                                {
-                                    "external_source_name": m.external_source,
-                                    "id": m.id,
-                                    "description": m.description,
-                                    "additional_metadata": m.additional_metadata,
-                                    "timestamp": m.timestamp.isoformat(),
-                                }
-                                for m in memories
-                            ]
-                        ],
-                    }
-
-                def delete(self, ids):
-                    if isinstance(ids, str):
-                        ids = [ids]
-                    try:
-                        self.session.query(Memory).filter(Memory.id.in_(ids)).delete(
-                            synchronize_session="fetch"
-                        )
-                        self.session.commit()
-                        return True
-                    except Exception as e:
-                        self.session.rollback()
-                        logging.error(f"Error deleting memories: {e}")
-                        return False
-
-                def add(self, ids, metadatas, documents):
-                    try:
-                        for id, metadata, document in zip(ids, metadatas, documents):
-                            embedding = embed([document])
-                            memory = Memory(
-                                id=id,
-                                agent_id=self.memories.agent_id,
-                                conversation_id=(
-                                    None
-                                    if self.memories.collection_number == "0"
-                                    else self.memories.collection_number
-                                ),
-                                embedding=embedding,
-                                text=document,
-                                external_source=metadata.get(
-                                    "external_source_name", "user input"
-                                ),
-                                description=metadata.get("description", ""),
-                                additional_metadata=metadata.get(
-                                    "additional_metadata", ""
-                                ),
-                            )
-                            self.session.add(memory)
-                        self.session.commit()
-                        return True
-                    except Exception as e:
-                        self.session.rollback()
-                        logging.error(f"Error adding memories: {e}")
-                        return False
-
             return SQLCollection(session, self)
         except Exception as e:
             logging.warning(f"Error getting collection: {e}")
