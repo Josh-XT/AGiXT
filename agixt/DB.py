@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import TypeDecorator, VARCHAR
+from sqlalchemy.sql.sqltypes import ARRAY, Float
 from cryptography.fernet import Fernet
 from Globals import getenv
 import numpy as np
@@ -719,15 +720,19 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
+from sqlalchemy.types import TypeDecorator, VARCHAR
+from sqlalchemy.sql.sqltypes import ARRAY, Float
+
+
 class Vector(TypeDecorator):
     impl = VARCHAR
+    cache_ok = True
 
     def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
-            from sqlalchemy.dialects.postgresql import FLOAT
-            from sqlalchemy.sql.sqltypes import ARRAY
-
-            return dialect.type_descriptor(ARRAY(FLOAT))
+            # Use ARRAY(Float) for PostgreSQL as the base type
+            # pgvector will handle the conversion to its vector type
+            return dialect.type_descriptor(ARRAY(Float))
         return dialect.type_descriptor(VARCHAR)
 
     def process_bind_param(self, value, dialect):
@@ -797,13 +802,20 @@ def create_vector_store(target, connection, **kw):
             )
         else:
             # For PostgreSQL
+            # First create the extension if it doesn't exist
             connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector;"))
+
+            # Cast the float[] column to vector type and create the index
             connection.execute(
                 DDL(
                     """
+                ALTER TABLE memory 
+                ALTER COLUMN embedding TYPE vector 
+                USING embedding::vector;
+                
                 CREATE INDEX IF NOT EXISTS memory_embedding_idx 
                 ON memory 
-                USING ivfflat (embedding vector_cosine_ops)
+                USING ivfflat (embedding vector_ip_ops)
                 WITH (lists = 100);
             """
                 )
