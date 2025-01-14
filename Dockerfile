@@ -50,6 +50,12 @@ RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     cd .. && \
     rm -rf sqlite*
 
+# Install sqlite-vss
+RUN wget https://github.com/asg017/sqlite-vss/releases/download/v0.1.2/sqlite-vss-v0.1.2-loadable-linux-x86_64.tar.gz \
+    && tar -xzvf sqlite-vss-v0.1.2-loadable-linux-x86_64.tar.gz \
+    && mv vss0.so /usr/lib/sqlite-vss.so \
+    && rm sqlite-vss-v0.1.2-loadable-linux-x86_64.tar.gz
+
 # Install the larger Python dependencies
 COPY static-requirements.txt .
 RUN pip install -r static-requirements.txt
