@@ -269,6 +269,7 @@ class Agent:
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
         self.company_id = None
+        self.agent_id = str(self.get_agent_id())
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -373,7 +374,6 @@ class Agent:
             self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:
             self.chunk_size = 256
-        self.agent_id = str(self.get_agent_id())
         self.extensions = Extensions(
             agent_name=self.agent_name,
             agent_id=self.agent_id,
