@@ -10,12 +10,16 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Boolean,
+    DDL,
+    event,
     func,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.types import TypeDecorator, VARCHAR
 from cryptography.fernet import Fernet
 from Globals import getenv
+import numpy as np
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -712,6 +716,102 @@ class Prompt(Base):
     prompt_category = relationship("PromptCategory", backref="prompts")
     user = relationship("User", backref="prompt")
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
+
+
+class Memory(Base):
+    __tablename__ = "memory"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=False,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=True,
+    )  # Null for core memories
+    embedding = Column(Vector, nullable=False)
+    text = Column(Text, nullable=False)
+    external_source = Column(String, default="user input")
+    description = Column(Text)
+    timestamp = Column(DateTime, server_default=func.now())
+    additional_metadata = Column(Text)
+
+    agent = relationship("Agent", backref="memories")
+    conversation = relationship("Conversation", backref="memories")
+
+
+class Vector(TypeDecorator):
+    impl = VARCHAR
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import FLOAT
+            from sqlalchemy.sql.sqltypes import ARRAY
+
+            return dialect.type_descriptor(ARRAY(FLOAT))
+        return dialect.type_descriptor(VARCHAR)
+
+    def process_bind_param(self, value, dialect):
+        if dialect.name == "postgresql":
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            return value
+        # SQLite needs string representation
+        if value is not None:
+            if isinstance(value, np.ndarray):
+                return f'[{",".join(map(str, value.flatten()))}]'
+            elif isinstance(value, list):
+                return f'[{",".join(map(str, value))}]'
+        return value
+
+    def process_result_value(self, value, dialect):
+        if dialect.name == "postgresql":
+            return np.array(value) if value else None
+        if value is not None:
+            return np.array(eval(value))
+        return None
+
+
+@event.listens_for(Memory.__table__, "after_create")
+def create_vector_store(target, connection, **kw):
+    if DATABASE_TYPE == "sqlite":
+        connection.execute(
+            DDL(
+                """
+            CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
+            USING vss0(embedding(1536));
+        """
+            )
+        )
+    else:
+        # For PostgreSQL, we need to create the vector extension and then convert our ARRAY column
+        connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector;"))
+        connection.execute(
+            DDL(
+                """
+            ALTER TABLE memory 
+            ALTER COLUMN embedding 
+            TYPE vector(1536) 
+            USING embedding::vector(1536);
+        """
+            )
+        )
+        connection.execute(
+            DDL(
+                """
+            CREATE INDEX IF NOT EXISTS memory_embedding_idx 
+            ON memory 
+            USING ivfflat (embedding vector_cosine_ops)
+            WITH (lists = 100);
+        """
+            )
+        )
 
 
 def setup_default_roles():
