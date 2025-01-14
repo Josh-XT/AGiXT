@@ -18,7 +18,6 @@ from DB import (
     UserOAuth,
     OAuthProvider,
     TaskItem,
-    Memory,
 )
 from Providers import Providers
 from Extensions import Extensions

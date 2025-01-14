@@ -2,7 +2,7 @@ import logging
 import os
 import asyncio
 import sys
-from DB import Memory, get_session, DATABASE_TYPE
+from DB import Memory, Agent, User, get_session, DATABASE_TYPE
 import spacy
 import chromadb
 from chromadb.config import Settings
@@ -241,6 +241,21 @@ def get_base_collection_name(user: str, agent_name: str) -> str:
     return snake(f"{user}_{agent_name}")
 
 
+def get_agent_id(agent_name: str, email: str) -> str:
+    """
+    Gets the agent ID for the given agent name and user.
+    """
+    session = get_session()
+    try:
+        user = session.query(User).filter_by(email=email).first()
+        agent = session.query(Agent).filter_by(name=agent_name, user_id=user.id).first()
+        if agent:
+            return str(agent.id)
+        return None
+    finally:
+        session.close()
+
+
 class Memories:
     def __init__(
         self,
@@ -258,6 +273,7 @@ class Memories:
         if not user:
             user = "user"
         self.user = user
+        self.agent_id = get_agent_id(agent_name=agent_name, email=self.user)
         self.collection_name = get_base_collection_name(user, agent_name)
         self.collection_number = collection_number
         # Check if collection_number is a number, it might be a string
