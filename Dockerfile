@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3 python3-pip python3-dev curl postgresql-client libnss3 libnspr4 \
     libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 nodejs \
     libportaudio2 libasound-dev libreoffice unoconv poppler-utils chromium chromium-sandbox \
-    unixodbc unixodbc-dev && \
+    unixodbc unixodbc-dev postgresql-17-pgvector && \
     apt-get install -y gcc-10 g++-10 && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10 && \
@@ -52,10 +52,7 @@ RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     rm -rf sqlite*
 
 # Install sqlite-vss
-RUN wget https://github.com/asg017/sqlite-vss/releases/download/v0.1.2/sqlite-vss-v0.1.2-loadable-linux-x86_64.tar.gz \
-    && tar -xzvf sqlite-vss-v0.1.2-loadable-linux-x86_64.tar.gz \
-    && mv vss0.so /usr/lib/sqlite-vss.so \
-    && rm sqlite-vss-v0.1.2-loadable-linux-x86_64.tar.gz
+RUN git clone https://github.com/asg017/sqlite-vss && cd sqlite-vss && make loadable
 
 # Install the larger Python dependencies
 COPY static-requirements.txt .

@@ -5,12 +5,17 @@ import sys
 from DB import Memory, Agent, User, get_session, DATABASE_TYPE
 import spacy
 from numpy import array, linalg, ndarray
-from Providers import Providers
 from collections import Counter
 from typing import List
 from Globals import getenv, DEFAULT_USER
 from textacy.extract.keyterms import textrank  # type: ignore
 from youtube_transcript_api import YouTubeTranscriptApi
+from onnxruntime import InferenceSession
+from tokenizers import Tokenizer
+from typing import List, cast, Union, Sequence
+from numpy import array, linalg, ndarray
+import numpy as np
+from sqlalchemy import or_
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -28,6 +33,42 @@ def nlp(text):
         sp = spacy.load("en_core_web_sm")
     sp.max_length = 99999999999999999999999
     return sp(text)
+
+
+def embed(input: List[str]) -> List[Union[Sequence[float], Sequence[int]]]:
+    tokenizer = Tokenizer.from_file(os.path.join(os.getcwd(), "onnx", "tokenizer.json"))
+    tokenizer.enable_truncation(max_length=256)
+    tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=256)
+    model = InferenceSession(os.path.join(os.getcwd(), "onnx", "model.onnx"))
+    all_embeddings = []
+    for i in range(0, len(input), 32):
+        batch = input[i : i + 32]
+        encoded = [tokenizer.encode(d) for d in batch]
+        input_ids = np.array([e.ids for e in encoded])
+        attention_mask = np.array([e.attention_mask for e in encoded])
+        onnx_input = {
+            "input_ids": np.array(input_ids, dtype=np.int64),
+            "attention_mask": np.array(attention_mask, dtype=np.int64),
+            "token_type_ids": np.array(
+                [np.zeros(len(e), dtype=np.int64) for e in input_ids],
+                dtype=np.int64,
+            ),
+        }
+        model_output = model.run(None, onnx_input)
+        last_hidden_state = model_output[0]
+        input_mask_expanded = np.broadcast_to(
+            np.expand_dims(attention_mask, -1), last_hidden_state.shape
+        )
+        embeddings = np.sum(last_hidden_state * input_mask_expanded, 1) / np.clip(
+            input_mask_expanded.sum(1), a_min=1e-9, a_max=None
+        )
+        norm = np.linalg.norm(embeddings, axis=1)
+        norm[norm == 0] = 1e-12
+        embeddings = (embeddings / norm[:, np.newaxis]).astype(np.float32)
+        all_embeddings.append(embeddings)
+    return cast(
+        List[Union[Sequence[float], Sequence[int]]], np.concatenate(all_embeddings)
+    ).tolist()
 
 
 def extract_keywords(doc=None, text="", limit=10):
@@ -251,15 +292,7 @@ class Memories:
             else {"embeddings_provider": "default"}
         )
         self.ApiClient = ApiClient
-        self.embedding_provider = Providers(
-            name="default",
-            ApiClient=ApiClient,
-        )
-        self.chunk_size = (
-            self.embedding_provider.chunk_size
-            if hasattr(self.embedding_provider, "chunk_size")
-            else 256
-        )
+        self.chunk_size = 256
         self.summarize_content = summarize_content
         self.failures = 0
 
@@ -423,9 +456,7 @@ class Memories:
                 def add(self, ids, metadatas, documents):
                     try:
                         for id, metadata, document in zip(ids, metadatas, documents):
-                            embedding = self.memories.embedding_provider.embeddings(
-                                document
-                            )
+                            embedding = embed([document])
                             memory = Memory(
                                 id=id,
                                 agent_id=self.memories.agent_id,
@@ -538,7 +569,7 @@ class Memories:
                 ).delete()
 
             for chunk in chunks:
-                embedding = self.embedding_provider.embeddings(chunk)
+                embedding = embed([chunk])
                 memory = Memory(
                     agent_id=self.agent_id,
                     conversation_id=conversation_id,
@@ -571,7 +602,7 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return ""
-        embedding = array(self.embedding_provider.embeddings(user_input))
+        embedding = array(embed([user_input]))
         results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
@@ -609,49 +640,78 @@ class Memories:
     ):
         session = get_session()
         try:
-            query_embedding = self.embedding_provider.embeddings(user_input)
+            query_embedding = embed([user_input])[0]
             conversation_id = (
                 None if self.collection_number == "0" else self.collection_number
             )
 
-            if DATABASE_TYPE == "sqlite":
-                # SQLite VSS query with agent and conversation filtering
-                results = session.execute(
-                    """
-                    SELECT m.*, distance
-                    FROM memory m
-                    WHERE m.agent_id = :agent_id
-                    AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                    AND vss_memories MATCH :embedding
-                    ORDER BY distance DESC
-                    LIMIT :limit
-                """,
-                    {
-                        "agent_id": self.agent_id,
-                        "conversation_id": conversation_id,
-                        "embedding": str(query_embedding.tolist()),
-                        "limit": limit,
-                    },
+            try:
+                if DATABASE_TYPE == "sqlite":
+                    # Try VSS query first
+                    results = session.execute(
+                        """
+                        SELECT m.*, distance
+                        FROM memory m
+                        WHERE m.agent_id = :agent_id
+                        AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                        AND vss_memories MATCH :embedding
+                        ORDER BY distance DESC
+                        LIMIT :limit
+                    """,
+                        {
+                            "agent_id": self.agent_id,
+                            "conversation_id": conversation_id,
+                            "embedding": str(query_embedding),
+                            "limit": limit,
+                        },
+                    )
+                else:
+                    # Try pgvector query first
+                    results = session.execute(
+                        """
+                        SELECT m.*, 
+                            1 - (m.embedding <=> :embedding::vector) as similarity
+                        FROM memory m
+                        WHERE m.agent_id = :agent_id
+                        AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                        ORDER BY m.embedding <=> :embedding::vector
+                        LIMIT :limit
+                    """,
+                        {
+                            "agent_id": self.agent_id,
+                            "conversation_id": conversation_id,
+                            "embedding": query_embedding,
+                            "limit": limit,
+                        },
+                    )
+            except Exception as e:
+                logging.warning(
+                    f"Vector search failed, falling back to basic search: {e}"
                 )
-            else:
-                # PostgreSQL vector query
-                results = session.execute(
-                    """
-                    SELECT m.*, 
-                           1 - (m.embedding <=> :embedding::vector) as similarity
-                    FROM memory m
-                    WHERE m.agent_id = :agent_id
-                    AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                    ORDER BY m.embedding <=> :embedding::vector
-                    LIMIT :limit
-                """,
-                    {
-                        "agent_id": self.agent_id,
-                        "conversation_id": conversation_id,
-                        "embedding": query_embedding.tolist(),
-                        "limit": limit,
-                    },
+                # Fallback to basic search
+                results = (
+                    session.query(Memory)
+                    .filter(
+                        Memory.agent_id == self.agent_id,
+                        or_(
+                            Memory.conversation_id == conversation_id,
+                            Memory.conversation_id == None,
+                        ),
+                    )
+                    .limit(limit)
+                    .all()
                 )
+                # Convert to same format as vector search results
+                results = [
+                    {
+                        "text": r.text,
+                        "external_source": r.external_source,
+                        "description": r.description,
+                        "additional_metadata": r.additional_metadata,
+                        "distance": 1.0 if DATABASE_TYPE == "sqlite" else 0.0,
+                    }
+                    for r in results
+                ]
 
             memories = []
             for row in results:

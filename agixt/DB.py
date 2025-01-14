@@ -782,28 +782,35 @@ class Memory(Base):
 
 @event.listens_for(Memory.__table__, "after_create")
 def create_vector_store(target, connection, **kw):
-    if DATABASE_TYPE == "sqlite":
-        connection.execute(
-            DDL(
-                """
-            CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
-            USING vss0(embedding(1536));
-        """
+    try:
+        if DATABASE_TYPE == "sqlite":
+            # Try to load the VSS extension
+            sqlite_vss_path = getenv("SQLITE_VSS_PATH", "./sqlite-vss/vss0")
+            connection.execute(DDL(f"SELECT load_extension('{sqlite_vss_path}')"))
+            connection.execute(
+                DDL(
+                    """
+                CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
+                USING vss0(embedding(1536));
+            """
+                )
             )
-        )
-    else:
-        # PostgreSQL vector extension and index
-        connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector;"))
-        connection.execute(
-            DDL(
-                """
-            CREATE INDEX IF NOT EXISTS memory_embedding_idx 
-            ON memory 
-            USING ivfflat (embedding vector_cosine_ops)
-            WITH (lists = 100);
-        """
+        else:
+            # For PostgreSQL
+            connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector;"))
+            connection.execute(
+                DDL(
+                    """
+                CREATE INDEX IF NOT EXISTS memory_embedding_idx 
+                ON memory 
+                USING ivfflat (embedding vector_cosine_ops)
+                WITH (lists = 100);
+            """
+                )
             )
-        )
+    except Exception as e:
+        logging.error(f"Failed to setup vector search: {e}")
+        # Fall back to basic search or raise warning
 
 
 def setup_default_roles():
