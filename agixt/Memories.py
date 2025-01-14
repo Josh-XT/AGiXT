@@ -4,9 +4,6 @@ import asyncio
 import sys
 from DB import Memory, Agent, User, get_session, DATABASE_TYPE
 import spacy
-import chromadb
-from chromadb.config import Settings
-from chromadb.api.types import QueryResult
 from numpy import array, linalg, ndarray
 from Providers import Providers
 from collections import Counter
@@ -77,7 +74,7 @@ def compute_similarity_scores(embedding: ndarray, embedding_array: ndarray) -> n
     return similarity_scores
 
 
-def query_results_to_records(results: "QueryResult"):
+def query_results_to_records(results):
     try:
         if isinstance(results["ids"][0], str):
             for k, v in results.items():
@@ -107,47 +104,6 @@ def query_results_to_records(results: "QueryResult"):
                 }
             )
     return memory_records
-
-
-def get_chroma_client():
-    """
-    To use an external Chroma server, set the following environment variables:
-        CHROMA_HOST: The host of the Chroma server
-        CHROMA_PORT: The port of the Chroma server
-        CHROMA_API_KEY: The API key of the Chroma server
-        CHROMA_SSL: Set to "true" if the Chroma server uses SSL
-    """
-    chroma_host = getenv("CHROMA_HOST")
-    chroma_settings = Settings(
-        anonymized_telemetry=False,
-    )
-    if chroma_host:
-        # Use external Chroma server
-        try:
-            chroma_api_key = getenv("CHROMA_API_KEY")
-            chroma_headers = (
-                {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
-            )
-            return chromadb.HttpClient(
-                host=chroma_host,
-                port=getenv("CHROMA_PORT"),
-                ssl=(False if getenv("CHROMA_SSL").lower() != "true" else True),
-                headers=chroma_headers,
-                settings=chroma_settings,
-            )
-        except:
-            # If the external Chroma server is not available, use local memories folder
-            logging.warning(
-                f"Chroma server at {chroma_host} is not available. Using local memories folder."
-            )
-    # Persist to local memories folder
-    memories_dir = os.path.join(os.getcwd(), "memories")
-    if not os.path.exists(memories_dir):
-        os.makedirs(memories_dir)
-    return chromadb.PersistentClient(
-        path=memories_dir,
-        settings=chroma_settings,
-    )
 
 
 def hash_user_id(user: str, length: int = 8) -> str:
@@ -294,7 +250,6 @@ class Memories:
             if "settings" in self.agent_config
             else {"embeddings_provider": "default"}
         )
-        self.chroma_client = get_chroma_client()
         self.ApiClient = ApiClient
         self.embedding_provider = Providers(
             name="default",
@@ -305,7 +260,6 @@ class Memories:
             if hasattr(self.embedding_provider, "chunk_size")
             else 256
         )
-        self.embedder = self.embedding_provider.embedder
         self.summarize_content = summarize_content
         self.failures = 0
 
@@ -326,36 +280,61 @@ class Memories:
             session.close()
 
     async def export_collection_to_json(self):
-        collection = await self.get_collection()
-        if collection == None:
-            return ""
-        results = collection.get()
-        json_data = []
-        for id, document, embedding, metadata in zip(
-            results["ids"][0],
-            results["documents"][0],
-            results["embeddings"][0],
-            results["metadatas"][0],
-        ):
-            json_data.append(
-                {
-                    "external_source_name": metadata["external_source_name"],
-                    "description": metadata["description"],  # User input
-                    "text": document,
-                    "timestamp": metadata["timestamp"],
-                }
+        session = get_session()
+        try:
+            memories = (
+                session.query(Memory)
+                .filter_by(
+                    agent_id=self.agent_id,
+                    conversation_id=(
+                        self.collection_number
+                        if self.collection_number != "0"
+                        else None
+                    ),
+                )
+                .all()
             )
-        return json_data
+
+            json_data = []
+            for memory in memories:
+                json_data.append(
+                    {
+                        "external_source_name": memory.external_source,
+                        "description": memory.description,
+                        "text": memory.text,
+                        "timestamp": memory.timestamp.isoformat(),
+                    }
+                )
+            return json_data
+        finally:
+            session.close()
 
     async def export_collections_to_json(self):
-        collections = await self.get_collections()
-        json_export = []
-        for collection in collections:
-            self.collection_name = collection
-            json_data = await self.export_collection_to_json()
-            collection_number = collection.split("_")[-1]
-            json_export.append({f"{collection_number}": json_data})
-        return json_export
+        session = get_session()
+        try:
+            memories = session.query(Memory).filter_by(agent_id=self.agent_id).all()
+
+            # Group by conversation_id
+            memory_by_conversation = {}
+            for memory in memories:
+                conv_id = memory.conversation_id or "0"
+                if conv_id not in memory_by_conversation:
+                    memory_by_conversation[conv_id] = []
+                memory_by_conversation[conv_id].append(
+                    {
+                        "external_source_name": memory.external_source,
+                        "description": memory.description,
+                        "text": memory.text,
+                        "timestamp": memory.timestamp.isoformat(),
+                    }
+                )
+
+            return [
+                {conversation_id: memories}
+                for conversation_id, memories in memory_by_conversation.items()
+            ]
+        finally:
+            session.close()
 
     async def import_collections_from_json(self, json_data: List[dict]):
         for data in json_data:
@@ -376,36 +355,141 @@ class Memories:
                         pass
 
     # get collections that start with the collection name
-    async def get_collections(self):
-        collections = self.chroma_client.list_collections()
-        prefix = get_user_collections_prefix(self.user)
-        # Returns collections that start with the user's prefix
-        return [
-            collection.name
-            for collection in collections
-            if collection.name.startswith(prefix)
-        ]
-
     async def get_collection(self):
+        """Emulate ChromaDB collection interface using SQL"""
+        session = get_session()
         try:
-            return self.chroma_client.get_or_create_collection(
-                name=self.collection_name, embedding_function=self.embedder
-            )
+            # Return a collection-like object that matches ChromaDB's interface
+            class SQLCollection:
+                def __init__(self, session, memories_instance):
+                    self.session = session
+                    self.memories = memories_instance
+
+                def get(self):
+                    # Emulate ChromaDB's get() format
+                    memories = (
+                        self.session.query(Memory)
+                        .filter_by(
+                            agent_id=self.memories.agent_id,
+                            conversation_id=(
+                                None
+                                if self.memories.collection_number == "0"
+                                else self.memories.collection_number
+                            ),
+                        )
+                        .all()
+                    )
+
+                    if not memories:
+                        return {
+                            "ids": [[]],
+                            "documents": [[]],
+                            "embeddings": [[]],
+                            "metadatas": [[]],
+                        }
+
+                    return {
+                        "ids": [[m.id for m in memories]],
+                        "documents": [[m.text for m in memories]],
+                        "embeddings": [[m.embedding for m in memories]],
+                        "metadatas": [
+                            [
+                                {
+                                    "external_source_name": m.external_source,
+                                    "id": m.id,
+                                    "description": m.description,
+                                    "additional_metadata": m.additional_metadata,
+                                    "timestamp": m.timestamp.isoformat(),
+                                }
+                                for m in memories
+                            ]
+                        ],
+                    }
+
+                def delete(self, ids):
+                    if isinstance(ids, str):
+                        ids = [ids]
+                    try:
+                        self.session.query(Memory).filter(Memory.id.in_(ids)).delete(
+                            synchronize_session="fetch"
+                        )
+                        self.session.commit()
+                        return True
+                    except Exception as e:
+                        self.session.rollback()
+                        logging.error(f"Error deleting memories: {e}")
+                        return False
+
+                def add(self, ids, metadatas, documents):
+                    try:
+                        for id, metadata, document in zip(ids, metadatas, documents):
+                            embedding = self.memories.embedding_provider.embeddings(
+                                document
+                            )
+                            memory = Memory(
+                                id=id,
+                                agent_id=self.memories.agent_id,
+                                conversation_id=(
+                                    None
+                                    if self.memories.collection_number == "0"
+                                    else self.memories.collection_number
+                                ),
+                                embedding=embedding,
+                                text=document,
+                                external_source=metadata.get(
+                                    "external_source_name", "user input"
+                                ),
+                                description=metadata.get("description", ""),
+                                additional_metadata=metadata.get(
+                                    "additional_metadata", ""
+                                ),
+                            )
+                            self.session.add(memory)
+                        self.session.commit()
+                        return True
+                    except Exception as e:
+                        self.session.rollback()
+                        logging.error(f"Error adding memories: {e}")
+                        return False
+
+            return SQLCollection(session, self)
         except Exception as e:
-            try:
-                logging.warning(
-                    f"Error275 {e} getting collection: {self.collection_name}"
-                )
-                return self.chroma_client.create_collection(
-                    name=self.collection_name,
-                    embedding_function=self.embedder,
-                    get_or_create=True,
-                )
-            except Exception as e:
-                logging.warning(
-                    f"Error282 {e} getting collection: {self.collection_name}"
-                )
-                return None
+            logging.warning(f"Error getting collection: {e}")
+            return None
+
+    async def get_collections(self):
+        """Emulate ChromaDB collections listing using SQL"""
+        session = get_session()
+        try:
+            # Get distinct conversation IDs for this agent
+            conversations = (
+                session.query(Memory.conversation_id)
+                .filter_by(agent_id=self.agent_id)
+                .distinct()
+                .all()
+            )
+
+            # Format collection names like ChromaDB expected them
+            prefix = get_user_collections_prefix(self.user)
+            collections = []
+
+            # Add collection "0" if it exists (core memories)
+            if (
+                session.query(Memory)
+                .filter_by(agent_id=self.agent_id, conversation_id=None)
+                .first()
+            ):
+                collections.append(f"{prefix}{snake(self.agent_name)}_0")
+
+            # Add conversation-specific collections
+            for (conv_id,) in conversations:
+                if conv_id:  # Skip None which represents collection "0"
+                    conv_hash = hash_user_id(conv_id, length=10)
+                    collections.append(f"{prefix}{snake(self.agent_name)}_{conv_hash}")
+
+            return collections
+        finally:
+            session.close()
 
     async def delete_memory(self, key: str):
         collection = await self.get_collection()
@@ -589,98 +673,45 @@ class Memories:
             session.close()
 
     async def get_external_data_sources(self):
-        """Get a list of all unique external source names from memory collection."""
-        collection = await self.get_collection()
-        if collection:
-            try:
-                # Get all documents and their metadata
-                results = collection.get()
-                if results and "metadatas" in results:
-                    # Extract external source names from all metadata entries
-                    external_sources = [
-                        metadata["external_source_name"]
-                        for metadata in results["metadatas"]
-                        if "external_source_name" in metadata
-                    ]
-                    # Return unique sources
-                    return list(set(external_sources))
-            except Exception as e:
-                logging.warning(f"Error getting external sources: {str(e)}")
-        return []
+        session = get_session()
+        try:
+            sources = (
+                session.query(Memory.external_source)
+                .filter_by(agent_id=self.agent_id)
+                .distinct()
+                .all()
+            )
+            return [source[0] for source in sources if source[0]]
+        finally:
+            session.close()
 
     async def delete_memories_from_external_source(self, external_source: str):
-        """Delete all memories from a specific external source."""
-        logging.info(f"Starting deletion for source: {external_source}")  # Debug print
-        if external_source.startswith("file"):
-            file_path = external_source.split(" ")[1]
-            # Normalize the file path
-            file_path = os.path.normpath(file_path)
-            # Make sure the file path is contained within the working directory
-            working_directory = os.path.normpath(getenv("WORKING_DIRECTORY"))
-            if file_path.startswith(working_directory):
-                # Delete it
-                try:
-                    os.remove(file_path)
-                    logging.info(f"File deleted: {file_path}")  # Debug print
-                except Exception as e:
-                    logging.info(f"Error deleting file: {str(e)}")
-        collection = await self.get_collection()
-        if not collection:
-            logging.info("No collection found")  # Debug print
-            return False
-
-        logging.info("Collection found, attempting to get results")  # Debug print
+        session = get_session()
         try:
-            results = collection.get()
-            logging.info(
-                f"Got results: {results.keys() if results else 'None'}"
-            )  # Debug print
+            if external_source.startswith("file"):
+                file_path = external_source.split(" ")[1]
+                file_path = os.path.normpath(file_path)
+                working_directory = os.path.normpath(getenv("WORKING_DIRECTORY"))
+                if file_path.startswith(working_directory):
+                    try:
+                        os.remove(file_path)
+                    except Exception as e:
+                        logging.error(f"Error deleting file: {str(e)}")
 
-            if not results or "ids" not in results or "metadatas" not in results:
-                logging.info(f"Missing required data in results")  # Debug print
-                return False
+            result = (
+                session.query(Memory)
+                .filter_by(agent_id=self.agent_id, external_source=external_source)
+                .delete()
+            )
 
-            logging.info(f"Processing {len(results['ids'])} batches")  # Debug print
-            ids_to_delete = []
-            for batch_idx, (batch_ids, batch_metadata) in enumerate(
-                zip(results["ids"], results["metadatas"])
-            ):
-                logging.info(
-                    f"Processing batch {batch_idx}: {len(batch_ids) if isinstance(batch_ids, list) else '1'} items"
-                )  # Debug print
-
-                # Handle both single and batch results
-                if isinstance(batch_ids, str):
-                    batch_ids = [batch_ids]
-                    batch_metadata = [batch_metadata]
-
-                for id, metadata in zip(batch_ids, batch_metadata):
-                    stored_source = metadata.get("external_source_name", "").strip()
-                    logging.info(
-                        f"Comparing source: '{stored_source}' with '{external_source}'"
-                    )  # Debug print
-                    if stored_source.replace(" ", "") == external_source.replace(
-                        " ", ""
-                    ):
-                        ids_to_delete.append(id)
-
-            if ids_to_delete:
-                logging.info(
-                    f"Found {len(ids_to_delete)} items to delete"
-                )  # Debug print
-                try:
-                    collection.delete(ids=ids_to_delete)
-                    logging.info("Deletion successful")  # Debug print
-                    return True
-                except Exception as e:
-                    logging.info(f"Deletion failed: {str(e)}")  # Debug print
-                    return False
-            else:
-                logging.info("No matching items found to delete")  # Debug print
-
+            session.commit()
+            return bool(result)
         except Exception as e:
-            logging.info(f"Error during deletion process: {str(e)}")  # Debug print
-        return False
+            session.rollback()
+            logging.error(f"Error deleting memories: {str(e)}")
+            return False
+        finally:
+            session.close()
 
     def score_chunk(self, chunk: str, keywords: set) -> int:
         """Score a chunk based on the number of query keywords it contains."""

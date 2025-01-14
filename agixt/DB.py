@@ -10,9 +10,10 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Boolean,
-    DDL,
     event,
+    DDL,
     func,
+    text,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
@@ -765,8 +766,8 @@ class Memory(Base):
     conversation_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         ForeignKey("conversation.id"),
-        nullable=True,
-    )  # Null for core memories
+        nullable=True,  # Null for core memories (collection "0")
+    )
     embedding = Column(Vector, nullable=False)
     text = Column(Text, nullable=False)
     external_source = Column(String, default="user input")
@@ -774,6 +775,7 @@ class Memory(Base):
     timestamp = Column(DateTime, server_default=func.now())
     additional_metadata = Column(Text)
 
+    # Relationships
     agent = relationship("Agent", backref="memories")
     conversation = relationship("Conversation", backref="memories")
 
@@ -790,18 +792,8 @@ def create_vector_store(target, connection, **kw):
             )
         )
     else:
-        # For PostgreSQL, we need to create the vector extension and then convert our ARRAY column
+        # PostgreSQL vector extension and index
         connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector;"))
-        connection.execute(
-            DDL(
-                """
-            ALTER TABLE memory 
-            ALTER COLUMN embedding 
-            TYPE vector(1536) 
-            USING embedding::vector(1536);
-        """
-            )
-        )
         connection.execute(
             DDL(
                 """
@@ -827,9 +819,6 @@ def setup_default_roles():
                 new_role = UserRole(**role)
                 db.add(new_role)
         db.commit()
-
-
-from sqlalchemy import text
 
 
 def migrate_company_agent_name():
