@@ -718,34 +718,6 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
-class Memory(Base):
-    __tablename__ = "memory"
-    id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        primary_key=True,
-        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
-    )
-    agent_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("agent.id"),
-        nullable=False,
-    )
-    conversation_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("conversation.id"),
-        nullable=True,
-    )  # Null for core memories
-    embedding = Column(Vector, nullable=False)
-    text = Column(Text, nullable=False)
-    external_source = Column(String, default="user input")
-    description = Column(Text)
-    timestamp = Column(DateTime, server_default=func.now())
-    additional_metadata = Column(Text)
-
-    agent = relationship("Agent", backref="memories")
-    conversation = relationship("Conversation", backref="memories")
-
-
 class Vector(TypeDecorator):
     impl = VARCHAR
 
@@ -776,6 +748,34 @@ class Vector(TypeDecorator):
         if value is not None:
             return np.array(eval(value))
         return None
+
+
+class Memory(Base):
+    __tablename__ = "memory"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=False,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=True,
+    )  # Null for core memories
+    embedding = Column(Vector, nullable=False)
+    text = Column(Text, nullable=False)
+    external_source = Column(String, default="user input")
+    description = Column(Text)
+    timestamp = Column(DateTime, server_default=func.now())
+    additional_metadata = Column(Text)
+
+    agent = relationship("Agent", backref="memories")
+    conversation = relationship("Conversation", backref="memories")
 
 
 @event.listens_for(Memory.__table__, "after_create")
