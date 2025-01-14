@@ -2213,6 +2213,11 @@ class MagicalAuth:
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
         with get_session() as db:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
@@ -2222,6 +2227,18 @@ class MagicalAuth:
     def set_training_data(self, training_data: str, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+        # If role id is greater than 2, the user does not have permission to update the training data
+        user_role = self.get_user_role(company_id)
+        if user_role > 2:
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
         with get_session() as db:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
@@ -2249,6 +2266,12 @@ class MagicalAuth:
         company = self.get_user_company(company_id)
         if not company:
             return None
+        # Check if company_id is in the users companies
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
         agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
         totp = pyotp.TOTP(str(company["token"]))
         agixt.login(email=f"{company_id}@{company_id}.xt", otp=totp.now())
