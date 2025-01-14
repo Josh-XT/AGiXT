@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
     HNSWLIB_NO_NATIVE=1 \
     PATH="/usr/local/bin:$PATH" \
     LD_PRELOAD=libgomp.so.1 \
-    LD_LIBRARY_PATH="/usr/local/lib64/:$LD_LIBRARY_PATH" \
+    LD_LIBRARY_PATH="/usr/local/lib64/${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     DEBIAN_FRONTEND=noninteractive \
     CHROME_BIN=/usr/bin/chromium \
     CHROMIUM_PATH=/usr/bin/chromium \
@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3 python3-pip python3-dev curl postgresql-client libnss3 libnspr4 \
     libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 nodejs \
     libportaudio2 libasound-dev libreoffice unoconv poppler-utils chromium chromium-sandbox \
-    unixodbc unixodbc-dev && \
+    unixodbc unixodbc-dev cmake && \
     apt-get install -y gcc-10 g++-10 && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10 && \
