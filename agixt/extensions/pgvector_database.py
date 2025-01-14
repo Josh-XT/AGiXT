@@ -23,7 +23,7 @@ class VectorCollection(Base):
     id = Column(Integer, primary_key=True)
     collection_name = Column(String, nullable=False)
     embedding = Column(Vector(1536))  # Assuming default embedding size
-    metadata = Column(JSON)
+    vector_metadata = Column(JSON)
     content = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     
@@ -63,7 +63,7 @@ class pgvector_database(Extensions):
                 vector = VectorCollection(
                     collection_name=collection_name,
                     embedding=embedding,
-                    metadata=meta,
+                    vector_metadata=meta,
                     content=content
                 )
                 session.merge(vector)
