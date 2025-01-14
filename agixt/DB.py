@@ -805,19 +805,26 @@ def create_vector_store(target, connection, **kw):
             # First create the extension if it doesn't exist
             connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector;"))
 
-            # Cast the float[] column to vector type and create the index
+            # Cast the float[] column to vector type with dimensions and create the index
             connection.execute(
                 DDL(
                     """
                 ALTER TABLE memory 
-                ALTER COLUMN embedding TYPE vector 
-                USING embedding::vector;
-                
+                ALTER COLUMN embedding TYPE vector(1536) 
+                USING embedding::vector(1536);
+                """
+                )
+            )
+
+            # Create the index in a separate statement
+            connection.execute(
+                DDL(
+                    """
                 CREATE INDEX IF NOT EXISTS memory_embedding_idx 
                 ON memory 
                 USING ivfflat (embedding vector_ip_ops)
                 WITH (lists = 100);
-            """
+                """
                 )
             )
     except Exception as e:
@@ -893,6 +900,7 @@ def migrate_company_agent_name():
         session.close()
 
 
+# In DB.py main section:
 if __name__ == "__main__":
     import uvicorn
 
@@ -906,16 +914,19 @@ if __name__ == "__main__":
             except Exception as e:
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
-    # Create any missing tables
+
+    # Create tables first
+    Base.metadata.create_all(engine)
+
+    # Then run migrations
     try:
         migrate_company_agent_name()
     except Exception as e:
         logging.error(f"Error during migration: {e}")
-    Base.metadata.create_all(engine)
+
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:
-        # Import seed data
         from SeedImports import import_all_data
 
         import_all_data()
