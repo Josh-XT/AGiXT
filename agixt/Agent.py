@@ -480,17 +480,9 @@ class Agent:
             )
             .first()
         )
+        self.agent_id = str(agent.id) if agent else None
         if not agent:
-            # Check if it is a global agent
-            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
-            agent = (
-                session.query(AgentModel)
-                .filter(
-                    AgentModel.name == self.agent_name,
-                    AgentModel.user_id == global_user.id,
-                )
-                .first()
-            )
+            raise HTTPException(status_code=404, detail="Agent not found.")
         config = {"settings": {}, "commands": {}}
         if agent:
             all_commands = session.query(Command).all()
