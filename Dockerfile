@@ -52,7 +52,7 @@ RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     rm -rf sqlite*
 
 # Install sqlite-vss
-RUN git clone https://github.com/asg017/sqlite-vss && cd sqlite-vss && make loadable
+# RUN git clone https://github.com/asg017/sqlite-vss && cd sqlite-vss && make loadable
 
 # Install the larger Python dependencies
 COPY static-requirements.txt .
