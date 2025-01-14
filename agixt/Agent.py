@@ -356,24 +356,11 @@ class Agent:
             if "embeddings_provider" in self.AGENT_CONFIG["settings"]
             else "default"
         )
-        self.EMBEDDINGS_PROVIDER = Providers(
-            name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
-        self.embedder = (
-            self.EMBEDDINGS_PROVIDER.embedder
-            if self.EMBEDDINGS_PROVIDER
-            else Providers(
-                name="default", ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-            ).embedder
-        )
         try:
             self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
         except Exception as e:
             self.max_input_tokens = 32000
-        if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
-            self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
-        else:
-            self.chunk_size = 256
+        self.chunk_size = 256
         self.extensions = Extensions(
             agent_name=self.agent_name,
             agent_id=self.agent_id,

@@ -877,7 +877,6 @@ def migrate_company_agent_name():
     except Exception as e:
         logging.error(f"Error during company agent_name migration: {e}")
         session.rollback()
-        raise
     finally:
         session.close()
 
