@@ -37,3 +37,5 @@ watchdog
 strawberry-graphql[fastapi]
 broadcaster
 gql
+pgvector
+sqlite-vss
