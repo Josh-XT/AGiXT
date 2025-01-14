@@ -720,10 +720,6 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
-from sqlalchemy.types import TypeDecorator, VARCHAR
-from sqlalchemy.sql.sqltypes import ARRAY, Float
-
-
 class Vector(TypeDecorator):
     impl = VARCHAR
     cache_ok = True

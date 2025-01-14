@@ -1773,10 +1773,11 @@ class MagicalAuth:
                 db.refresh(new_invitation)
 
                 # Send invitation email
-                self.send_invitation_email(new_invitation)
+                invitation_link = self.send_invitation_email(new_invitation)
 
                 response = {
                     "id": str(new_invitation.id),
+                    "invitation_link": invitation_link,
                     "email": new_invitation.email,
                     "company_id": str(new_invitation.company_id),
                     "role_id": new_invitation.role_id,
@@ -1844,6 +1845,7 @@ class MagicalAuth:
             logging.info(
                 f"Failed to send invitation link {invitation_link} to {invitation.email}"
             )
+        return invitation_link
 
     def get_users_agent(self, user_id: str):
         session = get_session()
