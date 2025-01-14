@@ -303,6 +303,15 @@ def get_agents(email, company=None):
         if company_id and company:
             if company_id != company:
                 continue
+        if not company_id:
+            auth = MagicalAuth(token=impersonate_user(email))
+            company_id = auth.company_id
+            # add to agent settings
+            agent_setting = AgentSettingModel(
+                agent_id=agent.id, name="company_id", value=company_id
+            )
+            session.add(agent_setting)
+            session.commit()
         output.append(
             {
                 "name": agent.name,
