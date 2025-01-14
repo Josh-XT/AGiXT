@@ -536,6 +536,11 @@ class Agent:
                         if value == "":
                             continue
                         config["settings"][key] = value
+        else:
+            company_id = self.auth.company_id
+            self.update_agent_config(
+                new_config={"company_id": company_id}, config_key="settings"
+            )
         return config
 
     async def inference(
