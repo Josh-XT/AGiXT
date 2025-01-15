@@ -727,18 +727,9 @@ if DATABASE_TYPE == "sqlite":
         cache_ok = True
 
         def load_dialect_impl(self, dialect):
-            if dialect.name == "postgresql":
-                from sqlalchemy.dialects.postgresql import ARRAY
-                from sqlalchemy.sql.sqltypes import Float
-
-                return dialect.type_descriptor(ARRAY(Float))
             return dialect.type_descriptor(VARCHAR)
 
         def process_bind_param(self, value, dialect):
-            if dialect.name == "postgresql":
-                if isinstance(value, np.ndarray):
-                    return value.tolist()
-                return value
             # SQLite needs string representation
             if value is not None:
                 if isinstance(value, np.ndarray):
@@ -748,8 +739,6 @@ if DATABASE_TYPE == "sqlite":
             return value
 
         def process_result_value(self, value, dialect):
-            if dialect.name == "postgresql":
-                return np.array(value) if value else None
             if value is not None:
                 return np.array(eval(value))
             return None
@@ -791,17 +780,17 @@ class Memory(Base):
 def setup_vector_column(target, connection, **kw):
     if DATABASE_TYPE != "sqlite":
         try:
-            # Create the extension first
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            # Create extension and convert column type
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
 
-            # Convert the column type to vector
+            # Convert the float[] column to vector type
             connection.execute(
                 text(
                     """
-                    ALTER TABLE memory 
-                    ALTER COLUMN embedding TYPE vector(1536) 
-                    USING embedding::vector(1536)
-                    """
+                ALTER TABLE memory 
+                ALTER COLUMN embedding TYPE vector(1536) 
+                USING embedding::vector(1536);
+            """
                 )
             )
 
@@ -809,16 +798,17 @@ def setup_vector_column(target, connection, **kw):
             connection.execute(
                 text(
                     """
-                    CREATE INDEX ON memory 
-                    USING ivfflat (embedding vector_ip_ops) 
-                    WITH (lists = 100)
-                    """
+                CREATE INDEX IF NOT EXISTS memory_embedding_idx 
+                ON memory 
+                USING ivfflat (embedding vector_l2_ops) 
+                WITH (lists = 100);
+            """
                 )
             )
 
-            connection.commit()
         except Exception as e:
             logging.error(f"Error setting up vector column: {e}")
+
     else:
         try:
             # Try to load the VSS extension
@@ -827,9 +817,9 @@ def setup_vector_column(target, connection, **kw):
             connection.execute(
                 text(
                     """
-                    CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
-                    USING vss0(embedding(1536));
-                    """
+                CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
+                USING vss0(embedding(1536));
+            """
                 )
             )
         except Exception as e:
