@@ -464,6 +464,26 @@ class SQLCollection:
             return False
 
 
+def format_timestamp_iso(timestamp):
+    """Helper function to handle different timestamp formats and return ISO format"""
+    if isinstance(timestamp, datetime):
+        return timestamp.isoformat()
+    elif isinstance(timestamp, str):
+        return timestamp
+    else:
+        return datetime.now().isoformat()
+
+
+def format_timestamp(timestamp):
+    """Helper function to handle different timestamp formats"""
+    if isinstance(timestamp, datetime):
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    elif isinstance(timestamp, str):
+        return timestamp
+    else:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 class Memories:
     def __init__(
         self,
@@ -834,25 +854,16 @@ class Memories:
 
                 memories = []
                 for row in results:
-                    # For PostgreSQL, use similarity score; for SQLite, use a default score
                     score = getattr(row, "similarity", 0.5)  # Default score for SQLite
                     if score >= min_relevance_score:
-                        # Convert timestamp to string if it's a datetime object
-                        if hasattr(row.timestamp, "isoformat"):
-                            timestamp = row.timestamp.isoformat()
-                        else:
-                            timestamp = (
-                                str(row.timestamp)
-                                if row.timestamp
-                                else datetime.now().isoformat()
-                            )
+                        # Convert timestamp using the helper function
+                        timestamp = format_timestamp_iso(row.timestamp)
 
                         # Convert embedding to list if it's a numpy array
                         embedding = row.embedding
                         if isinstance(embedding, np.ndarray):
                             embedding = embedding.tolist()
                         elif isinstance(embedding, str):
-                            # Handle SQLite string-stored embeddings
                             try:
                                 embedding = eval(embedding)
                                 if isinstance(embedding, np.ndarray):
@@ -864,7 +875,7 @@ class Memories:
                             {
                                 "external_source_name": row.external_source,
                                 "id": str(row.id),
-                                "key": str(row.id),  # Match ChromaDB's key field
+                                "key": str(row.id),
                                 "description": row.description,
                                 "text": row.text,
                                 "embedding": embedding,
@@ -1056,18 +1067,10 @@ class Memories:
                     ).fetchall()
 
                 response = []
-                for row in results:
-                    metadata = (
-                        row.additional_metadata if row.additional_metadata else ""
-                    )
-                    external_source = (
-                        row.external_source if row.external_source else None
-                    )
-                    timestamp = (
-                        row.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                        if row.timestamp
-                        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    )
+                for r in results:
+                    metadata = r.additional_metadata if r.additional_metadata else ""
+                    external_source = r.external_source if r.external_source else None
+                    timestamp = format_timestamp(r.timestamp)
 
                     if external_source:
                         metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
@@ -1075,9 +1078,6 @@ class Memories:
                     if metadata not in response and metadata != "":
                         response.append(metadata)
 
-                logging.info(
-                    f"{len(response)} user results found in {self.collection_name}"
-                )
                 return response
 
             except Exception as e:
