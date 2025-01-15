@@ -303,6 +303,15 @@ def get_agents(email, company=None):
         if company_id and company:
             if company_id != company:
                 continue
+        if not company_id:
+            auth = MagicalAuth(token=impersonate_user(email))
+            company_id = auth.company_id
+            # add to agent settings
+            agent_setting = AgentSettingModel(
+                agent_id=agent.id, name="company_id", value=company_id
+            )
+            session.add(agent_setting)
+            session.commit()
         output.append(
             {
                 "name": agent.name,
@@ -1764,10 +1773,11 @@ class MagicalAuth:
                 db.refresh(new_invitation)
 
                 # Send invitation email
-                self.send_invitation_email(new_invitation)
+                invitation_link = self.send_invitation_email(new_invitation)
 
                 response = {
                     "id": str(new_invitation.id),
+                    "invitation_link": invitation_link,
                     "email": new_invitation.email,
                     "company_id": str(new_invitation.company_id),
                     "role_id": new_invitation.role_id,
@@ -1835,6 +1845,7 @@ class MagicalAuth:
             logging.info(
                 f"Failed to send invitation link {invitation_link} to {invitation.email}"
             )
+        return invitation_link
 
     def get_users_agent(self, user_id: str):
         session = get_session()
@@ -2213,6 +2224,11 @@ class MagicalAuth:
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
         with get_session() as db:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
@@ -2222,6 +2238,18 @@ class MagicalAuth:
     def set_training_data(self, training_data: str, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+        # If role id is greater than 2, the user does not have permission to update the training data
+        user_role = self.get_user_role(company_id)
+        if user_role > 2:
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
         with get_session() as db:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
@@ -2249,6 +2277,12 @@ class MagicalAuth:
         company = self.get_user_company(company_id)
         if not company:
             return None
+        # Check if company_id is in the users companies
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
         agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
         totp = pyotp.TOTP(str(company["token"]))
         agixt.login(email=f"{company_id}@{company_id}.xt", otp=totp.now())

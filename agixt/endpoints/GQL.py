@@ -3004,9 +3004,9 @@ class Mutation:
             return False
 
         memory = (
-            agixt.agent_interactions.positive_feedback_memories
+            agixt.agent_interactions.agent_memory
             if input.positive
-            else agixt.agent_interactions.negative_feedback_memories
+            else agixt.agent_interactions.agent_memory
         )
 
         reflection = await agixt.inference(

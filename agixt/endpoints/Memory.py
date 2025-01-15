@@ -579,9 +579,9 @@ async def rlhf(
             message="Feedback already received for this interaction."
         )
     if data.positive == True:
-        memory = agixt.agent_interactions.positive_feedback_memories
+        memory = agixt.agent_interactions.agent_memory
     else:
-        memory = agixt.agent_interactions.negative_feedback_memories
+        memory = agixt.agent_interactions.agent_memory
     reflection = await agixt.inference(
         user_input=data.user_input,
         input_kind="positive" if data.positive == True else "negative",

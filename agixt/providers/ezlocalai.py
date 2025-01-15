@@ -5,7 +5,6 @@ import numpy as np
 import requests
 from Globals import getenv
 import uuid
-from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
 try:
     import openai
@@ -59,14 +58,6 @@ class EzlocalaiProvider:
         )
         self.FAILURES = []
         self.failure_count = 0
-        try:
-            self.embedder = OpenAIEmbeddingFunction(
-                model_name="bge-m3",
-                api_key=self.EZLOCALAI_API_KEY,
-                api_base=self.API_URI,
-            )
-        except Exception as e:
-            self.embedder = None
         self.chunk_size = 1024
 
     @staticmethod
@@ -75,7 +66,6 @@ class EzlocalaiProvider:
             "llm",
             "tts",
             "image",
-            "embeddings",
             "transcription",
             "translation",
             "vision",

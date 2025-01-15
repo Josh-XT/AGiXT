@@ -269,6 +269,7 @@ class Agent:
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
         self.company_id = None
+        self.agent_id = str(self.get_agent_id())
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -355,25 +356,11 @@ class Agent:
             if "embeddings_provider" in self.AGENT_CONFIG["settings"]
             else "default"
         )
-        self.EMBEDDINGS_PROVIDER = Providers(
-            name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
-        self.embedder = (
-            self.EMBEDDINGS_PROVIDER.embedder
-            if self.EMBEDDINGS_PROVIDER
-            else Providers(
-                name="default", ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-            ).embedder
-        )
         try:
             self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
         except Exception as e:
             self.max_input_tokens = 32000
-        if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
-            self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
-        else:
-            self.chunk_size = 256
-        self.agent_id = str(self.get_agent_id())
+        self.chunk_size = 256
         self.extensions = Extensions(
             agent_name=self.agent_name,
             agent_id=self.agent_id,
@@ -481,16 +468,24 @@ class Agent:
             .first()
         )
         if not agent:
-            # Check if it is a global agent
-            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
             agent = (
                 session.query(AgentModel)
-                .filter(
-                    AgentModel.name == self.agent_name,
-                    AgentModel.user_id == global_user.id,
-                )
+                .filter(AgentModel.user_id == self.user_id)
                 .first()
             )
+            if not agent:
+                # Create an agent.
+                add_agent(agent_name=self.agent_name, user=self.user)
+                # Get the agent
+                agent = (
+                    session.query(AgentModel)
+                    .filter(
+                        AgentModel.name == self.agent_name,
+                        AgentModel.user_id == self.user_id,
+                    )
+                    .first()
+                )
+        self.agent_id = str(agent.id) if agent else None
         config = {"settings": {}, "commands": {}}
         if agent:
             all_commands = session.query(Command).all()
@@ -536,6 +531,11 @@ class Agent:
                         if value == "":
                             continue
                         config["settings"][key] = value
+        else:
+            company_id = self.auth.company_id
+            self.update_agent_config(
+                new_config={"company_id": company_id}, config_key="settings"
+            )
         return config
 
     async def inference(
@@ -589,7 +589,9 @@ class Agent:
         return answer
 
     def embeddings(self, input) -> np.ndarray:
-        return self.embedder(input=input)
+        from Memories import embed
+
+        return embed(input=input)
 
     async def transcribe_audio(self, audio_path: str):
         return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)
