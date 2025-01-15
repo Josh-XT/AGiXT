@@ -738,18 +738,18 @@ class Memories:
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> (:embedding)::vector) as similarity
+                                1 - (m.embedding <=> %(embedding)s::vector) as similarity
                             FROM memory m
-                            WHERE m.agent_id = (:agent_id)::uuid
+                            WHERE m.agent_id = %(agent_id)s::uuid
                             AND (
                                 CASE 
-                                    WHEN :conversation_id IS NULL THEN m.conversation_id IS NULL
-                                    WHEN :conversation_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.conversation_id = :conversation_id::uuid
+                                    WHEN %(conversation_id)s IS NULL THEN m.conversation_id IS NULL
+                                    WHEN %(conversation_id)s ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.conversation_id = %(conversation_id)s::uuid
                                     ELSE m.conversation_id IS NULL
                                 END
                             )
                             ORDER BY similarity DESC
-                            LIMIT :limit
+                            LIMIT %(limit)s
                         )
                         SELECT 
                             text,
@@ -759,20 +759,56 @@ class Memories:
                             timestamp,
                             similarity
                         FROM vector_matches
-                        WHERE similarity >= :min_score;
+                        WHERE similarity >= %(min_score)s;
                         """
                     )
 
-                    results = session.execute(
-                        stmt,
-                        {
-                            "embedding": embedding_str,
-                            "agent_id": str(self.agent_id),
-                            "conversation_id": conversation_id,
-                            "limit": limit,
-                            "min_score": min_relevance_score,
-                        },
-                    ).fetchall()
+                    try:
+                        results = session.execute(
+                            stmt,
+                            {
+                                "embedding": embedding_str,
+                                "agent_id": str(self.agent_id),
+                                "conversation_id": (
+                                    str(conversation_id) if conversation_id else None
+                                ),
+                                "limit": limit,
+                                "min_score": min_relevance_score,
+                            },
+                        ).fetchall()
+                    except Exception as e:
+                        logging.warning(
+                            f"Search failed, falling back to basic search: {e}"
+                        )
+                        session.rollback()  # Important: rollback the failed transaction
+
+                        # Fall back to basic query
+                        basic_stmt = text(
+                            """
+                            SELECT 
+                                text,
+                                external_source,
+                                description,
+                                additional_metadata,
+                                timestamp,
+                                0.5 as similarity
+                            FROM memory
+                            WHERE agent_id = %(agent_id)s::uuid
+                            AND (conversation_id IS NULL OR conversation_id = %(conversation_id)s::uuid)
+                            LIMIT %(limit)s
+                            """
+                        )
+
+                        results = session.execute(
+                            basic_stmt,
+                            {
+                                "agent_id": str(self.agent_id),
+                                "conversation_id": (
+                                    str(conversation_id) if conversation_id else None
+                                ),
+                                "limit": limit,
+                            },
+                        ).fetchall()
                 else:
                     # SQLite query (unchanged since it's working)
                     stmt = text(
@@ -936,18 +972,18 @@ class Memories:
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> (:embedding)::vector) as similarity
+                                1 - (m.embedding <=> %(embedding)s::vector) as similarity
                             FROM memory m
-                            WHERE m.agent_id = (:agent_id)::uuid
+                            WHERE m.agent_id = %(agent_id)s::uuid
                             AND (
                                 CASE 
-                                    WHEN :conversation_id IS NULL THEN m.conversation_id IS NULL
-                                    WHEN :conversation_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.conversation_id = :conversation_id::uuid
+                                    WHEN %(conversation_id)s IS NULL THEN m.conversation_id IS NULL
+                                    WHEN %(conversation_id)s ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.conversation_id = %(conversation_id)s::uuid
                                     ELSE m.conversation_id IS NULL
                                 END
                             )
                             ORDER BY similarity DESC
-                            LIMIT :limit
+                            LIMIT %(limit)s
                         )
                         SELECT 
                             text,
@@ -957,20 +993,56 @@ class Memories:
                             timestamp,
                             similarity
                         FROM vector_matches
-                        WHERE similarity >= :min_score;
+                        WHERE similarity >= %(min_score)s;
                         """
                     )
 
-                    results = session.execute(
-                        stmt,
-                        {
-                            "embedding": embedding_str,
-                            "agent_id": str(self.agent_id),
-                            "conversation_id": conversation_id,
-                            "limit": limit,
-                            "min_score": min_relevance_score,
-                        },
-                    ).fetchall()
+                    try:
+                        results = session.execute(
+                            stmt,
+                            {
+                                "embedding": embedding_str,
+                                "agent_id": str(self.agent_id),
+                                "conversation_id": (
+                                    str(conversation_id) if conversation_id else None
+                                ),
+                                "limit": limit,
+                                "min_score": min_relevance_score,
+                            },
+                        ).fetchall()
+                    except Exception as e:
+                        logging.warning(
+                            f"Search failed, falling back to basic search: {e}"
+                        )
+                        session.rollback()  # Important: rollback the failed transaction
+
+                        # Fall back to basic query
+                        basic_stmt = text(
+                            """
+                            SELECT 
+                                text,
+                                external_source,
+                                description,
+                                additional_metadata,
+                                timestamp,
+                                0.5 as similarity
+                            FROM memory
+                            WHERE agent_id = %(agent_id)s::uuid
+                            AND (conversation_id IS NULL OR conversation_id = %(conversation_id)s::uuid)
+                            LIMIT %(limit)s
+                            """
+                        )
+
+                        results = session.execute(
+                            basic_stmt,
+                            {
+                                "agent_id": str(self.agent_id),
+                                "conversation_id": (
+                                    str(conversation_id) if conversation_id else None
+                                ),
+                                "limit": limit,
+                            },
+                        ).fetchall()
                 else:
                     # Basic search for SQLite
                     stmt = text(
