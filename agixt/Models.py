@@ -39,6 +39,7 @@ class InvitationCreate(BaseModel):
 
 class InvitationResponse(BaseModel):
     id: str
+    invitation_link: str
     email: str
     company_id: str
     role_id: int

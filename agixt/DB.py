@@ -10,12 +10,18 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Boolean,
+    event,
+    or_,
     func,
+    text,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.types import TypeDecorator, VARCHAR
+from sqlalchemy.sql.sqltypes import ARRAY, Float
 from cryptography.fernet import Fernet
 from Globals import getenv
+import numpy as np
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -714,6 +720,187 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
+class Vector(TypeDecorator):
+    """Unified vector storage for both SQLite and PostgreSQL"""
+
+    impl = VARCHAR if DATABASE_TYPE == "sqlite" else ARRAY(Float)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        """Convert vector to storage format"""
+        if value is None:
+            return None
+
+        # Convert to numpy array and ensure 1D
+        if isinstance(value, np.ndarray):
+            value = value.reshape(-1).tolist()
+        elif isinstance(value, list):
+            # Handle nested lists
+            value = np.array(value).reshape(-1).tolist()
+
+        # For SQLite, store as string representation
+        if DATABASE_TYPE == "sqlite":
+            return f'[{",".join(map(str, value))}]'
+
+        # For PostgreSQL, return as list
+        return value
+
+    def process_result_value(self, value, dialect):
+        """Convert from storage format to numpy array"""
+        if value is None:
+            return None
+
+        # For SQLite, parse string representation
+        if DATABASE_TYPE == "sqlite":
+            try:
+                value = eval(value)
+            except:
+                return None
+
+        # Convert to 1D numpy array
+        return np.array(value).reshape(-1)
+
+
+# Update the embedding function to ensure consistent output shape
+def process_embedding_for_storage(embedding):
+    """Ensure embedding is in the correct format for storage"""
+    if embedding is None:
+        return None
+
+    # Convert to numpy array and ensure 1D
+    if isinstance(embedding, list) or isinstance(embedding, np.ndarray):
+        return np.array(embedding).reshape(-1)
+
+    return None
+
+
+class Memory(Base):
+    __tablename__ = "memory"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=False,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=True,  # Null for core memories (collection "0")
+    )
+    embedding = Column(Vector)
+    text = Column(Text, nullable=False)
+    external_source = Column(String, default="user input")
+    description = Column(Text)
+    timestamp = Column(DateTime, server_default=func.now())
+    additional_metadata = Column(Text)
+
+    # Relationships
+    agent = relationship("Agent", backref="memories")
+    conversation = relationship("Conversation", backref="memories")
+
+    def __init__(self, **kwargs):
+        if "agent_id" not in kwargs or not kwargs["agent_id"]:
+            raise ValueError("agent_id is required")
+        super().__init__(**kwargs)
+
+
+@event.listens_for(Memory.__table__, "after_create")
+def setup_vector_column(target, connection, **kw):
+    try:
+        # Create basic indices that will be useful for both databases
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS memory_agent_conv_idx 
+                ON memory (agent_id, conversation_id);
+                """
+            )
+        )
+    except Exception as e:
+        logging.error(f"Error setting up memory indices: {e}")
+
+
+def calculate_vector_similarity(query_embedding, stored_embedding):
+    """Calculate cosine similarity between two vectors"""
+    if query_embedding is None or stored_embedding is None:
+        return 0.0
+
+    try:
+        # Convert inputs to numpy arrays if they aren't already
+        if not isinstance(query_embedding, np.ndarray):
+            query_embedding = np.array(query_embedding)
+        if not isinstance(stored_embedding, np.ndarray):
+            stored_embedding = np.array(stored_embedding)
+
+        # Ensure vectors are 1D and have the same shape
+        query_embedding = query_embedding.reshape(-1)  # Flatten to 1D
+        stored_embedding = stored_embedding.reshape(-1)  # Flatten to 1D
+
+        # Verify shapes match
+        if query_embedding.shape != stored_embedding.shape:
+            logging.warning(
+                f"Vector shape mismatch: {query_embedding.shape} vs {stored_embedding.shape}"
+            )
+            return 0.0
+
+        # Calculate cosine similarity
+        dot_product = np.dot(query_embedding, stored_embedding)
+        query_norm = np.linalg.norm(query_embedding)
+        stored_norm = np.linalg.norm(stored_embedding)
+
+        if query_norm == 0 or stored_norm == 0:
+            return 0.0
+
+        return float(dot_product / (query_norm * stored_norm))
+
+    except Exception as e:
+        logging.error(f"Error calculating vector similarity: {e}")
+        return 0.0
+
+
+# Update the memory search query for both databases:
+def get_similar_memories(
+    session, query_embedding, agent_id, conversation_id, limit, min_score
+):
+    """Get similar memories using basic SQL and Python-based similarity calculation"""
+    try:
+        # Get all potentially relevant memories
+        memories = (
+            session.query(Memory)
+            .filter(
+                Memory.agent_id == agent_id,
+                or_(
+                    Memory.conversation_id == conversation_id,
+                    Memory.conversation_id == None,
+                ),
+            )
+            .all()
+        )
+
+        # Calculate similarities
+        memory_scores = [
+            (mem, calculate_vector_similarity(query_embedding, mem.embedding))
+            for mem in memories
+        ]
+
+        # Filter by minimum score and sort by similarity
+        filtered_memories = [
+            (mem, score) for mem, score in memory_scores if score >= min_score
+        ]
+        filtered_memories.sort(key=lambda x: x[1], reverse=True)
+
+        # Return top N results
+        return filtered_memories[:limit]
+
+    except Exception as e:
+        logging.error(f"Error in memory search: {e}")
+        return []
+
+
 def setup_default_roles():
     with get_session() as db:
         default_roles = [
@@ -727,9 +914,6 @@ def setup_default_roles():
                 new_role = UserRole(**role)
                 db.add(new_role)
         db.commit()
-
-
-from sqlalchemy import text
 
 
 def migrate_company_agent_name():
@@ -781,7 +965,6 @@ def migrate_company_agent_name():
     except Exception as e:
         logging.error(f"Error during company agent_name migration: {e}")
         session.rollback()
-        raise
     finally:
         session.close()
 
@@ -789,7 +972,7 @@ def migrate_company_agent_name():
 if __name__ == "__main__":
     import uvicorn
 
-    if DATABASE_TYPE.lower().startswith("postgres"):
+    if DATABASE_TYPE != "sqlite":
         logging.info("Connecting to database...")
         while True:
             try:

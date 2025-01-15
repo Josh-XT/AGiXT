@@ -56,28 +56,12 @@ class Interactions:
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.positive_feedback_memories = Memories(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="2",
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
-            self.negative_feedback_memories = Memories(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="3",
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
             self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
             self.agent = None
             self.websearch = None
             self.agent_memory = None
-            self.positive_feedback_memories = None
-            self.negative_feedback_memories = None
             self.outputs = f"{self.uri}/outputs"
         self.response = ""
         self.failures = 0
@@ -150,29 +134,9 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
-                positive_feedback = await self.positive_feedback_memories.get_memories(
-                    user_input=user_input,
-                    limit=3,
-                    min_relevance_score=0.7,
-                )
-                negative_feedback = await self.negative_feedback_memories.get_memories(
-                    user_input=user_input,
-                    limit=3,
-                    min_relevance_score=0.7,
-                )
-                if positive_feedback or negative_feedback:
-                    context.append(
-                        f"The users input makes you to remember some feedback from previous interactions:\n"
-                    )
-                    if positive_feedback:
-                        joined_feedback = "\n".join(positive_feedback)
-                        context.append(f"Positive Feedback:\n{joined_feedback}\n")
-                    if negative_feedback:
-                        joined_feedback = "\n".join(negative_feedback)
-                        context.append(f"Negative Feedback:\n{joined_feedback}\n")
                 if "inject_memories_from_collection_number" in kwargs:
                     collection_id = kwargs["inject_memories_from_collection_number"]
-                    if collection_id not in ["0", "1", "2", "3", "4", "5", "6", "7"]:
+                    try:
                         context += await Memories(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
@@ -183,6 +147,10 @@ class Interactions:
                             user_input=user_input,
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
+                        )
+                    except Exception as e:
+                        logging.error(
+                            f"Error: {self.agent_name} failed to get memories from collection {collection_id}. {e}"
                         )
                 conversation_context = await self.websearch.agent_memory.get_memories(
                     user_input=user_input,
