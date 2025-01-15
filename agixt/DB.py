@@ -726,8 +726,9 @@ class Vector(TypeDecorator):
 
     def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
-            # Use ARRAY(Float) for PostgreSQL as the base type
-            # pgvector will handle the conversion to its vector type
+            from sqlalchemy.dialects.postgresql import ARRAY
+            from sqlalchemy.sql.sqltypes import Float
+
             return dialect.type_descriptor(ARRAY(Float))
         return dialect.type_descriptor(VARCHAR)
 

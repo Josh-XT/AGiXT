@@ -730,13 +730,15 @@ class Memories:
 
             try:
                 if DATABASE_TYPE == "postgresql":
+                    # Cast the input array to vector directly in the SQL
                     stmt = text(
                         """
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> :embedding::vector) as similarity
-                            FROM memory m
+                                1 - (embedding <=> array_to_vector(:embedding)) as similarity
+                            FROM memory m,
+                            LATERAL (SELECT :embedding::float[] AS query_embedding) q
                             WHERE m.agent_id = :agent_id
                             AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
                             ORDER BY similarity DESC
@@ -755,6 +757,20 @@ class Memories:
                         WHERE similarity >= :min_score;
                     """
                     )
+
+                    # Create function to convert array to vector if it doesn't exist
+                    session.execute(
+                        text(
+                            """
+                        CREATE OR REPLACE FUNCTION array_to_vector(float[])
+                        RETURNS vector
+                        AS $$ SELECT $1::vector $$
+                        LANGUAGE SQL
+                        IMMUTABLE;
+                    """
+                        )
+                    )
+                    session.commit()
 
                     results = session.execute(
                         stmt,
@@ -799,6 +815,29 @@ class Memories:
                     # For PostgreSQL, use similarity score; for SQLite, use a default score
                     score = getattr(row, "similarity", 0.5)  # Default score for SQLite
                     if score >= min_relevance_score:
+                        # Convert timestamp to string if it's a datetime object
+                        if hasattr(row.timestamp, "isoformat"):
+                            timestamp = row.timestamp.isoformat()
+                        else:
+                            timestamp = (
+                                str(row.timestamp)
+                                if row.timestamp
+                                else datetime.now().isoformat()
+                            )
+
+                        # Convert embedding to list if it's a numpy array
+                        embedding = row.embedding
+                        if isinstance(embedding, np.ndarray):
+                            embedding = embedding.tolist()
+                        elif isinstance(embedding, str):
+                            # Handle SQLite string-stored embeddings
+                            try:
+                                embedding = eval(embedding)
+                                if isinstance(embedding, np.ndarray):
+                                    embedding = embedding.tolist()
+                            except:
+                                embedding = []
+
                         memories.append(
                             {
                                 "external_source_name": row.external_source,
@@ -806,13 +845,9 @@ class Memories:
                                 "key": str(row.id),  # Match ChromaDB's key field
                                 "description": row.description,
                                 "text": row.text,
-                                "embedding": row.embedding,
+                                "embedding": embedding,
                                 "additional_metadata": row.additional_metadata,
-                                "timestamp": (
-                                    row.timestamp.isoformat()
-                                    if row.timestamp
-                                    else datetime.now().isoformat()
-                                ),
+                                "timestamp": timestamp,
                                 "relevance_score": float(score),
                             }
                         )
@@ -844,12 +879,24 @@ class Memories:
                         "key": str(r.id),
                         "description": r.description,
                         "text": r.text,
-                        "embedding": r.embedding,
+                        "embedding": (
+                            r.embedding.tolist()
+                            if isinstance(r.embedding, np.ndarray)
+                            else (
+                                eval(r.embedding)
+                                if isinstance(r.embedding, str)
+                                else []
+                            )
+                        ),
                         "additional_metadata": r.additional_metadata,
                         "timestamp": (
                             r.timestamp.isoformat()
-                            if r.timestamp
-                            else datetime.now().isoformat()
+                            if hasattr(r.timestamp, "isoformat")
+                            else (
+                                str(r.timestamp)
+                                if r.timestamp
+                                else datetime.now().isoformat()
+                            )
                         ),
                         "relevance_score": 0.5,  # Default score for fallback
                     }
