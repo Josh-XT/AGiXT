@@ -730,13 +730,12 @@ class Memories:
 
             try:
                 if DATABASE_TYPE == "postgresql":
-                    # Using text() parameters with :name style for consistency
                     stmt = text(
                         """
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> :embedding::float[]::vector) as similarity
+                                1 - (m.embedding <=> :embedding::vector) as similarity
                             FROM memory m
                             WHERE m.agent_id = :agent_id
                             AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
@@ -744,9 +743,7 @@ class Memories:
                             LIMIT :limit
                         )
                         SELECT 
-                            id,
                             text,
-                            embedding,
                             external_source,
                             description,
                             additional_metadata,
@@ -754,7 +751,7 @@ class Memories:
                             similarity
                         FROM vector_matches
                         WHERE similarity >= :min_score;
-                    """
+                        """
                     ).bindparams(
                         embedding=query_embedding,
                         agent_id=self.agent_id,
@@ -924,12 +921,12 @@ class Memories:
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> %(embedding)s::vector) as similarity
+                                1 - (m.embedding <=> :embedding::vector) as similarity
                             FROM memory m
-                            WHERE m.agent_id = %(agent_id)s
-                            AND (m.conversation_id = %(conversation_id)s OR m.conversation_id IS NULL)
+                            WHERE m.agent_id = :agent_id
+                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
                             ORDER BY similarity DESC
-                            LIMIT %(limit)s
+                            LIMIT :limit
                         )
                         SELECT 
                             text,
@@ -939,19 +936,17 @@ class Memories:
                             timestamp,
                             similarity
                         FROM vector_matches
-                        WHERE similarity >= %(min_score)s;
+                        WHERE similarity >= :min_score;
                         """
+                    ).bindparams(
+                        embedding=query_embedding,
+                        agent_id=self.agent_id,
+                        conversation_id=conversation_id,
+                        limit=limit,
+                        min_score=min_relevance_score,
                     )
-                    results = session.execute(
-                        stmt,
-                        {
-                            "agent_id": self.agent_id,
-                            "conversation_id": conversation_id,
-                            "embedding": query_embedding,
-                            "limit": limit,
-                            "min_score": min_relevance_score,
-                        },
-                    ).fetchall()
+
+                    results = session.execute(stmt).fetchall()
                 else:
                     # Basic search for SQLite
                     stmt = text(
