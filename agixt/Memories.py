@@ -730,19 +730,18 @@ class Memories:
 
             try:
                 if DATABASE_TYPE == "postgresql":
-                    # Cast the input array to vector directly in the SQL
+                    # Simplified query without LATERAL join
                     stmt = text(
                         """
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (embedding <=> array_to_vector(:embedding)) as similarity
-                            FROM memory m,
-                            LATERAL (SELECT :embedding::float[] AS query_embedding) q
-                            WHERE m.agent_id = :agent_id
-                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                                1 - (m.embedding <=> %(embedding)s::vector) as similarity
+                            FROM memory m
+                            WHERE m.agent_id = %(agent_id)s
+                            AND (m.conversation_id = %(conversation_id)s OR m.conversation_id IS NULL)
                             ORDER BY similarity DESC
-                            LIMIT :limit
+                            LIMIT %(limit)s
                         )
                         SELECT 
                             id,
@@ -754,23 +753,9 @@ class Memories:
                             timestamp,
                             similarity
                         FROM vector_matches
-                        WHERE similarity >= :min_score;
+                        WHERE similarity >= %(min_score)s;
                     """
                     )
-
-                    # Create function to convert array to vector if it doesn't exist
-                    session.execute(
-                        text(
-                            """
-                        CREATE OR REPLACE FUNCTION array_to_vector(float[])
-                        RETURNS vector
-                        AS $$ SELECT $1::vector $$
-                        LANGUAGE SQL
-                        IMMUTABLE;
-                    """
-                        )
-                    )
-                    session.commit()
 
                     results = session.execute(
                         stmt,
@@ -858,6 +843,9 @@ class Memories:
                 logging.warning(
                     f"Vector search failed, falling back to basic search: {e}"
                 )
+                # Rollback failed transaction before trying fallback
+                session.rollback()
+
                 # Fallback to basic search
                 results = (
                     session.query(Memory)
