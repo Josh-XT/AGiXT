@@ -38,7 +38,7 @@ jobs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
       dbservice:
-        image: pgvector/pgvector:pg17
+        image: postgres:latest
         ports:
           - 5432
         env:

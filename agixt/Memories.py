@@ -2,7 +2,7 @@ import logging
 import os
 import asyncio
 import sys
-from DB import Memory, Agent, User, get_session, DATABASE_TYPE
+from DB import Memory, Agent, User, get_session, get_similar_memories
 import spacy
 from numpy import array, linalg, ndarray
 from collections import Counter
@@ -15,7 +15,6 @@ from tokenizers import Tokenizer
 from typing import List, cast, Union, Sequence
 from numpy import array, linalg, ndarray
 import numpy as np
-from sqlalchemy import or_
 from datetime import datetime
 from uuid import UUID
 
@@ -261,86 +260,25 @@ class SQLCollection:
         self.memories = memories_instance
 
     def query(self, query_embeddings, n_results=None, include=None):
-        """Emulate ChromaDB's query method using SQL"""
-        from sqlalchemy import text
-
+        """Emulate ChromaDB's query method using unified vector search"""
         try:
-            # Convert numpy array to list if needed
             if isinstance(query_embeddings, np.ndarray):
                 query_embeddings = query_embeddings.tolist()
-            if DATABASE_TYPE == "postgresql":
-                # Use pgvector's similarity search
-                stmt = text(
-                    """
-                    WITH vector_matches AS (
-                        SELECT m.*, 
-                            1 - (embedding <-> :embedding::vector) as similarity
-                        FROM memory m
-                        WHERE m.agent_id = :agent_id
-                        AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                        ORDER BY similarity DESC
-                        LIMIT :limit
-                    )
-                    SELECT 
-                        id, 
-                        text, 
-                        embedding,
-                        external_source,
-                        description,
-                        additional_metadata,
-                        timestamp,
-                        similarity
-                    FROM vector_matches;
-                    """
-                )
-                results = self.session.execute(
-                    stmt,
-                    {
-                        "agent_id": self.memories.agent_id,
-                        "conversation_id": (
-                            None
-                            if self.memories.collection_number == "0"
-                            else self.memories.collection_number
-                        ),
-                        "embedding": query_embeddings[0],  # Assuming single query
-                        "limit": n_results or 10,
-                    },
-                ).fetchall()
-            else:
-                # SQLite fallback using basic similarity
-                stmt = text(
-                    """
-                    SELECT 
-                        id,
-                        text,
-                        embedding,
-                        external_source,
-                        description,
-                        additional_metadata,
-                        timestamp,
-                        0.0 as distance
-                    FROM memory m
-                    WHERE m.agent_id = :agent_id
-                    AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                    LIMIT :limit
-                """
-                )
 
-                results = self.session.execute(
-                    stmt,
-                    {
-                        "agent_id": self.memories.agent_id,
-                        "conversation_id": (
-                            None
-                            if self.memories.collection_number == "0"
-                            else self.memories.collection_number
-                        ),
-                        "limit": n_results or 10,
-                    },
-                ).fetchall()
+            memory_results = get_similar_memories(
+                self.session,
+                query_embeddings[0],  # Assuming single query
+                self.memories.agent_id,
+                (
+                    None
+                    if self.memories.collection_number == "0"
+                    else self.memories.collection_number
+                ),
+                n_results or 10,
+                0.0,  # No minimum score for ChromaDB-style queries
+            )
 
-            # Format results to match ChromaDB's expected structure
-            if not results:
+            if not memory_results:
                 return {
                     "ids": [[]],
                     "documents": [[]],
@@ -348,23 +286,22 @@ class SQLCollection:
                     "metadatas": [[]],
                 }
 
+            # Format results to match ChromaDB's expected structure
             formatted_results = {
-                "ids": [[str(row.id) for row in results]],
-                "documents": [[row.text for row in results]],
-                "embeddings": [[row.embedding for row in results]],
+                "ids": [[str(mem.id) for mem, _ in memory_results]],
+                "documents": [[mem.text for mem, _ in memory_results]],
+                "embeddings": [[mem.embedding for mem, _ in memory_results]],
                 "metadatas": [
                     [
                         {
-                            "external_source_name": row.external_source,
-                            "id": str(row.id),
-                            "description": row.description,
-                            "additional_metadata": row.additional_metadata,
-                            "timestamp": (
-                                row.timestamp.isoformat() if row.timestamp else None
-                            ),
-                            "distance": float(row.distance),
+                            "external_source_name": mem.external_source,
+                            "id": str(mem.id),
+                            "description": mem.description,
+                            "additional_metadata": mem.additional_metadata,
+                            "timestamp": format_timestamp_iso(mem.timestamp),
+                            "distance": 1 - sim,  # Convert similarity to distance
                         }
-                        for row in results
+                        for mem, sim in memory_results
                     ]
                 ],
             }
@@ -732,6 +669,7 @@ class Memories:
         finally:
             session.close()
 
+    # Update the get_memories_data method:
     async def get_memories_data(
         self,
         user_input: str,
@@ -748,231 +686,49 @@ class Memories:
                 None if self.collection_number == "0" else self.collection_number
             )
 
-            from sqlalchemy import text
+            # Get similar memories using the new helper function
+            memory_results = get_similar_memories(
+                session,
+                query_embedding,
+                self.agent_id,
+                conversation_id,
+                limit,
+                min_relevance_score,
+            )
 
-            try:
-                if DATABASE_TYPE == "postgresql":
-                    try:
-                        # Convert embedding array to a string of numbers
-                        embedding_arr = [str(x) for x in query_embedding]
-                        embedding_str = ",".join(embedding_arr)
-
-                        # Use unnest to create array in postgres
-                        stmt = text(
-                            """
-                            WITH vector_matches AS (
-                                SELECT 
-                                    m.*,
-                                    1 - (
-                                        -- Calculate cosine similarity using dot product and magnitudes
-                                        (SELECT SUM(a.val * b.val) 
-                                        FROM UNNEST(m.embedding::float[]) WITH ORDINALITY AS a(val, idx),
-                                            UNNEST(string_to_array(:embedding, ',')::float[]) WITH ORDINALITY AS b(val, idx)
-                                        WHERE a.idx = b.idx) /
-                                        (SQRT(
-                                            (SELECT SUM(val * val) FROM UNNEST(m.embedding::float[]) val)
-                                        ) * 
-                                        SQRT(
-                                            (SELECT SUM(val::float * val::float) FROM UNNEST(string_to_array(:embedding, ',')) val)
-                                        ))
-                                    ) as distance
-                                FROM memory m
-                                WHERE m.agent_id = :agent_id
-                                AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                            )
-                            SELECT 
-                                id,
-                                text,
-                                embedding,
-                                external_source,
-                                description,
-                                additional_metadata,
-                                timestamp,
-                                (1 - distance) as similarity
-                            FROM vector_matches
-                            WHERE (1 - distance) >= :min_score
-                            ORDER BY similarity DESC
-                            LIMIT :limit;
-                            """
-                        )
-
-                        results = session.execute(
-                            stmt,
-                            {
-                                "embedding": embedding_str,
-                                "agent_id": self.agent_id,
-                                "conversation_id": conversation_id,
-                                "limit": limit,
-                                "min_score": min_relevance_score,
-                            },
-                        ).fetchall()
-
-                    except Exception as e:
-                        logging.warning(
-                            f"Vector search failed, falling back to basic search: {e}"
-                        )
-                        session.rollback()
-
-                        # Simpler fallback query
-                        basic_stmt = text(
-                            """
-                            SELECT 
-                                text,
-                                external_source,
-                                description,
-                                additional_metadata,
-                                timestamp,
-                                0.5 as similarity
-                            FROM memory m
-                            WHERE m.agent_id = :agent_id
-                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                            LIMIT :limit
-                            """
-                        )
-
-                        results = session.execute(
-                            basic_stmt,
-                            {
-                                "agent_id": self.agent_id,
-                                "conversation_id": conversation_id,
-                                "limit": limit,
-                            },
-                        ).fetchall()
-                else:
-                    # SQLite query (unchanged since it's working)
-                    stmt = text(
-                        """
-                        SELECT 
-                            id,
-                            text,
-                            embedding,
-                            external_source,
-                            description,
-                            additional_metadata,
-                            timestamp
-                        FROM memory
-                        WHERE agent_id = :agent_id
-                        AND (conversation_id = :conversation_id OR conversation_id IS NULL)
-                        LIMIT :limit
-                    """
-                    )
-
-                    results = session.execute(
-                        stmt,
-                        {
-                            "agent_id": self.agent_id,
-                            "conversation_id": conversation_id,
-                            "limit": limit,
-                        },
-                    ).fetchall()
-
-                memories = []
-                for row in results:
-                    score = getattr(row, "similarity", 0.5)  # Default score for SQLite
-                    if score >= min_relevance_score:
-                        # Convert timestamp using the helper function
-                        timestamp = format_timestamp_iso(row.timestamp)
-
-                        # Convert embedding to list if it's a numpy array
-                        embedding = row.embedding
-                        if isinstance(embedding, np.ndarray):
-                            embedding = embedding.tolist()
-                        elif isinstance(embedding, str):
-                            try:
-                                embedding = eval(embedding)
-                                if isinstance(embedding, np.ndarray):
-                                    embedding = embedding.tolist()
-                            except:
-                                embedding = []
-
-                        memories.append(
-                            {
-                                "external_source_name": row.external_source,
-                                "id": str(row.id),
-                                "key": str(row.id),
-                                "description": row.description,
-                                "text": row.text,
-                                "embedding": embedding,
-                                "additional_metadata": row.additional_metadata,
-                                "timestamp": timestamp,
-                                "relevance_score": float(score),
-                            }
-                        )
-
-                return memories
-
-            except Exception as e:
-                logging.warning(
-                    f"Vector search failed, falling back to basic search: {e}"
-                )
-                # Rollback failed transaction before trying fallback
-                session.rollback()
-
-                # Fallback to basic search
-                results = (
-                    session.query(Memory)
-                    .filter(
-                        Memory.agent_id == self.agent_id,
-                        or_(
-                            Memory.conversation_id == conversation_id,
-                            Memory.conversation_id == None,
-                        ),
-                    )
-                    .limit(limit)
-                    .all()
-                )
-
-                return [
+            # Format results
+            memories = []
+            for memory, similarity in memory_results:
+                memories.append(
                     {
-                        "external_source_name": r.external_source,
-                        "id": str(r.id),
-                        "key": str(r.id),
-                        "description": r.description,
-                        "text": r.text,
+                        "external_source_name": memory.external_source,
+                        "id": str(memory.id),
+                        "key": str(memory.id),
+                        "description": memory.description,
+                        "text": memory.text,
                         "embedding": (
-                            r.embedding.tolist()
-                            if isinstance(r.embedding, np.ndarray)
-                            else (
-                                eval(r.embedding)
-                                if isinstance(r.embedding, str)
-                                else []
-                            )
+                            memory.embedding.tolist()
+                            if isinstance(memory.embedding, np.ndarray)
+                            else memory.embedding
                         ),
-                        "additional_metadata": r.additional_metadata,
-                        "timestamp": (
-                            r.timestamp.isoformat()
-                            if hasattr(r.timestamp, "isoformat")
-                            else (
-                                str(r.timestamp)
-                                if r.timestamp
-                                else datetime.now().isoformat()
-                            )
-                        ),
-                        "relevance_score": 0.5,  # Default score for fallback
+                        "additional_metadata": memory.additional_metadata,
+                        "timestamp": format_timestamp_iso(memory.timestamp),
+                        "relevance_score": float(similarity),
                     }
-                    for r in results
-                ]
+                )
+
+            return memories
 
         finally:
             session.close()
 
+    # Update the get_memories method similarly:
     async def get_memories(
         self,
         user_input: str,
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
-        # If this is a conversation ID, update the collection name
-        if len(self.collection_number) > 4:
-            self.collection_name = normalize_collection_name(
-                user=self.user,
-                agent_name=self.agent_name,
-                collection_id=self.collection_number,
-            )
-
-        logging.info(
-            f"Retrieving Memories from collection name: {self.collection_name}"
-        )
         session = get_session()
         try:
             query_embedding = embed([user_input])[0]
@@ -980,169 +736,34 @@ class Memories:
                 None if self.collection_number == "0" else self.collection_number
             )
 
-            from sqlalchemy import text
+            # Get similar memories using the new helper function
+            memory_results = get_similar_memories(
+                session,
+                query_embedding,
+                self.agent_id,
+                conversation_id,
+                limit,
+                min_relevance_score,
+            )
 
-            try:
-                if DATABASE_TYPE == "postgresql":
-                    try:
-                        # Convert embedding array to a string of numbers
-                        embedding_arr = [str(x) for x in query_embedding]
-                        embedding_str = ",".join(embedding_arr)
-
-                        # Use unnest to create array in postgres
-                        stmt = text(
-                            """
-                            WITH vector_matches AS (
-                                SELECT 
-                                    m.*,
-                                    1 - (
-                                        -- Calculate cosine similarity using dot product and magnitudes
-                                        (SELECT SUM(a.val * b.val) 
-                                        FROM UNNEST(m.embedding::float[]) WITH ORDINALITY AS a(val, idx),
-                                            UNNEST(string_to_array(:embedding, ',')::float[]) WITH ORDINALITY AS b(val, idx)
-                                        WHERE a.idx = b.idx) /
-                                        (SQRT(
-                                            (SELECT SUM(val * val) FROM UNNEST(m.embedding::float[]) val)
-                                        ) * 
-                                        SQRT(
-                                            (SELECT SUM(val::float * val::float) FROM UNNEST(string_to_array(:embedding, ',')) val)
-                                        ))
-                                    ) as distance
-                                FROM memory m
-                                WHERE m.agent_id = :agent_id
-                                AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                            )
-                            SELECT 
-                                id,
-                                text,
-                                embedding,
-                                external_source,
-                                description,
-                                additional_metadata,
-                                timestamp,
-                                (1 - distance) as similarity
-                            FROM vector_matches
-                            WHERE (1 - distance) >= :min_score
-                            ORDER BY similarity DESC
-                            LIMIT :limit;
-                            """
-                        )
-
-                        results = session.execute(
-                            stmt,
-                            {
-                                "embedding": embedding_str,
-                                "agent_id": self.agent_id,
-                                "conversation_id": conversation_id,
-                                "limit": limit,
-                                "min_score": min_relevance_score,
-                            },
-                        ).fetchall()
-
-                    except Exception as e:
-                        logging.warning(
-                            f"Vector search failed, falling back to basic search: {e}"
-                        )
-                        session.rollback()
-
-                        # Simpler fallback query
-                        basic_stmt = text(
-                            """
-                            SELECT 
-                                text,
-                                external_source,
-                                description,
-                                additional_metadata,
-                                timestamp,
-                                0.5 as similarity
-                            FROM memory m
-                            WHERE m.agent_id = :agent_id
-                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                            LIMIT :limit
-                            """
-                        )
-
-                        results = session.execute(
-                            basic_stmt,
-                            {
-                                "agent_id": self.agent_id,
-                                "conversation_id": conversation_id,
-                                "limit": limit,
-                            },
-                        ).fetchall()
-                else:
-                    # Basic search for SQLite
-                    stmt = text(
-                        """
-                        SELECT 
-                            text,
-                            external_source,
-                            description,
-                            additional_metadata,
-                            timestamp
-                        FROM memory
-                        WHERE agent_id = :agent_id
-                        AND (conversation_id = :conversation_id OR conversation_id IS NULL)
-                        LIMIT :limit
-                    """
-                    )
-
-                    results = session.execute(
-                        stmt,
-                        {
-                            "agent_id": self.agent_id,
-                            "conversation_id": conversation_id,
-                            "limit": limit,
-                        },
-                    ).fetchall()
-
-                response = []
-                for r in results:
-                    metadata = r.additional_metadata if r.additional_metadata else ""
-                    external_source = r.external_source if r.external_source else None
-                    timestamp = format_timestamp(r.timestamp)
-
-                    if external_source:
-                        metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
-
-                    if metadata not in response and metadata != "":
-                        response.append(metadata)
-
-                return response
-
-            except Exception as e:
-                logging.warning(f"Search failed, falling back to basic search: {e}")
-                # Fallback to basic search
-                results = (
-                    session.query(Memory)
-                    .filter(
-                        Memory.agent_id == self.agent_id,
-                        or_(
-                            Memory.conversation_id == conversation_id,
-                            Memory.conversation_id == None,
-                        ),
-                    )
-                    .limit(limit)
-                    .all()
+            # Format results
+            response = []
+            for memory, similarity in memory_results:
+                metadata = (
+                    memory.additional_metadata if memory.additional_metadata else ""
                 )
+                external_source = (
+                    memory.external_source if memory.external_source else None
+                )
+                timestamp = format_timestamp(memory.timestamp)
 
-                response = []
-                for r in results:
-                    metadata = r.additional_metadata if r.additional_metadata else ""
-                    external_source = r.external_source if r.external_source else None
-                    timestamp = (
-                        r.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                        if r.timestamp
-                        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    )
+                if external_source:
+                    metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
 
-                    if external_source:
-                        metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
+                if metadata not in response and metadata != "":
+                    response.append(metadata)
 
-                    if metadata not in response and metadata != "":
-                        response.append(metadata)
-
-                return response
+            return response
 
         finally:
             session.close()

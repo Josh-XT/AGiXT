@@ -11,7 +11,7 @@ from sqlalchemy import (
     DateTime,
     Boolean,
     event,
-    DDL,
+    or_,
     func,
     text,
 )
@@ -720,48 +720,42 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
-if DATABASE_TYPE == "sqlite":
+class Vector(TypeDecorator):
+    """Unified vector storage for both SQLite and PostgreSQL"""
 
-    class Vector(TypeDecorator):
-        impl = VARCHAR
-        cache_ok = True
+    impl = VARCHAR if DATABASE_TYPE == "sqlite" else ARRAY(Float)
+    cache_ok = True
 
-        def load_dialect_impl(self, dialect):
-            return dialect.type_descriptor(VARCHAR)
-
-        def process_bind_param(self, value, dialect):
-            # SQLite needs string representation
-            if value is not None:
-                if isinstance(value, np.ndarray):
-                    return f'[{",".join(map(str, value.flatten()))}]'
-                elif isinstance(value, list):
-                    return f'[{",".join(map(str, value))}]'
-            return value
-
-        def process_result_value(self, value, dialect):
-            if value is not None:
-                return np.array(eval(value))
+    def process_bind_param(self, value, dialect):
+        """Convert vector to storage format"""
+        if value is None:
             return None
 
-else:
+        # Convert to list if it's a numpy array
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
 
-    class Vector(TypeDecorator):
-        impl = ARRAY(Float)
-        cache_ok = True
+        # For SQLite, store as string representation
+        if DATABASE_TYPE == "sqlite":
+            return f'[{",".join(map(str, value))}]'
 
-        def process_bind_param(self, value, dialect):
-            if value is None:
+        # For PostgreSQL, return as list
+        return value
+
+    def process_result_value(self, value, dialect):
+        """Convert from storage format to numpy array"""
+        if value is None:
+            return None
+
+        # For SQLite, parse string representation
+        if DATABASE_TYPE == "sqlite":
+            try:
+                value = eval(value)
+            except:
                 return None
-            if isinstance(value, np.ndarray):
-                return value.tolist()
-            if isinstance(value, list):
-                return value
-            return value
 
-        def process_result_value(self, value, dialect):
-            if value is None:
-                return None
-            return np.array(value)
+        # Convert to numpy array
+        return np.array(value)
 
 
 class Memory(Base):
@@ -795,34 +789,83 @@ class Memory(Base):
 
 @event.listens_for(Memory.__table__, "after_create")
 def setup_vector_column(target, connection, **kw):
-    if DATABASE_TYPE != "sqlite":
-        try:
-            # Create a basic index on the embedding column
-            connection.execute(
-                text(
-                    """
-                CREATE INDEX IF NOT EXISTS memory_embedding_idx 
+    try:
+        # Create basic indices that will be useful for both databases
+        connection.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS memory_agent_conv_idx 
                 ON memory (agent_id, conversation_id);
                 """
-                )
             )
-        except Exception as e:
-            logging.error(f"Error setting up vector column: {e}")
-    else:
-        # Keep existing SQLite setup
-        try:
-            sqlite_vss_path = getenv("SQLITE_VSS_PATH", "./sqlite-vss/vss0")
-            connection.execute(text(f"SELECT load_extension('{sqlite_vss_path}')"))
-            connection.execute(
-                text(
-                    """
-                CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
-                USING vss0(embedding(1536));
-                """
-                )
+        )
+    except Exception as e:
+        logging.error(f"Error setting up memory indices: {e}")
+
+
+def calculate_vector_similarity(query_embedding, stored_embedding):
+    """Calculate cosine similarity between two vectors"""
+    if query_embedding is None or stored_embedding is None:
+        return 0.0
+
+    try:
+        # Convert inputs to numpy arrays if they aren't already
+        if not isinstance(query_embedding, np.ndarray):
+            query_embedding = np.array(query_embedding)
+        if not isinstance(stored_embedding, np.ndarray):
+            stored_embedding = np.array(stored_embedding)
+
+        # Calculate cosine similarity
+        dot_product = np.dot(query_embedding, stored_embedding)
+        query_norm = np.linalg.norm(query_embedding)
+        stored_norm = np.linalg.norm(stored_embedding)
+
+        if query_norm == 0 or stored_norm == 0:
+            return 0.0
+
+        return dot_product / (query_norm * stored_norm)
+    except Exception as e:
+        logging.error(f"Error calculating vector similarity: {e}")
+        return 0.0
+
+
+# Update the memory search query for both databases:
+def get_similar_memories(
+    session, query_embedding, agent_id, conversation_id, limit, min_score
+):
+    """Get similar memories using basic SQL and Python-based similarity calculation"""
+    try:
+        # Get all potentially relevant memories
+        memories = (
+            session.query(Memory)
+            .filter(
+                Memory.agent_id == agent_id,
+                or_(
+                    Memory.conversation_id == conversation_id,
+                    Memory.conversation_id == None,
+                ),
             )
-        except Exception as e:
-            logging.error(f"Error setting up SQLite vector search: {e}")
+            .all()
+        )
+
+        # Calculate similarities
+        memory_scores = [
+            (mem, calculate_vector_similarity(query_embedding, mem.embedding))
+            for mem in memories
+        ]
+
+        # Filter by minimum score and sort by similarity
+        filtered_memories = [
+            (mem, score) for mem, score in memory_scores if score >= min_score
+        ]
+        filtered_memories.sort(key=lambda x: x[1], reverse=True)
+
+        # Return top N results
+        return filtered_memories[:limit]
+
+    except Exception as e:
+        logging.error(f"Error in memory search: {e}")
+        return []
 
 
 def setup_default_roles():
