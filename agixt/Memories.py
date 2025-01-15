@@ -268,18 +268,17 @@ class SQLCollection:
             # Convert numpy array to list if needed
             if isinstance(query_embeddings, np.ndarray):
                 query_embeddings = query_embeddings.tolist()
-
             if DATABASE_TYPE == "postgresql":
                 # Use pgvector's similarity search
                 stmt = text(
                     """
                     WITH vector_matches AS (
                         SELECT m.*, 
-                            (m.embedding <=> :embedding::vector) as distance
+                            1 - (embedding <-> :embedding::vector) as similarity
                         FROM memory m
                         WHERE m.agent_id = :agent_id
                         AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                        ORDER BY distance ASC
+                        ORDER BY similarity DESC
                         LIMIT :limit
                     )
                     SELECT 
@@ -290,11 +289,10 @@ class SQLCollection:
                         description,
                         additional_metadata,
                         timestamp,
-                        distance
+                        similarity
                     FROM vector_matches;
-                """
+                    """
                 )
-
                 results = self.session.execute(
                     stmt,
                     {
@@ -760,7 +758,7 @@ class Memories:
                             WITH vector_matches AS (
                                 SELECT 
                                     m.*,
-                                    1 - (m.embedding <=> :embedding::vector) as similarity
+                                    1 - (embedding <-> :embedding::vector) as similarity
                                 FROM memory m
                                 WHERE m.agent_id = :agent_id
                                 AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
@@ -768,7 +766,9 @@ class Memories:
                                 LIMIT :limit
                             )
                             SELECT 
+                                id,
                                 text,
+                                embedding,
                                 external_source,
                                 description,
                                 additional_metadata,
@@ -976,7 +976,7 @@ class Memories:
                             WITH vector_matches AS (
                                 SELECT 
                                     m.*,
-                                    1 - (m.embedding <=> :embedding::vector) as similarity
+                                    1 - (embedding <-> :embedding::vector) as similarity
                                 FROM memory m
                                 WHERE m.agent_id = :agent_id
                                 AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
@@ -984,7 +984,9 @@ class Memories:
                                 LIMIT :limit
                             )
                             SELECT 
+                                id,
                                 text,
+                                embedding,
                                 external_source,
                                 description,
                                 additional_metadata,
