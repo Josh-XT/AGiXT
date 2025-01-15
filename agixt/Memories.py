@@ -260,6 +260,8 @@ class SQLCollection:
 
     def query(self, query_embeddings, n_results=None, include=None):
         """Emulate ChromaDB's query method using SQL"""
+        from sqlalchemy import text
+
         try:
             # Convert numpy array to list if needed
             if isinstance(query_embeddings, np.ndarray):
@@ -267,16 +269,32 @@ class SQLCollection:
 
             if DATABASE_TYPE == "postgresql":
                 # Use pgvector's similarity search
-                results = self.session.execute(
+                stmt = text(
                     """
-                    SELECT m.*, 
-                        1 - (m.embedding <=> :embedding::vector) as similarity
-                    FROM memory m
-                    WHERE m.agent_id = :agent_id
-                    AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                    ORDER BY m.embedding <=> :embedding::vector
-                    LIMIT :limit
-                    """,
+                    WITH vector_matches AS (
+                        SELECT m.*, 
+                            (m.embedding <=> :embedding::vector) as distance
+                        FROM memory m
+                        WHERE m.agent_id = :agent_id
+                        AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                        ORDER BY distance ASC
+                        LIMIT :limit
+                    )
+                    SELECT 
+                        id, 
+                        text, 
+                        embedding,
+                        external_source,
+                        description,
+                        additional_metadata,
+                        timestamp,
+                        distance
+                    FROM vector_matches;
+                """
+                )
+
+                results = self.session.execute(
+                    stmt,
                     {
                         "agent_id": self.memories.agent_id,
                         "conversation_id": (
@@ -290,14 +308,26 @@ class SQLCollection:
                 ).fetchall()
             else:
                 # SQLite fallback using basic similarity
-                results = self.session.execute(
+                stmt = text(
                     """
-                    SELECT m.* 
+                    SELECT 
+                        id,
+                        text,
+                        embedding,
+                        external_source,
+                        description,
+                        additional_metadata,
+                        timestamp,
+                        0.0 as distance
                     FROM memory m
                     WHERE m.agent_id = :agent_id
                     AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
                     LIMIT :limit
-                    """,
+                """
+                )
+
+                results = self.session.execute(
+                    stmt,
                     {
                         "agent_id": self.memories.agent_id,
                         "conversation_id": (
@@ -319,19 +349,22 @@ class SQLCollection:
                 }
 
             formatted_results = {
-                "ids": [[str(r.id) for r in results]],
-                "documents": [[r.text for r in results]],
-                "embeddings": [[r.embedding for r in results]],
+                "ids": [[str(row.id) for row in results]],
+                "documents": [[row.text for row in results]],
+                "embeddings": [[row.embedding for row in results]],
                 "metadatas": [
                     [
                         {
-                            "external_source_name": r.external_source,
-                            "id": str(r.id),
-                            "description": r.description,
-                            "additional_metadata": r.additional_metadata,
-                            "timestamp": r.timestamp.isoformat(),
+                            "external_source_name": row.external_source,
+                            "id": str(row.id),
+                            "description": row.description,
+                            "additional_metadata": row.additional_metadata,
+                            "timestamp": (
+                                row.timestamp.isoformat() if row.timestamp else None
+                            ),
+                            "distance": float(row.distance),
                         }
-                        for r in results
+                        for row in results
                     ]
                 ],
             }
@@ -730,45 +763,87 @@ class Memories:
                 None if self.collection_number == "0" else self.collection_number
             )
 
+            from sqlalchemy import text
+
             try:
-                if DATABASE_TYPE == "sqlite":
-                    # Try VSS query first
-                    results = session.execute(
+                if DATABASE_TYPE == "postgresql":
+                    stmt = text(
                         """
-                        SELECT m.*, distance
-                        FROM memory m
-                        WHERE m.agent_id = :agent_id
-                        AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                        AND vss_memories MATCH :embedding
-                        ORDER BY distance DESC
-                        LIMIT :limit
-                    """,
-                        {
-                            "agent_id": self.agent_id,
-                            "conversation_id": conversation_id,
-                            "embedding": str(query_embedding),
-                            "limit": limit,
-                        },
+                        WITH vector_matches AS (
+                            SELECT 
+                                m.*,
+                                1 - (m.embedding <=> :embedding::vector) as similarity
+                            FROM memory m
+                            WHERE m.agent_id = :agent_id
+                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                            ORDER BY similarity DESC
+                            LIMIT :limit
+                        )
+                        SELECT 
+                            id,
+                            text,
+                            external_source,
+                            description,
+                            additional_metadata,
+                            timestamp,
+                            similarity
+                        FROM vector_matches;
+                    """
                     )
-                else:
-                    # Try pgvector query first
+
                     results = session.execute(
-                        """
-                        SELECT m.*, 
-                            1 - (m.embedding <=> :embedding::vector) as similarity
-                        FROM memory m
-                        WHERE m.agent_id = :agent_id
-                        AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                        ORDER BY m.embedding <=> :embedding::vector
-                        LIMIT :limit
-                    """,
+                        stmt,
                         {
                             "agent_id": self.agent_id,
                             "conversation_id": conversation_id,
                             "embedding": query_embedding,
                             "limit": limit,
                         },
+                    ).fetchall()
+                else:
+                    # Basic search for SQLite
+                    stmt = text(
+                        """
+                        SELECT 
+                            id,
+                            text,
+                            external_source,
+                            description,
+                            additional_metadata,
+                            timestamp
+                        FROM memory
+                        WHERE agent_id = :agent_id
+                        AND (conversation_id = :conversation_id OR conversation_id IS NULL)
+                        LIMIT :limit
+                    """
                     )
+
+                    results = session.execute(
+                        stmt,
+                        {
+                            "agent_id": self.agent_id,
+                            "conversation_id": conversation_id,
+                            "limit": limit,
+                        },
+                    ).fetchall()
+
+                memories = []
+                for row in results:
+                    # For PostgreSQL, use similarity score; for SQLite, use a default score
+                    score = getattr(row, "similarity", 0.5)  # Default score for SQLite
+                    if score >= min_relevance_score:
+                        memories.append(
+                            {
+                                "text": row.text,
+                                "external_source_name": row.external_source,
+                                "description": row.description,
+                                "additional_metadata": row.additional_metadata,
+                                "relevance_score": float(score),
+                            }
+                        )
+
+                return memories
+
             except Exception as e:
                 logging.warning(
                     f"Vector search failed, falling back to basic search: {e}"
@@ -786,33 +861,17 @@ class Memories:
                     .limit(limit)
                     .all()
                 )
-                # Convert to same format as vector search results
-                results = [
+
+                return [
                     {
                         "text": r.text,
-                        "external_source": r.external_source,
+                        "external_source_name": r.external_source,
                         "description": r.description,
                         "additional_metadata": r.additional_metadata,
-                        "distance": 1.0 if DATABASE_TYPE == "sqlite" else 0.0,
+                        "relevance_score": 0.5,  # Default score for fallback
                     }
                     for r in results
                 ]
-
-            memories = []
-            for row in results:
-                score = row.distance if DATABASE_TYPE == "sqlite" else row.similarity
-                if score >= min_relevance_score:
-                    memories.append(
-                        {
-                            "text": row.text,
-                            "external_source_name": row.external_source,
-                            "description": row.description,
-                            "additional_metadata": row.additional_metadata,
-                            "relevance_score": score,
-                        }
-                    )
-
-            return memories
 
         finally:
             session.close()
