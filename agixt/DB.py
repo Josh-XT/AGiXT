@@ -775,7 +775,7 @@ class Memory(Base):
         ForeignKey("conversation.id"),
         nullable=True,  # Null for core memories (collection "0")
     )
-    embedding = Column(Vector(1536) if DATABASE_TYPE != "sqlite" else Vector)
+    embedding = Column(Vector)
     text = Column(Text, nullable=False)
     external_source = Column(String, default="user input")
     description = Column(Text)
@@ -788,35 +788,52 @@ class Memory(Base):
 
 
 @event.listens_for(Memory.__table__, "after_create")
-def create_vector_store(target, connection, **kw):
-    try:
-        if DATABASE_TYPE == "sqlite":
+def setup_vector_column(target, connection, **kw):
+    if DATABASE_TYPE != "sqlite":
+        try:
+            # Create the extension first
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
+            # Convert the column type to vector
+            connection.execute(
+                text(
+                    """
+                    ALTER TABLE memory 
+                    ALTER COLUMN embedding TYPE vector(1536) 
+                    USING embedding::vector(1536)
+                    """
+                )
+            )
+
+            # Create the index
+            connection.execute(
+                text(
+                    """
+                    CREATE INDEX ON memory 
+                    USING ivfflat (embedding vector_ip_ops) 
+                    WITH (lists = 100)
+                    """
+                )
+            )
+
+            connection.commit()
+        except Exception as e:
+            logging.error(f"Error setting up vector column: {e}")
+    else:
+        try:
             # Try to load the VSS extension
             sqlite_vss_path = getenv("SQLITE_VSS_PATH", "./sqlite-vss/vss0")
-            connection.execute(DDL(f"SELECT load_extension('{sqlite_vss_path}')"))
+            connection.execute(text(f"SELECT load_extension('{sqlite_vss_path}')"))
             connection.execute(
-                DDL(
+                text(
                     """
-                CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
-                USING vss0(embedding(1536));
-            """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
+                    USING vss0(embedding(1536));
+                    """
                 )
             )
-        else:
-            # For PostgreSQL with pgvector
-            connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector"))
-            connection.execute(
-                DDL(
-                    """
-                CREATE INDEX IF NOT EXISTS memory_embedding_idx 
-                ON memory 
-                USING ivfflat (embedding vector_ip_ops)
-                WITH (lists = 100);
-            """
-                )
-            )
-    except Exception as e:
-        logging.error(f"Failed to setup vector search: {e}")
+        except Exception as e:
+            logging.error(f"Error setting up SQLite vector search: {e}")
 
 
 def setup_default_roles():
