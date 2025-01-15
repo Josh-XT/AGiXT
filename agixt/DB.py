@@ -894,37 +894,51 @@ def migrate_company_agent_name():
         session.close()
 
 
-# In DB.py main section:
+# Replace the if __name__ == "__main__": section with this:
+
 if __name__ == "__main__":
     import uvicorn
 
-    if DATABASE_TYPE.lower().startswith("postgres"):
-        logging.info("Connecting to database...")
+    if DATABASE_TYPE != "sqlite":
+        logging.info("Connecting to database and setting up vector extension...")
         while True:
             try:
-                connection = engine.connect()
-                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                connection.close()
+                # Create a new connection
+                with engine.connect() as connection:
+                    # First create the vector extension
+                    connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                    connection.commit()
+                    logging.info("Vector extension created successfully")
                 break
             except Exception as e:
-                logging.error(f"Error connecting to database: {e}")
+                logging.error(f"Error setting up database: {e}")
                 time.sleep(5)
 
-    # Create tables first
+    # Now create all tables
+    logging.info("Creating database tables...")
     Base.metadata.create_all(engine)
+    logging.info("Database tables created successfully")
 
-    # Then run migrations
+    # Run migrations
     try:
         migrate_company_agent_name()
+        logging.info("Company agent name migration completed")
     except Exception as e:
         logging.error(f"Error during migration: {e}")
 
+    # Setup roles
     setup_default_roles()
+    logging.info("Default roles setup completed")
+
+    # Handle seed data
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:
         from SeedImports import import_all_data
 
         import_all_data()
+        logging.info("Seed data imported successfully")
+
+    # Start the server
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
