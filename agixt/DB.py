@@ -744,7 +744,24 @@ if DATABASE_TYPE == "sqlite":
             return None
 
 else:
-    from pgvector.sqlalchemy import Vector
+
+    class Vector(TypeDecorator):
+        impl = ARRAY(Float)
+        cache_ok = True
+
+        def process_bind_param(self, value, dialect):
+            if value is None:
+                return None
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            if isinstance(value, list):
+                return value
+            return value
+
+        def process_result_value(self, value, dialect):
+            if value is None:
+                return None
+            return np.array(value)
 
 
 class Memory(Base):
@@ -780,38 +797,20 @@ class Memory(Base):
 def setup_vector_column(target, connection, **kw):
     if DATABASE_TYPE != "sqlite":
         try:
-            # Create extension and convert column type
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-
-            # Convert the float[] column to vector type
-            connection.execute(
-                text(
-                    """
-                ALTER TABLE memory 
-                ALTER COLUMN embedding TYPE vector(1536) 
-                USING embedding::vector(1536);
-            """
-                )
-            )
-
-            # Create the index
+            # Create a basic index on the embedding column
             connection.execute(
                 text(
                     """
                 CREATE INDEX IF NOT EXISTS memory_embedding_idx 
-                ON memory 
-                USING ivfflat (embedding vector_l2_ops) 
-                WITH (lists = 100);
-            """
+                ON memory (agent_id, conversation_id);
+                """
                 )
             )
-
         except Exception as e:
             logging.error(f"Error setting up vector column: {e}")
-
     else:
+        # Keep existing SQLite setup
         try:
-            # Try to load the VSS extension
             sqlite_vss_path = getenv("SQLITE_VSS_PATH", "./sqlite-vss/vss0")
             connection.execute(text(f"SELECT load_extension('{sqlite_vss_path}')"))
             connection.execute(
@@ -819,7 +818,7 @@ def setup_vector_column(target, connection, **kw):
                     """
                 CREATE VIRTUAL TABLE IF NOT EXISTS vss_memories 
                 USING vss0(embedding(1536));
-            """
+                """
                 )
             )
         except Exception as e:

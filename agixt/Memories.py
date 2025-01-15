@@ -753,17 +753,32 @@ class Memories:
             try:
                 if DATABASE_TYPE == "postgresql":
                     try:
+                        # Convert embedding array to a string of numbers
+                        embedding_arr = [str(x) for x in query_embedding]
+                        embedding_str = ",".join(embedding_arr)
+
+                        # Use unnest to create array in postgres
                         stmt = text(
                             """
                             WITH vector_matches AS (
                                 SELECT 
                                     m.*,
-                                    1 - (embedding <-> :embedding::vector) as similarity
+                                    1 - (
+                                        -- Calculate cosine similarity using dot product and magnitudes
+                                        (SELECT SUM(a.val * b.val) 
+                                        FROM UNNEST(m.embedding::float[]) WITH ORDINALITY AS a(val, idx),
+                                            UNNEST(string_to_array(:embedding, ',')::float[]) WITH ORDINALITY AS b(val, idx)
+                                        WHERE a.idx = b.idx) /
+                                        (SQRT(
+                                            (SELECT SUM(val * val) FROM UNNEST(m.embedding::float[]) val)
+                                        ) * 
+                                        SQRT(
+                                            (SELECT SUM(val::float * val::float) FROM UNNEST(string_to_array(:embedding, ',')) val)
+                                        ))
+                                    ) as distance
                                 FROM memory m
                                 WHERE m.agent_id = :agent_id
                                 AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                                ORDER BY similarity DESC
-                                LIMIT :limit
                             )
                             SELECT 
                                 id,
@@ -773,14 +788,13 @@ class Memories:
                                 description,
                                 additional_metadata,
                                 timestamp,
-                                similarity
+                                (1 - distance) as similarity
                             FROM vector_matches
-                            WHERE similarity >= :min_score;
+                            WHERE (1 - distance) >= :min_score
+                            ORDER BY similarity DESC
+                            LIMIT :limit;
                             """
                         )
-
-                        # Convert embedding to string representation
-                        embedding_str = f"[{','.join(map(str, query_embedding))}]"
 
                         results = session.execute(
                             stmt,
@@ -971,17 +985,32 @@ class Memories:
             try:
                 if DATABASE_TYPE == "postgresql":
                     try:
+                        # Convert embedding array to a string of numbers
+                        embedding_arr = [str(x) for x in query_embedding]
+                        embedding_str = ",".join(embedding_arr)
+
+                        # Use unnest to create array in postgres
                         stmt = text(
                             """
                             WITH vector_matches AS (
                                 SELECT 
                                     m.*,
-                                    1 - (embedding <-> :embedding::vector) as similarity
+                                    1 - (
+                                        -- Calculate cosine similarity using dot product and magnitudes
+                                        (SELECT SUM(a.val * b.val) 
+                                        FROM UNNEST(m.embedding::float[]) WITH ORDINALITY AS a(val, idx),
+                                            UNNEST(string_to_array(:embedding, ',')::float[]) WITH ORDINALITY AS b(val, idx)
+                                        WHERE a.idx = b.idx) /
+                                        (SQRT(
+                                            (SELECT SUM(val * val) FROM UNNEST(m.embedding::float[]) val)
+                                        ) * 
+                                        SQRT(
+                                            (SELECT SUM(val::float * val::float) FROM UNNEST(string_to_array(:embedding, ',')) val)
+                                        ))
+                                    ) as distance
                                 FROM memory m
                                 WHERE m.agent_id = :agent_id
                                 AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
-                                ORDER BY similarity DESC
-                                LIMIT :limit
                             )
                             SELECT 
                                 id,
@@ -991,14 +1020,13 @@ class Memories:
                                 description,
                                 additional_metadata,
                                 timestamp,
-                                similarity
+                                (1 - distance) as similarity
                             FROM vector_matches
-                            WHERE similarity >= :min_score;
+                            WHERE (1 - distance) >= :min_score
+                            ORDER BY similarity DESC
+                            LIMIT :limit;
                             """
                         )
-
-                        # Convert embedding to string representation
-                        embedding_str = f"[{','.join(map(str, query_embedding))}]"
 
                         results = session.execute(
                             stmt,
