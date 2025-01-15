@@ -17,6 +17,7 @@ from numpy import array, linalg, ndarray
 import numpy as np
 from sqlalchemy import or_
 from datetime import datetime
+from uuid import UUID
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -482,7 +483,10 @@ class Memories:
         self.user = user
         self.agent_id = get_agent_id(agent_name=agent_name, email=self.user)
         self.collection_name = get_base_collection_name(user, agent_name)
-        self.collection_number = collection_number
+        try:
+            self.collection_number = str(UUID(collection_number))
+        except:
+            self.collection_number = None
         # Check if collection_number is a number, it might be a string
         self.collection_name = normalize_collection_name(
             user=self.user,
