@@ -486,7 +486,7 @@ class Memories:
         try:
             self.collection_number = str(UUID(collection_number))
         except:
-            self.collection_number = None
+            self.collection_number = "0"
         # Check if collection_number is a number, it might be a string
         self.collection_name = normalize_collection_name(
             user=self.user,
