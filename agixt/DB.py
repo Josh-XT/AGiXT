@@ -720,37 +720,42 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
-class Vector(TypeDecorator):
-    impl = VARCHAR
-    cache_ok = True
+if DATABASE_TYPE == "sqlite":
 
-    def load_dialect_impl(self, dialect):
-        if dialect.name == "postgresql":
-            from sqlalchemy.dialects.postgresql import ARRAY
-            from sqlalchemy.sql.sqltypes import Float
+    class Vector(TypeDecorator):
+        impl = VARCHAR
+        cache_ok = True
 
-            return dialect.type_descriptor(ARRAY(Float))
-        return dialect.type_descriptor(VARCHAR)
+        def load_dialect_impl(self, dialect):
+            if dialect.name == "postgresql":
+                from sqlalchemy.dialects.postgresql import ARRAY
+                from sqlalchemy.sql.sqltypes import Float
 
-    def process_bind_param(self, value, dialect):
-        if dialect.name == "postgresql":
-            if isinstance(value, np.ndarray):
-                return value.tolist()
+                return dialect.type_descriptor(ARRAY(Float))
+            return dialect.type_descriptor(VARCHAR)
+
+        def process_bind_param(self, value, dialect):
+            if dialect.name == "postgresql":
+                if isinstance(value, np.ndarray):
+                    return value.tolist()
+                return value
+            # SQLite needs string representation
+            if value is not None:
+                if isinstance(value, np.ndarray):
+                    return f'[{",".join(map(str, value.flatten()))}]'
+                elif isinstance(value, list):
+                    return f'[{",".join(map(str, value))}]'
             return value
-        # SQLite needs string representation
-        if value is not None:
-            if isinstance(value, np.ndarray):
-                return f'[{",".join(map(str, value.flatten()))}]'
-            elif isinstance(value, list):
-                return f'[{",".join(map(str, value))}]'
-        return value
 
-    def process_result_value(self, value, dialect):
-        if dialect.name == "postgresql":
-            return np.array(value) if value else None
-        if value is not None:
-            return np.array(eval(value))
-        return None
+        def process_result_value(self, value, dialect):
+            if dialect.name == "postgresql":
+                return np.array(value) if value else None
+            if value is not None:
+                return np.array(eval(value))
+            return None
+
+else:
+    from pgvector.sqlalchemy import Vector
 
 
 class Memory(Base):
@@ -770,7 +775,7 @@ class Memory(Base):
         ForeignKey("conversation.id"),
         nullable=True,  # Null for core memories (collection "0")
     )
-    embedding = Column(Vector, nullable=False)
+    embedding = Column(Vector(1536) if DATABASE_TYPE != "sqlite" else Vector)
     text = Column(Text, nullable=False)
     external_source = Column(String, default="user input")
     description = Column(Text)
@@ -798,22 +803,8 @@ def create_vector_store(target, connection, **kw):
                 )
             )
         else:
-            # For PostgreSQL
-            # First create the extension if it doesn't exist
-            connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector;"))
-
-            # Cast the float[] column to vector type with dimensions and create the index
-            connection.execute(
-                DDL(
-                    """
-                ALTER TABLE memory 
-                ALTER COLUMN embedding TYPE vector(1536) 
-                USING embedding::vector(1536);
-                """
-                )
-            )
-
-            # Create the index in a separate statement
+            # For PostgreSQL with pgvector
+            connection.execute(DDL("CREATE EXTENSION IF NOT EXISTS vector"))
             connection.execute(
                 DDL(
                     """
@@ -821,12 +812,11 @@ def create_vector_store(target, connection, **kw):
                 ON memory 
                 USING ivfflat (embedding vector_ip_ops)
                 WITH (lists = 100);
-                """
+            """
                 )
             )
     except Exception as e:
         logging.error(f"Failed to setup vector search: {e}")
-        # Fall back to basic search or raise warning
 
 
 def setup_default_roles():
