@@ -1,7 +1,7 @@
 FROM joshxt/aicontainer:main
 WORKDIR /
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY docker-requirements.txt .
+RUN pip install -r docker-requirements.txt
 COPY . .
 WORKDIR /agixt
 # RUN python /agixt/Transcription.py
