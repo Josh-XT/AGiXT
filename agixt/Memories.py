@@ -16,6 +16,7 @@ from typing import List, cast, Union, Sequence
 from numpy import array, linalg, ndarray
 import numpy as np
 from sqlalchemy import or_
+from datetime import datetime
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -716,46 +717,8 @@ class Memories:
         min_relevance_score: float = 0.0,
     ) -> List[dict]:
         if not user_input:
-            return ""
-        collection = await self.get_collection()
-        if collection == None:
-            return ""
-        embedding = array(embed([user_input]))
-        results = collection.query(
-            query_embeddings=embedding.tolist(),
-            n_results=limit,
-            include=["embeddings", "metadatas", "documents"],
-        )
-        embedding_array = array(results["embeddings"][0])
-        if len(embedding_array) == 0:
             return []
-        embedding_array = embedding_array.reshape(embedding_array.shape[0], -1)
-        if len(embedding.shape) == 2:
-            embedding = embedding.reshape(
-                embedding.shape[1],
-            )
-        similarity_score = compute_similarity_scores(
-            embedding=embedding, embedding_array=embedding_array
-        )
-        record_list = []
-        for record, score in zip(query_results_to_records(results), similarity_score):
-            record["relevance_score"] = score
-            record_list.append(record)
-        sorted_results = sorted(
-            record_list, key=lambda x: x["relevance_score"], reverse=True
-        )
-        filtered_results = [
-            x for x in sorted_results if x["relevance_score"] >= min_relevance_score
-        ]
-        top_results = filtered_results[:limit]
-        return top_results
 
-    async def get_memories(
-        self,
-        user_input: str,
-        limit: int,
-        min_relevance_score: float = 0.0,
-    ):
         session = get_session()
         try:
             query_embedding = embed([user_input])[0]
@@ -782,12 +745,14 @@ class Memories:
                         SELECT 
                             id,
                             text,
+                            embedding,
                             external_source,
                             description,
                             additional_metadata,
                             timestamp,
                             similarity
-                        FROM vector_matches;
+                        FROM vector_matches
+                        WHERE similarity >= :min_score;
                     """
                     )
 
@@ -798,6 +763,7 @@ class Memories:
                             "conversation_id": conversation_id,
                             "embedding": query_embedding,
                             "limit": limit,
+                            "min_score": min_relevance_score,
                         },
                     ).fetchall()
                 else:
@@ -807,6 +773,7 @@ class Memories:
                         SELECT 
                             id,
                             text,
+                            embedding,
                             external_source,
                             description,
                             additional_metadata,
@@ -834,10 +801,18 @@ class Memories:
                     if score >= min_relevance_score:
                         memories.append(
                             {
-                                "text": row.text,
                                 "external_source_name": row.external_source,
+                                "id": str(row.id),
+                                "key": str(row.id),  # Match ChromaDB's key field
                                 "description": row.description,
+                                "text": row.text,
+                                "embedding": row.embedding,
                                 "additional_metadata": row.additional_metadata,
+                                "timestamp": (
+                                    row.timestamp.isoformat()
+                                    if row.timestamp
+                                    else datetime.now().isoformat()
+                                ),
                                 "relevance_score": float(score),
                             }
                         )
@@ -864,14 +839,172 @@ class Memories:
 
                 return [
                     {
-                        "text": r.text,
                         "external_source_name": r.external_source,
+                        "id": str(r.id),
+                        "key": str(r.id),
                         "description": r.description,
+                        "text": r.text,
+                        "embedding": r.embedding,
                         "additional_metadata": r.additional_metadata,
+                        "timestamp": (
+                            r.timestamp.isoformat()
+                            if r.timestamp
+                            else datetime.now().isoformat()
+                        ),
                         "relevance_score": 0.5,  # Default score for fallback
                     }
                     for r in results
                 ]
+
+        finally:
+            session.close()
+
+    async def get_memories(
+        self,
+        user_input: str,
+        limit: int,
+        min_relevance_score: float = 0.0,
+    ) -> List[str]:
+        # If this is a conversation ID, update the collection name
+        if len(self.collection_number) > 4:
+            self.collection_name = normalize_collection_name(
+                user=self.user,
+                agent_name=self.agent_name,
+                collection_id=self.collection_number,
+            )
+
+        logging.info(
+            f"Retrieving Memories from collection name: {self.collection_name}"
+        )
+        session = get_session()
+        try:
+            query_embedding = embed([user_input])[0]
+            conversation_id = (
+                None if self.collection_number == "0" else self.collection_number
+            )
+
+            from sqlalchemy import text
+
+            try:
+                if DATABASE_TYPE == "postgresql":
+                    stmt = text(
+                        """
+                        WITH vector_matches AS (
+                            SELECT 
+                                m.*,
+                                1 - (m.embedding <=> :embedding::vector) as similarity
+                            FROM memory m
+                            WHERE m.agent_id = :agent_id
+                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                            ORDER BY similarity DESC
+                            LIMIT :limit
+                        )
+                        SELECT 
+                            text,
+                            external_source,
+                            description,
+                            additional_metadata,
+                            timestamp,
+                            similarity
+                        FROM vector_matches
+                        WHERE similarity >= :min_score;
+                    """
+                    )
+
+                    results = session.execute(
+                        stmt,
+                        {
+                            "agent_id": self.agent_id,
+                            "conversation_id": conversation_id,
+                            "embedding": query_embedding,
+                            "limit": limit,
+                            "min_score": min_relevance_score,
+                        },
+                    ).fetchall()
+                else:
+                    # Basic search for SQLite
+                    stmt = text(
+                        """
+                        SELECT 
+                            text,
+                            external_source,
+                            description,
+                            additional_metadata,
+                            timestamp
+                        FROM memory
+                        WHERE agent_id = :agent_id
+                        AND (conversation_id = :conversation_id OR conversation_id IS NULL)
+                        LIMIT :limit
+                    """
+                    )
+
+                    results = session.execute(
+                        stmt,
+                        {
+                            "agent_id": self.agent_id,
+                            "conversation_id": conversation_id,
+                            "limit": limit,
+                        },
+                    ).fetchall()
+
+                response = []
+                for row in results:
+                    metadata = (
+                        row.additional_metadata if row.additional_metadata else ""
+                    )
+                    external_source = (
+                        row.external_source if row.external_source else None
+                    )
+                    timestamp = (
+                        row.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                        if row.timestamp
+                        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+
+                    if external_source:
+                        metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
+
+                    if metadata not in response and metadata != "":
+                        response.append(metadata)
+
+                logging.info(
+                    f"{len(response)} user results found in {self.collection_name}"
+                )
+                return response
+
+            except Exception as e:
+                logging.warning(f"Search failed, falling back to basic search: {e}")
+                # Fallback to basic search
+                results = (
+                    session.query(Memory)
+                    .filter(
+                        Memory.agent_id == self.agent_id,
+                        or_(
+                            Memory.conversation_id == conversation_id,
+                            Memory.conversation_id == None,
+                        ),
+                    )
+                    .limit(limit)
+                    .all()
+                )
+
+                response = []
+                for r in results:
+                    metadata = r.additional_metadata if r.additional_metadata else ""
+                    external_source = r.external_source if r.external_source else None
+                    timestamp = (
+                        r.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                        if r.timestamp
+                        else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+
+                    if external_source:
+                        metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
+
+                    if metadata not in response and metadata != "":
+                        response.append(metadata)
+
+                return response
 
         finally:
             session.close()
