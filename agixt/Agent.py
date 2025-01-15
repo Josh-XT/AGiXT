@@ -589,7 +589,9 @@ class Agent:
         return answer
 
     def embeddings(self, input) -> np.ndarray:
-        return self.embedder(input=input)
+        from Memories import embed
+
+        return embed(input=input)
 
     async def transcribe_audio(self, audio_path: str):
         return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)

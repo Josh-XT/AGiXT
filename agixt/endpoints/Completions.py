@@ -6,6 +6,7 @@ from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client
 from Conversations import get_conversation_name_by_id
 from providers.default import DefaultProvider
+from Memories import embed
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
 from Models import (
@@ -81,7 +82,7 @@ async def embedding(
     agent_name = embedding.model
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     tokens = get_tokens(embedding.input)
-    embedding = agent.embeddings(input=embedding.input)
+    embedding = embed(input=embedding.input)
     return {
         "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
         "model": agent_name,
