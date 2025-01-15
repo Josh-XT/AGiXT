@@ -779,16 +779,10 @@ class MagicalAuth:
 
             session.commit()
             company = session.query(Company).filter(Company.id == company_id).first()
-            if not company:
-                new_company = self.create_company_with_agent(
-                    name=company_name, agent_name=getenv("AGENT_NAME")
-                )
-                company = (
-                    session.query(Company)
-                    .filter(Company.id == new_company["id"])
-                    .first()
-                )
-            agent_name = company.agent_name
+            if company:
+                agent_name = company.agent_name
+            else:
+                agent_name = "AGiXT"
             session.close()
             with open("default_agent.json", "r") as file:
                 default_agent = json.load(file)
