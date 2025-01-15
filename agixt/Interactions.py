@@ -56,20 +56,8 @@ class Interactions:
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.positive_feedback_memories = Memories(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="2",
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
-            self.negative_feedback_memories = Memories(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="3",
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
+            self.positive_feedback_memories = self.agent_memory
+            self.negative_feedback_memories = self.agent_memory
             self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
