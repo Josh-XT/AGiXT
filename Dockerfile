@@ -1,4 +1,4 @@
-FROM joshxt/aicontainer:latest
+FROM joshxt/aicontainer:main
 WORKDIR /
 COPY requirements.txt .
 RUN pip install -r requirements.txt
