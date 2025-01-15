@@ -924,12 +924,12 @@ class Memories:
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> :embedding::vector) as similarity
+                                1 - (m.embedding <=> %(embedding)s::vector) as similarity
                             FROM memory m
-                            WHERE m.agent_id = :agent_id
-                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                            WHERE m.agent_id = %(agent_id)s
+                            AND (m.conversation_id = %(conversation_id)s OR m.conversation_id IS NULL)
                             ORDER BY similarity DESC
-                            LIMIT :limit
+                            LIMIT %(limit)s
                         )
                         SELECT 
                             text,
@@ -939,10 +939,9 @@ class Memories:
                             timestamp,
                             similarity
                         FROM vector_matches
-                        WHERE similarity >= :min_score;
-                    """
+                        WHERE similarity >= %(min_score)s;
+                        """
                     )
-
                     results = session.execute(
                         stmt,
                         {
