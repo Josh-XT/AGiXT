@@ -1,6 +1,8 @@
 from providers.gpt4free import Gpt4freeProvider
 from providers.google import GoogleProvider
-from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+from onnxruntime import InferenceSession
+from tokenizers import Tokenizer
+from typing import List, cast, Union, Sequence
 from faster_whisper import WhisperModel
 import os
 import logging
@@ -11,6 +13,44 @@ import numpy as np
 # tts: google
 # transcription: faster-whisper
 # translation: faster-whisper
+
+
+# Borrowed ONNX MiniLM embedder from ChromaDB <3 https://github.com/chroma-core/chroma
+# Moved to a minimal implementation
+def embed(input: List[str]) -> List[Union[Sequence[float], Sequence[int]]]:
+    tokenizer = Tokenizer.from_file(os.path.join(os.getcwd(), "onnx", "tokenizer.json"))
+    tokenizer.enable_truncation(max_length=256)
+    tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=256)
+    model = InferenceSession(os.path.join(os.getcwd(), "onnx", "model.onnx"))
+    all_embeddings = []
+    for i in range(0, len(input), 32):
+        batch = input[i : i + 32]
+        encoded = [tokenizer.encode(d) for d in batch]
+        input_ids = np.array([e.ids for e in encoded])
+        attention_mask = np.array([e.attention_mask for e in encoded])
+        onnx_input = {
+            "input_ids": np.array(input_ids, dtype=np.int64),
+            "attention_mask": np.array(attention_mask, dtype=np.int64),
+            "token_type_ids": np.array(
+                [np.zeros(len(e), dtype=np.int64) for e in input_ids],
+                dtype=np.int64,
+            ),
+        }
+        model_output = model.run(None, onnx_input)
+        last_hidden_state = model_output[0]
+        input_mask_expanded = np.broadcast_to(
+            np.expand_dims(attention_mask, -1), last_hidden_state.shape
+        )
+        embeddings = np.sum(last_hidden_state * input_mask_expanded, 1) / np.clip(
+            input_mask_expanded.sum(1), a_min=1e-9, a_max=None
+        )
+        norm = np.linalg.norm(embeddings, axis=1)
+        norm[norm == 0] = 1e-12
+        embeddings = (embeddings / norm[:, np.newaxis]).astype(np.float32)
+        all_embeddings.append(embeddings)
+    return cast(
+        List[Union[Sequence[float], Sequence[int]]], np.concatenate(all_embeddings)
+    ).tolist()
 
 
 class DefaultProvider:
@@ -34,8 +74,6 @@ class DefaultProvider:
             if "TRANSCRIPTION_MODEL" not in kwargs
             else kwargs["TRANSCRIPTION_MODEL"]
         )
-        self.embedder = ONNXMiniLM_L6_V2()
-        self.embedder.DOWNLOAD_PATH = os.getcwd()
         self.chunk_size = 256
 
     @staticmethod
@@ -58,7 +96,7 @@ class DefaultProvider:
         return await GoogleProvider().text_to_speech(text=text)
 
     def embeddings(self, input) -> np.ndarray:
-        return self.embedder.__call__(input=[input])[0]
+        return embed(input=[input])[0]
 
     async def transcribe_audio(
         self,

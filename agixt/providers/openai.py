@@ -5,7 +5,6 @@ import requests
 import uuid
 from Globals import getenv
 import numpy as np
-from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
 try:
     import openai
@@ -57,14 +56,6 @@ class OpenaiProvider:
         )
         self.FAILURES = []
         self.failures = 0
-        try:
-            self.embedder = OpenAIEmbeddingFunction(
-                model_name="text-embedding-3-small",
-                api_key=self.OPENAI_API_KEY,
-                api_base=self.API_URI,
-            )
-        except Exception as e:
-            self.embedder = None
         self.chunk_size = 1024
 
     @staticmethod
@@ -73,7 +64,6 @@ class OpenaiProvider:
             "llm",
             "tts",
             "image",
-            "embeddings",
             "transcription",
             "translation",
             "vision",

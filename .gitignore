@@ -44,7 +44,6 @@ package-lock.json
 data/
 agents/
 memories/
-onnx/
 text-generation-webui/
 # testing
 **/.ipynb_checkpoints/
