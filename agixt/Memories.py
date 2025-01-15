@@ -2,7 +2,14 @@ import logging
 import os
 import asyncio
 import sys
-from DB import Memory, Agent, User, get_session, get_similar_memories
+from DB import (
+    Memory,
+    Agent,
+    User,
+    get_session,
+    get_similar_memories,
+    process_embedding_for_storage,
+)
 import spacy
 from numpy import array, linalg, ndarray
 from collections import Counter
@@ -647,17 +654,21 @@ class Memories:
                 ).delete()
 
             for chunk in chunks:
-                embedding = embed([chunk])
-                memory = Memory(
-                    agent_id=self.agent_id,
-                    conversation_id=conversation_id,
-                    embedding=embedding,
-                    text=chunk,
-                    external_source=external_source,
-                    description=user_input,
-                    additional_metadata=chunk,
-                )
-                session.add(memory)
+                # Get embedding and ensure proper shape
+                chunk_embedding = embed([chunk])
+                if chunk_embedding and len(chunk_embedding) > 0:
+                    embedding = process_embedding_for_storage(chunk_embedding[0])
+
+                    memory = Memory(
+                        agent_id=self.agent_id,
+                        conversation_id=conversation_id,
+                        embedding=embedding,
+                        text=chunk,
+                        external_source=external_source,
+                        description=user_input,
+                        additional_metadata=chunk,
+                    )
+                    session.add(memory)
 
             session.commit()
             return True

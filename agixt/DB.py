@@ -731,9 +731,12 @@ class Vector(TypeDecorator):
         if value is None:
             return None
 
-        # Convert to list if it's a numpy array
+        # Convert to numpy array and ensure 1D
         if isinstance(value, np.ndarray):
-            value = value.tolist()
+            value = value.reshape(-1).tolist()
+        elif isinstance(value, list):
+            # Handle nested lists
+            value = np.array(value).reshape(-1).tolist()
 
         # For SQLite, store as string representation
         if DATABASE_TYPE == "sqlite":
@@ -754,8 +757,21 @@ class Vector(TypeDecorator):
             except:
                 return None
 
-        # Convert to numpy array
-        return np.array(value)
+        # Convert to 1D numpy array
+        return np.array(value).reshape(-1)
+
+
+# Update the embedding function to ensure consistent output shape
+def process_embedding_for_storage(embedding):
+    """Ensure embedding is in the correct format for storage"""
+    if embedding is None:
+        return None
+
+    # Convert to numpy array and ensure 1D
+    if isinstance(embedding, list) or isinstance(embedding, np.ndarray):
+        return np.array(embedding).reshape(-1)
+
+    return None
 
 
 class Memory(Base):
@@ -815,6 +831,17 @@ def calculate_vector_similarity(query_embedding, stored_embedding):
         if not isinstance(stored_embedding, np.ndarray):
             stored_embedding = np.array(stored_embedding)
 
+        # Ensure vectors are 1D and have the same shape
+        query_embedding = query_embedding.reshape(-1)  # Flatten to 1D
+        stored_embedding = stored_embedding.reshape(-1)  # Flatten to 1D
+
+        # Verify shapes match
+        if query_embedding.shape != stored_embedding.shape:
+            logging.warning(
+                f"Vector shape mismatch: {query_embedding.shape} vs {stored_embedding.shape}"
+            )
+            return 0.0
+
         # Calculate cosine similarity
         dot_product = np.dot(query_embedding, stored_embedding)
         query_norm = np.linalg.norm(query_embedding)
@@ -823,7 +850,8 @@ def calculate_vector_similarity(query_embedding, stored_embedding):
         if query_norm == 0 or stored_norm == 0:
             return 0.0
 
-        return dot_product / (query_norm * stored_norm)
+        return float(dot_product / (query_norm * stored_norm))
+
     except Exception as e:
         logging.error(f"Error calculating vector similarity: {e}")
         return 0.0
