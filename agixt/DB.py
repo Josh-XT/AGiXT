@@ -896,6 +896,7 @@ if __name__ == "__main__":
         while True:
             try:
                 connection = engine.connect()
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                 connection.close()
                 break
             except Exception as e:
