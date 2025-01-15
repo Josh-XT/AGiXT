@@ -782,7 +782,10 @@ class MagicalAuth:
             if company:
                 agent_name = company.agent_name
             else:
-                agent_name = "AGiXT"
+                if self.email.endswith(".xt"):
+                    agent_name = "AGiXT"
+                else:
+                    agent_name = getenv("AGENT_NAME")
             session.close()
             with open("default_agent.json", "r") as file:
                 default_agent = json.load(file)
