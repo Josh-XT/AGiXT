@@ -802,6 +802,11 @@ class Memory(Base):
     agent = relationship("Agent", backref="memories")
     conversation = relationship("Conversation", backref="memories")
 
+    def __init__(self, **kwargs):
+        if "agent_id" not in kwargs or not kwargs["agent_id"]:
+            raise ValueError("agent_id is required")
+        super().__init__(**kwargs)
+
 
 @event.listens_for(Memory.__table__, "after_create")
 def setup_vector_column(target, connection, **kw):

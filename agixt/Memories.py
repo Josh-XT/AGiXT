@@ -256,7 +256,12 @@ def get_agent_id(agent_name: str, email: str) -> str:
         agent = session.query(Agent).filter_by(name=agent_name, user_id=user.id).first()
         if agent:
             return str(agent.id)
-        return None
+        else:
+            agent = session.query(Agent).filter_by(user_id=user.id).first()
+            if agent:
+                return str(agent.id)
+            else:
+                return None
     finally:
         session.close()
 
@@ -636,10 +641,23 @@ class Memories:
     async def write_text_to_memory(
         self, user_input: str, text: str, external_source: str = "user input"
     ):
-        session = get_session()
-        chunks = await self.chunk_content(text=text, chunk_size=self.chunk_size)
+        """Write text to memory with proper validation"""
+        if not self.agent_id:
+            logging.error(
+                f"No agent_id found for agent {self.agent_name} and user {self.user}"
+            )
+            return False
 
+        session = get_session()
         try:
+            # Validate agent exists
+            agent = session.query(Agent).filter_by(id=self.agent_id).first()
+            if not agent:
+                logging.error(f"Agent not found with id {self.agent_id}")
+                return False
+
+            chunks = await self.chunk_content(text=text, chunk_size=self.chunk_size)
+
             # Handle core memories vs conversation memories
             conversation_id = (
                 None if self.collection_number == "0" else self.collection_number
@@ -653,14 +671,22 @@ class Memories:
                     external_source=external_source,
                 ).delete()
 
+            # Process all chunks first to ensure they're valid
+            memories_to_add = []
             for chunk in chunks:
                 # Get embedding and ensure proper shape
-                chunk_embedding = embed([chunk])
-                if chunk_embedding and len(chunk_embedding) > 0:
+                try:
+                    chunk_embedding = embed([chunk])
+                    if not chunk_embedding or len(chunk_embedding) == 0:
+                        logging.warning(
+                            f"Failed to generate embedding for chunk: {chunk[:100]}..."
+                        )
+                        continue
+
                     embedding = process_embedding_for_storage(chunk_embedding[0])
 
                     memory = Memory(
-                        agent_id=self.agent_id,
+                        agent_id=self.agent_id,  # Explicitly set agent_id
                         conversation_id=conversation_id,
                         embedding=embedding,
                         text=chunk,
@@ -668,10 +694,25 @@ class Memories:
                         description=user_input,
                         additional_metadata=chunk,
                     )
-                    session.add(memory)
+                    # Validate memory object
+                    if not memory.agent_id:
+                        logging.error("Memory created with null agent_id")
+                        continue
 
-            session.commit()
-            return True
+                    memories_to_add.append(memory)
+                except Exception as e:
+                    logging.error(f"Error processing chunk: {str(e)}")
+                    continue
+
+            # Add all valid memories
+            if memories_to_add:
+                session.bulk_save_objects(memories_to_add)
+                session.commit()
+                logging.info(f"Successfully added {len(memories_to_add)} memories")
+                return True
+            else:
+                logging.warning("No valid memories to add")
+                return False
 
         except Exception as e:
             session.rollback()
