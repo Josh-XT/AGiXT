@@ -730,15 +730,24 @@ class Memories:
 
             try:
                 if DATABASE_TYPE == "postgresql":
+                    # First convert the embedding to string format for binding
+                    embedding_str = f"[{','.join(map(str, query_embedding))}]"
+
                     stmt = text(
                         """
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> :embedding::vector) as similarity
+                                1 - (m.embedding <=> (:embedding)::vector) as similarity
                             FROM memory m
-                            WHERE m.agent_id = :agent_id
-                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                            WHERE m.agent_id = (:agent_id)::uuid
+                            AND (
+                                CASE 
+                                    WHEN :conversation_id IS NULL THEN m.conversation_id IS NULL
+                                    WHEN :conversation_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.conversation_id = :conversation_id::uuid
+                                    ELSE m.conversation_id IS NULL
+                                END
+                            )
                             ORDER BY similarity DESC
                             LIMIT :limit
                         )
@@ -752,15 +761,18 @@ class Memories:
                         FROM vector_matches
                         WHERE similarity >= :min_score;
                         """
-                    ).bindparams(
-                        embedding=query_embedding,
-                        agent_id=self.agent_id,
-                        conversation_id=conversation_id,
-                        limit=limit,
-                        min_score=min_relevance_score,
                     )
 
-                    results = session.execute(stmt).fetchall()
+                    results = session.execute(
+                        stmt,
+                        {
+                            "embedding": embedding_str,
+                            "agent_id": str(self.agent_id),
+                            "conversation_id": conversation_id,
+                            "limit": limit,
+                            "min_score": min_relevance_score,
+                        },
+                    ).fetchall()
                 else:
                     # SQLite query (unchanged since it's working)
                     stmt = text(
@@ -916,15 +928,24 @@ class Memories:
 
             try:
                 if DATABASE_TYPE == "postgresql":
+                    # First convert the embedding to string format for binding
+                    embedding_str = f"[{','.join(map(str, query_embedding))}]"
+
                     stmt = text(
                         """
                         WITH vector_matches AS (
                             SELECT 
                                 m.*,
-                                1 - (m.embedding <=> :embedding::vector) as similarity
+                                1 - (m.embedding <=> (:embedding)::vector) as similarity
                             FROM memory m
-                            WHERE m.agent_id = :agent_id
-                            AND (m.conversation_id = :conversation_id OR m.conversation_id IS NULL)
+                            WHERE m.agent_id = (:agent_id)::uuid
+                            AND (
+                                CASE 
+                                    WHEN :conversation_id IS NULL THEN m.conversation_id IS NULL
+                                    WHEN :conversation_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.conversation_id = :conversation_id::uuid
+                                    ELSE m.conversation_id IS NULL
+                                END
+                            )
                             ORDER BY similarity DESC
                             LIMIT :limit
                         )
@@ -938,15 +959,18 @@ class Memories:
                         FROM vector_matches
                         WHERE similarity >= :min_score;
                         """
-                    ).bindparams(
-                        embedding=query_embedding,
-                        agent_id=self.agent_id,
-                        conversation_id=conversation_id,
-                        limit=limit,
-                        min_score=min_relevance_score,
                     )
 
-                    results = session.execute(stmt).fetchall()
+                    results = session.execute(
+                        stmt,
+                        {
+                            "embedding": embedding_str,
+                            "agent_id": str(self.agent_id),
+                            "conversation_id": conversation_id,
+                            "limit": limit,
+                            "min_score": min_relevance_score,
+                        },
+                    ).fetchall()
                 else:
                     # Basic search for SQLite
                     stmt = text(
