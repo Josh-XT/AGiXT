@@ -1716,6 +1716,7 @@ class MagicalAuth:
                     )
                     return InvitationResponse(
                         id="none",
+                        invitation_link="none",
                         email=invitation.email,
                         company_id=str(invitation.company_id),
                         role_id=invitation.role_id,
@@ -1735,9 +1736,10 @@ class MagicalAuth:
                 )
 
                 if existing_invitation:
-                    self.send_invitation_email(existing_invitation)
+                    invitation_link = self.send_invitation_email(existing_invitation)
                     return InvitationResponse(
                         id=str(existing_invitation.id),
+                        invitation_link=invitation_link,
                         email=existing_invitation.email,
                         company_id=str(existing_invitation.company_id),
                         role_id=existing_invitation.role_id,
