@@ -760,8 +760,12 @@ class MagicalAuth:
                         if new_user.first_name
                         else "My Team"
                     )
-                    new_company = self.create_company(name=company_name)
-                    company_id = new_company["id"]
+                    if new_user.first_name:
+                        if new_user.first_name.endswith("s"):
+                            company_name = f"{new_user.first_name}' Team"
+                        else:
+                            company_name = f"{new_user.first_name}'s Team"
+                    new_company = self.create_company_with_agent(name=company_name)
             # Add default user preferences
             default_preferences = [
                 ("timezone", getenv("TZ")),
@@ -776,27 +780,8 @@ class MagicalAuth:
                     pref_value=pref_value,
                 )
                 session.add(user_preference)
-
             session.commit()
-            company = session.query(Company).filter(Company.id == company_id).first()
-            agent_name = company.agent_name
             session.close()
-            with open("default_agent.json", "r") as file:
-                default_agent = json.load(file)
-            agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
-            agixt.login(email=self.email, otp=pyotp.TOTP(mfa_token).now())
-            if company_id is not None:
-                default_agent["settings"]["company_id"] = str(company_id)
-            agixt.add_agent(
-                agent_name=agent_name,
-                settings=default_agent["settings"],
-                commands=default_agent["commands"],
-                training_urls=(
-                    default_agent["training_urls"]
-                    if "training_urls" in default_agent
-                    else []
-                ),
-            )
             return {"mfa_token": mfa_token, "status_code": 200}
 
         except Exception as e:
@@ -1731,6 +1716,7 @@ class MagicalAuth:
                     )
                     return InvitationResponse(
                         id="none",
+                        invitation_link="none",
                         email=invitation.email,
                         company_id=str(invitation.company_id),
                         role_id=invitation.role_id,
@@ -1750,9 +1736,10 @@ class MagicalAuth:
                 )
 
                 if existing_invitation:
-                    self.send_invitation_email(existing_invitation)
+                    invitation_link = self.send_invitation_email(existing_invitation)
                     return InvitationResponse(
                         id=str(existing_invitation.id),
+                        invitation_link=invitation_link,
                         email=existing_invitation.email,
                         company_id=str(existing_invitation.company_id),
                         role_id=existing_invitation.role_id,
@@ -2084,8 +2071,10 @@ class MagicalAuth:
         self,
         name: str,
         parent_company_id: Optional[str] = None,
-        agent_name: str = "AGiXT",
+        agent_name: str = None,
     ):
+        if not agent_name:
+            agent_name = getenv("AGENT_NAME")
         with get_session() as db:
             try:
                 if self.company_id != None:
@@ -2161,8 +2150,10 @@ class MagicalAuth:
         self,
         name: str,
         parent_company_id: Optional[str] = None,
-        agent_name: str = "AGiXT",
+        agent_name: str = None,
     ):
+        if not agent_name:
+            agent_name = getenv("AGENT_NAME")
         company = self.create_company(
             name=name, parent_company_id=parent_company_id, agent_name=agent_name
         )

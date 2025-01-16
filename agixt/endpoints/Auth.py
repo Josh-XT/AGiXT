@@ -211,26 +211,6 @@ def delete_user(
     return Detail(detail="User deleted successfully.")
 
 
-@app.put(
-    "/v1/companies/{company_id}", response_model=CompanyResponse, tags=["Companies"]
-)
-async def update_company(
-    company_id: str,
-    name: str,
-    email: str = Depends(verify_api_key),
-    authorization: str = Header(None),
-):
-    try:
-        auth = MagicalAuth(token=authorization)
-        return auth.update_company(company_id, name)
-    except Exception as e:
-        logging.error(f"Error in update_company endpoint: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"An error occurred while updating the company: {str(e)}",
-        )
-
-
 @app.post("/v1/invitations", response_model=InvitationResponse, tags=["Companies"])
 async def create_invitations(
     invitation: InvitationCreate,
@@ -497,9 +477,8 @@ async def get_company_extensions(
 ):
     auth = MagicalAuth(token=authorization)
     ApiClient = auth.get_company_agent_session(company_id=company_id)
-    token = ApiClient.headers.get("Authorization")
-    company_auth = MagicalAuth(token=token)
-    agent = Agent(agent_name="AGiXT", user=company_auth.email, ApiClient=ApiClient)
+    user_data = ApiClient.get_user()
+    agent = Agent(agent_name="AGiXT", user=user_data["email"], ApiClient=ApiClient)
     extensions = agent.get_agent_extensions()
     return {"extensions": extensions}
 
