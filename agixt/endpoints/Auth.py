@@ -497,9 +497,8 @@ async def get_company_extensions(
 ):
     auth = MagicalAuth(token=authorization)
     ApiClient = auth.get_company_agent_session(company_id=company_id)
-    token = ApiClient.headers.get("Authorization")
-    company_auth = MagicalAuth(token=token)
-    agent = Agent(agent_name="AGiXT", user=company_auth.email, ApiClient=ApiClient)
+    user_data = ApiClient.get_user()
+    agent = Agent(agent_name="AGiXT", user=user_data["email"], ApiClient=ApiClient)
     extensions = agent.get_agent_extensions()
     return {"extensions": extensions}
 
