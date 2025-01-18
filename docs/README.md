@@ -8,7 +8,8 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20TypeScript%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/typescript-sdk) [![npm](https://img.shields.io/badge/npm-AGiXT%20TypeScript%20SDK-blue?logo=npm&style=plastic)](https://www.npmjs.com/package/agixt)
 
-[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Dart%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/dart-sdk)
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Dart%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/dart-sdk) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Rust%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Rust-Dev)
+
 
 [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD)
 [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT)
@@ -65,7 +66,7 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 - **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
-The features that AGiXT provides cover a wide range of services and are used for different tasks. Refer to [Processes and Frameworks](https://josh-xt.github.io/AGiXT/2-Concepts/1-Processes%20and%20Frameworks.html) for more details about the services and framework.
+The features that AGiXT provides cover a wide range of services and are used for different tasks. Refer to [Processes and Frameworks](https://josh-xt.github.io/AGiXT/2-Concepts/01-Processes%20and%20Frameworks.html) for more details about the services and framework.
 
 ## Quick Start Guide
 
