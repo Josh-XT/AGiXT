@@ -4,7 +4,7 @@ We plan to build more examples but would love to see what you build with AGiXT. 
 
 ## Expert Agent Example
 
-Example of a basic AGiXT expert agent:  Set your agent, make it learn whichever urls or files you want, then just keep using that conversation ID to keep a conversation going with the AI where it is aware of the history of your conversation (last 5 interactions).  If you want to keep talking to it about the same docs without the history, start a new conversation and keep going with the same agent without any retraining of the documentation. Any conversations you have with the AI will be saved in the `agixt/conversations` directory and will also be viewable from inside of the AGiXT Streamlit Web UI.
+Example of a basic AGiXT expert agent:  Create your agent, make it learn from whichever files or websites you want. You can try it out in the same notebook and in the web interface.
 
 You can open this file in a Jupyter Notebook and run the code cells to see the example in action.
 
