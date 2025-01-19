@@ -135,6 +135,7 @@ class Chain:
         for chain in chains:
             chain_list.append(
                 {
+                    "id": str(chain.id),
                     "name": chain.name,
                     "description": chain.description,
                     "steps": chain.steps,
