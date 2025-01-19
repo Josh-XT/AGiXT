@@ -7,6 +7,10 @@ from pyvirtualdisplay import Display
 
 
 class openscad_modeling(Extensions):
+    """
+    The OpenSCAD Modeling extension for AGiXT enables you to create 3D models from natural language descriptions.
+    """
+
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
         self.api_key = kwargs.get("api_key")
