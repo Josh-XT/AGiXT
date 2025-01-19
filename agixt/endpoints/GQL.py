@@ -1844,7 +1844,7 @@ class Query:
         )
 
     @strawberry.field
-    async def providers(self, info) -> List[ProviderDetails]:
+    async def providers(self, info) -> List[ProviderDetail]:
         """Get comprehensive provider details"""
         user, auth, magical = await get_user_from_context(info)
         provider_details = get_providers_with_details()
