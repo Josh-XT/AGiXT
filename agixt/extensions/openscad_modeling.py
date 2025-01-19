@@ -95,10 +95,10 @@ class openscad_modeling(Extensions):
         Convert natural language description to a 3D model with preview
 
         Args:
-        description (str): Natural language description of the desired 3D model
+        description (str): Natural language description of the desired 3D model. The assistant should be as descriptive as possible to best bring the model to life.
 
         Returns:
-        str: Markdown-formatted string with download link and preview image
+        str: Markdown-formatted string with download link and preview image that can be provided to the user and rendered in the chat interface.
         """
         try:
             # Generate OpenSCAD code using the AI
