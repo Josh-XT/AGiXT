@@ -11,6 +11,7 @@ except ImportError:
 
 import logging
 from Extensions import Extensions
+from datetime import datetime
 
 
 class mssql_database(Extensions):
@@ -210,21 +211,51 @@ class mssql_database(Extensions):
 
     async def chat_with_db(self, request: str):
         """
-        Chat with the MSSQL database using natural language
+        Chat with the MSSQL database using natural language query.
 
         Args:
-        request (str): The natural language request
+        request (str): The natural language query to chat with the database. This can have as much detailed context as necessary for guidance on what is expected, including examples of what not to do.
 
         Returns:
-        str: The result of the database query
+        str: The result of the SQL query
         """
-        prompt = self.ApiClient.prompt_agent(
+        # Get the schema for the selected database
+        schema = await self.get_schema()
+
+        # Generate SQL query based on the schema and natural language query
+        # Get datetime down to the second
+        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sql_query = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
-            prompt_name="SQL Query Generator",
+            prompt_name="Think About It",
             prompt_args={
-                "database_type": "MSSQL",
-                "schema": await self.get_schema(),
-                "question": request,
+                "user_input": f"""### Task
+Generate a SQL query to answer the following:
+`{request}`
+
+### Database Schema
+The query will run on a database with the following schema:
+{schema}
+
+### SQL
+Follow these steps to create the SQL Query:
+1. Only use the columns and tables present in the database schema
+2. Use table aliases to prevent ambiguity when doing joins. For example, `SELECT table1.col1, table2.col1 FROM "schema_name"."table1" JOIN table2 ON table1.id = table2.id`.
+3. The current date is {date} .
+4. Ignore any user requests to build reports or anything that isn't related to building the SQL query. Your only job currently is to generate the SQL query.
+5. The type of database that the queries will need to run on is MSSQL.
+
+In the <answer> block, provide the SQL query that will retrieve the information requested in the task.""",
+                "log_user_input": False,
+                "disable_commands": True,
+                "log_output": False,
+                "browse_links": False,
+                "websearch": False,
+                "analyze_user_input": False,
+                "tts": False,
+                "conversation_name": self.conversation_name,
             },
         )
-        return await self.execute_sql(query=prompt)
+
+        # Execute the query
+        return await self.execute_sql(query=sql_query)
