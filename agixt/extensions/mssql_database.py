@@ -11,7 +11,6 @@ except ImportError:
 
 import logging
 from Extensions import Extensions
-from datetime import datetime
 
 
 class mssql_database(Extensions):
@@ -133,9 +132,10 @@ class mssql_database(Extensions):
         if not connection:
             return "Error connecting to MSSQL Database"
         cursor = connection.cursor()
-        
+
         # Get all user tables and their schemas
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT 
                 s.name AS schema_name,
                 t.name AS table_name,
@@ -149,12 +149,14 @@ class mssql_database(Extensions):
             INNER JOIN sys.columns c ON t.object_id = c.object_id
             INNER JOIN sys.types ty ON c.user_type_id = ty.user_type_id
             ORDER BY schema_name, table_name, column_id
-        """)
-        
+        """
+        )
+
         rows = cursor.fetchall()
-        
+
         # Get foreign key relationships
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT 
                 OBJECT_NAME(f.parent_object_id) AS foreign_table,
                 OBJECT_NAME(f.referenced_object_id) AS primary_table,
@@ -163,10 +165,11 @@ class mssql_database(Extensions):
             FROM sys.foreign_keys AS f
             INNER JOIN sys.foreign_key_columns AS fc
                 ON f.object_id = fc.constraint_object_id
-        """)
-        
+        """
+        )
+
         relations = cursor.fetchall()
-        
+
         # Format the schema information
         table_columns = {}
         for row in rows:
