@@ -3,13 +3,10 @@ import os
 import subprocess
 import tempfile
 from Extensions import Extensions
+from pyvirtualdisplay import Display
 
 
 class openscad_modeling(Extensions):
-    """
-    The OpenSCAD Modeling extension for AGiXT enables you to create 3D models from natural language descriptions.
-    """
-
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
         self.api_key = kwargs.get("api_key")
@@ -24,11 +21,62 @@ class openscad_modeling(Extensions):
             "Create 3D Model": self.natural_language_to_scad,
         }
 
+    def _validate_scad_code(self, code: str) -> bool:
+        """Validate OpenSCAD code by attempting to compile it"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".scad") as tmp_file:
+            tmp_file.write(code)
+            tmp_file.flush()
+
+            try:
+                result = subprocess.run(
+                    ["openscad", "-o", "/dev/null", tmp_file.name],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    logging.warning(f"OpenSCAD validation failed: {result.stderr}")
+                return result.returncode == 0
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Validation error: {str(e)}")
+                return False
+
+    async def _generate_preview(self, scad_file: str) -> str:
+        """Generate preview image for OpenSCAD model using virtual display"""
+        output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".png"
+        output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
+
+        try:
+            # Create and start virtual display only when needed
+            with Display(visible=0, size=(1024, 768)) as display:
+                subprocess.run(
+                    [
+                        "openscad",
+                        "--preview",
+                        "--camera=30,30,30,0,0,0",
+                        "--colorscheme=Tomorrow Night",
+                        "--projection=perspective",
+                        "-o",
+                        output_path,
+                        scad_file,
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+            return output_path
+        except subprocess.CalledProcessError as e:
+            logging.error(
+                f"Error generating preview: {e.stderr.decode() if e.stderr else str(e)}"
+            )
+            return None
+        except Exception as e:
+            logging.error(f"Unexpected error in preview generation: {str(e)}")
+            return None
+
     async def _generate_scad_file(self, code: str) -> str:
         """Generate OpenSCAD file from code string"""
         if "```openscad" in code:
             code = code.split("```openscad")[1].split("```")[0]
-        if "```" in code:
+        elif "```" in code:
             code = code.split("```")[1].split("```")[0]
         code = code.strip()
 
@@ -43,60 +91,6 @@ class openscad_modeling(Extensions):
             return filepath
         except Exception as e:
             logging.error(f"Error saving OpenSCAD file: {str(e)}")
-            return None
-
-    def _validate_scad_code(self, code: str) -> bool:
-        """Validate OpenSCAD code by attempting to compile it"""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".scad") as tmp_file:
-            tmp_file.write(code)
-            tmp_file.flush()
-
-            try:
-                # Instead of syntax checking, we'll try to compile to CSG
-                # This will catch syntax errors and other issues
-                result = subprocess.run(
-                    ["openscad", "-o", "/dev/null", tmp_file.name],
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode != 0:
-                    logging.warning(f"OpenSCAD validation failed: {result.stderr}")
-                return result.returncode == 0
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Validation error: {str(e)}")
-                return False
-
-    async def _generate_preview(self, scad_file: str) -> str:
-        """Generate preview image for OpenSCAD model"""
-        output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".png"
-        output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
-
-        try:
-            # Set DISPLAY to use headless mode
-            env = os.environ.copy()
-            env["DISPLAY"] = ""
-
-            # Generate preview with improved camera angle and force OpenGL
-            subprocess.run(
-                [
-                    "xvfb-run",  # Use virtual framebuffer
-                    "-a",  # Auto-select server number
-                    "openscad",
-                    "--preview",
-                    "--camera=30,30,30,0,0,0",
-                    "--colorscheme=Tomorrow Night",
-                    "--projection=perspective",
-                    "-o",
-                    output_path,
-                    scad_file,
-                ],
-                check=True,
-                capture_output=True,
-                env=env,
-            )
-            return output_path
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error generating preview: {e.stderr.decode()}")
             return None
 
     async def natural_language_to_scad(self, description: str) -> str:
@@ -234,6 +228,7 @@ Remember to:
             # Validate code before proceeding
             if not self._validate_scad_code(scad_code):
                 logging.info(f"{scad_code}\nThe code may not be valid OpenSCAD syntax")
+
             # Generate files and previews
             scad_file = await self._generate_scad_file(scad_code)
             preview_image = await self._generate_preview(scad_file)
@@ -242,7 +237,7 @@ Remember to:
             scad_url = f"{self.output_url}/{os.path.basename(scad_file)}"
             preview_url = f"{self.output_url}/{os.path.basename(preview_image)}"
 
-            # Return formatted markdown with both code and visual preview
+            # Return formatted markdown
             response = [
                 "## 3D Model Generated",
                 "",
