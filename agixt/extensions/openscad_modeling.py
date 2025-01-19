@@ -5,12 +5,6 @@ import tempfile
 from Extensions import Extensions
 
 
-class OpenSCADError(Exception):
-    """Custom exception for OpenSCAD-related errors"""
-
-    pass
-
-
 class openscad_modeling(Extensions):
     """
     The OpenSCAD Modeling extension for AGiXT enables you to create 3D models from natural language descriptions.
@@ -18,35 +12,24 @@ class openscad_modeling(Extensions):
 
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
+        self.api_key = kwargs.get("api_key")
         self.ApiClient = kwargs.get("ApiClient")
         self.conversation_name = kwargs.get("conversation_name")
         self.WORKING_DIRECTORY = kwargs.get(
             "conversation_directory", os.path.join(os.getcwd(), "WORKSPACE")
         )
         self.output_url = kwargs.get("output_url", "")
-
-        # Create output directory if it doesn't exist
         os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
-
-        # Verify OpenSCAD installation
-        self._check_openscad_installation()
-
         self.commands = {
             "Create 3D Model": self.natural_language_to_scad,
         }
-
-    def _check_openscad_installation(self):
-        """Verify OpenSCAD is installed and accessible"""
-        try:
-            subprocess.run(["openscad", "--version"], capture_output=True, check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            logging.error("OpenSCAD not found in system path")
-            raise OpenSCADError("OpenSCAD must be installed to use this extension")
 
     async def _generate_scad_file(self, code: str) -> str:
         """Generate OpenSCAD file from code string"""
         if "```openscad" in code:
             code = code.split("```openscad")[1].split("```")[0]
+        if "```" in code:
+            code = code.split("```")[1].split("```")[0]
         code = code.strip()
 
         # Create file with timestamp to avoid conflicts
@@ -60,7 +43,7 @@ class openscad_modeling(Extensions):
             return filepath
         except Exception as e:
             logging.error(f"Error saving OpenSCAD file: {str(e)}")
-            raise OpenSCADError(f"Failed to save OpenSCAD file: {str(e)}")
+            return None
 
     async def _generate_preview(self, scad_file: str) -> str:
         """Generate preview image for OpenSCAD model"""
@@ -226,14 +209,21 @@ Remember to:
 - Rate each attempt with <reward> tags
 - Provide detailed justification for design choices
 - Only proceed with approaches scoring 0.8 or higher
-- Backtrack and try new approaches if scores are low"""
+- Backtrack and try new approaches if scores are low""",
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
                 },
             )
 
             # Validate code before proceeding
             if not self._validate_scad_code(scad_code):
-                raise OpenSCADError("Generated OpenSCAD code failed validation")
-
+                logging.info(f"{scad_code}\nThe code may not be valid OpenSCAD syntax")
             # Generate files and previews
             scad_file = await self._generate_scad_file(scad_code)
             preview_image = await self._generate_preview(scad_file)
@@ -259,9 +249,6 @@ Remember to:
             ]
 
             return "\n".join(response)
-
-        except OpenSCADError as e:
-            return f"Error: {str(e)}"
         except Exception as e:
             logging.error(f"Unexpected error: {str(e)}")
             return "An unexpected error occurred while generating the 3D model"
