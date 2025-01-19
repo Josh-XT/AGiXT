@@ -43,6 +43,8 @@ async def get_chains(user=Depends(verify_api_key), authorization: str = Header(N
     description="Retrieves detailed information about a specific chain, including all steps and configurations.",
 )
 async def get_chain(chain_name: str, user=Depends(verify_api_key)):
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     chain_data = Chain(user=user).get_chain(chain_name=chain_name)
     if isinstance(chain_data["id"], UUID):  # Add this check and conversion
         chain_data["id"] = str(chain_data["id"])
@@ -63,6 +65,8 @@ async def run_chain(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     agent_name = user_input.agent_override if user_input.agent_override else "gpt4free"
@@ -103,6 +107,8 @@ async def run_chain_step(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     chain = Chain(user=user)
@@ -151,6 +157,8 @@ async def run_chain_step(
 async def get_chain_args(
     chain_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ):
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     chain_args = Chain(user=user).get_chain_args(chain_name=chain_name)
@@ -170,6 +178,8 @@ async def add_chain(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    if chain_name.chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).add_chain(chain_name=chain_name.chain_name)
@@ -187,6 +197,8 @@ async def add_chain(
 async def importchain(
     chain: ChainData, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
+    if chain.chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     response = Chain(user=user).import_chain(
@@ -209,6 +221,8 @@ async def rename_chain(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).rename_chain(chain_name=chain_name, new_name=new_name.new_name)
@@ -228,6 +242,8 @@ async def rename_chain(
 async def delete_chain(
     chain_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).delete_chain(chain_name=chain_name)
@@ -248,6 +264,8 @@ async def add_step(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
@@ -276,6 +294,8 @@ async def update_step(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).update_step(
@@ -304,6 +324,8 @@ async def move_step(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).move_step(
@@ -330,6 +352,8 @@ async def delete_step(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    if chain_name == "":
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).delete_step(chain_name=chain_name, step_number=step_number)
