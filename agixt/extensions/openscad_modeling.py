@@ -45,41 +45,17 @@ class openscad_modeling(Extensions):
             logging.error(f"Error saving OpenSCAD file: {str(e)}")
             return None
 
-    async def _generate_preview(self, scad_file: str) -> str:
-        """Generate preview image for OpenSCAD model"""
-        output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".png"
-        output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
-
-        try:
-            # Generate preview with improved camera angle
-            subprocess.run(
-                [
-                    "openscad",
-                    "--preview",
-                    "--camera=30,30,30,0,0,0",  # Angled view for better preview
-                    "--colorscheme=Tomorrow Night",  # Modern color scheme
-                    "--projection=perspective",
-                    "-o",
-                    output_path,
-                    scad_file,
-                ],
-                check=True,
-                capture_output=True,
-            )
-            return output_path
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error generating preview: {e.stderr.decode()}")
-            return None
-
     def _validate_scad_code(self, code: str) -> bool:
-        """Validate OpenSCAD code syntax"""
+        """Validate OpenSCAD code by attempting to compile it"""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".scad") as tmp_file:
             tmp_file.write(code)
             tmp_file.flush()
 
             try:
+                # Instead of syntax checking, we'll try to compile to CSG
+                # This will catch syntax errors and other issues
                 result = subprocess.run(
-                    ["openscad", "--check-syntax", tmp_file.name],
+                    ["openscad", "-o", "/dev/null", tmp_file.name],
                     capture_output=True,
                     text=True,
                 )
@@ -89,6 +65,39 @@ class openscad_modeling(Extensions):
             except subprocess.CalledProcessError as e:
                 logging.error(f"Validation error: {str(e)}")
                 return False
+
+    async def _generate_preview(self, scad_file: str) -> str:
+        """Generate preview image for OpenSCAD model"""
+        output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".png"
+        output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
+
+        try:
+            # Set DISPLAY to use headless mode
+            env = os.environ.copy()
+            env["DISPLAY"] = ""
+
+            # Generate preview with improved camera angle and force OpenGL
+            subprocess.run(
+                [
+                    "xvfb-run",  # Use virtual framebuffer
+                    "-a",  # Auto-select server number
+                    "openscad",
+                    "--preview",
+                    "--camera=30,30,30,0,0,0",
+                    "--colorscheme=Tomorrow Night",
+                    "--projection=perspective",
+                    "-o",
+                    output_path,
+                    scad_file,
+                ],
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+            return output_path
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error generating preview: {e.stderr.decode()}")
+            return None
 
     async def natural_language_to_scad(self, description: str) -> str:
         """
