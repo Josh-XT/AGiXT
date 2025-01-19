@@ -299,11 +299,6 @@ class ProviderDetail:
 
 
 @strawberry.type
-class Providers:
-    providers: List[ProviderDetail]
-
-
-@strawberry.type
 class PromptArgument:
     name: str
 
@@ -1849,7 +1844,7 @@ class Query:
         )
 
     @strawberry.field
-    async def providers(self, info) -> Providers:
+    async def providers(self, info) -> List[ProviderDetails]:
         """Get comprehensive provider details"""
         user, auth, magical = await get_user_from_context(info)
         provider_details = get_providers_with_details()
@@ -1857,7 +1852,7 @@ class Query:
             convert_provider_details({"name": name, **details})
             for name, details in provider_details.items()
         ]
-        return Providers(providers=providers)
+        return providers
 
     @strawberry.field
     async def prompt(self, info, name: str, category: str = "Default") -> PromptType:
