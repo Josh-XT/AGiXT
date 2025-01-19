@@ -209,7 +209,8 @@ Remember to:
 - Rate each attempt with <reward> tags
 - Provide detailed justification for design choices
 - Only proceed with approaches scoring 0.8 or higher
-- Backtrack and try new approaches if scores are low""",
+- Backtrack and try new approaches if scores are low
+- Put the full OpenSCAD code in the <answer> tag inside of a OpenSCAD code block like: ```openscad\nOpenSCAD code block\n```""",
                     "log_user_input": False,
                     "disable_commands": True,
                     "log_output": False,
