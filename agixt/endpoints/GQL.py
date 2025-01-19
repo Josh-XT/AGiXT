@@ -299,11 +299,6 @@ class ProviderDetail:
 
 
 @strawberry.type
-class Providers:
-    providers: List[ProviderDetail]
-
-
-@strawberry.type
 class PromptArgument:
     name: str
 
@@ -1849,15 +1844,15 @@ class Query:
         )
 
     @strawberry.field
-    async def providers(self, info) -> Providers:
+    async def providers(self, info) -> List[ProviderDetail]:
         """Get comprehensive provider details"""
-        user = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
         provider_details = get_providers_with_details()
         providers = [
             convert_provider_details({"name": name, **details})
             for name, details in provider_details.items()
         ]
-        return Providers(providers=providers)
+        return providers
 
     @strawberry.field
     async def prompt(self, info, name: str, category: str = "Default") -> PromptType:
@@ -2143,7 +2138,7 @@ class Query:
     @strawberry.field
     async def command_args(self, info, command_name: str) -> CommandArgs:
         """Get arguments for a specific command"""
-        user, _ = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         extensions = Extensions()
         raw_args = extensions.get_command_args(command_name=command_name)
@@ -2280,7 +2275,7 @@ class Query:
     @strawberry.field
     async def chain(self, info, chain_name: str) -> ChainConfig:
         """Get details of a specific chain"""
-        user, _ = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         chain_manager = Chain(user=user)
         chain_data = chain_manager.get_chain(chain_name=chain_name)
@@ -2316,7 +2311,7 @@ class Query:
     @strawberry.field
     async def chain_dependencies(self, info, chain_name: str) -> List[ChainDependency]:
         """Get dependencies between chain steps"""
-        user, _ = await get_user_from_context(info)
+        user, auth, magical = await get_user_from_context(info)
 
         chain_manager = Chain(user=user)
         deps = chain_manager.get_chain_step_dependencies(chain_name=chain_name)
