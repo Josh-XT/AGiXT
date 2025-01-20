@@ -59,6 +59,15 @@ class Gpt4freeProvider:
         return ["llm"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
+        if getenv("DEEPSEEK_API_KEY"):
+            from providers.deepseek import DeepseekProvider
+
+            deepseek = DeepseekProvider(
+                DEEPSEEK_API_KEY=getenv("DEEPSEEK_API_KEY"),
+                DEEPSEEK_MAX_TOKENS=64000,
+            )
+            return await deepseek.inference(prompt=prompt, tokens=tokens, images=images)
+
         if getenv("EZLOCALAI_API_KEY") and getenv("EZLOCALAI_URI"):
             from providers.ezlocalai import EzlocalaiProvider
 

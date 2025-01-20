@@ -40,6 +40,7 @@ jobs:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
       EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   test-agixt-sqlite:
     uses: ./.github/workflows/tests.yml
     with:
@@ -53,3 +54,4 @@ jobs:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
       EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
