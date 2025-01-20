@@ -56,7 +56,10 @@ class openscad_modeling(Extensions):
                     [
                         "openscad",
                         "--preview",
-                        "--camera=30,30,30,0,0,0",
+                        "--viewall",  # Ensure the entire model is visible
+                        "--autocenter",  # Center the model in view
+                        "--camera=55,0,55,35,0,35,500",  # Adjusted camera angle and distance
+                        "--imgsize=1024,768",  # Higher resolution preview
                         "--colorscheme=Tomorrow Night",
                         "--projection=perspective",
                         "-o",
@@ -252,9 +255,9 @@ Remember to:
                 f"📥 [Download OpenSCAD File]({scad_url})",
                 "",
                 "### OpenSCAD Code",
-                "```openscad",
+                "",
                 scad_code,
-                "```",
+                "Make sure to give the user the exact links provided to the OpenSCAD file and provide them an image preview of the model provided in markdown format in the answer block.",
             ]
 
             return "\n".join(response)
