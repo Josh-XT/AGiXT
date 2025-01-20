@@ -32,8 +32,15 @@ class openscad_modeling(Extensions):
             tmp_file.flush()
 
             try:
+                # Validate by attempting to export to STL format
                 result = subprocess.run(
-                    ["openscad", "-o", "/dev/null", tmp_file.name],
+                    [
+                        "openscad",
+                        "--export-format=stl",
+                        "-o",
+                        "/dev/null",
+                        tmp_file.name,
+                    ],
                     capture_output=True,
                     text=True,
                 )
@@ -52,21 +59,22 @@ class openscad_modeling(Extensions):
         try:
             # Create and start virtual display only when needed
             with Display(visible=0, size=(800, 600)) as display:
-                # Simpler preview command with basic settings
+                # Specify PNG export format explicitly
                 subprocess.run(
                     [
                         "openscad",
+                        "--export-format=png",
                         "--preview",
                         "--viewall",
                         "--autocenter",
-                        "--colorscheme=Sunset",  # Try a different color scheme
+                        "--colorscheme=Sunset",
                         "-o",
                         output_path,
                         scad_file,
                     ],
                     check=True,
                     capture_output=True,
-                    env={"DISPLAY": display.new_display_var},  # Explicitly set display
+                    env={"DISPLAY": display.new_display_var},
                 )
 
             # Verify the file exists and has content
