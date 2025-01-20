@@ -1166,6 +1166,6 @@ class Interactions:
                 logging.info(f"Command output: {command_output}")
         else:
             cmds = "\n".join(command_list)
-            self.response += f"\nThe assistant tried to execute a command named `{command_name}` but it was not recognized. Ensure that the correct naming of the commands is being used, they go off of the friendly name. Please choose from the list of available commands and try again:\n{cmds}"
+            self.response += f"\nThe assistant tried to execute a command, but it was not recognized. Ensure that the correct naming of the commands is being used, they go off of the friendly name. Please choose from the list of available commands and try again:\n{cmds}"
         if reformatted_response != self.response:
             self.response = reformatted_response
