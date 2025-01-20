@@ -234,6 +234,7 @@ Remember to:
 - Provide detailed justification for design choices
 - Only proceed with approaches scoring 0.8 or higher
 - Backtrack and try new approaches if scores are low
+- Do not attempt to provide a link to the files or preview image in the response, this is handled automatically.
 - Put the full OpenSCAD code in the <answer> tag inside of a OpenSCAD code block like: ```openscad\nOpenSCAD code block\n```""",
                     "log_user_input": False,
                     "disable_commands": True,
