@@ -40,7 +40,7 @@ class SecurityValidationMixin:
             raise ValueError(f"Invalid {name}: must be string")
         if not value or len(value) > cls.MAX_FILENAME_LENGTH:
             raise ValueError(f"Invalid {name}: invalid length")
-        if ".." in value or "/" in value or "\\" in value:
+        if ".." in value or "\\" in value:
             logging.warning(f"Path traversal detected in {name}: {value}")
             raise ValueError(f"Invalid {name}: path traversal detected")
         if not cls.ALLOWED_CHARS.match(value):
@@ -54,7 +54,7 @@ class SecurityValidationMixin:
             raise ValueError("Invalid filename: must be string")
         if not filename or len(filename) > cls.MAX_FILENAME_LENGTH:
             raise ValueError("Invalid filename: invalid length")
-        if ".." in filename or "/" in filename or "\\" in filename:
+        if ".." in filename or "\\" in filename:
             logging.warning(f"Path traversal detected in filename: {filename}")
             raise ValueError("Invalid filename: path traversal detected")
         if not cls.ALLOWED_CHARS.match(filename):
