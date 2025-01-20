@@ -62,7 +62,6 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "EZLOCALAI_API_KEY": "",
         "DEEPSEEK_API_KEY": "",
         "AZURE_OPENAI_ENDPOINT": "",
-        "AZURE_DEPLOYMENT_NAME": "",
     }
     if default_value != "":
         default_values[var_name] = default_value
@@ -155,7 +154,7 @@ def get_default_agent_settings():
             "AZURE_MODEL": getenv("AZURE_MODEL"),
             "AZURE_API_KEY": getenv("AZURE_API_KEY"),
             "AZURE_OPENAI_ENDPOINT": getenv("AZURE_OPENAI_ENDPOINT"),
-            "AZURE_DEPLOYMENT_NAME": getenv("AZURE_DEPLOYMENT_NAME"),
+            "AZURE_DEPLOYMENT_NAME": getenv("AZURE_MODEL"),
             "AZURE_TEMPERATURE": 0.7,
             "AZURE_TOP_P": 0.95,
             "DEEPSEEK_API_KEY": getenv("DEEPSEEK_API_KEY"),
