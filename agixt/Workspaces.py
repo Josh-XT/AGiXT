@@ -319,18 +319,13 @@ class WorkspaceManager(SecurityValidationMixin):
         if not isinstance(agent_id, str) or not isinstance(filename, str):
             raise ValueError("Invalid input types")
 
-        # Strict pattern for allowed characters
-        allowed_pattern = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
-
         # Validate and sanitize components with strict rules
         def sanitize_path_component(component: str, component_type: str) -> str:
             if not component or not isinstance(component, str):
                 raise ValueError(f"Invalid {component_type}")
             if len(component) > 255:
                 raise ValueError(f"{component_type} too long")
-            if not allowed_pattern.match(component):
-                raise ValueError(f"Invalid characters in {component_type}")
-            return re.sub(r"[^a-zA-Z0-9_.-]", "_", component)
+            return component
 
         # Validate and sanitize all components before path construction
         agent_id = sanitize_path_component(
