@@ -6,6 +6,7 @@ from g4f.Provider import (
     FreeGpt,
     Liaobots,
 )
+from Globals import getenv
 
 
 class Gpt4freeProvider:
@@ -13,13 +14,13 @@ class Gpt4freeProvider:
     This provider uses the GPT4Free API to generate text from prompts. This provider may be unreliable but is free to try.
     """
 
-    def __init__(self, GPT4FREE_MAX_TOKENS: int = 8192, **kwargs):
+    def __init__(self, **kwargs):
         # Breaking changes were made after g4f v0.2.6.2
         # Unable to get it to work in containers in newer versions.
         self.friendly_name = "GPT4Free"
         self.requirements = ["g4f==0.2.6.2"]
         self.AI_MODEL = "gemini-pro"
-        self.MAX_TOKENS = GPT4FREE_MAX_TOKENS
+        self.MAX_TOKENS = 128000
         self.provider = Liaobots
         self.provider_name = "Liaobots"
         self.providers = [
@@ -58,6 +59,17 @@ class Gpt4freeProvider:
         return ["llm"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
+        if getenv("EZLOCALAI_API_KEY") and getenv("EZLOCALAI_URI"):
+            from providers.ezlocalai import EzlocalaiProvider
+
+            ezlocalai = EzlocalaiProvider(
+                EZLOCALAI_API_KEY=getenv("EZLOCALAI_API_KEY"),
+                EZLOCALAI_URI=getenv("EZLOCALAI_URI"),
+                EZLOCALAI_MAX_TOKENS=128000,
+            )
+            return await ezlocalai.inference(
+                prompt=prompt, tokens=tokens, images=images
+            )
         logging.info(
             f"[Gpt4Free] Using provider: {self.provider_name} with model: {self.AI_MODEL}"
         )
