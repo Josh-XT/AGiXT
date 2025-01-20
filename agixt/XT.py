@@ -1800,7 +1800,6 @@ class AGiXT:
                     # Before logging the response, lets get all activities matching the `thinking_id` mermaid diagram
                     activities = c.get_subactivities(thinking_id)
                     if activities:
-                        """
                         activity_prompt = f"{new_prompt}\n\n{activities}\n\nReview the detailed activities list and create a mermaid diagram that describes the paths taken during the detailed activities that were performed based on the user input. This mermaid diagram should start with ```mermaid\nContent of the diagram\n```\ninside of the <answer> block as the final response. The activities describe the thoughts in steps that ultimately led to the response from the assistant to the user based on the user input. Be as detailed as possible with the diagram. Ensure each item in the diagram is in quotes."
                         mermaid_diagram = await self.inference(
                             user_input=activity_prompt,
@@ -1823,7 +1822,6 @@ class AGiXT:
                                 role=self.agent_name,
                                 message=f"[SUBACTIVITY][{thinking_id}][DIAGRAM] Generated diagram describing thoughts.\n{mermaid_diagram}",
                             )
-                        """
                         c.update_message_by_id(
                             message_id=thinking_id,
                             new_message=f"[ACTIVITY] Completed activities.",
