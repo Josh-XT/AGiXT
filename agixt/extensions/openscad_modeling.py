@@ -93,6 +93,40 @@ class openscad_modeling(Extensions):
             logging.error(f"Unexpected error in preview generation: {str(e)}")
             return None
 
+    async def _generate_stl(self, scad_file: str) -> str:
+        """Generate STL file from OpenSCAD model"""
+        output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".stl"
+        output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
+
+        try:
+            subprocess.run(
+                [
+                    "openscad",
+                    "--export-format=binstl",  # Use binary STL format for smaller file size
+                    "-o",
+                    output_path,
+                    scad_file,
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            # Verify the file exists and has content
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return output_path
+            else:
+                logging.error("STL file was not generated or is empty")
+                return None
+
+        except subprocess.CalledProcessError as e:
+            logging.error(
+                f"Error generating STL: {e.stderr.decode() if e.stderr else str(e)}"
+            )
+            return None
+        except Exception as e:
+            logging.error(f"Unexpected error in STL generation: {str(e)}")
+            return None
+
     async def _generate_scad_file(self, code: str) -> str:
         """Generate OpenSCAD file from code string"""
         if "```openscad" in code:
@@ -254,18 +288,24 @@ Remember to:
             # Generate files and previews
             scad_file = await self._generate_scad_file(scad_code)
             preview_image = await self._generate_preview(scad_file)
+            stl_file = await self._generate_stl(scad_file)
 
             # Format output paths
             scad_url = f"{self.output_url}/{os.path.basename(scad_file)}"
             preview_url = f"{self.output_url}/{os.path.basename(preview_image)}"
+            stl_url = f"{self.output_url}/{os.path.basename(stl_file)}"
 
             # Return formatted markdown
             response = [
                 scad_code,
-                f"- ![Model Preview]({preview_url})",
-                f"- 📥 [Download OpenSCAD File]({scad_url})",
                 "",
-                "Make sure to give the user the exact information and links provided to the OpenSCAD file and provide them an image preview of the model provided in markdown format in the answer block.",
+                f"![Model Preview]({preview_url})",
+                "",
+                "### Downloads",
+                f"- 📥 [Download OpenSCAD File]({scad_url})",
+                f"- 🖨️ [Download STL File]({stl_url})",
+                "",
+                "Make sure to give the user all of the exact information and links provided to the OpenSCAD file, STL, and provide them an image preview of the model provided in markdown format in the answer block.",
             ]
 
             return "\n".join(response)
