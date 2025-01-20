@@ -261,18 +261,11 @@ Remember to:
 
             # Return formatted markdown
             response = [
-                "## 3D Model Generated",
-                "",
-                "### Preview",
-                f"![Model Preview]({preview_url})",
-                "",
-                "### Downloads",
-                f"📥 [Download OpenSCAD File]({scad_url})",
-                "",
-                "### OpenSCAD Code",
-                "",
                 scad_code,
-                "Make sure to give the user the exact links provided to the OpenSCAD file and provide them an image preview of the model provided in markdown format in the answer block.",
+                f"- ![Model Preview]({preview_url})",
+                f"- 📥 [Download OpenSCAD File]({scad_url})",
+                "",
+                "Make sure to give the user the exact information and links provided to the OpenSCAD file and provide them an image preview of the model provided in markdown format in the answer block.",
             ]
 
             return "\n".join(response)
