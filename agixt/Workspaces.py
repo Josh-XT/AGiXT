@@ -43,8 +43,6 @@ class SecurityValidationMixin:
         if ".." in value or "\\" in value:
             logging.warning(f"Path traversal detected in {name}: {value}")
             raise ValueError(f"Invalid {name}: path traversal detected")
-        if not cls.ALLOWED_CHARS.match(value):
-            raise ValueError(f"Invalid {name}: contains invalid characters")
         return value
 
     @classmethod
@@ -57,8 +55,6 @@ class SecurityValidationMixin:
         if ".." in filename or "\\" in filename:
             logging.warning(f"Path traversal detected in filename: {filename}")
             raise ValueError("Invalid filename: path traversal detected")
-        if not cls.ALLOWED_CHARS.match(filename):
-            raise ValueError("Invalid filename: contains invalid characters")
         return filename
 
     @classmethod
