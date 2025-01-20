@@ -38,6 +38,8 @@ jobs:
     needs: build
     secrets:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
+      EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
   test-agixt-sqlite:
     uses: ./.github/workflows/tests.yml
     with:
@@ -49,3 +51,5 @@ jobs:
     needs: build
     secrets:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
+      EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
