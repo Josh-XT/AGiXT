@@ -70,6 +70,7 @@ services:
       - "${AGIXT_PORT:-7437}:7437"
     volumes:
       - ./models:/agixt/models
+      - ./WORKSPACE:/agixt/WORKSPACE
       - /var/run/docker.sock:/var/run/docker.sock
   agixtinteractive:
     image: joshxt/agixt-interactive:main

@@ -24,7 +24,7 @@ from Models import (
 )
 from typing import List, Optional
 from fastapi import Header, HTTPException
-from Globals import getenv, DEFAULT_AGENT
+from Globals import getenv, get_default_agent
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from agixtsdk import AGiXTSDK
@@ -1683,7 +1683,7 @@ class MagicalAuth:
                     )
                     company_name = company.name if company else "our platform"
                     company_id = company.id if company else None
-                    default_agent = DEFAULT_AGENT.copy()
+                    default_agent = get_default_agent()
                     agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
                     agixt.login(
                         email=invitation.email, otp=pyotp.TOTP(user.mfa_token).now()
@@ -2120,7 +2120,7 @@ class MagicalAuth:
                 db.commit()
                 totp = pyotp.TOTP(mfa_token)
                 agixt.login(email=company_email, otp=totp.now())
-                default_agent = DEFAULT_AGENT.copy()
+                default_agent = get_default_agent()
                 agixt.add_agent(
                     agent_name="AGiXT",
                     settings=(
@@ -2157,7 +2157,7 @@ class MagicalAuth:
         )
         agixt = self.get_user_agent_session()
         # Just create an agent associated with the company like we do at registration
-        default_agent = DEFAULT_AGENT.copy()
+        default_agent = get_default_agent()
         default_agent["settings"]["company_id"] = company["id"]
         agixt.add_agent(
             agent_name=agent_name,

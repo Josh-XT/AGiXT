@@ -261,4 +261,3 @@ def get_output_url(path: str):
 
 DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()
 DEFAULT_SETTINGS = get_default_agent_settings()
-DEFAULT_AGENT = get_default_agent()
