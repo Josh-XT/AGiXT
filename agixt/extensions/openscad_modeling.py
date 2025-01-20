@@ -51,25 +51,31 @@ class openscad_modeling(Extensions):
 
         try:
             # Create and start virtual display only when needed
-            with Display(visible=0, size=(1024, 768)) as display:
+            with Display(visible=0, size=(800, 600)) as display:
+                # Simpler preview command with basic settings
                 subprocess.run(
                     [
                         "openscad",
                         "--preview",
-                        "--viewall",  # Ensure the entire model is visible
-                        "--autocenter",  # Center the model in view
-                        "--camera=55,0,55,35,0,35,500",  # Adjusted camera angle and distance
-                        "--imgsize=1024,768",  # Higher resolution preview
-                        "--colorscheme=Tomorrow Night",
-                        "--projection=perspective",
+                        "--viewall",
+                        "--autocenter",
+                        "--colorscheme=Sunset",  # Try a different color scheme
                         "-o",
                         output_path,
                         scad_file,
                     ],
                     check=True,
                     capture_output=True,
+                    env={"DISPLAY": display.new_display_var},  # Explicitly set display
                 )
-            return output_path
+
+            # Verify the file exists and has content
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return output_path
+            else:
+                logging.error("Preview file was not generated or is empty")
+                return None
+
         except subprocess.CalledProcessError as e:
             logging.error(
                 f"Error generating preview: {e.stderr.decode() if e.stderr else str(e)}"
