@@ -171,11 +171,9 @@ def get_default_env_vars():
     machine_tz = get_localzone()
     return {
         "AGIXT_API_KEY": "",
-        "STREAMLIT_AGIXT_URI": "http://agixt:7437",
         "AGIXT_URI": "http://localhost:7437",
         "AGIXT_PORT": "7437",
         "AGIXT_INTERACTIVE_PORT": "3437",
-        "AGIXT_STREAMLIT_PORT": "8501",
         "AGIXT_AGENT": "AGiXT",
         "AGIXT_BRANCH": "stable",
         "AGIXT_FILE_UPLOAD_ENABLED": "true",
@@ -192,7 +190,6 @@ def get_default_env_vars():
         "APP_DESCRIPTION": "A chat powered by AGiXT.",
         "APP_NAME": "AGiXT Chat",
         "APP_URI": "http://localhost:3437",
-        "STREAMLIT_APP_URI": "http://localhost:8501",
         "AUTH_WEB": "http://localhost:3437/user",
         "CREATE_AGENT_ON_REGISTER": "true",
         "CREATE_AGIXT_AGENT": "true",
@@ -215,7 +212,6 @@ def get_default_env_vars():
         "LLM_MAX_TOKENS": "32768",
         "WHISPER_MODEL": "base.en",
         "GPU_LAYERS": "0",
-        "WITH_STREAMLIT": "true",
         "WITH_EZLOCALAI": "false",
         "REGISTRATION_DISABLED": "false",
         "AGIXT_ALLOW_MESSAGE_EDITING": "true",
@@ -274,16 +270,10 @@ def set_environment(env_updates=None):
     dockerfile = "docker-compose.yml"
     if env_vars["AGIXT_BRANCH"] != "stable":
         dockerfile = "docker-compose-dev.yml"
-    if str(env_vars["WITH_STREAMLIT"]).lower() == "true":
-        if env_vars["AGIXT_BRANCH"] != "stable":
-            dockerfile = "docker-compose-dev.yml"
-        else:
-            dockerfile = "docker-compose.yml"
+    if env_vars["AGIXT_BRANCH"] != "stable":
+        dockerfile = "docker-compose-dev.yml"
     else:
-        if env_vars["AGIXT_BRANCH"] != "stable":
-            dockerfile = "docker-compose-nostreamlit-dev.yml"
-        else:
-            dockerfile = "docker-compose-nostreamlit.yml"
+        dockerfile = "docker-compose.yml"
     if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
         command = f"docker compose -f {dockerfile} stop && docker compose -f {dockerfile} pull && docker compose -f {dockerfile} up -d"
     else:
