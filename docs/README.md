@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-Sponsor%20Josh%20XT-blue?logo=github&style=plastic)](https://github.com/sponsors/Josh-XT) [![PayPal](https://img.shields.io/badge/PayPal-Sponsor%20Josh%20XT-blue.svg?logo=paypal&style=plastic)](https://paypal.me/joshxt) [![Ko-Fi](https://img.shields.io/badge/Kofi-Sponsor%20Josh%20XT-blue.svg?logo=kofi&style=plastic)](https://ko-fi.com/joshxt)
 
-[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Core-blue?logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Interactive%20UI-blue?logo=github&style=plastic)](https://github.com/JamesonRGrieve/AGiXT-Interactive) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20StreamLit%20UI-blue?logo=github&style=plastic)](https://github.com/AGiXT/streamlit)
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Core-blue?logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Interactive%20UI-blue?logo=github&style=plastic)](https://github.com/JamesonRGrieve/AGiXT-Interactive)
 
 [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Python%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/python-sdk) [![pypi](https://img.shields.io/badge/pypi-AGiXT%20Python%20SDK-blue?logo=pypi&style=plastic)](https://pypi.org/project/agixtsdk/)
 
@@ -148,31 +148,29 @@ The script supports setting any of the environment variables via command-line ar
 15. `--app-description`: Set the application description
 16. `--app-name`: Set the application name (default: `AGiXT Chat`)
 17. `--app-uri`: Set the application URI (default: `http://localhost:3437`)
-18. `--streamlit-app-uri`: Set the Streamlit app URI (default: `http://localhost:8501`)
-19. `--auth-web`: Set the authentication web URI (default: `http://localhost:3437/user`)
-20. `--auth-provider`: Set the authentication provider (options: `none`, `magicalauth`)
-21. `--create-agent-on-register`: Create an agent named from your `AGIXT_AGENT` environment variable if it is different than `AGiXT` using settings from `default_agent.json` if defined (default: `true`)
-22. `--create-agixt-agent`: Create an agent called `AGiXT` and trains it on the AGiXT documentation upon user registration (default: `true`)
-23. `--disabled-providers`: Set disabled providers (comma-separated list)
-24. `--disabled-extensions`: Set disabled extensions (comma-separated list)
-25. `--working-directory`: Set the working directory (default: `./WORKSPACE`)
-26. `--github-client-id`: Set GitHub client ID for authentication
-27. `--github-client-secret`: Set GitHub client secret for authentication
-28. `--google-client-id`: Set Google client ID for authentication
-29. `--google-client-secret`: Set Google client secret for authentication
-30. `--microsoft-client-id`: Set Microsoft client ID for authentication
-31. `--microsoft-client-secret`: Set Microsoft client secret for authentication
-32. `--tz`: Set the timezone (default: system timezone)
-33. `--interactive-mode`: Set the interactive mode (default: `chat`)
-34. `--theme-name`: Set the UI theme (options: `default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
-35. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
-36. `--database-type`: Set the database type (options: `sqlite`, `postgres`)
-37. `--database-name`: Set the database name (default: `models/agixt`)
-38. `--log-level`: Set the logging level (default: `INFO`)
-39. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
+18. `--auth-web`: Set the authentication web URI (default: `http://localhost:3437/user`)
+19. `--auth-provider`: Set the authentication provider (options: `none`, `magicalauth`)
+20. `--create-agent-on-register`: Create an agent named from your `AGIXT_AGENT` environment variable if it is different than `AGiXT` using settings from `default_agent.json` if defined (default: `true`)
+21. `--create-agixt-agent`: Create an agent called `AGiXT` and trains it on the AGiXT documentation upon user registration (default: `true`)
+22. `--disabled-providers`: Set disabled providers (comma-separated list)
+23. `--disabled-extensions`: Set disabled extensions (comma-separated list)
+24. `--working-directory`: Set the working directory (default: `./WORKSPACE`)
+25. `--github-client-id`: Set GitHub client ID for authentication
+26. `--github-client-secret`: Set GitHub client secret for authentication
+27. `--google-client-id`: Set Google client ID for authentication
+28. `--google-client-secret`: Set Google client secret for authentication
+29. `--microsoft-client-id`: Set Microsoft client ID for authentication
+30. `--microsoft-client-secret`: Set Microsoft client secret for authentication
+31. `--tz`: Set the timezone (default: system timezone)
+32. `--interactive-mode`: Set the interactive mode (default: `chat`)
+33. `--theme-name`: Set the UI theme (options: `default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
+34. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
+35. `--database-type`: Set the database type (options: `sqlite`, `postgres`)
+36. `--database-name`: Set the database name (default: `models/agixt`)
+37. `--log-level`: Set the logging level (default: `INFO`)
+38. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
 40. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
 41. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
-42. `--with-streamlit`: Enable or disable the Streamlit UI (default: `true`)
 
 Options specific to ezLocalai:
 
