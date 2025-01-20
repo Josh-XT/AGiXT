@@ -24,7 +24,7 @@ from Models import (
 )
 from typing import List, Optional
 from fastapi import Header, HTTPException
-from Globals import getenv
+from Globals import getenv, get_default_agent
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from agixtsdk import AGiXTSDK
@@ -1683,8 +1683,7 @@ class MagicalAuth:
                     )
                     company_name = company.name if company else "our platform"
                     company_id = company.id if company else None
-                    with open("default_agent.json", "r") as file:
-                        default_agent = json.load(file)
+                    default_agent = get_default_agent()
                     agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
                     agixt.login(
                         email=invitation.email, otp=pyotp.TOTP(user.mfa_token).now()
@@ -1739,7 +1738,7 @@ class MagicalAuth:
                     invitation_link = self.send_invitation_email(existing_invitation)
                     return InvitationResponse(
                         id=str(existing_invitation.id),
-                        invitation_link=invitation_link,
+                        invitation_link="none",
                         email=existing_invitation.email,
                         company_id=str(existing_invitation.company_id),
                         role_id=existing_invitation.role_id,
@@ -2121,8 +2120,7 @@ class MagicalAuth:
                 db.commit()
                 totp = pyotp.TOTP(mfa_token)
                 agixt.login(email=company_email, otp=totp.now())
-                with open("default_agent.json", "r") as file:
-                    default_agent = json.load(file)
+                default_agent = get_default_agent()
                 agixt.add_agent(
                     agent_name="AGiXT",
                     settings=(
@@ -2159,8 +2157,7 @@ class MagicalAuth:
         )
         agixt = self.get_user_agent_session()
         # Just create an agent associated with the company like we do at registration
-        with open("default_agent.json", "r") as file:
-            default_agent = json.load(file)
+        default_agent = get_default_agent()
         default_agent["settings"]["company_id"] = company["id"]
         agixt.add_agent(
             agent_name=agent_name,
