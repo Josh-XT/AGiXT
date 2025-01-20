@@ -30,6 +30,10 @@ on:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
       DISCORD_WEBHOOK:
         description: Optional discord webhook available as os.getenv('DISCORD_WEBHOOK') in your notebook
+      EZLOCALAI_URI:
+        description: Optional ezlocalai uri available as os.getenv('EZLOCALAI_URI') in your notebook
+      EZLOCALAI_API_KEY:
+        description: Optional ezlocalai api key available as os.getenv('EZLOCALAI_API_KEY') in your notebook
   
 jobs:
   run-tests:
@@ -68,6 +72,8 @@ jobs:
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
+          EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
+          EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0
