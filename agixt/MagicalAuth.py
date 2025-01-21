@@ -1014,7 +1014,13 @@ class MagicalAuth:
                     )
                     session.add(user_preference)
                     session.commit()
-
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": "No active subscriptions.",
+                            "customer_id": customer.id,
+                        },
+                    )
                 else:
                     logging.info("Stripe ID found: " + user_preferences["stripe_id"])
                     relevant_subscriptions = self.get_subscribed_products(
