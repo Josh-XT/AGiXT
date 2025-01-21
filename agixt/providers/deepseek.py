@@ -59,6 +59,7 @@ class DeepseekProvider:
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         openai.base_url = self.API_URI if self.API_URI else "https://api.deepseek.com/"
         openai.api_key = self.DEEPSEEK_API_KEY
+        openai.api_type = "openai"
         messages = []
         if len(images) > 0:
             messages.append(
