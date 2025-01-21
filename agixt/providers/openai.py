@@ -87,6 +87,7 @@ class OpenaiProvider:
             self.API_URI += "/"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
+        openai.api_type = "openai"
         if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
             if self.API_URI == "https://api.openai.com/v1/":
                 return (
