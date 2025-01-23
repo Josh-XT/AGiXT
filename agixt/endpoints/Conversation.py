@@ -27,7 +27,7 @@ from Models import (
 import json
 import uuid
 from datetime import datetime
-from MagicalAuth import MagicalAuth
+from MagicalAuth import MagicalAuth, get_user_id
 
 app = APIRouter()
 
@@ -437,8 +437,9 @@ async def fork_conversation(
 ) -> ResponseMessage:
     try:
         conversation_id = uuid.UUID(fork.conversation_name)
+        user_id = get_user_id(user)
         fork.conversation_name = get_conversation_name_by_id(
-            conversation_id=str(conversation_id), user_id=user
+            conversation_id=str(conversation_id), user_id=user_id
         )
     except:
         conversation_id = fork.conversation_name
@@ -468,7 +469,7 @@ async def get_tts(
     )
     c = Conversations(conversation_name=conversation_name, user=user)
     message = c.get_message_by_id(message_id=message_id)
-    conversation_id = c.get_conversation_id()
+    # conversation_id = c.get_conversation_id()
     agent_name = c.get_last_agent_name()
     XT = AGiXT(
         user=user,
