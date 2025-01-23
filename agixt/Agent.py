@@ -882,7 +882,7 @@ class Agent:
         if not agent:
             return f"Agent {self.agent_name} not found."
         browsed_link = AgentBrowsedLink(
-            agent_id=agent.id, url=url, conversation_id=conversation_id
+            agent_id=agent.id, link=url, conversation_id=conversation_id
         )
         session.add(browsed_link)
         session.commit()
@@ -912,7 +912,7 @@ class Agent:
             return f"Agent {self.agent_name} not found."
         browsed_link = (
             session.query(AgentBrowsedLink)
-            .filter_by(agent_id=agent.id, url=url, conversation_id=conversation_id)
+            .filter_by(agent_id=agent.id, link=url, conversation_id=conversation_id)
             .first()
         )
         if not browsed_link:
