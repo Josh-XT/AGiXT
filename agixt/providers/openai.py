@@ -151,6 +151,7 @@ class OpenaiProvider:
     async def transcribe_audio(self, audio_path: str):
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
+        openai.api_type = "openai"
         with open(audio_path, "rb") as audio_file:
             transcription = openai.audio.transcriptions.create(
                 model=self.TRANSCRIPTION_MODEL, file=audio_file
@@ -160,6 +161,7 @@ class OpenaiProvider:
     async def translate_audio(self, audio_path: str):
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
+        openai.api_type = "openai"
         with open(audio_path, "rb") as audio_file:
             translation = openai.audio.translations.create(
                 model=self.TRANSCRIPTION_MODEL, file=audio_file
@@ -169,6 +171,7 @@ class OpenaiProvider:
     async def text_to_speech(self, text: str):
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
+        openai.api_type = "openai"
         tts_response = openai.audio.speech.create(
             model="tts-1",
             voice=self.VOICE,
@@ -181,6 +184,7 @@ class OpenaiProvider:
         image_path = f"./WORKSPACE/{filename}"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
+        openai.api_type = "openai"
         response = openai.images.generate(
             prompt=prompt,
             model="dall-e-3",
@@ -198,6 +202,7 @@ class OpenaiProvider:
     def embeddings(self, input) -> np.ndarray:
         openai.base_url = self.API_URI
         openai.api_key = self.OPENAI_API_KEY
+        openai.api_type = "openai"
         response = openai.embeddings.create(
             input=input,
             model="text-embedding-3-small",
