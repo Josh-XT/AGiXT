@@ -98,6 +98,7 @@ import openai
 
 openai.base_url = "http://localhost:7437/v1/"
 openai.api_key = "Your AGiXT API Key"
+openai.api_type = "openai"
 
 response = openai.chat.completions.create(
     model="AgentName",
