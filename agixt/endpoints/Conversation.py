@@ -435,6 +435,13 @@ async def rename_conversation(
 async def fork_conversation(
     fork: ConversationFork, user=Depends(verify_api_key)
 ) -> ResponseMessage:
+    try:
+        conversation_id = uuid.UUID(fork.conversation_name)
+        fork.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=user
+        )
+    except:
+        conversation_id = fork.conversation_name
     new_conversation_name = Conversations(
         conversation_name=fork.conversation_name, user=user
     ).fork_conversation(message_id=fork.message_id)
