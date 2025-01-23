@@ -471,14 +471,14 @@ async def get_tts(
     message = c.get_message_by_id(message_id=message_id)
     # conversation_id = c.get_conversation_id()
     agent_name = c.get_last_agent_name()
-    XT = AGiXT(
+    xt = AGiXT(
         user=user,
         agent_name=agent_name,
         api_key=authorization,
         conversation_name=conversation_name,
         collection_id=conversation_id,
     )
-    tts_url = await XT.text_to_speech(text=message, log_output=False)
+    tts_url = await xt.text_to_speech(text=message, log_output=False)
     new_message = (
         f'{message}\n<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
     )
