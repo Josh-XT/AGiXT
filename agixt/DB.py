@@ -301,12 +301,12 @@ class AgentBrowsedLink(Base):
     )
     agent_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("agent.id"),
+        ForeignKey("agent.id", ondelete="CASCADE"),
         nullable=False,
     )
     conversation_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("conversation.id"),
+        ForeignKey("conversation.id", ondelete="CASCADE"),
         nullable=True,
     )
     link = Column(Text, nullable=False)
