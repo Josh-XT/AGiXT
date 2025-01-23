@@ -300,7 +300,7 @@ async def send_mfa_sms(request: Request):
     email = data["email"]
     token = impersonate_user(email)
     auth = MagicalAuth(token=token)
-    return auth.send_sms_code()
+    return {"detail": auth.send_sms_code()}
 
 
 @app.post("/v1/user/mfa/email", response_model=Detail, tags=["Auth"])
@@ -309,7 +309,7 @@ async def send_mfa_email(request: Request):
     email = data["email"]
     token = impersonate_user(email)
     auth = MagicalAuth(token=token)
-    return auth.send_email_code()
+    return {"detail": auth.send_email_code()}
 
 
 @app.post(
