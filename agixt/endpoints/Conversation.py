@@ -463,7 +463,7 @@ async def get_tts(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    auth = MagicalAuth(token=user)
+    auth = MagicalAuth(token=authorization)
     conversation_name = get_conversation_name_by_id(
         conversation_id=conversation_id, user_id=auth.user_id
     )
