@@ -301,12 +301,27 @@ class Conversations:
             session.close()
             return None
 
-        # Get all messages up to and including the specified message_id
+        # Get the target message first to get its timestamp
+        target_message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == original_conversation.id,
+                Message.id == message_id,
+            )
+            .first()
+        )
+
+        if not target_message:
+            logging.info(f"Target message not found.")
+            session.close()
+            return None
+
+        # Get all messages up to and including the specified message using timestamp
         messages = (
             session.query(Message)
             .filter(
                 Message.conversation_id == original_conversation.id,
-                Message.id <= message_id,
+                Message.timestamp <= target_message.timestamp,
             )
             .order_by(Message.timestamp.asc())
             .all()
@@ -317,36 +332,45 @@ class Conversations:
             session.close()
             return None
 
-        # Create a new conversation
-        new_conversation_name = (
-            f"{self.conversation_name}_fork_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        )
-        new_conversation = Conversation(name=new_conversation_name, user_id=user_id)
-        session.add(new_conversation)
-        session.flush()  # This will assign an id to new_conversation
+        try:
+            # Create a new conversation
+            new_conversation_name = f"{self.conversation_name}_fork_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            new_conversation = Conversation(name=new_conversation_name, user_id=user_id)
+            session.add(new_conversation)
+            session.flush()  # This will assign an id to new_conversation
 
-        # Copy messages to the new conversation
-        for message in messages:
-            new_message = Message(
-                role=message.role,
-                content=message.content,
-                conversation_id=new_conversation.id,
-                timestamp=message.timestamp,
-                updated_at=message.updated_at,
-                updated_by=message.updated_by,
-                feedback_received=message.feedback_received,
-                notify=False,
+            # Copy messages to the new conversation
+            for message in messages:
+                new_message = Message(
+                    role=message.role,
+                    content=message.content,
+                    conversation_id=new_conversation.id,
+                    timestamp=message.timestamp,
+                    updated_at=message.updated_at,
+                    updated_by=message.updated_by,
+                    feedback_received=message.feedback_received,
+                    notify=False,
+                )
+                session.add(new_message)
+
+            # Set notify on the last message
+            if messages:
+                messages[-1].notify = True
+
+            session.commit()
+            forked_conversation_id = str(new_conversation.id)
+
+            logging.info(
+                f"Conversation forked successfully. New conversation ID: {forked_conversation_id}"
             )
-            session.add(new_message)
-        new_message.notify = True  # Notify on the last message
-        session.commit()
-        forked_conversation_id = str(new_conversation.id)
-        session.close()
+            return new_conversation_name
 
-        logging.info(
-            f"Conversation forked successfully. New conversation ID: {forked_conversation_id}"
-        )
-        return new_conversation_name
+        except Exception as e:
+            logging.error(f"Error forking conversation: {e}")
+            session.rollback()
+            return None
+        finally:
+            session.close()
 
     def get_activities(self, limit=100, page=1):
         session = get_session()
