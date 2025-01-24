@@ -614,10 +614,8 @@ class Agent:
                     text,
                 )
             tts_content = await self.TTS_PROVIDER.text_to_speech(text=text)
-            file_type = tts_content.split(";")[0].split("/")[1]
-            filename = (
-                f"{self.agent_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{file_type}"
-            )
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"{self.agent_id}_{timestamp}.wav"
             audio_path = os.path.join(self.working_directory, filename)
             with open(audio_path, "wb") as f:
                 f.write(tts_content)
