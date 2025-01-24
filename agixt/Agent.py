@@ -140,6 +140,9 @@ def delete_agent(agent_name, user=DEFAULT_USER):
         session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
 
+    # First delete associated browsed links
+    session.query(AgentBrowsedLink).filter_by(agent_id=agent.id).delete()
+
     # Delete associated chain steps
     chain_steps = session.query(ChainStep).filter_by(agent_id=agent.id).all()
     for chain_step in chain_steps:
