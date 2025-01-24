@@ -435,17 +435,43 @@ async def rename_conversation(
 async def fork_conversation(
     fork: ConversationFork, user=Depends(verify_api_key)
 ) -> ResponseMessage:
+    conversation_name = fork.conversation_name
     try:
-        conversation_id = uuid.UUID(fork.conversation_name)
+        conversation_id = uuid.UUID(conversation_name)
         user_id = get_user_id(user)
-        fork.conversation_name = get_conversation_name_by_id(
+        conversation_name = get_conversation_name_by_id(
             conversation_id=str(conversation_id), user_id=user_id
         )
     except:
-        conversation_id = fork.conversation_name
+        conversation_id = None
     new_conversation_name = Conversations(
-        conversation_name=fork.conversation_name, user=user
+        conversation_name=conversation_name, user=user
     ).fork_conversation(message_id=fork.message_id)
+    return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")
+
+
+@app.post(
+    "/v1/conversation/fork/{conversation_id}/{message_id}",
+    response_model=ResponseMessage,
+    summary="Fork Conversation",
+    description="Creates a new conversation as a fork from an existing one up to a specific message.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def forkconversation(
+    conversation_id: str, message_id: str, user=Depends(verify_api_key)
+) -> ResponseMessage:
+    user_id = get_user_id(user)
+    try:
+        conversation_id = uuid.UUID(conversation_id)
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=user_id
+        )
+    except:
+        conversation_id = None
+    new_conversation_name = Conversations(
+        conversation_name=conversation_name, user=user
+    ).fork_conversation(message_id=str(message_id))
     return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")
 
 
