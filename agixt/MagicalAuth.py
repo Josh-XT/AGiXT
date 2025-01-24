@@ -1001,6 +1001,27 @@ class MagicalAuth:
                 import stripe
 
                 stripe.api_key = api_key
+                tenant_admins = (
+                    session.query(User)
+                    .filter(Company.id == UserCompany.company_id)
+                    .filter(UserCompany.role_id <= 2)
+                    .all()
+                )
+                for tenant_admin in tenant_admins:
+                    tenant_admin_preferences = (
+                        session.query(UserPreferences)
+                        .filter(UserPreferences.user_id == tenant_admin.id)
+                        .all()
+                    )
+                    tenant_admin_preferences = {
+                        x.pref_key: x.pref_value for x in tenant_admin_preferences
+                    }
+                    if "stripe_id" in tenant_admin_preferences:
+                        # add to users preferences
+                        user_preferences["stripe_id"] = tenant_admin_preferences[
+                            "stripe_id"
+                        ]
+                        break
                 if "stripe_id" not in user_preferences or not user_preferences[
                     "stripe_id"
                 ].startswith("cus_"):
