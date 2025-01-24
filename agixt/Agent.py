@@ -29,6 +29,7 @@ from datetime import datetime, timezone, timedelta
 import logging
 import json
 import numpy as np
+import base64
 import jwt
 import os
 import re
@@ -631,7 +632,7 @@ class Agent:
             filename = f"{self.agent_id}_{timestamp}.wav"
             audio_path = os.path.join(self.working_directory, filename)
             with open(audio_path, "wb") as f:
-                f.write(tts_content)
+                f.write(base64.b64decode(tts_content))
             agixt_uri = getenv("AGIXT_URI")
             output_url = f"{agixt_uri}/outputs/{self.agent_id}/{filename}"
             return output_url
