@@ -480,7 +480,7 @@ async def get_tts(
     )
     tts_url = await xt.text_to_speech(text=message, log_output=False)
     new_message = (
-        f'{message}\n<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
+        f'{message}\n<audio controls><source src="{tts_url}" type="audio/wav"></audio>'
     )
     c.update_message_by_id(message_id=message_id, new_message=new_message)
     return {"message": new_message}

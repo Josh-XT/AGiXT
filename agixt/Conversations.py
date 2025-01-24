@@ -1011,6 +1011,7 @@ class Conversations:
             logging.info(f"No conversation found.")
             session.close()
             return
+
         message = (
             session.query(Message)
             .filter(
@@ -1019,15 +1020,24 @@ class Conversations:
             )
             .first()
         )
+
         if not message:
             logging.info(
                 f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
             )
             session.close()
             return
-        message.content = new_message
-        session.commit()
-        session.close()
+
+        # Update the message content directly
+        message.content = str(new_message)  # Ensure the content is a string
+
+        try:
+            session.commit()
+        except Exception as e:
+            logging.error(f"Error updating message: {e}")
+            session.rollback()
+        finally:
+            session.close()
 
     def get_conversation_id(self):
         if not self.conversation_name:
