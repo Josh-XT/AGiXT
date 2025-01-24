@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Header
 from typing import Dict
-from ApiClient import verify_api_key
+from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
     Conversations,
     get_conversation_name_by_id,
@@ -469,16 +469,10 @@ async def get_tts(
     )
     c = Conversations(conversation_name=conversation_name, user=user)
     message = c.get_message_by_id(message_id=message_id)
-    # conversation_id = c.get_conversation_id()
     agent_name = c.get_last_agent_name()
-    xt = AGiXT(
-        user=user,
-        agent_name=agent_name,
-        api_key=authorization,
-        conversation_name=conversation_name,
-        collection_id=conversation_id,
-    )
-    tts_url = await xt.text_to_speech(text=message, log_output=False)
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    tts_url = await agent.text_to_speech(text=message)
     new_message = (
         f'{message}\n<audio controls><source src="{tts_url}" type="audio/wav"></audio>'
     )
