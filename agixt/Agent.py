@@ -613,6 +613,19 @@ class Agent:
                     "See the chat for the full code block.",
                     text,
                 )
+            # If links are in there, replace them with a placeholder "The link provided in the chat."
+            if "https://" in text:
+                text = re.sub(
+                    r"https://[^\s]+",
+                    "The link provided in the chat.",
+                    text,
+                )
+            if "http://" in text:
+                text = re.sub(
+                    r"http://[^\s]+",
+                    "The link provided in the chat.",
+                    text,
+                )
             tts_content = await self.TTS_PROVIDER.text_to_speech(text=text)
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             filename = f"{self.agent_id}_{timestamp}.wav"
