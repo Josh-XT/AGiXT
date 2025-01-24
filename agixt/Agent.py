@@ -613,7 +613,17 @@ class Agent:
                     "See the chat for the full code block.",
                     text,
                 )
-            return await self.TTS_PROVIDER.text_to_speech(text=text)
+            tts_content = await self.TTS_PROVIDER.text_to_speech(text=text)
+            file_type = tts_content.split(";")[0].split("/")[1]
+            filename = (
+                f"{self.agent_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{file_type}"
+            )
+            audio_path = os.path.join(self.working_directory, filename)
+            with open(audio_path, "wb") as f:
+                f.write(tts_content)
+            agixt_uri = getenv("AGIXT_URI")
+            output_url = f"{agixt_uri}/outputs/{self.agent_id}/{filename}"
+            return output_url
 
     def get_agent_extensions(self):
         extensions = self.extensions.get_extensions()
