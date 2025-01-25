@@ -1740,7 +1740,9 @@ class MagicalAuth:
                         email=invitation.email, otp=pyotp.TOTP(user.mfa_token).now()
                     )
                     if company_id is not None:
-                        default_agent["settings"]["company_id"] = str(company_id)
+                        default_agent["settings"]["company_id"] = str(
+                            invitation.company_id
+                        )
                     agixt.add_agent(
                         agent_name=company.agent_name,
                         settings=default_agent["settings"],
