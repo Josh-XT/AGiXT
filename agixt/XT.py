@@ -188,8 +188,8 @@ class AGiXT:
         prompt_category: str = "Default",
         prompt_name: str = "Custom Input",
         images: list = [],
-        injected_memories: int = 10,
-        conversation_results: int = 10,
+        injected_memories: int = 100,
+        conversation_results: int = 15,
         shots: int = 1,
         browse_links: bool = False,
         voice_response: bool = False,
@@ -229,7 +229,7 @@ class AGiXT:
             try:
                 injected_memories = int(kwargs["context_results"])
             except:
-                injected_memories = 10
+                injected_memories = 100
             del kwargs["context_results"]
         if "tts" in kwargs:
             voice_response = str(kwargs["tts"]).lower() == "true"
@@ -1155,7 +1155,7 @@ class AGiXT:
             prompt_name="Break into Steps",
             websearch=websearch,
             websearch_depth=websearch_depth,
-            injected_memories=10,
+            injected_memories=100,
             log_output=False,
             log_user_input=False,
         )
@@ -1933,7 +1933,7 @@ class AGiXT:
         prompt_category: str = "Default",
         prompt_name: str = "Ask Questions",
         images: list = [],
-        injected_memories: int = 5,
+        injected_memories: int = 100,
         batch_size: int = 10,
         browse_links: bool = False,
         voice_response: bool = False,
@@ -1970,7 +1970,7 @@ class AGiXT:
     async def dpo(
         self,
         question: str = "",
-        injected_memories: int = 10,
+        injected_memories: int = 100,
     ):
         context_async = self.memories(
             user_input=question,
@@ -2036,7 +2036,7 @@ class AGiXT:
         for question in questions:
             prompt, chosen, rejected = await self.dpo(
                 question=question,
-                injected_memories=10,
+                injected_memories=100,
             )
             prompts.append(prompt)
             good_answers.append(

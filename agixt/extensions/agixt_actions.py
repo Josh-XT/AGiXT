@@ -1232,7 +1232,7 @@ class agixt_actions(Extensions):
                     prompt_name="Basic With Memory",
                     prompt_args={
                         "user_input": question,
-                        "context_results": 10,
+                        "context_results": 100,
                         "conversation_name": self.conversation_name,
                     },
                 )
