@@ -66,6 +66,8 @@ def get_providers_with_details():
             continue
         if provider == "gpt4free":
             continue
+        if provider == "default":
+            continue
         module = importlib.import_module(f"providers.{provider}")
         provider_class = getattr(module, f"{provider.capitalize()}Provider")
         provider_settings = get_provider_options(provider_name=provider)
