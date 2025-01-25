@@ -549,7 +549,7 @@ class FineTuneInput:
 @strawberry.input
 class DPOInput:
     user_input: str
-    injected_memories: Optional[int] = 10
+    injected_memories: Optional[int] = 100
 
 
 @strawberry.type

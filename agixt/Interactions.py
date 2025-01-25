@@ -530,7 +530,7 @@ class Interactions:
     async def run(
         self,
         user_input: str = "",
-        context_results: int = 5,
+        context_results: int = 100,
         shots: int = 1,
         disable_memory: bool = True,
         conversation_name: str = "",

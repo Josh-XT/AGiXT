@@ -107,7 +107,7 @@ class AgentMemoryQuery(BaseModel):
 
 class UserInput(BaseModel):
     user_input: str
-    injected_memories: Optional[int] = 10
+    injected_memories: Optional[int] = 100
 
 
 class LogInteraction(BaseModel):
