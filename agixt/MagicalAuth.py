@@ -1001,34 +1001,42 @@ class MagicalAuth:
                 import stripe
 
                 stripe.api_key = api_key
-                tenant_admins = (
-                    session.query(User)
-                    .filter(Company.id == UserCompany.company_id)
-                    .filter(UserCompany.role_id <= 2)
+                # Get list of users companies
+                user_companies = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == self.user_id)
                     .all()
                 )
                 is_subscription = False
-                for tenant_admin in tenant_admins:
-                    tenant_admin_preferences = (
-                        session.query(UserPreferences)
-                        .filter(UserPreferences.user_id == tenant_admin.id)
+                for user_company in user_companies:
+                    # Get the company admins
+                    company_admins = (
+                        session.query(User)
+                        .filter(Company.id == user_company.company_id)
+                        .filter(UserCompany.role_id <= 2)
                         .all()
                     )
-                    tenant_admin_preferences = {
-                        x.pref_key: x.pref_value for x in tenant_admin_preferences
-                    }
-                    if "stripe_id" in tenant_admin_preferences:
-                        # add to users preferences
-                        user_preferences["stripe_id"] = tenant_admin_preferences[
-                            "stripe_id"
-                        ]
-                        # check if it has an active subscription
-                        relevant_subscriptions = self.get_subscribed_products(
-                            api_key, tenant_admin_preferences["stripe_id"]
+                    for company_admin in company_admins:
+                        company_admin_preferences = (
+                            session.query(UserPreferences)
+                            .filter(UserPreferences.user_id == company_admin.id)
+                            .all()
                         )
-                        if relevant_subscriptions:
-                            is_subscription = True
-                            break
+                        company_admin_preferences = {
+                            x.pref_key: x.pref_value for x in company_admin_preferences
+                        }
+                        if "stripe_id" in company_admin_preferences:
+                            # add to users preferences
+                            user_preferences["stripe_id"] = company_admin_preferences[
+                                "stripe_id"
+                            ]
+                            # check if it has an active subscription
+                            relevant_subscriptions = self.get_subscribed_products(
+                                api_key, company_admin_preferences["stripe_id"]
+                            )
+                            if relevant_subscriptions:
+                                is_subscription = True
+                                break
                 if not is_subscription:
                     if "stripe_id" not in user_preferences or not user_preferences[
                         "stripe_id"
