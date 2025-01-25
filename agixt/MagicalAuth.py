@@ -1742,7 +1742,7 @@ class MagicalAuth:
                     if company_id is not None:
                         default_agent["settings"]["company_id"] = str(company_id)
                     agixt.add_agent(
-                        agent_name=getenv("AGENT_NAME"),
+                        agent_name=company.agent_name,
                         settings=default_agent["settings"],
                         commands=default_agent["commands"],
                         training_urls=(
@@ -1789,7 +1789,7 @@ class MagicalAuth:
                     invitation_link = self.send_invitation_email(existing_invitation)
                     return InvitationResponse(
                         id=str(existing_invitation.id),
-                        invitation_link="none",
+                        invitation_link=invitation_link,
                         email=existing_invitation.email,
                         company_id=str(existing_invitation.company_id),
                         role_id=existing_invitation.role_id,
