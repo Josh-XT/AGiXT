@@ -707,24 +707,10 @@ class MagicalAuth:
                 return {"error": "User already exists", "status_code": 409}
 
             # Check for invitation
-            invitation = None
-            if invitation_id:
-                invitation = (
-                    session.query(Invitation)
-                    .filter(
-                        Invitation.id == invitation_id,
-                        Invitation.email == self.email,
-                        Invitation.is_accepted == False,
-                    )
-                    .first()
-                )
-                logging.info(f"Fetched invitation: {invitation}")
-                if not invitation:
-                    session.close()
-                    return {
-                        "error": "Invalid or expired invitation",
-                        "status_code": 404,
-                    }
+            invitation = (
+                session.query(Invitation).filter(Invitation.email == self.email).first()
+            )
+            logging.info(f"Fetched invitation: {invitation}")
             # Create new user
             new_user_db = User(
                 email=self.email,
@@ -751,6 +737,24 @@ class MagicalAuth:
                 )
                 session.add(user_company)
                 session.commit()
+                agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+                agixt.login(email=new_user.email, otp=pyotp.TOTP(mfa_token).now())
+                default_agent = get_default_agent()
+                if company_id is not None:
+                    default_agent["settings"]["company_id"] = str(invitation.company_id)
+                company = (
+                    session.query(Company).filter(Company.id == company_id).first()
+                )
+                agixt.add_agent(
+                    agent_name=company.agent_name,
+                    settings=default_agent["settings"],
+                    commands=default_agent["commands"],
+                    training_urls=(
+                        default_agent["training_urls"]
+                        if "training_urls" in default_agent
+                        else []
+                    ),
+                )
             else:
                 # If email ends in .xt, skip this part
                 if not self.email.endswith(".xt"):
