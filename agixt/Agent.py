@@ -140,7 +140,10 @@ def delete_agent(agent_name, user=DEFAULT_USER):
     if not agent:
         session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
-
+    agents = session.query(AgentModel).filter(AgentModel.user_id == user_id).all()
+    if len(agents) == 1:
+        session.close()
+        return {"message": "You cannot delete your last agent."}, 401
     # First delete associated browsed links
     session.query(AgentBrowsedLink).filter_by(agent_id=agent.id).delete()
 
