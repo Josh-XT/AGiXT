@@ -1762,7 +1762,7 @@ class Query:
         # Get conversation metadata
         c = Conversations(user=user, conversation_name=conversation_name)
         result = {"conversations": c.get_conversations_with_detail()}
-        if conversation_id not in result.conversations:
+        if conversation_id not in result["conversations"]:
             raise Exception(f"Conversation {conversation_id} not found")
 
         details = result.conversations[conversation_id]
