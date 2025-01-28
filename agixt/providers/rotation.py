@@ -81,7 +81,7 @@ class RotationProvider:
         images = images or []
 
         # Remove providers that shouldn't be part of rotation
-        excluded_providers = {"agixt", "rotation", "gpt4free", "default"}
+        excluded_providers = {"agixt", "rotation", "gpt4free", "default", "deepseek"}
         self.providers = [p for p in self.providers if p not in excluded_providers]
         for provider in self.providers:
             if provider.upper() + "_API_KEY" not in self.AGENT_SETTINGS:
