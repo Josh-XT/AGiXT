@@ -45,6 +45,8 @@ class EzlocalaiProvider:
         self.API_URI = (
             EZLOCALAI_API_URI if EZLOCALAI_API_URI else getenv("EZLOCALAI_URI")
         )
+        if "/v1/" not in self.API_URI:
+            self.API_URI += "/v1/"
         self.VOICE = EZLOCALAI_VOICE if EZLOCALAI_VOICE else "HAL9000"
         self.TTS_LANGUAGE = EZLOCALAI_LANGUAGE if EZLOCALAI_LANGUAGE else "en"
         if len(self.TTS_LANGUAGE) > 2:
