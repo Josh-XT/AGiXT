@@ -67,6 +67,7 @@ services:
       XAI_API_KEY: ${XAI_API_KEY}
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
       EZLOCALAI_URI: ${EZLOCALAI_URI}
+      ROTATION_EXCLUSIONS: ${ROTATION_EXCLUSIONS}
       GRAPHIQL: ${GRAPHIQL:-true}
       TZ: ${TZ:-America/New_York}
     ports:
