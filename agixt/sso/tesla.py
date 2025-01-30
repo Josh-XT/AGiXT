@@ -46,7 +46,7 @@ class TeslaSSO:
         self.audience = getenv(
             "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
         )
-        self.auth_base_url = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3"
+        self.auth_base_url = "https://auth.tesla.com/oauth2/v3/authorize"
         self.api_base_url = f"{self.audience}/api/1"
         self.user_info = self.get_user_info()
 
