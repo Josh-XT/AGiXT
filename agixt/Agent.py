@@ -653,6 +653,7 @@ class Agent:
         google_sso = False
         github_sso = False
         walmart_sso = False
+        tesla_sso = False
         if user_oauth:
             for oauth in user_oauth:
                 provider = (
@@ -670,6 +671,8 @@ class Agent:
                             github_sso = True
                         if str(provider.name).lower() == "walmart":
                             walmart_sso = True
+                        if str(provider.name).lower() == "tesla":
+                            tesla_sso = True
         for extension in extensions:
             if str(extension["extension_name"]).lower() == "microsoft365":
                 if not microsoft_sso:
@@ -679,6 +682,9 @@ class Agent:
                     continue
             if str(extension["extension_name"]).lower() == "walmart":
                 if not walmart_sso:
+                    continue
+            if str(extension["extension_name"]).lower() == "tesla":
+                if not tesla_sso:
                     continue
             if github_sso and str(extension["extension_name"]).lower() == "github":
                 extension["settings"] = []

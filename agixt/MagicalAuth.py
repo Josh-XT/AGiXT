@@ -33,6 +33,7 @@ from sso.github import github_sso
 from sso.google import google_sso
 from sso.microsoft import microsoft_sso
 from sso.walmart import walmart_sso
+from sso.tesla import tesla_sso
 import pyotp
 import logging
 import traceback
@@ -132,6 +133,8 @@ def get_sso_provider(provider: str, code, redirect_uri=None):
             return microsoft_sso(code=code, redirect_uri=redirect_uri)
         elif provider == "walmart":
             return walmart_sso(code=code, redirect_uri=redirect_uri)
+        elif provider == "tesla":
+            return tesla_sso(code=code, redirect_uri=redirect_uri)
         else:
             return None
     except Exception as e:
@@ -623,6 +626,12 @@ class MagicalAuth:
                     sso_instance = GoogleSSO(
                         refresh_token=user_oauth.refresh_token,
                     )
+                elif provider == "tesla":
+                    from sso.tesla import TeslaSSO
+
+                    sso_instance = TeslaSSO(
+                        refresh_token=user_oauth.refresh_token,
+                    )
                 else:
                     session.close()
                     raise HTTPException(
@@ -691,6 +700,18 @@ class MagicalAuth:
             from sso.github import GitHubSSO
 
             return GitHubSSO(access_token=access_token)
+        elif provider.name == "amazon":
+            from sso.amazon import AmazonSSO
+
+            return AmazonSSO(access_token=access_token)
+        elif provider.name == "walmart":
+            from sso.walmart import WalmartSSO
+
+            return WalmartSSO(access_token=access_token)
+        elif provider.name == "tesla":
+            from sso.tesla import TeslaSSO
+
+            return TeslaSSO(access_token=access_token)
 
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
@@ -2344,7 +2365,14 @@ class MagicalAuth:
         if not referrer:
             referrer = getenv("APP_URI")
         provider = str(provider).lower()
-        if provider not in ["amazon", "microsoft", "google", "github", "walmart"]:
+        if provider not in [
+            "amazon",
+            "microsoft",
+            "google",
+            "github",
+            "walmart",
+            "tesla",
+        ]:
             provider = "microsoft"
 
         sso_data = get_sso_provider(provider=provider, code=code, redirect_uri=referrer)
@@ -2390,6 +2418,8 @@ class MagicalAuth:
         elif provider == "walmart":
             account_name = user_data.get("email")
         elif provider == "amazon":
+            account_name = user_data.get("email")
+        elif provider == "tesla":
             account_name = user_data.get("email")
         else:
             account_name = (
