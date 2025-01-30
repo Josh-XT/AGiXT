@@ -643,7 +643,7 @@ class Conversations:
             try:
                 last_activity_id = self.get_last_activity_id()
             except:
-                last_activity_id = None
+                last_activity_id = self.get_thinking_id(role)
             if last_activity_id:
                 message = message.replace(
                     "[SUBACTIVITY] ", f"[SUBACTIVITY][{last_activity_id}] "
