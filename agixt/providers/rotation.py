@@ -1,6 +1,7 @@
 import logging
 from Providers import get_providers, Providers
 from typing import List, Dict, Any
+from Globals import getenv
 
 
 class RotationProvider:
@@ -81,7 +82,13 @@ class RotationProvider:
         images = images or []
 
         # Remove providers that shouldn't be part of rotation
-        excluded_providers = {"agixt", "rotation", "gpt4free", "default", "deepseek"}
+        excluded_providers = {"agixt", "rotation", "gpt4free", "default"}
+        rotation_exclusions = getenv("ROTATION_EXCLUSIONS")
+        if rotation_exclusions:
+            if "," in rotation_exclusions:
+                excluded_providers.update(rotation_exclusions.split(","))
+            else:
+                excluded_providers.add(rotation_exclusions)
         self.providers = [p for p in self.providers if p not in excluded_providers]
         for provider in self.providers:
             if provider.upper() + "_API_KEY" not in self.AGENT_SETTINGS:
