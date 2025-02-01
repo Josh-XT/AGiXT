@@ -1947,6 +1947,7 @@ class Query:
                     ),
                 )
                 for k, v in config["settings"].items()
+                if v != ""
             ]
 
             commands = [
