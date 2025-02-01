@@ -1934,20 +1934,19 @@ class Query:
                 ApiClient=magic.get_user_agent_session(),
             )
             config = agent_instance.get_agent_config()
-
+            agent_settings = {}
+            for key, value in config["settings"].items():
+                if value != "":
+                    if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
+                        agent_settings[key] = "HIDDEN"
+                    else:
+                        agent_settings[key] = value
             settings = [
                 AgentSetting(
                     name=k,
-                    value=(
-                        v
-                        if not any(
-                            x in k.upper() for x in ["KEY", "SECRET", "PASSWORD"]
-                        )
-                        else "HIDDEN" if v != "" else ""
-                    ),
+                    value=v,
                 )
-                for k, v in config["settings"].items()
-                if v != ""
+                for k, v in agent_settings.items()
             ]
 
             commands = [
