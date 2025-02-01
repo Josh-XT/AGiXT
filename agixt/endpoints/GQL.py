@@ -1943,7 +1943,7 @@ class Query:
                         if not any(
                             x in k.upper() for x in ["KEY", "SECRET", "PASSWORD"]
                         )
-                        else "HIDDEN"
+                        else "HIDDEN" if v != "" else ""
                     ),
                 )
                 for k, v in config["settings"].items()
