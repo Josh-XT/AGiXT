@@ -720,6 +720,7 @@ class Agent:
         return new_extensions
 
     def update_agent_config(self, new_config, config_key):
+        logging.info(f"Updating {config_key} with {json.dumps(new_config)}.")
         session = get_session()
         try:
             agent = (
