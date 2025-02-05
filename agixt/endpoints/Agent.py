@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 from fastapi import APIRouter, HTTPException, Depends, Header
 from XT import AGiXT
 from Websearch import Websearch
@@ -41,6 +41,7 @@ import os
 from providers.default import DefaultProvider
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from MagicalAuth import MagicalAuth
+from Providers import get_providers_with_details, get_provider_options
 
 app = APIRouter()
 
@@ -80,7 +81,10 @@ async def addagent(
         for url in agent.training_urls:
             await reader.get_web_content(url=url)
         return {"message": "Agent added and trained."}
-    return {"message": "Agent added."}
+    
+    # Get initial provider status
+    provider_status = _get_provider_status(agent_settings=agent.settings)
+    return {"message": "Agent added.", "providers": provider_status}
 
 
 @app.post(
@@ -725,7 +729,29 @@ async def get_providers(
     return {"providers": new_providers}
 
 
-# `DEL /v1/agent/{agent_id}/provider/{provider_name}` ?
+def _get_provider_status(agent_settings: Dict) -> List[Dict]:
+    """Helper function to determine provider connection status."""
+    providers = get_providers_with_details()
+    new_providers = {}
+    for provider_name, provider_details in providers.items():
+        provider_settings = provider_details["settings"]
+        connected = False
+        hidden = False
+        for key in provider_settings:
+            if key in agent_settings:
+                if agent_settings[key] != "":
+                    connected = True
+                if agent_settings[key] == "HIDDEN":
+                    hidden = True
+        new_providers[provider_name] = {
+            "connected": connected,
+            "hidden": hidden,
+            **provider_details,
+        }
+
+    return new_providers
+
+
 @app.delete(
     "/v1/agent/{agent_id}/provider/{provider_name}",
     tags=["Agent"],
