@@ -372,7 +372,7 @@ class MagicalAuth:
                 jwt=token,
                 key=self.encryption_key,
                 algorithms=["HS256"],
-                leeway=timedelta(hours=5),
+                leeway=timedelta(hours=12),
             )
             self.email = decoded["email"]
             self.user_id = decoded["sub"]
@@ -457,7 +457,7 @@ class MagicalAuth:
         failed_logins = (
             session.query(FailedLogins)
             .filter(FailedLogins.user_id == self.user_id)
-            .filter(FailedLogins.created_at >= datetime.now() - timedelta(hours=24))
+            .filter(FailedLogins.created_at >= datetime.now(pytz.UTC) - timedelta(hours=24))
             .count()
         )
         session.close()
@@ -485,7 +485,8 @@ class MagicalAuth:
             raise HTTPException(
                 status_code=401, detail="Invalid MFA token. Please try again."
             )
-        expiration = datetime.now().replace(
+        local_tz = pytz.timezone(getenv("TZ"))
+        expiration = datetime.now(local_tz).replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
         self.token = jwt.encode(
@@ -563,7 +564,7 @@ class MagicalAuth:
                 jwt=self.token,
                 key=self.encryption_key,
                 algorithms=["HS256"],
-                leeway=timedelta(hours=5),
+                leeway=timedelta(hours=24),
             )
         except:
             self.add_failed_login(ip_address=ip_address)
@@ -610,7 +611,7 @@ class MagicalAuth:
         # Check if token needs refresh
         if (
             user_oauth.token_expires_at
-            and user_oauth.token_expires_at <= datetime.now() + timedelta(minutes=5)
+            and user_oauth.token_expires_at <= datetime.now(pytz.UTC) + timedelta(minutes=5)
             and user_oauth.refresh_token
         ):
             try:
@@ -1308,9 +1309,9 @@ class MagicalAuth:
                         session.close()
                         return True
                     if str(preference.pref_value).lower() != "false":
-                        if datetime.now() - timedelta(
+                        if datetime.now(pytz.UTC) - timedelta(
                             hours=24
-                        ) < datetime.fromisoformat(preference.pref_value):
+                        ) < datetime.fromisoformat(preference.pref_value).replace(tzinfo=pytz.UTC):
                             session.close()
                             return True
                     else:
@@ -2394,7 +2395,7 @@ class MagicalAuth:
         access_token = sso_data.access_token
         refresh_token = sso_data.refresh_token
         token_expires_at = (
-            datetime.now() + timedelta(seconds=sso_data.expires_in)
+            datetime.now(pytz.UTC) + timedelta(seconds=sso_data.expires_in)
             if hasattr(sso_data, "expires_in")
             else None
         )
@@ -2741,6 +2742,9 @@ def get_user_timezone(user_id):
 
 
 def convert_time(utc_time, user_id):
-    gmt = pytz.timezone("GMT")
+    utc = pytz.timezone("UTC")
     local_tz = pytz.timezone(get_user_timezone(user_id))
-    return gmt.localize(utc_time).astimezone(local_tz)
+    # Ensure the input time is treated as UTC
+    utc_aware = utc.localize(utc_time)
+    # Convert to local timezone
+    return utc_aware.astimezone(local_tz)
