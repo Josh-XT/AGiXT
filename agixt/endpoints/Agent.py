@@ -1,3 +1,4 @@
+import json
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from XT import AGiXT
@@ -352,9 +353,13 @@ async def get_agentconfig(
     for key, value in agent_config["settings"].items():
         if value.strip() != "":
             if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
+                logging.info(f"Masking agent setting: {key}")
                 agent_config["settings"][key] = "HIDDEN"
             else:
                 agent_config["settings"][key] = value
+        else:
+            logging.info(f"Skipping empty agent setting: {key}")
+    logging.info(json.dumps(agent_config, indent=4))
     return {"agent": agent_config}
 
 
