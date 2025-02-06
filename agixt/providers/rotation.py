@@ -38,8 +38,8 @@ class RotationProvider:
                     provider_max_tokens[provider] = int(
                         self.AGENT_SETTINGS[setting_key]
                     )
-                    if provider_max_tokens[provider] == 1:
-                        provider_max_tokens[provider] = 32768
+                    # if provider_max_tokens[provider] == 1:
+                    # provider_max_tokens[provider] = 32768
                     logging.info(
                         f"Provider {provider} has max token limit: {provider_max_tokens[provider]}"
                     )
