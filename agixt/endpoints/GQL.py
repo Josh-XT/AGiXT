@@ -1928,22 +1928,26 @@ class Query:
         user_agent_id = user_preferences.get("agent_id")
 
         for agent in agents:
+            agent_name = agent["name"]
             agent_instance = Agent(
-                agent_name=agent["name"],
+                agent_name=agent_name,
                 user=user,
                 ApiClient=magic.get_user_agent_session(),
             )
             config = agent_instance.get_agent_config()
             agent_settings = {}
             for key, value in config["settings"].items():
+                logging.info(f"Checking {key} for {agent_name}.")
                 if value.strip() != "":
+                    logging.info(f"{key} has value: {value} for {agent_name}")
                     if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
-                        logging.info(f"Masking agent setting: {key}")
+                        logging.info(f"Masking hidden agent setting: {key} for {agent_name}")
                         agent_settings[key] = "HIDDEN"
                     else:
+                        logging.info(f"Not masking setting {key} for {agent_name}")
                         agent_settings[key] = value
                 else:
-                    logging.info(f"Skipping empty agent setting: {key}")
+                    logging.info(f"Skipping empty agent setting: {key} for {agent_name}")
             settings = [
                 AgentSetting(
                     name=k,
