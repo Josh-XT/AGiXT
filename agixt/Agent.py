@@ -396,7 +396,7 @@ class Agent:
             if not company_agent_session:
                 return None
             user = company_agent_session.get_user()
-            logging.info(f"Company agent user: {user}")
+            # logging.info(f"Company agent user: {user}")
             agent = Agent(
                 agent_name="AGiXT",
                 user=user["email"],
