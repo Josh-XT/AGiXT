@@ -413,7 +413,8 @@ def import_chains(user=DEFAULT_USER):
         try:
             with open(file_path, "r") as f:
                 chain_data = json.load(f)
-
+            if not default_user:
+                raise Exception("Default User doesn't exist!")
             # Process chain for default user first
             default_user = session.query(User).filter_by(email=DEFAULT_USER).first()
             steps_imported = check_and_import_chain_steps(
