@@ -1936,11 +1936,14 @@ class Query:
             config = agent_instance.get_agent_config()
             agent_settings = {}
             for key, value in config["settings"].items():
-                if value != "":
+                if value.strip() != "":
                     if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
+                        logging.info(f"Masking agent setting: {key}")
                         agent_settings[key] = "HIDDEN"
                     else:
                         agent_settings[key] = value
+                else:
+                    logging.info(f"Skipping empty agent setting: {key}")
             settings = [
                 AgentSetting(
                     name=k,
