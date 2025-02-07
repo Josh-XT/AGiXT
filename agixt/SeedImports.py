@@ -413,7 +413,7 @@ def import_chains(user=DEFAULT_USER):
         try:
             with open(file_path, "r") as f:
                 chain_data = json.load(f)
-            
+
             # Process chain for default user first
             default_user = session.query(User).filter_by(email=DEFAULT_USER).first()
             if not default_user:
