@@ -1149,7 +1149,7 @@ class MagicalAuth:
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         session.close()
-        logging.info(f"User Preferences: {user_preferences}")
+        # logging.info(f"User Preferences: {user_preferences}")
         return user_preferences
 
     def send_email_code(self):
