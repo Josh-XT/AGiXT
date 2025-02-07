@@ -867,7 +867,7 @@ class Agent:
                             session.add(agent_setting)
                         else:
                             logging.info(
-                                f"Skipping nonexistent setting with empty value {setting_name} for {self.agent}."
+                                f"Skipping nonexistent setting with empty value {setting_name} for {self.agent_name}."
                             )
 
                 logging.info(
