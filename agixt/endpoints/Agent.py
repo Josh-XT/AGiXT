@@ -351,14 +351,17 @@ async def get_agentconfig(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
     for key, value in agent_config["settings"].items():
+        logging.info(f"Checking {key} for {agent_name}.")
         if value.strip() != "":
+            logging.info(f"{key} has value: {value} for {agent_name}")
             if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
-                logging.info(f"Masking agent setting: {key}")
+                logging.info(f"Masking hidden agent setting: {key} for {agent_name}")
                 agent_config["settings"][key] = "HIDDEN"
             else:
+                logging.info(f"Not masking setting {key} for {agent_name}")
                 agent_config["settings"][key] = value
         else:
-            logging.info(f"Skipping empty agent setting: {key}")
+            logging.info(f"Skipping empty agent setting: {key} for {agent_name}")
     logging.info(json.dumps(agent_config, indent=4))
     return {"agent": agent_config}
 
