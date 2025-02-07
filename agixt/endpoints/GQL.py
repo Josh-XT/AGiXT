@@ -1986,21 +1986,13 @@ class Query:
         )
         config = agent.get_agent_config()
         agents = get_agents(user=user)
-
-        settings = [
-            AgentSetting(
-                name=k,
-                value=(
-                    "HIDDEN"
-                    if any(
-                        x in k.upper() for x in ["KEY", "SECRET", "PASSWORD", "TOKEN"]
-                    )
-                    else v
-                ),
-            )
-            for k, v in config["settings"].items()
-        ]
-
+        settings = []
+        for key, value in config["settings"].items():
+            if value.strip() != "":
+                if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
+                    settings.append(AgentSetting(name=key, value="HIDDEN"))
+                else:
+                    settings.append(AgentSetting(name=key, value=value))
         commands = [
             AgentCommand(name=k, enabled=v) for k, v in config["commands"].items()
         ]
