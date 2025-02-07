@@ -855,15 +855,20 @@ class Agent:
                             )
                             agent_setting.value = str(setting_value)
                     else:
-                        logging.info(
-                            f"Creating new agent setting {setting_name} for {self.agent_name} with value {str(setting_value)}."
-                        )
-                        agent_setting = AgentSettingModel(
-                            agent_id=self.agent_id,
-                            name=setting_name,
-                            value=str(setting_value),
-                        )
-                        session.add(agent_setting)
+                        if setting_value:
+                            logging.info(
+                                f"Creating new agent setting {setting_name} for {self.agent_name} with value {str(setting_value)}."
+                            )
+                            agent_setting = AgentSettingModel(
+                                agent_id=self.agent_id,
+                                name=setting_name,
+                                value=str(setting_value),
+                            )
+                            session.add(agent_setting)
+                        else: 
+                            logging.info(
+                                f"Skipping nonexistent setting with empty value {setting_name} for {self.agent}."
+                            )
 
                 logging.info(
                     f"Attempting to commit agent configuration update for {self.agent_name}."
