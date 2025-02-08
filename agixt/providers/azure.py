@@ -98,7 +98,7 @@ class AzureProvider:
             logging.warning(f"Azure OpenAI API Error: {e}")
             self.failures += 1
             if self.failures > 3:
-                return "Azure OpenAI API Error: Too many failures."
+                raise f"Azure OpenAI API Error: Too many failures. {e}"
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.inference(prompt=prompt, tokens=tokens)

@@ -140,7 +140,7 @@ class OpenaiProvider:
             logging.info(f"OpenAI API Error: {e}")
             self.failures += 1
             if self.failures > 3:
-                return "OpenAI API Error: Too many failures."
+                raise f"OpenAI API Error: Too many failures. {e}"
             if "," in self.API_URI:
                 self.rotate_uri()
             if int(self.WAIT_AFTER_FAILURE) > 0:

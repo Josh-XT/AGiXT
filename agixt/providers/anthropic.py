@@ -113,7 +113,7 @@ class AnthropicProvider:
             logging.info(f"[CLAUDE PROVIDER] Error: {e}")
             self.failures += 1
             if self.failures > 3:
-                return f"Claude Error: {e}"
+                raise f"Claude Error: Too many failures. {e}"
             else:
                 # https://console.anthropic.com/settings/limits
                 # Rate limits that impact AGiXT most with Anthropic API are the input tokens per minute being limited to 80k.

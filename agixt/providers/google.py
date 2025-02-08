@@ -87,7 +87,7 @@ class GoogleProvider:
                 )
             return generated_text
         except Exception as e:
-            return f"Gemini Error: {e}"
+            raise f"Gemini Error: {e}"
 
     async def text_to_speech(self, text: str):
         tts = ts.gTTS(text)
