@@ -76,7 +76,9 @@ jobs:
           UVICORN_WORKERS: 10
           EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
           EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
+          EZLOCALAI_MAX_TOKENS: "65536"
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MAX_TOKENS: "32768"
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0
