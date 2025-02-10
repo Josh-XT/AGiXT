@@ -54,7 +54,9 @@ class EzlocalaiProvider:
         self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs/"
         self.AI_TEMPERATURE = EZLOCALAI_TEMPERATURE if EZLOCALAI_TEMPERATURE else 1.33
         self.AI_TOP_P = EZLOCALAI_TOP_P if EZLOCALAI_TOP_P else 0.95
-        self.EZLOCALAI_API_KEY = EZLOCALAI_API_KEY if EZLOCALAI_API_KEY else "None"
+        self.EZLOCALAI_API_KEY = (
+            EZLOCALAI_API_KEY if EZLOCALAI_API_KEY else getenv("EZLOCALAI_API_KEY")
+        )
         self.TRANSCRIPTION_MODEL = (
             EZLOCALAI_TRANSCRIPTION_MODEL if EZLOCALAI_TRANSCRIPTION_MODEL else "base"
         )
