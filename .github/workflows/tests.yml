@@ -89,12 +89,12 @@ jobs:
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
-          EZLOCALAI_URI: "${EZLOCALAI_URI}"
-          EZLOCALAI_API_KEY: "${EZLOCALAI_API_KEY}"
+          EZLOCALAI_URI: ${{ env.EZLOCALAI_URI }}
+          EZLOCALAI_API_KEY: ${{ env.EZLOCALAI_API_KEY }}
           EZLOCALAI_MAX_TOKENS: "65536"
-          DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+          DEEPSEEK_API_KEY: ${{ env.DEEPSEEK_API_KEY }}
           DEEPSEEK_MAX_TOKENS: "32768"
-          GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+          GOOGLE_API_KEY: ${{ env.GOOGLE_API_KEY }}
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0
