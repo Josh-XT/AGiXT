@@ -171,6 +171,9 @@ class RotationProvider:
                 logging.info(
                     f"Removed failed provider {provider}. Remaining providers: {self.providers}"
                 )
+            if not self.providers:
+                logging.error("No providers available for inference")
+                raise Exception("Unable to process request. No providers available.")
             return await self.inference(
                 prompt=prompt, tokens=tokens, images=images, use_smartest=use_smartest
             )
