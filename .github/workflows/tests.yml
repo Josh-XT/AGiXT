@@ -83,6 +83,7 @@ jobs:
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
           EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
+          EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
           EZLOCALAI_MAX_TOKENS: "65536"
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MAX_TOKENS: "32768"
