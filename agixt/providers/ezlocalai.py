@@ -160,7 +160,7 @@ class EzlocalaiProvider:
                 self.rotate_uri()
             if self.failure_count >= 3:
                 logging.info("ezLocalai failed 3 times, unable to proceed.")
-                raise f"ezLocalai API Error: Too many failures. {e}"
+                raise Exception(f"ezLocalai API Error: Too many failures. {e}")
             return await self.inference(prompt=prompt, tokens=tokens, images=images)
 
     async def transcribe_audio(self, audio_path: str):

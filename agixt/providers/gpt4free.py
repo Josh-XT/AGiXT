@@ -53,30 +53,27 @@ class Gpt4freeProvider:
         ]
         self.failures = []
         self.provider_failure_count = 0
+        self.agent_settings = kwargs
 
     @staticmethod
     def services():
         return ["llm"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
-        if getenv("DEEPSEEK_API_KEY"):
-            from providers.deepseek import DeepseekProvider
+        agent_settings = {
+            k: v for k, v in self.agent_settings.items() if v is not None and v != ""
+        }
+        if (
+            "DEEPSEEK_API_KEY" in agent_settings
+            or "EZLOCALAI_API_KEY" in agent_settings
+            or "AZURE_API_KEY" in agent_settings
+            or "OPENAI_API_KEY" in agent_settings
+            or "XAI_API_KEY" in agent_settings
+            or "GOOGLE_API_KEY" in agent_settings
+        ):
+            from providers.rotation import RotationProvider
 
-            deepseek = DeepseekProvider(
-                DEEPSEEK_API_KEY=getenv("DEEPSEEK_API_KEY"),
-                DEEPSEEK_MAX_TOKENS=64000,
-            )
-            return await deepseek.inference(prompt=prompt, tokens=tokens, images=images)
-
-        if getenv("EZLOCALAI_API_KEY") and getenv("EZLOCALAI_URI"):
-            from providers.ezlocalai import EzlocalaiProvider
-
-            ezlocalai = EzlocalaiProvider(
-                EZLOCALAI_API_KEY=getenv("EZLOCALAI_API_KEY"),
-                EZLOCALAI_URI=getenv("EZLOCALAI_URI"),
-                EZLOCALAI_MAX_TOKENS=128000,
-            )
-            return await ezlocalai.inference(
+            return await RotationProvider(**self.agent_settings).inference(
                 prompt=prompt, tokens=tokens, images=images
             )
         logging.info(

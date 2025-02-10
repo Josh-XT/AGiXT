@@ -75,6 +75,7 @@ class DefaultProvider:
             else kwargs["TRANSCRIPTION_MODEL"]
         )
         self.chunk_size = 256
+        self.agent_settings = kwargs
 
     @staticmethod
     def services():
@@ -88,8 +89,7 @@ class DefaultProvider:
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         return await Gpt4freeProvider(
-            AI_MODEL=self.AI_MODEL,
-            VOICE=self.VOICE,
+            **self.agent_settings,
         ).inference(prompt=prompt, tokens=tokens, images=images)
 
     async def text_to_speech(self, text: str):
