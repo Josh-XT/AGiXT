@@ -65,19 +65,12 @@ jobs:
         image: joshxt/ezlocalai:latest
         ports:
           - 8091:8091
-        options: >-
-          --health-cmd "curl -f http://localhost:8091"
-          --health-interval 1m
-          --health-timeout 3m
-          --health-retries 50
-          --health-start-period 15m
         env:
           EZLOCALAI_API_KEY: None
           EZLOCALAI_URI: http://ezlocalai:8091
           DEFAULT_MODEL: bartowski/Qwen2.5-0.5B-Instruct-GGUF
           LLM_MAX_TOKENS: "8192"
           IMG_ENABLED: "false"
-          WHISPER_MODEL: "base"
       agixt:
         image: ${{ inputs.image }}
         ports:
@@ -101,8 +94,8 @@ jobs:
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
-          EZLOCALAI_URI: http://ezlocalai:8091
-          EZLOCALAI_API_KEY: None
+          EZLOCALAI_URI: http://ezlocalai:8091/v1/
+          EZLOCALAI_API_KEY: "None"
           EZLOCALAI_MAX_TOKENS: "8192"
           TZ: America/New_York
     
