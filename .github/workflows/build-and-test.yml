@@ -29,6 +29,9 @@ jobs:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
   test-agixt-postgres:
     uses: ./.github/workflows/tests.yml
+    permissions:
+      contents: read
+      packages: read
     with:
       notebook: tests/endpoint-tests.ipynb
       image: ${{ needs.build.outputs.primary-image }}
@@ -47,6 +50,9 @@ jobs:
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   test-agixt-sqlite:
     uses: ./.github/workflows/tests.yml
+    permissions:
+      contents: read
+      packages: read
     with:
       notebook: tests/endpoint-tests.ipynb
       image: ${{ needs.build.outputs.primary-image }}
