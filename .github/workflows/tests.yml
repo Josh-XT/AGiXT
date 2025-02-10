@@ -42,6 +42,8 @@ on:
         description: Optional azure deployment name available as os.getenv('AZURE_DEPLOYMENT_NAME') in your notebook
       AZURE_OPENAI_ENDPOINT:
         description: Optional azure openai endpoint available as os.getenv('AZURE_OPENAI_ENDPOINT') in your notebook
+      AZURE_MODEL:
+        description: Optional azure model available as os.getenv('AZURE_MODEL') in your notebook
   
 jobs:
   run-tests:
