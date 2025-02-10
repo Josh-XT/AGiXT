@@ -36,6 +36,12 @@ on:
         description: Optional ezlocalai api key available as os.getenv('EZLOCALAI_API_KEY') in your notebook
       DEEPSEEK_API_KEY:
         description: Optional deepseek api key available as os.getenv('DEEPSEEK_API_KEY') in your notebook
+      AZURE_API_KEY:
+        description: Optional azure api-key available as os.getenv('AZURE_API_KEY') in your notebook
+      AZURE_DEPLOYMENT_NAME:
+        description: Optional azure deployment name available as os.getenv('AZURE_DEPLOYMENT_NAME') in your notebook
+      AZURE_OPENAI_ENDPOINT:
+        description: Optional azure openai endpoint available as os.getenv('AZURE_OPENAI_ENDPOINT') in your notebook
   
 jobs:
   run-tests:
@@ -79,6 +85,11 @@ jobs:
           EZLOCALAI_MAX_TOKENS: "65536"
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MAX_TOKENS: "32768"
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_DEPLOYMENT_NAME: ${{ secrets.AZURE_DEPLOYMENT_NAME }}
+          AZURE_MODEL: ${{ secrets.AZURE_MODEL }}
+          AZURE_MAX_TOKENS: "120000"
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0

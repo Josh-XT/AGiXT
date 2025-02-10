@@ -41,6 +41,10 @@ jobs:
       EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
       EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+      AZURE_DEPLOYMENT_NAME: ${{ secrets.AZURE_DEPLOYMENT_NAME }}
+      AZURE_MODEL: ${{ secrets.AZURE_MODEL }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
   test-agixt-sqlite:
     uses: ./.github/workflows/tests.yml
     with:
@@ -55,3 +59,7 @@ jobs:
       EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
       EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+      AZURE_DEPLOYMENT_NAME: ${{ secrets.AZURE_DEPLOYMENT_NAME }}
+      AZURE_MODEL: ${{ secrets.AZURE_MODEL }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
