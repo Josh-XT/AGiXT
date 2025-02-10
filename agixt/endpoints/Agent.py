@@ -42,6 +42,7 @@ import os
 from providers.default import DefaultProvider
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from MagicalAuth import MagicalAuth
+import traceback
 
 app = APIRouter()
 
@@ -380,101 +381,106 @@ async def prompt_agent(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    if "conversation_name" not in agent_prompt.prompt_args:
-        conversation_name = None
-        agent_prompt.prompt_args["log_user_input"] = False
-        agent_prompt.prompt_args["log_output"] = False
-    else:
-        conversation_name = agent_prompt.prompt_args["conversation_name"]
-        del agent_prompt.prompt_args["conversation_name"]
-    if "user_input" not in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["user_input"] = ""
-    if conversation_name != "-":
-        try:
-            conversation_id = str(uuid.UUID(conversation_name))
-        except:
-            conversation_id = None
-        if conversation_id:
-            auth = MagicalAuth(token=authorization)
-            conversation_name = get_conversation_name_by_id(
-                conversation_id=conversation_id, user_id=auth.user_id
+    try:
+        if "conversation_name" not in agent_prompt.prompt_args:
+            conversation_name = None
+            agent_prompt.prompt_args["log_user_input"] = False
+            agent_prompt.prompt_args["log_output"] = False
+        else:
+            conversation_name = agent_prompt.prompt_args["conversation_name"]
+            del agent_prompt.prompt_args["conversation_name"]
+        if "user_input" not in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["user_input"] = ""
+        if conversation_name != "-":
+            try:
+                conversation_id = str(uuid.UUID(conversation_name))
+            except:
+                conversation_id = None
+            if conversation_id:
+                auth = MagicalAuth(token=authorization)
+                conversation_name = get_conversation_name_by_id(
+                    conversation_id=conversation_id, user_id=auth.user_id
+                )
+        agent = AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=authorization,
+            conversation_name=conversation_name,
+        )
+        agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_name
+        if "prompt_category" not in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["prompt_category"] = "Default"
+        logging.info(f"Initialized with conversation ID: {agent.conversation_id}")
+        if "tts" in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["voice_response"] = (
+                str(agent_prompt.prompt_args["tts"]).lower() == "true"
             )
-    agent = AGiXT(
-        user=user,
-        agent_name=agent_name,
-        api_key=authorization,
-        conversation_name=conversation_name,
-    )
-    agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_name
-    if "prompt_category" not in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["prompt_category"] = "Default"
-    logging.info(f"Initialized with conversation ID: {agent.conversation_id}")
-    if "tts" in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["voice_response"] = (
-            str(agent_prompt.prompt_args["tts"]).lower() == "true"
-        )
-        del agent_prompt.prompt_args["tts"]
-    if "context_results" in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["injected_memories"] = int(
-            agent_prompt.prompt_args["context_results"]
-        )
-        del agent_prompt.prompt_args["context_results"]
-    if "conversation_results" not in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["conversation_results"] = 10
-    prompt_args = agent_prompt.prompt_args.copy()
-    if "user_input" in prompt_args:
-        del prompt_args["user_input"]
-    messages = []
-    if "file_urls" in agent_prompt.prompt_args:
-        file_list = agent_prompt.prompt_args["file_urls"]
-        del agent_prompt.prompt_args["file_urls"]
-        messages.append(
-            {
-                "role": "user",
-                **prompt_args,
-                "prompt_args": prompt_args,
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            agent_prompt.prompt_args["user_input"]
-                            if "user_input" in agent_prompt.prompt_args
-                            else ""
-                        ),
-                    },
-                ],
-            }
-        )
-        for file_url in file_list:
-            messages[0]["content"] += [
+            del agent_prompt.prompt_args["tts"]
+        if "context_results" in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["injected_memories"] = int(
+                agent_prompt.prompt_args["context_results"]
+            )
+            del agent_prompt.prompt_args["context_results"]
+        if "conversation_results" not in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["conversation_results"] = 10
+        prompt_args = agent_prompt.prompt_args.copy()
+        if "user_input" in prompt_args:
+            del prompt_args["user_input"]
+        messages = []
+        if "file_urls" in agent_prompt.prompt_args:
+            file_list = agent_prompt.prompt_args["file_urls"]
+            del agent_prompt.prompt_args["file_urls"]
+            messages.append(
                 {
-                    "type": "file_url",
-                    "file_url": {"url": file_url},
+                    "role": "user",
+                    **prompt_args,
+                    "prompt_args": prompt_args,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                agent_prompt.prompt_args["user_input"]
+                                if "user_input" in agent_prompt.prompt_args
+                                else ""
+                            ),
+                        },
+                    ],
+                }
+            )
+            for file_url in file_list:
+                messages[0]["content"] += [
+                    {
+                        "type": "file_url",
+                        "file_url": {"url": file_url},
+                    }
+                ]
+        else:
+            messages = [
+                {
+                    "role": "user",
+                    **prompt_args,
+                    "prompt_args": prompt_args,
+                    "content": (
+                        agent_prompt.prompt_args["user_input"]
+                        if "user_input" in agent_prompt.prompt_args
+                        else ""
+                    ),
                 }
             ]
-    else:
-        messages = [
-            {
-                "role": "user",
-                **prompt_args,
-                "prompt_args": prompt_args,
-                "content": (
-                    agent_prompt.prompt_args["user_input"]
-                    if "user_input" in agent_prompt.prompt_args
-                    else ""
-                ),
-            }
-        ]
-    logging.info(f"Prompting agent '{agent_name}' with messages: {messages}")
-    response = await agent.chat_completions(
-        prompt=ChatCompletions(
-            model=agent_name,
-            user=conversation_name,
-            messages=messages,
+        logging.info(f"Prompting agent '{agent_name}' with messages: {messages}")
+        response = await agent.chat_completions(
+            prompt=ChatCompletions(
+                model=agent_name,
+                user=conversation_name,
+                messages=messages,
+            )
         )
-    )
-    response = response["choices"][0]["message"]["content"]
-    return {"response": str(response)}
+        response = response["choices"][0]["message"]["content"]
+        return {"response": str(response)}
+    except Exception as e:
+        logging.error(f"Error prompting agent: {e}")
+        logging.error(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get(
