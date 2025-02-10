@@ -107,7 +107,7 @@ class DeepseekProvider:
             logging.info(f"Deepseek API Error: {e}")
             self.failures += 1
             if self.failures > 3:
-                raise f"Deepseek API Error: Too many failures. {e}"
+                raise Exception(f"Deepseek API Error: Too many failures. {e}")
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.inference(prompt=prompt, tokens=tokens)
