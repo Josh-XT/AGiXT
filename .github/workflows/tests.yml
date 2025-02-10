@@ -66,36 +66,6 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-      agixt:
-        image: ${{ inputs.image }}
-        ports:
-          - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
-        options: >-
-          --health-cmd "curl -f http://localhost:${{ inputs.port }}"
-          --health-interval 10s
-          --health-timeout 60s
-          --health-retries 5
-          --health-start-period 2m
-        env:
-          DATABASE_TYPE: ${{ inputs.database-type }}
-          DATABASE_HOST: dbservice
-          DATABASE_USER: postgres
-          DATABASE_PASSWORD: postgres
-          DATABASE_PORT: 5432
-          DATABASE_NAME: postgres
-          LOG_LEVEL: INFO
-          AGIXT_API_KEY: just-a-test
-          AGIXT_URI: http://agixt:7437
-          WORKING_DIRECTORY: /agixt/WORKSPACE
-          TOKENIZERS_PARALLELISM: 'false'
-          UVICORN_WORKERS: 10
-          EZLOCALAI_URI: ${{ env.EZLOCALAI_URI }}
-          EZLOCALAI_API_KEY: ${{ env.EZLOCALAI_API_KEY }}
-          EZLOCALAI_MAX_TOKENS: "65536"
-          DEEPSEEK_API_KEY: ${{ env.DEEPSEEK_API_KEY }}
-          DEEPSEEK_MAX_TOKENS: "32768"
-          GOOGLE_API_KEY: ${{ env.GOOGLE_API_KEY }}
-          TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0
         with:
@@ -104,7 +74,52 @@ jobs:
         uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 1
-
+      - name: Generate .env file
+        run: |
+          echo "DATABASE_TYPE=${{ inputs.database-type }}" >> .env
+          echo "DATABASE_HOST=dbservice" >> .env
+          echo "DATABASE_USER=postgres" >> .env
+          echo "DATABASE_PASSWORD=postgres" >> .env
+          echo "DATABASE_PORT=5432" >> .env
+          echo "DATABASE_NAME=postgres" >> .env
+          echo "EZLOCALAI_URI=${{ secrets.EZLOCALAI_URI }}" >> .env
+          echo "AZURE_API_KEY=${{ secrets.AZURE_API_KEY }}" >> .env
+          echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}" >> .env
+          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> .env
+          echo "AGIXT_API_KEY=just-a-test" >> .env
+          echo "AGIXT_URI=http://agixt:7437" >> .env
+          echo "WORKING_DIRECTORY=/agixt/WORKSPACE" >> .env
+          echo "TOKENIZERS_PARALLELISM=false" >> .env
+          echo "UVICORN_WORKERS=10" >> .env
+          echo "LOG_LEVEL=INFO" >> .env
+          echo "EZLOCALAI_MAX_TOKENS=65536" >> .env
+          echo "DEEPSEEK_MAX_TOKENS=32768" >> .env
+          echo "TZ=America/New_York" >> .env
+      - name: Start container with .env file and healthchecks
+        run: |
+          docker run -d --name agixt \
+            -p 7437:7437 \
+            --env-file .env \
+            --health-cmd="curl -f http://localhost:7437 || exit 1" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=3 \
+            ${{ inputs.image }}
+      
+      - name: Wait for container health check to pass
+        run: |
+          for i in {1..30}; do
+            # Get the health status from Docker inspect.
+            status=$(docker inspect --format='{{json .State.Health.Status}}' agixt | tr -d '"')
+            if [ "$status" == "healthy" ]; then
+              echo "Container is healthy!"
+              exit 0
+            fi
+            echo "Waiting for container to become healthy (current status: $status)..."
+            sleep 2
+          done
+          echo "Container did not become healthy in time."
+          exit 1
       - name: Install Python dependencies
         run: pip3 install jupyter nbconvert[webpdf] ${{ inputs.additional-python-dependencies }}
 
