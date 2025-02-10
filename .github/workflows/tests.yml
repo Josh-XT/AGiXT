@@ -48,7 +48,6 @@ on:
 jobs:
   run-tests:
     runs-on: ubuntu-22.04
-    environment:
     env:
       EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
       EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
