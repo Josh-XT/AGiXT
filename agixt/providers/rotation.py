@@ -154,9 +154,13 @@ class RotationProvider:
             result = await provider_instance.inference(
                 prompt=prompt, tokens=tokens, images=images
             )
-            self.failed_providers.discard(
-                provider
-            )  # Remove from failed providers if successful
+            if isinstance(result, str) and result.startswith("Error:"):
+                raise Exception(f"Provider {provider} returned an error: {result}")
+            if not isinstance(result, str):
+                raise Exception(
+                    f"Provider {provider} returned invalid response: {result}"
+                )
+            self.failed_providers.discard(provider)
             return result
 
         except Exception as e:
