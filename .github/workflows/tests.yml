@@ -69,8 +69,8 @@ jobs:
           --health-cmd "curl -f http://localhost:8091"
           --health-interval 30s
           --health-timeout 60s
-          --health-retries 20
-          --health-start-period 2m
+          --health-retries 30
+          --health-start-period 10m
         env:
           EZLOCALAI_API_KEY: None
           EZLOCALAI_URI: http://ezlocalai:8091
