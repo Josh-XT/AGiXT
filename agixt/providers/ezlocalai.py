@@ -26,7 +26,7 @@ class EzlocalaiProvider:
 
     def __init__(
         self,
-        EZLOCALAI_API_KEY: str = "None",
+        EZLOCALAI_API_KEY: str = getenv("EZLOCALAI_API_KEY"),
         EZLOCALAI_API_URI: str = getenv("EZLOCALAI_URI"),
         EZLOCALAI_AI_MODEL: str = "ezlocalai",
         EZLOCALAI_MAX_TOKENS: int = 8192,
