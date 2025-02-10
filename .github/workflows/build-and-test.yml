@@ -48,6 +48,7 @@ jobs:
       AZURE_DEPLOYMENT_NAME: ${{ secrets.AZURE_DEPLOYMENT_NAME }}
       AZURE_MODEL: ${{ secrets.AZURE_MODEL }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
   test-agixt-sqlite:
     uses: ./.github/workflows/tests.yml
     permissions:
@@ -69,3 +70,4 @@ jobs:
       AZURE_DEPLOYMENT_NAME: ${{ secrets.AZURE_DEPLOYMENT_NAME }}
       AZURE_MODEL: ${{ secrets.AZURE_MODEL }}
       AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}

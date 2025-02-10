@@ -44,10 +44,17 @@ on:
         description: Optional azure openai endpoint available as os.getenv('AZURE_OPENAI_ENDPOINT') in your notebook
       AZURE_MODEL:
         description: Optional azure model available as os.getenv('AZURE_MODEL') in your notebook
+      GOOGLE_API_KEY:
+        description: Optional google api key available as os.getenv('GOOGLE_API_KEY') in your notebook
   
 jobs:
   run-tests:
     runs-on: ubuntu-22.04
+    env:
+      EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
+      EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
@@ -82,16 +89,12 @@ jobs:
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
-          EZLOCALAI_URI: ${{ secrets.EZLOCALAI_URI }}
-          EZLOCALAI_API_KEY: ${{ secrets.EZLOCALAI_API_KEY }}
+          EZLOCALAI_URI: "${EZLOCALAI_URI}"
+          EZLOCALAI_API_KEY: "${EZLOCALAI_API_KEY}"
           EZLOCALAI_MAX_TOKENS: "65536"
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
           DEEPSEEK_MAX_TOKENS: "32768"
-          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
-          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          AZURE_DEPLOYMENT_NAME: ${{ secrets.AZURE_DEPLOYMENT_NAME }}
-          AZURE_MODEL: ${{ secrets.AZURE_MODEL }}
-          AZURE_MAX_TOKENS: "120000"
+          GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5.3.0
