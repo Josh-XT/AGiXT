@@ -14,7 +14,7 @@ class HuggingfaceProvider:
 
     def __init__(
         self,
-        HUGGINGFACE_API_KEY: str = None,
+        HUGGINGFACE_API_KEY: str = "",
         HUGGINGFACE_STABLE_DIFFUSION_MODEL: str = "runwayml/stable-diffusion-v1-5",
         HUGGINGFACE_STABLE_DIFFUSION_API_URL: str = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
         HUGGINGFACE_MODEL: str = "HuggingFaceH4/zephyr-7b-beta",
