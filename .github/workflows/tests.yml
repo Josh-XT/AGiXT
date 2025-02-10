@@ -30,23 +30,6 @@ on:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
       DISCORD_WEBHOOK:
         description: Optional discord webhook available as os.getenv('DISCORD_WEBHOOK') in your notebook
-      EZLOCALAI_URI:
-        description: Optional ezlocalai uri available as os.getenv('EZLOCALAI_URI') in your notebook
-      EZLOCALAI_API_KEY:
-        description: Optional ezlocalai api key available as os.getenv('EZLOCALAI_API_KEY') in your notebook
-      DEEPSEEK_API_KEY:
-        description: Optional deepseek api key available as os.getenv('DEEPSEEK_API_KEY') in your notebook
-      AZURE_API_KEY:
-        description: Optional azure api-key available as os.getenv('AZURE_API_KEY') in your notebook
-      AZURE_DEPLOYMENT_NAME:
-        description: Optional azure deployment name available as os.getenv('AZURE_DEPLOYMENT_NAME') in your notebook
-      AZURE_OPENAI_ENDPOINT:
-        description: Optional azure openai endpoint available as os.getenv('AZURE_OPENAI_ENDPOINT') in your notebook
-      AZURE_MODEL:
-        description: Optional azure model available as os.getenv('AZURE_MODEL') in your notebook
-      GOOGLE_API_KEY:
-        description: Optional google api key available as os.getenv('GOOGLE_API_KEY') in your notebook
-  
 jobs:
   run-tests:
     runs-on: ubuntu-22.04
@@ -61,16 +44,6 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-      ezlocalai:
-        image: joshxt/ezlocalai:latest
-        ports:
-          - 8091:8091
-        env:
-          EZLOCALAI_API_KEY: None
-          EZLOCALAI_URI: http://ezlocalai:8091
-          DEFAULT_MODEL: bartowski/Qwen2.5-0.5B-Instruct-GGUF
-          LLM_MAX_TOKENS: "8192"
-          IMG_ENABLED: "false"
       agixt:
         image: ${{ inputs.image }}
         ports:
@@ -94,9 +67,9 @@ jobs:
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
-          EZLOCALAI_URI: http://ezlocalai:8091/v1/
-          EZLOCALAI_API_KEY: "None"
-          EZLOCALAI_MAX_TOKENS: "8192"
+          EZLOCALAI_URI: https://api.ezlocal.ai/v1/
+          EZLOCALAI_API_KEY: "n0ne"
+          EZLOCALAI_MAX_TOKENS: "32000"
           TZ: America/New_York
     
     steps:
