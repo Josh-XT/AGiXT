@@ -396,7 +396,7 @@ class Agent:
             if not company_agent_session:
                 return None
             user = company_agent_session.get_user()
-            # logging.info(f"Company agent user: {user}")
+            logging.info(f"Company agent user: {user}")
             agent = Agent(
                 agent_name="AGiXT",
                 user=user["email"],
@@ -720,166 +720,126 @@ class Agent:
         return new_extensions
 
     def update_agent_config(self, new_config, config_key):
-        logging.info(f"Updating {config_key} with {json.dumps(new_config)}.")
         session = get_session()
-        try:
-            agent = (
+        agent = (
+            session.query(AgentModel)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
+            .first()
+        )
+        if not agent:
+            if self.user == DEFAULT_USER:
+                return f"Agent {self.agent_name} not found."
+            # Check if it is a global agent and copy it if necessary
+            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+            global_agent = (
                 session.query(AgentModel)
                 .filter(
                     AgentModel.name == self.agent_name,
-                    AgentModel.user_id == self.user_id,
+                    AgentModel.user_id == global_user.id,
                 )
                 .first()
             )
-            if not agent:
-                if self.user == DEFAULT_USER:
-                    logging.info(f"Agent {self.agent_name} not found for update.")
-                    return f"Agent {self.agent_name} not found for update."
-                # Check if it is a global agent and copy it if necessary
-                global_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
+            if global_agent:
+                agent = AgentModel(
+                    name=self.agent_name,
+                    user_id=self.user_id,
+                    provider_id=global_agent.provider_id,
                 )
-                global_agent = (
-                    session.query(AgentModel)
-                    .filter(
-                        AgentModel.name == self.agent_name,
-                        AgentModel.user_id == global_user.id,
+                session.add(agent)
+                session.commit()
+                self.agent_id = str(agent.id)
+                # Copy settings and commands from global agent
+                for setting in global_agent.settings:
+                    new_setting = AgentSettingModel(
+                        agent_id=self.agent_id,
+                        name=setting.name,
+                        value=setting.value,
                     )
-                    .first()
-                )
-                if global_agent:
-                    logging.info(
-                        f"Agent {self.agent_name} not found for update. Copying from global agent."
+                    session.add(new_setting)
+                for command in global_agent.commands:
+                    new_command = AgentCommand(
+                        agent_id=self.agent_id,
+                        command_id=command.command_id,
+                        state=command.state,
                     )
-                    agent = AgentModel(
-                        name=self.agent_name,
-                        user_id=self.user_id,
-                        provider_id=global_agent.provider_id,
-                    )
-                    session.add(agent)
-                    session.commit()
-                    self.agent_id = str(agent.id)
-                    # Copy settings and commands from global agent
-                    for setting in global_agent.settings:
-                        new_setting = AgentSettingModel(
-                            agent_id=self.agent_id,
-                            name=setting.name,
-                            value=setting.value,
-                        )
-                        session.add(new_setting)
-                    for command in global_agent.commands:
-                        new_command = AgentCommand(
-                            agent_id=self.agent_id,
-                            command_id=command.command_id,
-                            state=command.state,
-                        )
-                        session.add(new_command)
-                    logging.info(
-                        f"Committing agent {self.agent_name}, copied from global agent."
-                    )
-                    session.commit()
+                    session.add(new_command)
+                session.commit()
 
-            if config_key == "commands":
-                logging.info(f"Updating commands for agent {self.agent_name}.")
-                for command_name, enabled in new_config.items():
-                    # First try to find an existing command
-                    command = (
-                        session.query(Command).filter_by(name=command_name).first()
-                    )
+        if config_key == "commands":
+            for command_name, enabled in new_config.items():
+                # First try to find an existing command
+                command = session.query(Command).filter_by(name=command_name).first()
 
-                    if not command:
-                        # Check if this is a chain command
-                        chain = (
-                            session.query(ChainDB).filter_by(name=command_name).first()
-                        )
-                        if chain:
-                            # Find or create the AGiXT Chains extension
-                            extension = (
-                                session.query(Extension)
-                                .filter_by(name="AGiXT Chains")
-                                .first()
-                            )
-                            if not extension:
-                                extension = Extension(name="AGiXT Chains")
-                                session.add(extension)
-                                session.commit()
-
-                            # Create a new command entry for the chain
-                            command = Command(
-                                name=command_name, extension_id=extension.id
-                            )
-                            session.add(command)
-                            session.commit()
-                        else:
-                            logging.error(f"Command {command_name} not found.")
-                            continue
-
-                    # Now handle the agent command association
-                    try:
-                        agent_command = (
-                            session.query(AgentCommand)
-                            .filter_by(agent_id=self.agent_id, command_id=command.id)
+                if not command:
+                    # Check if this is a chain command
+                    chain = session.query(ChainDB).filter_by(name=command_name).first()
+                    if chain:
+                        # Find or create the AGiXT Chains extension
+                        extension = (
+                            session.query(Extension)
+                            .filter_by(name="AGiXT Chains")
                             .first()
                         )
-                    except:
-                        agent_command = None
+                        if not extension:
+                            extension = Extension(name="AGiXT Chains")
+                            session.add(extension)
+                            session.commit()
 
-                    if agent_command:
-                        agent_command.state = enabled
+                        # Create a new command entry for the chain
+                        command = Command(name=command_name, extension_id=extension.id)
+                        session.add(command)
+                        session.commit()
                     else:
-                        agent_command = AgentCommand(
-                            agent_id=self.agent_id,
-                            command_id=command.id,
-                            state=enabled,
-                        )
-                        session.add(agent_command)
-            else:
-                for setting_name, setting_value in new_config.items():
-                    agent_setting = (
-                        session.query(AgentSettingModel)
-                        .filter_by(agent_id=self.agent_id, name=setting_name)
+                        logging.error(f"Command {command_name} not found.")
+                        continue
+
+                # Now handle the agent command association
+                try:
+                    agent_command = (
+                        session.query(AgentCommand)
+                        .filter_by(agent_id=self.agent_id, command_id=command.id)
                         .first()
                     )
-                    if agent_setting:
-                        logging.info(
-                            f"Found existing agent setting {setting_name} for {self.agent_name} with value {str(agent_setting.value)}."
-                        )
-                        if setting_value == "":
-                            logging.info(
-                                f"Deleting agent setting {setting_name} for {self.agent_name}."
-                            )
-                            session.delete(agent_setting)
-                        else:
-                            logging.info(
-                                f"Updating agent setting {setting_name} for {self.agent_name} to {str(setting_value)}."
-                            )
-                            agent_setting.value = str(setting_value)
-                    else:
-                        if setting_value:
-                            logging.info(
-                                f"Creating new agent setting {setting_name} for {self.agent_name} with value {str(setting_value)}."
-                            )
-                            agent_setting = AgentSettingModel(
-                                agent_id=self.agent_id,
-                                name=setting_name,
-                                value=str(setting_value),
-                            )
-                            session.add(agent_setting)
-                        else:
-                            logging.info(
-                                f"Skipping nonexistent setting with empty value {setting_name} for {self.agent_name}."
-                            )
+                except:
+                    agent_command = None
 
-                logging.info(
-                    f"Attempting to commit agent configuration update for {self.agent_name}."
+                if agent_command:
+                    agent_command.state = enabled
+                else:
+                    agent_command = AgentCommand(
+                        agent_id=self.agent_id,
+                        command_id=command.id,
+                        state=enabled,
+                    )
+                    session.add(agent_command)
+        else:
+            for setting_name, setting_value in new_config.items():
+                agent_setting = (
+                    session.query(AgentSettingModel)
+                    .filter_by(agent_id=self.agent_id, name=setting_name)
+                    .first()
                 )
-                session.commit()
-                logging.info(
-                    f"Agent {self.agent_name} configuration updated successfully."
-                )
+                if agent_setting:
+                    if setting_value == "":
+                        session.delete(agent_setting)
+                    else:
+                        agent_setting.value = str(setting_value)
+                else:
+                    agent_setting = AgentSettingModel(
+                        agent_id=self.agent_id,
+                        name=setting_name,
+                        value=str(setting_value),
+                    )
+                    session.add(agent_setting)
+
+        try:
+            session.commit()
+            logging.info(f"Agent {self.agent_name} configuration updated successfully.")
         except Exception as e:
             session.rollback()
-            logging.error(f"Error committing agent configuration: {str(e)}")
+            logging.error(f"Error updating agent configuration: {str(e)}")
             raise HTTPException(
                 status_code=500, detail=f"Error updating agent configuration: {str(e)}"
             )
