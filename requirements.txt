@@ -9,7 +9,7 @@ PyYAML==6.0.2
 requests==2.31.0
 python-dotenv==1.0.1
 ffmpeg-python==0.2.0
-cryptography==43.0.1
+cryptography==44.0.1
 pillow==10.4.0
 SQLAlchemy==2.0.34
 psycopg2-binary==2.9.9
