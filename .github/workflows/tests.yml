@@ -70,6 +70,7 @@ jobs:
           EZLOCALAI_URI: https://api.ezlocal.ai/v1/
           EZLOCALAI_API_KEY: "n0ne"
           EZLOCALAI_MAX_TOKENS: "32000"
+          GOOGLE_API_KEY: "AIzaSyANVTYgKEx2hm3H3B-eMuRjJA4okzuBCdo"
           TZ: America/New_York
     
     steps:
