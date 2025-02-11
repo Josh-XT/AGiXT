@@ -126,6 +126,9 @@ def get_default_agent_settings():
         "persona": getenv("AGENT_PERSONA"),
         "tts": False,
     }
+    for key in list(agent_settings.keys()):
+        if agent_settings[key] == "":
+            del agent_settings[key]
     return agent_settings
 
 
