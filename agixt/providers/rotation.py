@@ -101,17 +101,17 @@ class RotationProvider:
                 or self.AGENT_SETTINGS[provider_key] == "None"
             ):
                 kv = getenv(provider_key)
-                if not kv:
+                if kv == "":
                     self.providers.remove(provider)
                     continue
                 else:
                     self.AGENT_SETTINGS[provider_key] = kv
                     provider_settings = get_provider_options(
-                        provider_name=provider.lower()
+                        provider_name=str(provider).lower()
                     )
                     for key, value in provider_settings.items():
                         if key not in self.AGENT_SETTINGS:
-                            self.AGENT_SETTINGS[key] = getenv(key)
+                            self.AGENT_SETTINGS[key] = getenv(key, value)
         logging.info(f"Available providers after exclusions: {self.providers}")
 
         if not self.providers:
