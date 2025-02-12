@@ -26,8 +26,8 @@ class EzlocalaiProvider:
 
     def __init__(
         self,
-        EZLOCALAI_API_KEY: str = getenv("EZLOCALAI_API_KEY"),
-        EZLOCALAI_API_URI: str = getenv("EZLOCALAI_URI"),
+        EZLOCALAI_API_KEY: str = "",
+        EZLOCALAI_API_URI: str = getenv("EZLOCALAI_API_URI"),
         EZLOCALAI_AI_MODEL: str = "ezlocalai",
         EZLOCALAI_MAX_TOKENS: int = 8192,
         EZLOCALAI_TEMPERATURE: float = 1.33,
@@ -43,7 +43,7 @@ class EzlocalaiProvider:
         if not EZLOCALAI_API_URI.endswith("/"):
             EZLOCALAI_API_URI += "/"
         self.API_URI = (
-            EZLOCALAI_API_URI if EZLOCALAI_API_URI else getenv("EZLOCALAI_URI")
+            EZLOCALAI_API_URI if EZLOCALAI_API_URI else getenv("EZLOCALAI_API_URI")
         )
         if "v1/" not in self.API_URI:
             self.API_URI += "v1/"

@@ -67,12 +67,10 @@ jobs:
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
           UVICORN_WORKERS: 10
-          EZLOCALAI_URI: https://api.ezlocal.ai/v1/
-          EZLOCALAI_API_KEY: "n0ne"
+          EZLOCALAI_API_URI: https://api.ezlocal.ai/v1/
+          EZLOCALAI_API_KEY: just-a-test
           EZLOCALAI_MAX_TOKENS: "32000"
-          GOOGLE_API_KEY: "AIzaSyANVTYgKEx2hm3H3B-eMuRjJA4okzuBCdo"
           TZ: America/New_York
-    
     steps:
       - uses: actions/setup-python@v5.3.0
         with:
