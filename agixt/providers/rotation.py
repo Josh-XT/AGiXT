@@ -86,11 +86,20 @@ class RotationProvider:
         # Remove providers that shouldn't be part of rotation
         excluded_providers = {"agixt", "rotation", "gpt4free", "default"}
         rotation_exclusions = getenv("ROTATION_EXCLUSIONS")
+        if "ROTATION_EXCLUSIONS" in self.AGENT_SETTINGS:
+            if "," in self.AGENT_SETTINGS["ROTATION_EXCLUSIONS"]:
+                excluded_providers.update(
+                    self.AGENT_SETTINGS["ROTATION_EXCLUSIONS"].split(",")
+                )
         if rotation_exclusions:
             if "," in rotation_exclusions:
-                excluded_providers.update(rotation_exclusions.split(","))
+                rotation_exclusions = rotation_exclusions.split(",")
+                for provider in rotation_exclusions:
+                    if provider not in excluded_providers:
+                        excluded_providers.add(provider)
             else:
-                excluded_providers.add(rotation_exclusions)
+                if rotation_exclusions not in excluded_providers:
+                    excluded_providers.add(rotation_exclusions)
         self.providers = [p for p in self.providers if p not in excluded_providers]
         for provider in self.providers:
             provider_key = f"{str(provider).upper()}_API_KEY"
