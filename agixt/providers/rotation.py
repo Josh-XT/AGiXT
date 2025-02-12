@@ -93,11 +93,15 @@ class RotationProvider:
                 excluded_providers.add(rotation_exclusions)
         self.providers = [p for p in self.providers if p not in excluded_providers]
         for provider in self.providers:
-            if provider.upper() + "_API_KEY" not in self.AGENT_SETTINGS:
+            provider_key = f"{str(provider).upper()}_API_KEY"
+            if (
+                provider_key not in self.AGENT_SETTINGS
+                or self.AGENT_SETTINGS[provider_key] == ""
+                or self.AGENT_SETTINGS[provider_key] is None
+                or self.AGENT_SETTINGS[provider_key] == "None"
+            ):
                 self.providers.remove(provider)
                 continue
-            if self.AGENT_SETTINGS[provider.upper() + "_API_KEY"] == "":
-                self.providers.remove(provider)
         logging.info(f"Available providers after exclusions: {self.providers}")
 
         if not self.providers:
