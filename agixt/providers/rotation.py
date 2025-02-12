@@ -1,5 +1,5 @@
 import logging
-from Providers import get_providers, Providers
+from Providers import get_providers, get_provider_options, Providers
 from typing import List, Dict, Any
 from Globals import getenv
 
@@ -94,9 +94,21 @@ class RotationProvider:
         self.providers = [p for p in self.providers if p not in excluded_providers]
         for provider in self.providers:
             provider_key = f"{str(provider).upper()}_API_KEY"
+            if provider_key not in self.AGENT_SETTINGS:
+                kv = getenv(provider_key)
+                if not kv:
+                    self.providers.remove(provider)
+                    continue
+                else:
+                    self.AGENT_SETTINGS[provider_key] = kv
+                    provider_settings = get_provider_options(
+                        provider_name=provider.lower()
+                    )
+                    for key, value in provider_settings.items():
+                        if key not in self.AGENT_SETTINGS:
+                            self.AGENT_SETTINGS[key] = getenv(key)
             if (
-                provider_key not in self.AGENT_SETTINGS
-                or self.AGENT_SETTINGS[provider_key] == ""
+                self.AGENT_SETTINGS[provider_key] == ""
                 or self.AGENT_SETTINGS[provider_key] is None
                 or self.AGENT_SETTINGS[provider_key] == "None"
             ):
