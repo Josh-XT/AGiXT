@@ -120,7 +120,7 @@ class RotationProvider:
         self.providers = new_providers
         logging.info(f"Available providers after exclusions: {self.providers}")
 
-        if not self.providers:
+        if self.providers == []:
             logging.error("No providers available for inference")
             return "Unable to process request. No providers available."
 
