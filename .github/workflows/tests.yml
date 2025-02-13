@@ -66,9 +66,9 @@ jobs:
           AGIXT_URI: http://agixt:7437
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: 'false'
-          UVICORN_WORKERS: 10
-          EZLOCALAI_API_URI: https://api.ezlocalai.com/v1/
-          EZLOCALAI_API_KEY: just-a-test
+          UVICORN_WORKERS: 14
+          EZLOCALAI_API_URI: https://api.ezlocal.ai/v1/
+          EZLOCALAI_API_KEY: testing
           EZLOCALAI_MAX_TOKENS: "32000"
           TZ: America/New_York
     steps:

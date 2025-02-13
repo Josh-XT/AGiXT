@@ -117,6 +117,8 @@ class RotationProvider:
                     for key, value in provider_settings.items():
                         if key not in self.AGENT_SETTINGS:
                             self.AGENT_SETTINGS[key] = getenv(key, value)
+        logging.info(f"Agent setting: {self.AGENT_SETTINGS}")
+        logging.info(f"Providers before filtering: {self.providers}")
         self.providers = new_providers
         logging.info(f"Available providers after exclusions: {self.providers}")
 
