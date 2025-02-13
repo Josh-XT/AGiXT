@@ -45,7 +45,6 @@ class long_term_memory(Extensions):
             else "Memory Management"
         )
         self.commands = {
-            "Create Memory Database": self.create_memory_database,
             "Remember This": self.store_memory,
             "List Memory Databases": self.list_memory_databases,
             "Update Memory Database Description": self.update_database_description,
