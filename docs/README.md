@@ -12,7 +12,10 @@
 [![Dart SDK](https://img.shields.io/badge/GitHub-AGiXT%20Dart%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/dart-sdk) [![Rust SDK](https://img.shields.io/badge/GitHub-AGiXT%20Rust%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Rust-Dev) [![Zig SDK](https://img.shields.io/badge/GitHub-AGiXT%20Zig%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Zig-SDK)
 
 ### Community  
-[![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD) [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT) [![Pump.fun](https://img.shields.io/badge/Pump.fun-AGiXT-blue)](https://pump.fun/coin/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump)
+[![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD) [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT) [![Pump.fun](https://img.shields.io/badge/Pump.fun-AGiXT-blue)](https://pump.fun/coin/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump) [![Linktree](https://img.shields.io/badge/LinkTree-blue?logo=linktree&logoColor=white)](https://linktr.ee/AGiXT)
+
+
+
 
 
 
