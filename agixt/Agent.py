@@ -539,11 +539,22 @@ class Agent:
                         if value == "":
                             continue
                         config["settings"][key] = value
+                comand_agent_commands = company_agent_config.get("commands")
+                for key, value in comand_agent_commands.items():
+                    if key not in config["commands"]:
+                        config["commands"][key] = value
         else:
             company_id = self.auth.company_id
             self.update_agent_config(
                 new_config={"company_id": company_id}, config_key="settings"
             )
+        enabled_commands = getenv("ENABLED_COMMANDS")
+        if "," in enabled_commands:
+            enabled_commands = enabled_commands.split(",")
+        else:
+            enabled_commands = [enabled_commands]
+        for command in enabled_commands:
+            config["commands"][command] = True
         return config
 
     async def inference(
