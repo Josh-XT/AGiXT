@@ -133,7 +133,8 @@ class EzlocalaiProvider:
                 n=1,
                 stream=False,
             )
-            response = response.choices[0].message.content
+            if not isinstance(response, str):
+                response = response.choices[0].message.content
             if "User:" in response:
                 response = response.split("User:")[0]
             response = response.lstrip()
