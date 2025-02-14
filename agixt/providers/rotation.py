@@ -2,6 +2,7 @@ import logging
 from Providers import get_providers, get_provider_options, Providers
 from typing import List, Dict, Any
 from Globals import getenv
+import json
 
 
 class RotationProvider:
@@ -100,6 +101,7 @@ class RotationProvider:
             else:
                 if rotation_exclusions not in excluded_providers:
                     excluded_providers.add(rotation_exclusions)
+        logging.info(f"Providers before filtering: {self.providers}")
         self.providers = [p for p in self.providers if p not in excluded_providers]
         new_providers = self.providers.copy()
         for provider in self.providers:
@@ -117,8 +119,8 @@ class RotationProvider:
                     for key, value in provider_settings.items():
                         if key not in self.AGENT_SETTINGS:
                             self.AGENT_SETTINGS[key] = getenv(key, value)
-        logging.info(f"Agent setting: {self.AGENT_SETTINGS}")
-        logging.info(f"Providers before filtering: {self.providers}")
+        logging.info(f"Agent settings: {json.dumps(self.AGENT_SETTINGS, indent=4)}")
+        logging.info(f"Providers after filtering: {self.providers}")
         self.providers = new_providers
         logging.info(f"Available providers after exclusions: {self.providers}")
 
