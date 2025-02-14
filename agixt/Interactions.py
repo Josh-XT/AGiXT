@@ -808,6 +808,9 @@ class Interactions:
         )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
+        if "<think>" in self.response:
+            self.response.replace("<think>", "<thinking>")
+            self.response.replace("</think>", "</thinking>")
         if "<thinking>" in self.response:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
             # Iterate over each thinking tag to the end of the </thinking> or next <thinking> or <answer> tag or <reflection> tag
@@ -823,6 +826,9 @@ class Interactions:
             processed_length = 0
             # Then enter the main processing loop
             while True:
+                if "<think>" in self.response:
+                    self.response.replace("<think>", "<thinking>")
+                    self.response.replace("</think>", "</thinking>")
                 if "<thinking>" in self.response:
                     thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                     self.response = self.process_thinking_tags(
@@ -842,6 +848,9 @@ class Interactions:
                         processed_length = new_processed_length
                     else:
                         break
+                if "<think>" in self.response:
+                    self.response.replace("<think>", "<thinking>")
+                    self.response.replace("</think>", "</thinking>")
                 if "<thinking>" in self.response:
                     thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                     self.response = self.process_thinking_tags(
@@ -849,6 +858,9 @@ class Interactions:
                     )
                 # Check if we have new commands to process
                 if self.response[processed_length:].strip().endswith("</output>"):
+                    if "<think>" in self.response:
+                        self.response.replace("<think>", "<thinking>")
+                        self.response.replace("</think>", "</thinking>")
                     if "<thinking>" in self.response:
                         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                         self.response = self.process_thinking_tags(
@@ -866,6 +878,9 @@ class Interactions:
                         self.response = f"{self.response}{command_response}"
                         processed_length = new_processed_length
                         # Check for new thinking tags after getting new content
+                        if "<think>" in self.response:
+                            self.response.replace("<think>", "<thinking>")
+                            self.response.replace("</think>", "</thinking>")
                         if "<thinking>" in self.response:
                             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                             self.response = self.process_thinking_tags(
@@ -896,6 +911,9 @@ class Interactions:
                         )
                     else:
                         break
+        if "<think>" in self.response:
+            self.response.replace("<think>", "<thinking>")
+            self.response.replace("</think>", "</thinking>")
         if "<thinking>" in self.response:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
             self.response = self.process_thinking_tags(
