@@ -126,7 +126,7 @@ class RotationProvider:
 
         if self.providers == []:
             logging.error("No providers available for inference")
-            return "Unable to process request. No providers available."
+            return "<answer>Unable to process request. No providers available.</answer>"
 
         # Get provider token limits
         provider_max_tokens = self._get_provider_token_limits()
@@ -139,8 +139,8 @@ class RotationProvider:
             if not suitable_providers:
                 logging.error(f"No providers can handle input size of {tokens} tokens")
                 return (
-                    f"Unable to process request. Input size ({tokens} tokens) exceeds "
-                    "all provider limits. Please reduce input size."
+                    f"<answer>Unable to process request. Input size ({tokens} tokens) exceeds "
+                    "all provider limits. Please reduce input size.</answer>"
                 )
         else:
             suitable_providers = provider_max_tokens
