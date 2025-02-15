@@ -824,6 +824,7 @@ class Interactions:
         if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
             self._processed_commands = set()
             processed_length = 0
+            no_changes = 0
             # Then enter the main processing loop
             while True:
                 if "<think>" in self.response:
@@ -911,6 +912,15 @@ class Interactions:
                         )
                     else:
                         break
+                no_changes += 1
+                if no_changes > 5:
+                    last_closed_tag = self.response.rfind(">")
+                    self.response = (
+                        self.response[: last_closed_tag + 1]
+                        + "<answer>"
+                        + self.response[last_closed_tag + 1 :]
+                    )
+                    self.response += "</answer>"
         if "<think>" in self.response:
             self.response.replace("<think>", "<thinking>")
             self.response.replace("</think>", "</thinking>")
