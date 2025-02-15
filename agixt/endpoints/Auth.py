@@ -29,7 +29,7 @@ logging.basicConfig(
 
 
 @app.post("/v1/user", summary="Register a new user", tags=["Auth"])
-def register(register: Register):
+async def register(register: Register):
     auth = MagicalAuth()
     user_exists = auth.user_exists(email=register.email)
     if user_exists:
@@ -125,7 +125,7 @@ async def delete_invitation(
     summary="Check if user exists",
     tags=["Auth"],
 )
-def get_user_exists(email: str) -> bool:
+async def get_user_exists(email: str) -> bool:
     try:
         return MagicalAuth().user_exists(email=email)
     except:
@@ -138,7 +138,7 @@ def get_user_exists(email: str) -> bool:
     summary="Get user details",
     tags=["Auth"],
 )
-def get_user(
+async def get_user(
     request: Request,
     authorization: str = Header(None),
 ):
@@ -203,7 +203,7 @@ async def update_user(
     summary="Delete user",
     tags=["Auth"],
 )
-def delete_user(
+async def delete_user(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
@@ -448,7 +448,7 @@ async def create_company(
     summary="Delete a company",
     tags=["Companies"],
 )
-def delete_company(
+async def delete_company(
     company_id: str,
     email: str = Depends(verify_api_key),
     authorization: str = Header(None),
