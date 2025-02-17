@@ -194,6 +194,13 @@ async def get_persona(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    if "persona" not in agent.AGENT_CONFIG["settings"]:
+        if "PERSONA" not in agent.AGENT_CONFIG["settings"]:
+            agent.AGENT_CONFIG["settings"]["persona"] = ""
+        else:
+            agent.AGENT_CONFIG["settings"]["persona"] = agent.AGENT_CONFIG["settings"][
+                "PERSONA"
+            ]
     return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
 
 
