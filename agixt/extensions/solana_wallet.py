@@ -6,7 +6,7 @@ from solders.keypair import Keypair
 from solders.system_program import transfer
 
 
-class solana_wallets(Extensions):
+class solana_wallet(Extensions):
     """
     The SolanaWallets extension enables interaction with Solana blockchain wallets using the solana‑py SDK.
     This implementation uses the new solders‑based imports for keypairs, public keys, and system instructions.
