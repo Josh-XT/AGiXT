@@ -18,13 +18,22 @@ class solana_wallets(Extensions):
     def __init__(
         self,
         SOLANA_API_URI: str = "https://api.devnet.solana.com",
-        WALLET_ADDRESS: str = None,
+        WALLET_PRIVATE_KEY: str = None,
         **kwargs,
     ):
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = Client(SOLANA_API_URI)
-        self.wallet_address = WALLET_ADDRESS  # Stored as a base58 string
-        self.wallet_keypair = None  # This will hold the Keypair if created
+
+        # If an existing wallet private key is provided, load the keypair
+        if WALLET_PRIVATE_KEY:
+            # Here we assume the private key is a base58-encoded string.
+            # (You might instead have a hex string; adjust as needed.)
+            self.wallet_keypair = Keypair.from_base58_string(WALLET_PRIVATE_KEY)
+            self.wallet_address = self.wallet_keypair.pubkey().to_string()
+        else:
+            self.wallet_keypair = None
+            self.wallet_address = None
+
         self.commands = {
             "Create Solana Wallet": self.create_wallet,
             "Get Solana Wallet Balance": self.get_wallet_balance,
@@ -39,17 +48,19 @@ class solana_wallets(Extensions):
             "Get Token Price": self.get_token_price,
             "Get Wallet Token Accounts": self.get_wallet_token_accounts,
         }
+        # Additional initialization as needed
 
     async def create_wallet(self):
         """
         Creates a new Solana wallet by generating a new keypair.
-        Updates self.wallet_address and self.wallet_keypair.
+        This method can be used if no wallet was connected via the init params.
         """
         new_keypair = Keypair.generate()
         self.wallet_keypair = new_keypair
-        # Get the public key as a base58 string:
         self.wallet_address = new_keypair.pubkey().to_string()
-        secret_hex = new_keypair.secret().hex()
+        secret_hex = (
+            new_keypair.secret().hex()
+        )  # for display; store securely in practice
         return (
             f"Created new Solana wallet.\n"
             f"Public Key: {self.wallet_address}\n"
