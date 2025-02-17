@@ -3,31 +3,11 @@ import base58
 import json
 from typing import Optional
 import aiohttp
-
-try:
-    from solana.rpc.async_api import AsyncClient
-    from solana.transaction import Transaction
-    from solders.system_program import (
-        TransferParams,
-        transfer,
-        Keypair,
-        Pubkey as PublicKey,
-    )
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "solana"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "base58"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "solders"])
-    from solana.rpc.async_api import AsyncClient
-    from solana.transaction import Transaction
-    from solders.system_program import (
-        TransferParams,
-        transfer,
-        Keypair,
-        Pubkey as PublicKey,
-    )
+from solana.rpc.async_api import AsyncClient
+from solana.transaction import Transaction
+from solders.keypair import Keypair
+from solders.pubkey import Pubkey as PublicKey
+from solders.system_program import TransferParams, transfer
 from Extensions import Extensions
 
 JUPITER_API_URL = "https://quote-api.jup.ag/v6"
