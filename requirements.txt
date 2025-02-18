@@ -64,4 +64,6 @@ watchdog
 strawberry-graphql[fastapi]
 broadcaster
 gql
-pgvector
+solana
+base58
+solders

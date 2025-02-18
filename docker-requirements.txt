@@ -1,3 +1,6 @@
 pyodbc
 pyvirtualdisplay
 requests-toolbelt
+solana
+base58
+solders
