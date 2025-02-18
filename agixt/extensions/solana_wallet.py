@@ -16,10 +16,10 @@ class solana_wallet(Extensions):
 
     def __init__(
         self,
-        WALLET_PRIVATE_KEY: str = None,
+        SOLANA_API_URI: str = "https://api.devnet.solana.com",
+        WALLET_PRIVATE_KEY: str = "",
         **kwargs,
     ):
-        SOLANA_API_URI: str = "https://api.devnet.solana.com"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = Client(SOLANA_API_URI)
 
