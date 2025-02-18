@@ -11,16 +11,15 @@ class solana_wallet(Extensions):
     The SolanaWallets extension enables interaction with Solana blockchain wallets using the solana‑py SDK.
     This implementation uses the new solders‑based imports for keypairs, public keys, and system instructions.
 
-    It accepts a SOLANA_API_URI for the RPC endpoint and an optional initial WALLET_ADDRESS.
-    If no wallet is provided, you can create one using the "Create Solana Wallet" command.
+    The extension supports creating wallets, checking balances, sending SOL, and more.
     """
 
     def __init__(
         self,
-        SOLANA_API_URI: str = "https://api.devnet.solana.com",
         WALLET_PRIVATE_KEY: str = None,
         **kwargs,
     ):
+        SOLANA_API_URI: str = "https://api.devnet.solana.com"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = Client(SOLANA_API_URI)
 
