@@ -47,7 +47,6 @@ class solana_wallet(Extensions):
             "Get Token Price": self.get_token_price,
             "Get Wallet Token Accounts": self.get_wallet_token_accounts,
         }
-        # Additional initialization as needed
 
     async def create_wallet(self):
         """
