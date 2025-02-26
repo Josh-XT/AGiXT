@@ -15,7 +15,7 @@
 [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT)
 [![Pump.fun](https://img.shields.io/badge/Pump.fun-AGiXT-blue)](https://pump.fun/coin/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump)
 
-<img width="540" alt="417306251-654747dd-9f3f-49f8-bc6f-26794a39f18b" src="https://github.com/user-attachments/assets/d5128e8b-2c1f-4c7f-b268-5fcb1b064ec2" />
+![AGiXT_New](https://github.com/user-attachments/assets/14a5c1ae-6af8-4de8-a82e-f24ea52da23f)
 
 
 
