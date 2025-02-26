@@ -15,7 +15,7 @@
 [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT)
 [![Pump.fun](https://img.shields.io/badge/Pump.fun-AGiXT-blue)](https://pump.fun/coin/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump)
 
-<img width="540" alt="417306251-654747dd-9f3f-49f8-bc6f-26794a39f18b" src="https://github.com/user-attachments/assets/d5128e8b-2c1f-4c7f-b268-5fcb1b064ec2" />
+![AGiXT_New](https://github.com/user-attachments/assets/14a5c1ae-6af8-4de8-a82e-f24ea52da23f)
 
 
 
@@ -220,6 +220,13 @@ After setting up the environment variables and ensuring Docker and Docker Compos
 Each AGiXT Agent has its own settings for interfacing with AI providers, and other configuration options. These settings can be set and modified through the web interface.
 
 ## Documentation
+
+Videos
+
+https://github.com/user-attachments/assets/5dceb1b2-dfbc-4c2d-b648-974882eff08d
+
+https://github.com/user-attachments/assets/2111009a-17e0-42e5-bcbc-843d127495e0
+
 
 Need more information? Check out the [documentation](https://josh-xt.github.io/AGiXT) for more details to get a better understanding of the concepts and features of AGiXT.
 
