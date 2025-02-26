@@ -15,8 +15,9 @@
 [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT)
 [![Pump.fun](https://img.shields.io/badge/Pump.fun-AGiXT-blue)](https://pump.fun/coin/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump)
 
+<img width="540" alt="417306251-654747dd-9f3f-49f8-bc6f-26794a39f18b" src="https://github.com/user-attachments/assets/d5128e8b-2c1f-4c7f-b268-5fcb1b064ec2" />
 
-[![Logo](https://josh-xt.github.io/AGiXT/images/AGiXT-gradient-flat.svg)](https://josh-xt.github.io/AGiXT/)
+
 
 AGiXT is a dynamic Artificial Intelligence Automation Platform engineered to orchestrate efficient AI instruction management and task execution across a multitude of providers. Our solution infuses adaptive memory handling with a broad spectrum of commands to enhance AI's understanding and responsiveness, leading to improved task completion. The platform's smart features, like Smart Instruct and Smart Chat, seamlessly integrate web search, planning strategies, and conversation continuity, transforming the interaction between users and AI. By leveraging a powerful plugin system that includes web browsing and command execution, AGiXT stands as a versatile bridge between AI models and users. With an expanding roster of AI providers, code evaluation capabilities, comprehensive chain management, and platform interoperability, AGiXT is consistently evolving to drive a multitude of applications, affirming its place at the forefront of AI technology.
 
