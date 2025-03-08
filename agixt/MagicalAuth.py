@@ -1744,6 +1744,26 @@ class MagicalAuth:
                     .first()
                 )
                 if user:
+                    # check if this user is in this company already
+                    user_company = (
+                        db.query(UserCompany)
+                        .filter(UserCompany.user_id == user.id)
+                        .filter(UserCompany.company_id == invitation.company_id)
+                        .first()
+                    )
+                    if user_company:
+                        return InvitationResponse(
+                            id="none",
+                            invitation_link="none",
+                            email=invitation.email,
+                            company_id=str(invitation.company_id),
+                            role_id=user_company.role_id,
+                            inviter_id=str(self.user_id),
+                            created_at=convert_time(
+                                datetime.now(), user_id=self.user_id
+                            ),
+                            is_accepted=True,
+                        )
                     user_company = UserCompany(
                         user_id=user.id,
                         company_id=invitation.company_id,
