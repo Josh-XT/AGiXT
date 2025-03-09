@@ -464,12 +464,13 @@ async def delete_company(
             detail=f"An error occurred while deleting the company: {str(e)}",
         )
 
+
 # delete user from company
 @app.delete(
     "/v1/companies/{company_id}/users/{user_id}",
     response_model=Detail,
     summary="Remove a user from a company",
-    tags=["Companies"]
+    tags=["Companies"],
 )
 async def delete_user_from_company(
     company_id: str,
@@ -487,6 +488,7 @@ async def delete_user_from_company(
             status_code=500,
             detail=f"An error occurred while removing the user from the company: {str(e)}",
         )
+
 
 @app.get(
     "/v1/companies/{company_id}/extensions",
