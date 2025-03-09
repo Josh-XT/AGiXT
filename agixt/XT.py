@@ -1854,6 +1854,7 @@ class AGiXT:
                         log_output=False,
                         conversation_name=self.conversation_name,
                     )
+                    logging.info(f"New conversation name: {new_convo}")
                     if "```json" not in response and "```" in response:
                         new_convo = new_convo.replace("```", "```json", 1)
                     if "```json" in response:
@@ -1876,6 +1877,7 @@ class AGiXT:
                                 log_user_input=False,
                                 log_output=False,
                             )
+                            logging.info(f"New conversation name #2: {new_convo}")
                             if "```json" not in new_convo and "```" in new_convo:
                                 new_convo = new_convo.replace("```", "```json", 1)
                             if "```json" in response:
@@ -1890,7 +1892,8 @@ class AGiXT:
                                 new_name = datetime.now().strftime(
                                     "Conversation Created %Y-%m-%d %I:%M %p"
                                 )
-                    except:
+                    except Exception as e:
+                        logging.error(f"Error renaming conversation: {e}")
                         new_name = datetime.now().strftime(
                             "Conversation Created %Y-%m-%d %I:%M %p"
                         )
