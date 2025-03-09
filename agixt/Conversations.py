@@ -603,15 +603,22 @@ class Conversations:
                 except:
                     completed_activity_timestamp = None
 
-                # Check if there are any subactivities
+                # Check if there are any subactivities and if there's already a Completed activities message
                 has_subactivities = any(
                     msg.get("message", "").startswith("[SUBACTIVITY]")
                     for msg in conversation_content
                 )
+
+                # Check if a "Completed activities" message already exists in the import
+                has_completed_activities = any(
+                    msg.get("message", "") == "[ACTIVITY] Completed activities."
+                    for msg in conversation_content
+                )
+
                 completed_activity_id = None
 
-                # Create the "Completed activities" message with the earliest timestamp
-                if has_subactivities:
+                # Create the "Completed activities" message only if needed and not already present
+                if has_subactivities and not has_completed_activities:
                     completed_activity_id = self.log_interaction(
                         role=agent_name,
                         message="[ACTIVITY] Completed activities.",
@@ -621,7 +628,7 @@ class Conversations:
                         f"Created completed activities with ID {completed_activity_id} and timestamp {completed_activity_timestamp}"
                     )
 
-                # Process messages in chronological order
+                # Process regular messages
                 for interaction in conversation_content:
                     message = interaction.get("message", "")
 
@@ -629,19 +636,34 @@ class Conversations:
                     if message.startswith("[SUBACTIVITY]"):
                         continue
 
-                    # Normal message processing
-                    self.log_interaction(
-                        role=interaction["role"],
-                        message=message,
-                        timestamp=interaction.get("timestamp"),
-                    )
+                    # If this is a "Completed activities" message from the import, save its ID
+                    if (
+                        message == "[ACTIVITY] Completed activities."
+                        and not completed_activity_id
+                    ):
+                        message_id = self.log_interaction(
+                            role=interaction["role"],
+                            message=message,
+                            timestamp=interaction.get("timestamp"),
+                        )
+                        completed_activity_id = message_id
+                        logging.info(
+                            f"Using existing completed activities with ID {completed_activity_id}"
+                        )
+                    else:
+                        # Normal message processing
+                        self.log_interaction(
+                            role=interaction["role"],
+                            message=message,
+                            timestamp=interaction.get("timestamp"),
+                        )
 
                 # Now process subactivities, attaching to completed_activity_id
-                for interaction in conversation_content:
-                    message = interaction.get("message", "")
+                if completed_activity_id:
+                    for interaction in conversation_content:
+                        message = interaction.get("message", "")
 
-                    if message.startswith("[SUBACTIVITY]"):
-                        if completed_activity_id:
+                        if message.startswith("[SUBACTIVITY]"):
                             # Extract the content part after the subactivity ID
                             try:
                                 # Find where the message type starts (after the second ])
@@ -667,17 +689,17 @@ class Conversations:
                                     message=f"[SUBACTIVITY][{completed_activity_id}] {message.replace('[SUBACTIVITY]', '').lstrip()}",
                                     timestamp=interaction.get("timestamp"),
                                 )
-        else:
-            conversation = existing_conversation
-            conversation_id = existing_conversation.id
-        response = conversation.__dict__
-        response = {
-            key: value for key, value in response.items() if not key.startswith("_")
-        }
-        if "id" not in response:
-            response["id"] = conversation_id
-        session.close()
-        return response
+            else:
+                conversation = existing_conversation
+                conversation_id = existing_conversation.id
+            response = conversation.__dict__
+            response = {
+                key: value for key, value in response.items() if not key.startswith("_")
+            }
+            if "id" not in response:
+                response["id"] = conversation_id
+            session.close()
+            return response
 
     def get_thinking_id(self, agent_name):
         session = get_session()
