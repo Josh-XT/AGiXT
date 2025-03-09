@@ -21,6 +21,7 @@ from Models import (
     ConversationListResponse,
     ConversationDetailResponse,
     ConversationHistoryResponse,
+    NewConversationHistoryResponse
     NotificationResponse,
     MessageIdResponse,
 )
@@ -171,7 +172,7 @@ async def get_conversation_data(
 
 @app.post(
     "/api/conversation",
-    response_model=ConversationHistoryResponse,
+    response_model=NewConversationHistoryResponse,
     summary="Create New Conversation",
     description="Creates a new conversation with initial content.",
     tags=["Conversation"],
