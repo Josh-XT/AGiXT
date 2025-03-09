@@ -416,7 +416,7 @@ class Interactions:
             agent_commands = self.agent.get_commands_prompt(
                 conversation_id=conversation_id
             )
-        if "72" in kwargs and kwargs["42"] in kwargs:
+        if "72" in kwargs and "42" in kwargs:
             if kwargs["72"] == True and kwargs["42"] == True:
                 formatted_prompt = user_input
         formatted_prompt = self.custom_format(
