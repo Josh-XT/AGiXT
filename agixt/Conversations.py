@@ -554,7 +554,23 @@ class Conversations:
             session.add(conversation)
             session.commit()
 
-            if conversation_content != []:
+            if conversation_content:
+                # Sort by timestamp to ensure chronological order
+                try:
+                    from dateutil import parser
+
+                    # Try to sort by timestamp if available
+                    conversation_content = sorted(
+                        conversation_content,
+                        key=lambda x: (
+                            parser.parse(x.get("timestamp", ""))
+                            if x.get("timestamp")
+                            else parser.parse("2099-01-01")
+                        ),
+                    )
+                except Exception as e:
+                    logging.warning(f"Could not sort by timestamp: {e}")
+
                 # Find agent name from the first non-user message or use default
                 agent_name = "XT"  # Default agent name
                 for msg in conversation_content:
@@ -562,19 +578,50 @@ class Conversations:
                         agent_name = msg.get("role")
                         break
 
-                # First create a "Completed activities" message if importing subactivities
+                # Find the earliest timestamp in the conversation
+                earliest_timestamp = None
+                try:
+                    for msg in conversation_content:
+                        if msg.get("timestamp"):
+                            timestamp = parser.parse(msg.get("timestamp"))
+                            if (
+                                earliest_timestamp is None
+                                or timestamp < earliest_timestamp
+                            ):
+                                earliest_timestamp = timestamp
+
+                    # If we found timestamps, make the completed activity slightly earlier
+                    if earliest_timestamp:
+                        import datetime
+
+                        # Make it 1 second earlier than the earliest message
+                        completed_activity_timestamp = (
+                            earliest_timestamp - datetime.timedelta(seconds=1)
+                        ).isoformat()
+                    else:
+                        completed_activity_timestamp = None
+                except:
+                    completed_activity_timestamp = None
+
+                # Check if there are any subactivities
                 has_subactivities = any(
                     msg.get("message", "").startswith("[SUBACTIVITY]")
                     for msg in conversation_content
                 )
                 completed_activity_id = None
 
+                # Create the "Completed activities" message with the earliest timestamp
                 if has_subactivities:
                     completed_activity_id = self.log_interaction(
-                        role=agent_name, message="[ACTIVITY] Completed activities."
+                        role=agent_name,
+                        message="[ACTIVITY] Completed activities.",
+                        timestamp=completed_activity_timestamp,
+                    )
+                    logging.info(
+                        f"Created completed activities with ID {completed_activity_id} and timestamp {completed_activity_timestamp}"
                     )
 
-                # Process regular messages first
+                # Process messages in chronological order
                 for interaction in conversation_content:
                     message = interaction.get("message", "")
 
@@ -594,29 +641,30 @@ class Conversations:
                     message = interaction.get("message", "")
 
                     if message.startswith("[SUBACTIVITY]"):
-                        # Replace the subactivity ID with our completed_activity_id
                         if completed_activity_id:
-                            # Extract just the type and content after the ID
+                            # Extract the content part after the subactivity ID
                             try:
-                                # Find the second ] which marks the end of the ID part
-                                type_start = (
-                                    message.find("]", message.find("]") + 1) + 1
-                                )
-                                # Get the message type and content
-                                message_content = message[type_start:]
-                                # Construct new message with completed_activity_id
-                                new_message = f"[SUBACTIVITY][{completed_activity_id}]{message_content}"
+                                # Find where the message type starts (after the second ])
+                                parts = message.split("]", 2)
+                                if len(parts) >= 3:
+                                    # Format: [SUBACTIVITY][id][TYPE] content
+                                    message_type_and_content = parts[2]
+                                    new_message = f"[SUBACTIVITY][{completed_activity_id}][{message_type_and_content}"
+                                else:
+                                    # Fallback if format is different
+                                    new_message = f"[SUBACTIVITY][{completed_activity_id}] {message.split(']', 2)[-1]}"
 
                                 self.log_interaction(
                                     role=interaction["role"],
                                     message=new_message,
                                     timestamp=interaction.get("timestamp"),
                                 )
-                            except:
-                                # If parsing fails, just log as is
+                            except Exception as e:
+                                logging.error(f"Error processing subactivity: {e}")
+                                # If parsing fails, try a simpler approach
                                 self.log_interaction(
                                     role=interaction["role"],
-                                    message=message,
+                                    message=f"[SUBACTIVITY][{completed_activity_id}] {message.replace('[SUBACTIVITY]', '').lstrip()}",
                                     timestamp=interaction.get("timestamp"),
                                 )
         else:
