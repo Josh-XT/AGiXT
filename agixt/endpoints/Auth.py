@@ -464,6 +464,29 @@ async def delete_company(
             detail=f"An error occurred while deleting the company: {str(e)}",
         )
 
+# delete user from company
+@app.delete(
+    "/v1/companies/{company_id}/users/{user_id}",
+    response_model=Detail,
+    summary="Remove a user from a company",
+    tags=["Companies"]
+)
+async def delete_user_from_company(
+    company_id: str,
+    user_id: str,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        result = auth.delete_user_from_company(company_id, user_id)
+        return Detail(detail=result)
+    except Exception as e:
+        logging.error(f"Error in delete_user_from_company endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while removing the user from the company: {str(e)}",
+        )
 
 @app.get(
     "/v1/companies/{company_id}/extensions",
