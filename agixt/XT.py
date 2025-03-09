@@ -1888,6 +1888,10 @@ class AGiXT:
                     if "#" in new_name:
                         new_name = str(new_name).replace("#", "")
                     self.conversation_name = c.rename_conversation(new_name=new_name)
+        if isinstance(response, dict):
+            response = json.dumps(response, indent=2)
+        if not isinstance(response, str):
+            response = str(response)
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
