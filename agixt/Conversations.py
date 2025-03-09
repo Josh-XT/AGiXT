@@ -826,8 +826,6 @@ class Conversations:
                     # If parsing fails, just log it and continue with auto timestamps
                     logging.warning(f"Could not parse timestamp: {timestamp}")
 
-            # Update the conversation's updated_at timestamp
-            conversation["updated_at"] = func.now()
         except Exception as e:
             conversation = self.new_conversation()
             session.close()
@@ -838,8 +836,6 @@ class Conversations:
                 conversation_id=conversation_id,
                 notify=notify,
             )
-            # Update the conversation's updated_at timestamp
-            conversation["updated_at"] = func.now()
 
         session.add(new_message)
         session.commit()
