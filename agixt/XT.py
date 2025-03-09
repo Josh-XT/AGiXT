@@ -1837,7 +1837,6 @@ class AGiXT:
                 )
                 if self.conversation_name == "-":
                     # Rename the conversation
-
                     new_name = datetime.now().strftime(
                         "Conversation Created %Y-%m-%d %I:%M %p"
                     )
@@ -1854,18 +1853,41 @@ class AGiXT:
                         log_output=False,
                         conversation_name=self.conversation_name,
                     )
+
                     logging.info(f"New conversation name: {new_convo}")
-                    if "```json" not in response and "```" in response:
-                        new_convo = new_convo.replace("```", "```json", 1)
-                    if "```json" in response:
-                        new_convo = (
-                            new_convo.split("```json")[1].split("```")[0].strip()
-                        )
+
+                    # Extract JSON from the response
                     try:
-                        new_convo = json.loads(new_convo)
-                        new_name = new_convo["suggested_conversation_name"]
+                        # Check if the response contains a code block with JSON
+                        if "```json" in new_convo:
+                            json_text = (
+                                new_convo.split("```json")[1].split("```")[0].strip()
+                            )
+                        elif "```" in new_convo:
+                            # Check for plain code block that might contain JSON
+                            json_text = (
+                                new_convo.split("```")[1].split("```")[0].strip()
+                            )
+                        else:
+                            # If no code block, try to extract anything that looks like JSON
+                            json_start = new_convo.find("{")
+                            json_end = new_convo.rfind("}")
+                            if (
+                                json_start != -1
+                                and json_end != -1
+                                and json_end > json_start
+                            ):
+                                json_text = new_convo[json_start : json_end + 1]
+                            else:
+                                raise ValueError("No valid JSON found in response")
+
+                        # Parse the JSON
+                        parsed_json = json.loads(json_text)
+                        new_name = parsed_json.get(
+                            "suggested_conversation_name", new_name
+                        )
                         if new_name in conversation_list:
-                            # Do not use {new_name}!
+                            # Do not use the same name
                             new_convo = await self.inference(
                                 user_input=f"**Do not use {new_name}!**",
                                 prompt_name="Name Conversation",
@@ -1877,17 +1899,39 @@ class AGiXT:
                                 log_user_input=False,
                                 log_output=False,
                             )
+
                             logging.info(f"New conversation name #2: {new_convo}")
-                            if "```json" not in new_convo and "```" in new_convo:
-                                new_convo = new_convo.replace("```", "```json", 1)
-                            if "```json" in response:
-                                new_convo = (
+
+                            # Extract JSON again with same robust method
+                            if "```json" in new_convo:
+                                json_text = (
                                     new_convo.split("```json")[1]
                                     .split("```")[0]
                                     .strip()
                                 )
-                            new_convo = json.loads(new_convo)
-                            new_name = new_convo["suggested_conversation_name"]
+                            elif "```" in new_convo:
+                                json_text = (
+                                    new_convo.split("```")[1].split("```")[0].strip()
+                                )
+                            else:
+                                json_start = new_convo.find("{")
+                                json_end = new_convo.rfind("}")
+                                if (
+                                    json_start != -1
+                                    and json_end != -1
+                                    and json_end > json_start
+                                ):
+                                    json_text = new_convo[json_start : json_end + 1]
+                                else:
+                                    raise ValueError(
+                                        "No valid JSON found in second response"
+                                    )
+
+                            parsed_json = json.loads(json_text)
+                            new_name = parsed_json.get(
+                                "suggested_conversation_name", new_name
+                            )
+
                             if new_name in conversation_list:
                                 new_name = datetime.now().strftime(
                                     "Conversation Created %Y-%m-%d %I:%M %p"
@@ -1897,9 +1941,8 @@ class AGiXT:
 
                         traceback.print_exc()
                         logging.error(f"Error renaming conversation: {e}")
-                        new_name = datetime.now().strftime(
-                            "Conversation Created %Y-%m-%d %I:%M %p"
-                        )
+                        if new_convo:
+                            new_name = str(new_convo)
                     c.set_conversation_summary(summary=new_name)
                     self.conversation_name = c.rename_conversation(new_name=new_name)
         if isinstance(response, dict):
