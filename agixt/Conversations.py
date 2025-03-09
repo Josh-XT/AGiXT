@@ -805,11 +805,12 @@ class Conversations:
             message = message[:-1]
         if message.endswith("\n"):
             message = message[:-1]
+        conversation_id = self.get_conversation_id()
         try:
             new_message = Message(
                 role=role,
                 content=message,
-                conversation_id=conversation["id"],
+                conversation_id=conversation_id,
                 notify=notify,
             )
             # Use the provided timestamp if one is given
@@ -834,7 +835,7 @@ class Conversations:
             new_message = Message(
                 role=role,
                 content=message,
-                conversation_id=conversation["id"],
+                conversation_id=conversation_id,
                 notify=notify,
             )
             # Update the conversation's updated_at timestamp
