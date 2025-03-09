@@ -794,7 +794,7 @@ class Conversations:
             conversation = self.new_conversation()
             session.close()
             session = get_session()
-        if not isinstance(conversation, dict):
+        else:
             conversation = conversation.__dict__
             conversation = {
                 key: value
