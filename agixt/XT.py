@@ -1,6 +1,5 @@
 from Interactions import Interactions
 from ApiClient import get_api_client, Conversations, Prompts, Chain
-from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from Memories import Memories
 from Extensions import Extensions
 from pydub import AudioSegment
@@ -1838,6 +1837,7 @@ class AGiXT:
                 )
                 if self.conversation_name == "-":
                     # Rename the conversation
+
                     new_name = datetime.now().strftime(
                         "Conversation Created %Y-%m-%d %I:%M %p"
                     )
@@ -1863,22 +1863,37 @@ class AGiXT:
                     try:
                         new_convo = json.loads(new_convo)
                         new_name = new_convo["suggested_conversation_name"]
-
                         if new_name in conversation_list:
-                            i = 1
-                            while new_name in conversation_list:
-                                new_name = (
-                                    new_convo["suggested_conversation_name"]
-                                    + " "
-                                    + datetime.now().strftime("%Y-%m-%d %I:%M %p")
+                            # Do not use {new_name}!
+                            new_convo = await self.inference(
+                                user_input=f"**Do not use {new_name}!**",
+                                prompt_name="Name Conversation",
+                                conversation_list="\n".join(conversation_list),
+                                conversation_results=10,
+                                websearch=False,
+                                browse_links=False,
+                                voice_response=False,
+                                log_user_input=False,
+                                log_output=False,
+                            )
+                            if "```json" not in new_convo and "```" in new_convo:
+                                new_convo = new_convo.replace("```", "```json", 1)
+                            if "```json" in response:
+                                new_convo = (
+                                    new_convo.split("```json")[1]
+                                    .split("```")[0]
+                                    .strip()
                                 )
-                                i += 1
+                            new_convo = json.loads(new_convo)
+                            new_name = new_convo["suggested_conversation_name"]
+                            if new_name in conversation_list:
+                                new_name = datetime.now().strftime(
+                                    "Conversation Created %Y-%m-%d %I:%M %p"
+                                )
                     except:
                         new_name = datetime.now().strftime(
                             "Conversation Created %Y-%m-%d %I:%M %p"
                         )
-                    if "#" in new_name:
-                        new_name = str(new_name).replace("#", "")
                     c.set_conversation_summary(summary=new_name)
                     self.conversation_name = c.rename_conversation(new_name=new_name)
         if isinstance(response, dict):
