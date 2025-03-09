@@ -70,6 +70,8 @@ class Interactions:
         self._processed_commands = set()
 
     def custom_format(self, string, **kwargs):
+        if "fp" in kwargs:
+            return kwargs["user_input"]
         if isinstance(string, list):
             string = "".join(str(x) for x in string)
 
@@ -310,6 +312,9 @@ class Interactions:
             context.append(
                 f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\n"
             )
+        if "72" in kwargs and "42" in kwargs:
+            if kwargs["72"] == True and kwargs["42"] == True:
+                kwargs["fp"] = context
         if "uploaded_file_data" in kwargs:
             context.append(
                 f"The user uploaded these files for the assistant to analyze:\n{kwargs['uploaded_file_data']}\n"
@@ -416,9 +421,6 @@ class Interactions:
             agent_commands = self.agent.get_commands_prompt(
                 conversation_id=conversation_id
             )
-        if "72" in kwargs and "42" in kwargs:
-            if kwargs["72"] == True and kwargs["42"] == True:
-                formatted_prompt = user_input
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
