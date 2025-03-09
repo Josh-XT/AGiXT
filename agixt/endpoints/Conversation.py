@@ -184,7 +184,12 @@ async def new_conversation_history(
     Conversations(
         conversation_name=history.conversation_name, user=user
     ).new_conversation(conversation_content=history.conversation_content)
-    return {"conversation_history": history.conversation_content}
+    return {
+        "id": get_conversation_id_by_name(
+            conversation_name=history.conversation_name, user_id=get_user_id(user)
+        ),
+        "conversation_history": history.conversation_content,
+    }
 
 
 @app.delete(
