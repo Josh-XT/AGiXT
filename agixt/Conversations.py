@@ -547,12 +547,12 @@ class Conversations:
             )
             .first()
         )
-
         if not existing_conversation:
             # Create a new conversation
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
             session.add(conversation)
             session.commit()
+            conversation_id = conversation.id
 
             if conversation_content:
                 # Sort by timestamp to ensure chronological order
@@ -669,10 +669,13 @@ class Conversations:
                                 )
         else:
             conversation = existing_conversation
+            conversation_id = existing_conversation.id
         response = conversation.__dict__
         response = {
             key: value for key, value in response.items() if not key.startswith("_")
         }
+        if "id" not in response:
+            response["id"] = conversation_id
         session.close()
         return response
 
