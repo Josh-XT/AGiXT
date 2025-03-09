@@ -1893,6 +1893,9 @@ class AGiXT:
                                     "Conversation Created %Y-%m-%d %I:%M %p"
                                 )
                     except Exception as e:
+                        import traceback
+
+                        traceback.print_exc()
                         logging.error(f"Error renaming conversation: {e}")
                         new_name = datetime.now().strftime(
                             "Conversation Created %Y-%m-%d %I:%M %p"
