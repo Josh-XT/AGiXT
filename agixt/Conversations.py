@@ -5,12 +5,10 @@ from DB import (
     Agent,
     Message,
     User,
-    UserPreferences,
     get_session,
 )
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func
-import pytz
 from MagicalAuth import convert_time
 
 logging.basicConfig(
@@ -555,9 +553,11 @@ class Conversations:
             session.commit()
             if conversation_content != []:
                 for interaction in conversation_content:
+                    timestamp = interaction.get("timestamp")
                     self.log_interaction(
                         role=interaction["role"],
                         message=interaction["message"],
+                        timestamp=timestamp,
                     )
         else:
             conversation = existing_conversation
@@ -637,7 +637,7 @@ class Conversations:
         session.close()
         return str(thinking_id)
 
-    def log_interaction(self, role, message):
+    def log_interaction(self, role, message, timestamp=None):
         message = str(message)
         if str(message).startswith("[SUBACTIVITY] "):
             try:
@@ -684,6 +684,19 @@ class Conversations:
                 conversation_id=conversation.id,
                 notify=notify,
             )
+            # Use the provided timestamp if one is given
+            if timestamp:
+                try:
+                    # Try to parse the timestamp - it might be in various formats
+                    from dateutil import parser
+
+                    parsed_time = parser.parse(timestamp)
+                    new_message.timestamp = parsed_time
+                    new_message.updated_at = parsed_time
+                except:
+                    # If parsing fails, just log it and continue with auto timestamps
+                    logging.warning(f"Could not parse timestamp: {timestamp}")
+
             # Update the conversation's updated_at timestamp
             conversation.updated_at = func.now()
         except Exception as e:
