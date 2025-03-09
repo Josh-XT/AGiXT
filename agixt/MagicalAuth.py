@@ -884,6 +884,47 @@ class MagicalAuth:
         session.close()
         return "Company deleted successfully"
 
+    def delete_user_from_company(self, company_id: str, target_user_id: str):
+        self.validate_user()
+        session = get_session()
+        caller_role = self.get_user_role(company_id)
+        if not caller_role or caller_role > 2:
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions to remove users."
+            )
+            
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Company not accessible to user."
+            )
+
+        user_company = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id == company_id)
+            .filter(UserCompany.user_id == target_user_id)
+            .first()
+        )
+        
+        if not user_company:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found in the specified company"
+            )
+            
+        # Prevent self-deletion for company admins
+        if str(target_user_id) == str(self.user_id) and caller_role <= 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Company admins cannot remove themselves"
+            )
+            
+        session.delete(user_company)
+        session.commit()
+        
+        return "User removed from company successfully"
+
     def delete_user(self):
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
