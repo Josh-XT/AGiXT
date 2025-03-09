@@ -185,7 +185,7 @@ async def new_conversation_history(
         conversation_name=history.conversation_name, user=user
     ).new_conversation(conversation_content=history.conversation_content)
     return {
-        "id": conversation.id,
+        "id": conversation["id"],
         "conversation_history": history.conversation_content,
     }
 
