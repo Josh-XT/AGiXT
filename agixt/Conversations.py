@@ -551,14 +551,79 @@ class Conversations:
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
             session.add(conversation)
             session.commit()
+
             if conversation_content != []:
+                # Process the activities first, store the mapping of old ID to new ID
+                id_mapping = {}
+                activity_messages = []
+                subactivity_messages = []
+
+                # First pass: separate activities and subactivities, log activities
                 for interaction in conversation_content:
-                    timestamp = interaction.get("timestamp")
-                    self.log_interaction(
-                        role=interaction["role"],
-                        message=interaction["message"],
-                        timestamp=timestamp,
-                    )
+                    message = interaction.get("message", "")
+                    if message.startswith("[ACTIVITY]"):
+                        # Log activity and save the mapping
+                        new_id = self.log_interaction(
+                            role=interaction["role"],
+                            message=interaction["message"],
+                            timestamp=interaction.get("timestamp"),
+                        )
+
+                        # If the activity has an ID in the original data, store the mapping
+                        if "id" in interaction:
+                            id_mapping[interaction["id"]] = new_id
+
+                        activity_messages.append(interaction)
+                    elif message.startswith("[SUBACTIVITY]"):
+                        subactivity_messages.append(interaction)
+                    else:
+                        # Regular messages can be logged directly
+                        self.log_interaction(
+                            role=interaction["role"],
+                            message=interaction["message"],
+                            timestamp=interaction.get("timestamp"),
+                        )
+
+                # Second pass: log subactivities with updated parent IDs
+                for interaction in subactivity_messages:
+                    message = interaction.get("message", "")
+                    if message.startswith("[SUBACTIVITY]"):
+                        # Extract the parent ID from the message
+                        try:
+                            parent_start = message.find("[SUBACTIVITY][") + len(
+                                "[SUBACTIVITY]["
+                            )
+                            parent_end = message.find("]", parent_start)
+                            parent_id = message[parent_start:parent_end]
+
+                            # Replace with new parent ID if available, otherwise use the first activity
+                            new_parent_id = id_mapping.get(parent_id)
+                            if not new_parent_id and activity_messages:
+                                # If no matching ID found, use the first thinking activity ID
+                                new_parent_id = self.get_thinking_id(
+                                    interaction["role"]
+                                )
+
+                            if new_parent_id:
+                                # Replace the parent ID in the message
+                                new_message = message.replace(
+                                    f"[SUBACTIVITY][{parent_id}]",
+                                    f"[SUBACTIVITY][{new_parent_id}]",
+                                )
+
+                                # Log the updated message
+                                self.log_interaction(
+                                    role=interaction["role"],
+                                    message=new_message,
+                                    timestamp=interaction.get("timestamp"),
+                                )
+                        except:
+                            # If there's an error, just log it as is
+                            self.log_interaction(
+                                role=interaction["role"],
+                                message=interaction["message"],
+                                timestamp=interaction.get("timestamp"),
+                            )
         else:
             conversation = existing_conversation
         session.close()
