@@ -1842,7 +1842,7 @@ class AGiXT:
                         "Conversation Created %Y-%m-%d %I:%M %p"
                     )
                     conversation_list = c.get_conversations()
-                    response = await self.inference(
+                    new_convo = await self.inference(
                         user_input=f"Rename conversation",
                         prompt_name="Name Conversation",
                         conversation_list="\n".join(conversation_list),
@@ -1855,18 +1855,20 @@ class AGiXT:
                         conversation_name=self.conversation_name,
                     )
                     if "```json" not in response and "```" in response:
-                        response = response.replace("```", "```json", 1)
+                        new_convo = new_convo.replace("```", "```json", 1)
                     if "```json" in response:
-                        response = response.split("```json")[1].split("```")[0].strip()
+                        new_convo = (
+                            new_convo.split("```json")[1].split("```")[0].strip()
+                        )
                     try:
-                        response = json.loads(response)
-                        new_name = response["suggested_conversation_name"]
+                        new_convo = json.loads(new_convo)
+                        new_name = new_convo["suggested_conversation_name"]
 
                         if new_name in conversation_list:
                             i = 1
                             while new_name in conversation_list:
                                 new_name = (
-                                    response["suggested_conversation_name"]
+                                    new_convo["suggested_conversation_name"]
                                     + " "
                                     + datetime.now().strftime("%Y-%m-%d %I:%M %p")
                                 )
