@@ -1798,30 +1798,36 @@ class AGiXT:
             if log_output:
                 if thoughts_and_reflections:
                     # Before logging the response, lets get all activities matching the `thinking_id` mermaid diagram
-                    activities = c.get_subactivities(thinking_id)
-                    if activities:
-                        activity_prompt = f"{new_prompt}\n\n{activities}\n\nReview the detailed activities list and create a mermaid diagram that describes the paths taken during the detailed activities that were performed based on the user input. This mermaid diagram should start with ```mermaid\nContent of the diagram\n```\ninside of the <answer> block as the final response. The activities describe the thoughts in steps that ultimately led to the response from the assistant to the user based on the user input. Be as detailed as possible with the diagram. Ensure each item in the diagram is in quotes."
-                        mermaid_diagram = await self.inference(
-                            user_input=activity_prompt,
-                            prompt_category="Default",
-                            prompt_name="Think About It",
-                            log_output=False,
-                            log_user_input=False,
-                            voice_response=False,
-                            analyze_user_input=False,
-                            browse_links=False,
-                            websearch=False,
-                            disable_commands=True,
-                            conversation_name=self.conversation_name,
+                    enable_mermaid = False
+                    if "enable_mermaid" in self.agent_settings:
+                        enable_mermaid = (
+                            str(self.agent_settings["enable_mermaid"]).lower() == "true"
                         )
-                        if mermaid_diagram:
-                            mermaid_diagram = mermaid_diagram.split("<answer>")[
-                                -1
-                            ].split("</answer>")[0]
-                            c.log_interaction(
-                                role=self.agent_name,
-                                message=f"[SUBACTIVITY][{thinking_id}][DIAGRAM] Generated diagram describing thoughts.\n{mermaid_diagram}",
+                    if enable_mermaid:
+                        activities = c.get_subactivities(thinking_id)
+                        if activities:
+                            activity_prompt = f"{new_prompt}\n\n{activities}\n\nReview the detailed activities list and create a mermaid diagram that describes the paths taken during the detailed activities that were performed based on the user input. This mermaid diagram should start with ```mermaid\nContent of the diagram\n```\ninside of the <answer> block as the final response. The activities describe the thoughts in steps that ultimately led to the response from the assistant to the user based on the user input. Be as detailed as possible with the diagram. Ensure each item in the diagram is in quotes."
+                            mermaid_diagram = await self.inference(
+                                user_input=activity_prompt,
+                                prompt_category="Default",
+                                prompt_name="Think About It",
+                                log_output=False,
+                                log_user_input=False,
+                                voice_response=False,
+                                analyze_user_input=False,
+                                browse_links=False,
+                                websearch=False,
+                                disable_commands=True,
+                                conversation_name=self.conversation_name,
                             )
+                            if mermaid_diagram:
+                                mermaid_diagram = mermaid_diagram.split("<answer>")[
+                                    -1
+                                ].split("</answer>")[0]
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[SUBACTIVITY][{thinking_id}][DIAGRAM] Generated diagram describing thoughts.\n{mermaid_diagram}",
+                                )
                         c.update_message_by_id(
                             message_id=thinking_id,
                             new_message=f"[ACTIVITY] Completed activities.",
@@ -1830,22 +1836,6 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
-                # Update the conversation summary
-                new_summary = await self.inference(
-                    user_input=new_prompt,
-                    prompt_category="Default",
-                    prompt_name="Summarize Conversation",
-                    assistant_response=response,
-                    log_output=False,
-                    log_user_input=False,
-                    voice_response=False,
-                    analyze_user_input=False,
-                    browse_links=False,
-                    websearch=False,
-                    disable_commands=True,
-                    conversation_name=self.conversation_name,
-                )
-                c.set_conversation_summary(new_summary)
                 if self.conversation_name == "-":
                     # Rename the conversation
                     new_name = datetime.now().strftime(
@@ -1887,6 +1877,7 @@ class AGiXT:
                         )
                     if "#" in new_name:
                         new_name = str(new_name).replace("#", "")
+                    c.set_conversation_summary(summary=new_name)
                     self.conversation_name = c.rename_conversation(new_name=new_name)
         if isinstance(response, dict):
             response = json.dumps(response, indent=2)
