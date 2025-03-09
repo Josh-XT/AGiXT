@@ -669,9 +669,12 @@ class Conversations:
                                 )
         else:
             conversation = existing_conversation
-
+        response = conversation.__dict__
+        response = {
+            key: value for key, value in response.items() if not key.startswith("_")
+        }
         session.close()
-        return conversation
+        return response
 
     def get_thinking_id(self, agent_name):
         session = get_session()
