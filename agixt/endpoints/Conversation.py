@@ -182,11 +182,10 @@ async def new_conversation_history(
     history: ConversationHistoryModel,
     user=Depends(verify_api_key),
 ):
-    conversation = Conversations(
-        conversation_name=history.conversation_name, user=user
-    ).new_conversation(conversation_content=history.conversation_content)
+    c = Conversations(conversation_name=history.conversation_name, user=user)
+    c.new_conversation(conversation_content=history.conversation_content)
     return {
-        "id": conversation["id"],
+        "id": c.get_conversation_id(),
         "conversation_history": history.conversation_content,
     }
 
