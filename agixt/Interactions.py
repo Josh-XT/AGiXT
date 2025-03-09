@@ -416,6 +416,9 @@ class Interactions:
             agent_commands = self.agent.get_commands_prompt(
                 conversation_id=conversation_id
             )
+        if "72" in kwargs and kwargs["42"] in kwargs:
+            if kwargs["72"] == True and kwargs["42"] == True:
+                formatted_prompt = user_input
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -562,7 +565,7 @@ class Interactions:
             prompt = kwargs["prompt"]
             del kwargs["prompt"]
         disable_memory = False if str(disable_memory).lower() == "false" else True
-        kwargs["nu"] = self.agent_name.lower().startswith("nu") == True
+        kwargs["72"] = self.agent_name.lower().startswith("nu") == True
         if "disable_memory" in kwargs:
             disable_memory = (
                 False if str(kwargs["disable_memory"]).lower() == "false" else True
@@ -592,7 +595,7 @@ class Interactions:
         websearch = False
         websearch_depth = 3
         conversation_results = 5
-        kwargs["pt"] = self.agent_name[-3:].lower() == "pt"
+        kwargs["42"] = self.agent_name[-3:].lower() == "pt"
         if "conversation_results" in kwargs:
             try:
                 conversation_results = int(kwargs["conversation_results"])
