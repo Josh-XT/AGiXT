@@ -537,7 +537,8 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
-        # Check if the conversation already exists for the agent
+
+        # Check if the conversation already exists
         existing_conversation = (
             session.query(Conversation)
             .filter(
@@ -546,6 +547,7 @@ class Conversations:
             )
             .first()
         )
+
         if not existing_conversation:
             # Create a new conversation
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
@@ -553,79 +555,73 @@ class Conversations:
             session.commit()
 
             if conversation_content != []:
-                # Process the activities first, store the mapping of old ID to new ID
-                id_mapping = {}
-                activity_messages = []
-                subactivity_messages = []
+                # Find agent name from the first non-user message or use default
+                agent_name = "XT"  # Default agent name
+                for msg in conversation_content:
+                    if msg.get("role", "").upper() != "USER":
+                        agent_name = msg.get("role")
+                        break
 
-                # First pass: separate activities and subactivities, log activities
+                # First create a "Completed activities" message if importing subactivities
+                has_subactivities = any(
+                    msg.get("message", "").startswith("[SUBACTIVITY]")
+                    for msg in conversation_content
+                )
+                completed_activity_id = None
+
+                if has_subactivities:
+                    completed_activity_id = self.log_interaction(
+                        role=agent_name, message="[ACTIVITY] Completed activities."
+                    )
+
+                # Process regular messages first
                 for interaction in conversation_content:
                     message = interaction.get("message", "")
-                    if message.startswith("[ACTIVITY]"):
-                        # Log activity and save the mapping
-                        new_id = self.log_interaction(
-                            role=interaction["role"],
-                            message=interaction["message"],
-                            timestamp=interaction.get("timestamp"),
-                        )
 
-                        # If the activity has an ID in the original data, store the mapping
-                        if "id" in interaction:
-                            id_mapping[interaction["id"]] = new_id
-
-                        activity_messages.append(interaction)
-                    elif message.startswith("[SUBACTIVITY]"):
-                        subactivity_messages.append(interaction)
-                    else:
-                        # Regular messages can be logged directly
-                        self.log_interaction(
-                            role=interaction["role"],
-                            message=interaction["message"],
-                            timestamp=interaction.get("timestamp"),
-                        )
-
-                # Second pass: log subactivities with updated parent IDs
-                for interaction in subactivity_messages:
-                    message = interaction.get("message", "")
+                    # Skip subactivities for now
                     if message.startswith("[SUBACTIVITY]"):
-                        # Extract the parent ID from the message
-                        try:
-                            parent_start = message.find("[SUBACTIVITY][") + len(
-                                "[SUBACTIVITY]["
-                            )
-                            parent_end = message.find("]", parent_start)
-                            parent_id = message[parent_start:parent_end]
+                        continue
 
-                            # Replace with new parent ID if available, otherwise use the first activity
-                            new_parent_id = id_mapping.get(parent_id)
-                            if not new_parent_id and activity_messages:
-                                # If no matching ID found, use the first thinking activity ID
-                                new_parent_id = self.get_thinking_id(
-                                    interaction["role"]
+                    # Normal message processing
+                    self.log_interaction(
+                        role=interaction["role"],
+                        message=message,
+                        timestamp=interaction.get("timestamp"),
+                    )
+
+                # Now process subactivities, attaching to completed_activity_id
+                for interaction in conversation_content:
+                    message = interaction.get("message", "")
+
+                    if message.startswith("[SUBACTIVITY]"):
+                        # Replace the subactivity ID with our completed_activity_id
+                        if completed_activity_id:
+                            # Extract just the type and content after the ID
+                            try:
+                                # Find the second ] which marks the end of the ID part
+                                type_start = (
+                                    message.find("]", message.find("]") + 1) + 1
                                 )
+                                # Get the message type and content
+                                message_content = message[type_start:]
+                                # Construct new message with completed_activity_id
+                                new_message = f"[SUBACTIVITY][{completed_activity_id}]{message_content}"
 
-                            if new_parent_id:
-                                # Replace the parent ID in the message
-                                new_message = message.replace(
-                                    f"[SUBACTIVITY][{parent_id}]",
-                                    f"[SUBACTIVITY][{new_parent_id}]",
-                                )
-
-                                # Log the updated message
                                 self.log_interaction(
                                     role=interaction["role"],
                                     message=new_message,
                                     timestamp=interaction.get("timestamp"),
                                 )
-                        except:
-                            # If there's an error, just log it as is
-                            self.log_interaction(
-                                role=interaction["role"],
-                                message=interaction["message"],
-                                timestamp=interaction.get("timestamp"),
-                            )
+                            except:
+                                # If parsing fails, just log as is
+                                self.log_interaction(
+                                    role=interaction["role"],
+                                    message=message,
+                                    timestamp=interaction.get("timestamp"),
+                                )
         else:
             conversation = existing_conversation
+
         session.close()
         return conversation
 
