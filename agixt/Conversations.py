@@ -794,7 +794,7 @@ class Conversations:
             conversation = self.new_conversation()
             session.close()
             session = get_session()
-        if not isinstance(conversation, dict):
+        else:
             conversation = conversation.__dict__
             conversation = {
                 key: value
@@ -805,11 +805,12 @@ class Conversations:
             message = message[:-1]
         if message.endswith("\n"):
             message = message[:-1]
+        conversation_id = self.get_conversation_id()
         try:
             new_message = Message(
                 role=role,
                 content=message,
-                conversation_id=conversation["id"],
+                conversation_id=conversation_id,
                 notify=notify,
             )
             # Use the provided timestamp if one is given
@@ -825,8 +826,6 @@ class Conversations:
                     # If parsing fails, just log it and continue with auto timestamps
                     logging.warning(f"Could not parse timestamp: {timestamp}")
 
-            # Update the conversation's updated_at timestamp
-            conversation["updated_at"] = func.now()
         except Exception as e:
             conversation = self.new_conversation()
             session.close()
@@ -834,11 +833,9 @@ class Conversations:
             new_message = Message(
                 role=role,
                 content=message,
-                conversation_id=conversation["id"],
+                conversation_id=conversation_id,
                 notify=notify,
             )
-            # Update the conversation's updated_at timestamp
-            conversation["updated_at"] = func.now()
 
         session.add(new_message)
         session.commit()
