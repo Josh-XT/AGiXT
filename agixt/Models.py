@@ -537,6 +537,10 @@ class ConversationDetailResponse(BaseModel):
 
 
 class ConversationHistoryResponse(BaseModel):
+    conversation_history: List[Dict[str, Any]]
+
+
+class NewConversationHistoryResponse(BaseModel):
     id: str
     conversation_history: List[Dict[str, Any]]
 
