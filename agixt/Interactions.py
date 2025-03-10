@@ -813,6 +813,78 @@ class Interactions:
         self.response = self.response.replace(
             f"http://localhost:7437/outputs/{self.agent.agent_id}", self.outputs
         )
+        if self.outputs in self.response:
+            output_url_pattern = re.escape(self.outputs) + r"/\d+/([^\"'\s]+)"
+            links = re.findall(output_url_pattern, self.response)
+            if links:
+                for file_ref in links:
+                    # Construct the file path based on working directory and conversation ID
+                    conversation_id = c.get_conversation_id() if "c" in locals() else ""
+                    file_path = (
+                        f"{self.agent.working_directory}/{conversation_id}/{file_ref}"
+                    )
+
+                    # If the file doesn't exist, look for similar files
+                    if not os.path.exists(file_path):
+                        # Get the directory and filename parts
+                        dir_path = os.path.dirname(file_path)
+                        file_name = os.path.basename(file_ref)
+                        extension = os.path.splitext(file_name)[1]
+
+                        # If the directory exists, look for alternative files
+                        if os.path.exists(dir_path):
+                            best_match = None
+                            highest_similarity = 0
+                            most_recent_match = None
+                            most_recent_time = 0
+
+                            # Look for files with the same extension
+                            for candidate in os.listdir(dir_path):
+                                candidate_path = os.path.join(dir_path, candidate)
+                                if os.path.isfile(
+                                    candidate_path
+                                ) and candidate.endswith(extension):
+                                    # Check file creation/modification time
+                                    file_time = os.path.getmtime(candidate_path)
+
+                                    # Calculate similarity between filenames
+                                    from difflib import SequenceMatcher
+
+                                    similarity = SequenceMatcher(
+                                        None, file_name, candidate
+                                    ).ratio()
+
+                                    # Track the most similar file
+                                    if similarity > highest_similarity:
+                                        highest_similarity = similarity
+                                        best_match = candidate
+
+                                    # Track the most recently modified file with same extension
+                                    if file_time > most_recent_time:
+                                        most_recent_time = file_time
+                                        most_recent_match = candidate
+
+                            # Prefer recently created files (within last 5 minutes) over similar names
+                            if most_recent_match and (
+                                time.time() - most_recent_time < 300
+                            ):
+                                replacement = most_recent_match
+                            # Fall back to the most similar filename if similarity is reasonable
+                            elif best_match and highest_similarity > 0.6:
+                                replacement = best_match
+                            else:
+                                # No good replacement found
+                                continue
+
+                            # Replace the broken link with the found file
+                            orig_url = f"{self.outputs}/{conversation_id}/{file_ref}"
+                            new_url = f"{self.outputs}/{conversation_id}/{replacement}"
+                            self.response = self.response.replace(orig_url, new_url)
+
+                            logging.info(
+                                f"Replaced file reference from {file_ref} to {replacement}"
+                            )
+
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "<think>" in self.response:
