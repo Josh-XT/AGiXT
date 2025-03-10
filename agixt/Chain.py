@@ -319,6 +319,7 @@ class Chain:
                 .first()
             )
             target_type = "prompt"
+        target_id = None
         if not target:
             logging.error(
                 f"Target {prompt[argument_key]} not found. Using default prompt."
@@ -326,7 +327,8 @@ class Chain:
             logging.info(f"Prompt: {prompt}")
             logging.info(f"Prompt Type: {prompt_type}")
             logging.info(f"Argument Key: {argument_key}")
-        target_id = target.id
+        else:
+            target_id = target.id
         argument_value = prompt[argument_key]
         prompt_arguments = prompt.copy()
         if argument_key in prompt_arguments:
