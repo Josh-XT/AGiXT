@@ -1,7 +1,9 @@
 import requests
 import logging
+import os
 from fastapi import HTTPException
 from Globals import getenv
+from endpoints.TeslaIntegration import ensure_keys_exist, get_tesla_private_key
 
 """
 Required environment variables:
@@ -10,6 +12,7 @@ Required environment variables:
 - TESLA_CLIENT_SECRET: Tesla OAuth client secret
 - TESLA_REDIRECT_URI: OAuth redirect URI
 - TESLA_AUDIENCE: Fleet API base URL (https://fleet-api.prd.na.vn.cloud.tesla.com)
+- TESLA_DOMAIN: Your domain that hosts the public key (default: everything.software)
 
 Required scopes for Tesla OAuth:
 - openid: Allow Tesla customers to sign in
@@ -43,12 +46,104 @@ class TeslaSSO:
         self.refresh_token = refresh_token
         self.client_id = getenv("TESLA_CLIENT_ID")
         self.client_secret = getenv("TESLA_CLIENT_SECRET")
+        self.domain = getenv("TESLA_DOMAIN", "everything.software")
         self.audience = getenv(
             "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
         )
         self.auth_base_url = "https://auth.tesla.com/oauth2/v3/authorize"
+        self.token_url = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token"
         self.api_base_url = f"{self.audience}/api/1"
+
+        # Ensure we have Tesla keys generated
+        ensure_keys_exist()
+
+        # Register with Tesla if needed
+        self._ensure_registered()
+
+        # Get user info
         self.user_info = self.get_user_info()
+
+    def _ensure_registered(self):
+        """Ensure the partner account is registered with Tesla"""
+        try:
+            # Only attempt registration if we have valid credentials
+            if not self.client_id or not self.client_secret:
+                logging.warning(
+                    "Tesla client ID or secret not set, skipping registration"
+                )
+                return
+
+            # Get partner token
+            token = self._get_partner_token()
+            if not token:
+                logging.error("Failed to get Tesla partner token for registration")
+                return
+
+            # Check if we need to register by attempting a simple API call
+            headers = {"Authorization": f"Bearer {token}"}
+            test_response = requests.get(f"{self.api_base_url}/user", headers=headers)
+
+            # If we get a 412 error about registration, we need to register
+            if (
+                test_response.status_code == 412
+                and "must be registered" in test_response.text
+            ):
+                logging.info(
+                    "Tesla partner account needs registration, registering now..."
+                )
+
+                # Register the partner account
+                register_url = f"{self.audience}/api/1/partner_accounts"
+                register_headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                }
+                register_payload = {"domain": self.domain}
+
+                register_response = requests.post(
+                    register_url, headers=register_headers, json=register_payload
+                )
+
+                if register_response.status_code in [200, 201]:
+                    logging.info("Tesla partner account registered successfully")
+                else:
+                    logging.error(
+                        f"Failed to register Tesla partner account: {register_response.status_code} - {register_response.text}"
+                    )
+            elif test_response.status_code != 200:
+                logging.warning(
+                    f"Tesla API test returned: {test_response.status_code} - {test_response.text}"
+                )
+
+        except Exception as e:
+            logging.error(f"Error ensuring Tesla partner registration: {str(e)}")
+
+    def _get_partner_token(self):
+        """Get a partner authentication token"""
+        try:
+            payload = {
+                "grant_type": "client_credentials",
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "scope": "openid vehicle_device_data vehicle_cmds vehicle_charging_cmds",
+                "audience": self.audience,
+            }
+
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+            response = requests.post(self.token_url, data=payload, headers=headers)
+
+            if response.status_code == 200:
+                return response.json().get("access_token")
+            else:
+                logging.error(
+                    f"Failed to get Tesla partner token: {response.status_code} - {response.text}"
+                )
+                return None
+
+        except Exception as e:
+            logging.error(f"Error getting Tesla partner token: {str(e)}")
+            return None
 
     def get_new_token(self):
         """Get a new access token using the refresh token"""
