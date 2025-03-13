@@ -2,6 +2,7 @@ import os
 import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
+from Globals import getenv
 
 # Create a router for Tesla integration
 tesla_router = APIRouter(tags=["Tesla Integration"])
@@ -106,6 +107,10 @@ def get_tesla_private_key():
 # Function to register the Tesla routes with the main FastAPI app
 def register_tesla_routes(app):
     """Register Tesla routes with the main FastAPI app"""
-    app.include_router(tesla_router)
-    # Generate keys on startup
-    ensure_keys_exist()
+    tesla_client_id = getenv("TESLA_CLIENT_ID")
+    tesla_client_secret = getenv("TESLA_CLIENT_SECRET")
+    tesla_domain = getenv("TESLA_DOMAIN")
+    if tesla_client_id != "" and tesla_client_secret != "" and tesla_domain != "":
+        app.include_router(tesla_router)
+        # Generate keys on startup
+        ensure_keys_exist()
