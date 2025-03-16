@@ -66,66 +66,6 @@ class FileModification:
     fuzzy_match: bool = True
 
 
-def insert_needs_indent(lines, insert_point):
-    """Determine if an insertion needs additional indentation."""
-    if insert_point <= 0:
-        return False
-
-    # Look at the previous line
-    prev_line = lines[insert_point - 1].rstrip()
-    if not prev_line:
-        return insert_needs_indent(lines, insert_point - 1)
-
-    # If previous line ends with ':', we need to indent
-    if prev_line.endswith(":"):
-        return True
-
-    # If we're in the middle of an indented block, maintain that indentation
-    if insert_point < len(lines):
-        prev_indent = len(lines[insert_point - 1]) - len(
-            lines[insert_point - 1].lstrip()
-        )
-        current_indent = len(lines[insert_point]) - len(lines[insert_point].lstrip())
-        if current_indent > prev_indent:
-            return True
-
-    return False
-
-
-def adjust_relative_indentation(content, target_indent):
-    """Adjust relative indentation for a block of code."""
-    lines = content.splitlines()
-    if not lines:
-        return ""
-
-    # Find the base indentation level in the content
-    base_indent = None
-    for line in lines:
-        if line.strip():
-            indent = len(line) - len(line.lstrip())
-            if base_indent is None or indent < base_indent:
-                base_indent = indent
-
-    if base_indent is None:
-        base_indent = 0
-
-    # Adjust each line's indentation
-    result = []
-    for line in lines:
-        if line.strip():
-            # Remove existing indentation
-            stripped = line.lstrip()
-            # Calculate relative indentation
-            relative_indent = len(line) - len(line.lstrip()) - base_indent
-            # Apply target indentation plus relative indentation
-            new_indent = " " * (target_indent + max(0, relative_indent))
-            result.append(f"{new_indent}{stripped}")
-        else:
-            result.append("")
-
-    return "\n".join(result)
-
-
 def _get_correct_indent_level(lines: List[str], line_index: int) -> str:
     """Determine correct indentation level by looking at surrounding structure."""
     # Look at previous line's indentation first
@@ -154,36 +94,6 @@ def _get_correct_indent_level(lines: List[str], line_index: int) -> str:
 
     # Default to base level if we couldn't determine
     return ""
-
-
-def _indent_code_block(content: str, base_indent: str) -> List[str]:
-    """Apply base indentation to a block of code while preserving relative indents."""
-    lines = content.splitlines()
-    if not lines:
-        return []
-
-    # Find any existing indentation in the content
-    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
-    min_indent = min(indents) if indents else 0
-
-    result = []
-    for line in lines:
-        if not line.strip():
-            result.append("\n")
-            continue
-
-        # Calculate relative indentation from the original content
-        current_indent = len(line) - len(line.lstrip())
-        relative_indent = max(0, current_indent - min_indent)
-
-        # Apply base indentation plus any relative indentation
-        # if it is the first line, indent to base_indent
-        if line == lines[0]:
-            result.append(f"{base_indent}{line.lstrip()}\n")
-        else:
-            result.append(f"{line}\n")
-
-    return result
 
 
 class github(Extensions):
@@ -290,6 +200,769 @@ class github(Extensions):
         except Exception as e:
             logging.warning(f"Failed to format Python code with Black: {str(e)}")
             return content
+
+    # Improvement 1: Enhance the _normalize_code function to better handle indentation
+    def _normalize_code(
+        self, code: str, preserve_indent: bool = False, indent_sensitive: bool = True
+    ) -> str:
+        """Normalize code for comparison while handling indentation carefully.
+
+        Args:
+            code: The code to normalize
+            preserve_indent: Whether to preserve indentation in output
+            indent_sensitive: Whether to treat the code as indent-sensitive (Python, YAML)
+
+        Returns:
+            Normalized code string
+        """
+        if not code:
+            return code
+
+        lines = code.splitlines()
+
+        # Remove empty lines at start and end
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        if not lines:
+            return ""
+
+        # Get base indentation from first non-empty line
+        first_line = next((line for line in lines if line.strip()), "")
+        base_indent = len(first_line) - len(first_line.lstrip())
+
+        normalized = []
+        for line in lines:
+            if not line.strip():
+                normalized.append("")
+                continue
+
+            if preserve_indent:
+                # Calculate relative indentation
+                current_indent = len(line) - len(line.lstrip())
+                relative_indent = max(0, current_indent - base_indent)
+                content = line.lstrip()
+                normalized_line = " " * relative_indent + content
+            else:
+                normalized_line = line.lstrip()
+
+            # Normalize Python-specific syntax
+            normalized_line = re.sub(
+                r"\s*=\s*", "=", normalized_line
+            )  # Normalize around =
+            normalized_line = re.sub(
+                r"\s*,\s*", ",", normalized_line
+            )  # Normalize around ,
+
+            # Preserve indentation level structure for indent-sensitive languages
+            if indent_sensitive and not preserve_indent:
+                # Add a marker for indentation level (not the actual spaces)
+                indentation_level = (
+                    len(line) - len(line.lstrip())
+                ) // 4  # Assuming 4 spaces per indent
+                normalized_line = f"IL{indentation_level}:{normalized_line}"
+            else:
+                normalized_line = re.sub(
+                    r"\s+", " ", normalized_line
+                )  # Normalize other whitespace
+
+            normalized.append(normalized_line)
+
+        return "\n".join(normalized)
+
+    # Improvement 2: Update the _find_pattern_boundaries method to use improved indentation handling
+    def _find_pattern_boundaries(
+        self,
+        file_lines: List[str],
+        target: str,
+        fuzzy_match: bool = True,
+        operation: str = None,
+    ) -> tuple[int, int, int]:
+        """Find start and end line indices of the target code block in file lines.
+
+        Args:
+            file_lines: List of lines from the file
+            target: The target code block to find
+            fuzzy_match: Whether to allow fuzzy matching
+            operation: The type of operation being performed
+
+        Returns:
+            Tuple of (start_line, end_line, indent_level)
+        """
+        # Handle special cases for empty files or new files
+        if not file_lines:
+            if operation == "insert":
+                return 0, 0, 0
+            raise ValueError("Cannot find pattern in empty file")
+
+        # Handle numeric line number targets
+        if str(target).isdigit():
+            line_num = int(target)
+            if line_num <= len(file_lines):
+                return (
+                    line_num,
+                    line_num,
+                    (
+                        len(file_lines[line_num - 1])
+                        - len(file_lines[line_num - 1].lstrip())
+                        if line_num > 0
+                        else 0
+                    ),
+                )
+            elif operation == "insert":
+                # Allow insertion at end of file
+                return len(file_lines), len(file_lines), 0
+            else:
+                raise ValueError(
+                    f"Line number {line_num} exceeds file length {len(file_lines)}"
+                )
+
+        # Split and clean target
+        target_lines = [line.rstrip() for line in target.splitlines()]
+        while target_lines and not target_lines[0].strip():
+            target_lines.pop(0)
+        while target_lines and not target_lines[-1].strip():
+            target_lines.pop()
+
+        if not target_lines:
+            raise ValueError("Empty target after cleaning")
+
+        # Get target base indentation
+        target_base_indent = len(target_lines[0]) - len(target_lines[0].lstrip())
+
+        # Detect if this is an indent-sensitive language based on file extension or content
+        is_indent_sensitive = self._is_indent_sensitive_content(target_lines)
+
+        # Special handling for insertions
+        if operation == "insert":
+            if re.match(
+                r"^(\s*)(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_lines[0]
+            ):
+                return self._handle_insertion_point(
+                    file_lines, target_lines[0].lstrip()
+                )
+            # If it's an insert operation and we can't find the target,
+            # suggest inserting at the end of the file
+            if len(file_lines) > 0:
+                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                return len(file_lines), len(file_lines), last_line_indent // 4
+
+        # Try different indentation variations of the target
+        target_variations = self._try_different_indentations(target)
+        best_matches = []
+
+        # Process file lines
+        processed_file_lines = [line.rstrip() for line in file_lines]
+        window_size = len(target_lines)
+
+        # For very small targets (1-2 lines), try to match on structure and content
+        if len(target_lines) <= 2 and is_indent_sensitive:
+            return self._find_small_target_match(
+                processed_file_lines, target_lines, fuzzy_match, operation
+            )
+
+        # Look for matches with each target variation
+        for target_var in target_variations:
+            target_var_lines = target_var.splitlines()
+
+            for i in range(len(processed_file_lines) - window_size + 1):
+                window_lines = processed_file_lines[i : i + window_size]
+                window_text = "\n".join(window_lines)
+
+                # Compare normalized versions with appropriate indent sensitivity
+                window_normalized = self._normalize_code(
+                    window_text, False, is_indent_sensitive
+                )
+                target_normalized = self._normalize_code(
+                    target_var, False, is_indent_sensitive
+                )
+
+                similarity = difflib.SequenceMatcher(
+                    None, window_normalized, target_normalized
+                ).ratio()
+
+                # Adjust similarity based on indentation structure match
+                if is_indent_sensitive:
+                    indent_similarity = self._compare_indent_structure(
+                        window_lines, target_var_lines
+                    )
+                    # Weight both content similarity and indentation structure
+                    adjusted_similarity = (similarity * 0.7) + (indent_similarity * 0.3)
+                else:
+                    adjusted_similarity = similarity
+
+                if adjusted_similarity > 0:
+                    # Get window indentation
+                    window_base_indent = len(window_lines[0]) - len(
+                        window_lines[0].lstrip()
+                    )
+
+                    best_matches.append(
+                        {
+                            "start_line": i,
+                            "score": adjusted_similarity,
+                            "segment": window_lines,
+                            "indent": window_base_indent,
+                            "target_var": target_var,
+                        }
+                    )
+
+        if not best_matches:
+            # Try more aggressive normalization if no matches found
+            return self._find_pattern_with_aggressive_normalization(
+                file_lines, target, fuzzy_match, operation, is_indent_sensitive
+            )
+
+        # Sort by score and indentation similarity
+        best_matches.sort(
+            key=lambda x: (x["score"], -abs(x["indent"] - target_base_indent)),
+            reverse=True,
+        )
+
+        best_match = best_matches[0]
+
+        # Adjust thresholds based on indent sensitivity and fuzzy matching
+        if is_indent_sensitive:
+            threshold = 0.8 if fuzzy_match else 0.9
+        else:
+            threshold = 0.7 if fuzzy_match else 0.85
+
+        if best_match["score"] < threshold:
+            # For insert operations, if we can't find a good match,
+            # suggest inserting at the end of the file
+            if operation == "insert":
+                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                return len(file_lines), len(file_lines), last_line_indent // 4
+
+            # Try one more time with aggressive normalization
+            try:
+                return self._find_pattern_with_aggressive_normalization(
+                    file_lines, target, fuzzy_match, operation, is_indent_sensitive
+                )
+            except ValueError:
+                error_msg = [
+                    f"Best match score ({best_match['score']:.2f}) below threshold ({threshold}).",
+                    "",
+                    "Target:",
+                    target,
+                    "",
+                    "Best matching segment found:",
+                    "\n".join(best_match["segment"]),
+                    "",
+                    "Please provide a more accurate target.",
+                ]
+                raise ValueError("\n".join(error_msg))
+
+        return (
+            best_match["start_line"],
+            best_match["start_line"] + len(target_lines),
+            best_match["indent"] // 4,
+        )
+
+    # Improvement 3: Add methods to better handle indentation structure
+    def _is_indent_sensitive_content(self, code_lines: List[str]) -> bool:
+        """Detect if content is likely to be indentation-sensitive (Python, YAML).
+
+        Args:
+            code_lines: List of code lines to analyze
+
+        Returns:
+            bool: True if content appears to be indentation-sensitive
+        """
+        # Check for typical Python patterns
+        python_patterns = [
+            r"^\s*def\s+\w+\(.*\):",
+            r"^\s*class\s+\w+(\(.*\))?:",
+            r"^\s*if\s+.*:",
+            r"^\s*for\s+.*:",
+            r"^\s*while\s+.*:",
+            r"^\s*try:",
+            r"^\s*except.*:",
+        ]
+
+        # Check for YAML patterns
+        yaml_patterns = [
+            r"^\s*\w+:",
+            r"^\s*-\s+\w+:",
+        ]
+
+        # Count matches for each type
+        python_matches = 0
+        yaml_matches = 0
+
+        for line in code_lines:
+            for pattern in python_patterns:
+                if re.match(pattern, line):
+                    python_matches += 1
+                    break
+
+            for pattern in yaml_patterns:
+                if re.match(pattern, line):
+                    yaml_matches += 1
+                    break
+
+        # If we have good signal for either type, consider it indent-sensitive
+        return python_matches > 0 or yaml_matches > 2
+
+    def _compare_indent_structure(
+        self, window_lines: List[str], target_lines: List[str]
+    ) -> float:
+        """Compare the indentation structure of two code blocks.
+
+        Args:
+            window_lines: Lines from the file being searched
+            target_lines: Lines from the target code block
+
+        Returns:
+            float: Similarity score (0-1) based on indentation structure
+        """
+        if len(window_lines) != len(target_lines):
+            return 0.0
+
+        # Extract indentation levels
+        window_indents = [len(line) - len(line.lstrip()) for line in window_lines]
+        target_indents = [len(line) - len(line.lstrip()) for line in target_lines]
+
+        # Normalize indentation levels relative to first line
+        if window_indents and target_indents:
+            window_base = window_indents[0]
+            target_base = target_indents[0]
+
+            window_relative = [
+                max(0, indent - window_base) for indent in window_indents
+            ]
+            target_relative = [
+                max(0, indent - target_base) for indent in target_indents
+            ]
+
+            # Convert to indentation "shape" - just care about when indentation changes
+            window_shape = [0]
+            target_shape = [0]
+
+            for i in range(1, len(window_relative)):
+                # Only care about the direction of change, not the magnitude
+                if window_relative[i] > window_relative[i - 1]:
+                    window_shape.append(1)  # Indent increased
+                elif window_relative[i] < window_relative[i - 1]:
+                    window_shape.append(-1)  # Indent decreased
+                else:
+                    window_shape.append(0)  # No change
+
+            for i in range(1, len(target_relative)):
+                if target_relative[i] > target_relative[i - 1]:
+                    target_shape.append(1)
+                elif target_relative[i] < target_relative[i - 1]:
+                    target_shape.append(-1)
+                else:
+                    target_shape.append(0)
+
+            # Compare the shapes
+            matches = sum(1 for w, t in zip(window_shape, target_shape) if w == t)
+            return matches / len(window_shape)
+
+        return 0.0
+
+    def _find_small_target_match(
+        self,
+        file_lines: List[str],
+        target_lines: List[str],
+        fuzzy_match: bool = True,
+        operation: str = None,
+    ) -> tuple[int, int, int]:
+        """Find match for small targets (1-2 lines) focusing on structure and content.
+
+        For small targets, we need to be more careful as they could match in many places.
+        This method uses both content and surrounding structure.
+
+        Args:
+            file_lines: List of lines from the file
+            target_lines: List of target lines to find
+            fuzzy_match: Whether to allow fuzzy matching
+            operation: The operation being performed
+
+        Returns:
+            Tuple of (start_line, end_line, indent_level)
+        """
+        # For single line targets, check key tokens and structure
+        target_first_line = target_lines[0].lstrip()
+
+        # Extract key tokens (function names, class names, etc.)
+        key_token_match = re.search(r"(def|class)\s+(\w+)", target_first_line)
+        if key_token_match:
+            token_type, token_name = key_token_match.groups()
+
+            # Look for matches with the same key token
+            for i, line in enumerate(file_lines):
+                line_stripped = line.lstrip()
+                if re.search(f"{token_type}\\s+{token_name}", line_stripped):
+                    # Found a potential match for a function or class definition
+                    indent_level = len(line) - len(line_stripped)
+                    return i, i + len(target_lines), indent_level // 4
+
+        # If no key token match or multiple lines, fallback to token-based matching
+        target_tokens = set()
+        for line in target_lines:
+            # Extract significant tokens (identifiers, keywords)
+            tokens = re.findall(r"\b\w+\b", line)
+            target_tokens.update(
+                [t for t in tokens if len(t) > 2]
+            )  # Only tokens longer than 2 chars
+
+        best_matches = []
+        # Scan through file looking for concentrations of target tokens
+        for i in range(len(file_lines) - len(target_lines) + 1):
+            window_lines = file_lines[i : i + len(target_lines)]
+            window_tokens = set()
+
+            for line in window_lines:
+                tokens = re.findall(r"\b\w+\b", line)
+                window_tokens.update([t for t in tokens if len(t) > 2])
+
+            # Calculate token overlap
+            common_tokens = target_tokens.intersection(window_tokens)
+            if not common_tokens:
+                continue
+
+            token_similarity = (
+                len(common_tokens) / len(target_tokens) if target_tokens else 0
+            )
+
+            # Also consider direct string similarity
+            string_similarity = difflib.SequenceMatcher(
+                None,
+                "\n".join(line.lstrip() for line in target_lines),
+                "\n".join(line.lstrip() for line in window_lines),
+            ).ratio()
+
+            # Combined score
+            score = (token_similarity * 0.7) + (string_similarity * 0.3)
+
+            if score > 0.5:  # Only consider reasonably good matches
+                indent_level = len(window_lines[0]) - len(window_lines[0].lstrip())
+                best_matches.append(
+                    {
+                        "start_line": i,
+                        "score": score,
+                        "segment": window_lines,
+                        "indent": indent_level,
+                    }
+                )
+
+        if not best_matches:
+            if operation == "insert":
+                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                return len(file_lines), len(file_lines), last_line_indent // 4
+            raise ValueError(f"Could not find a match for the target: {target_lines}")
+
+        # Sort matches by score
+        best_matches.sort(key=lambda x: x["score"], reverse=True)
+        best_match = best_matches[0]
+
+        # Higher threshold for small targets to avoid false positives
+        threshold = 0.6 if fuzzy_match else 0.75
+
+        if best_match["score"] < threshold:
+            if operation == "insert":
+                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                return len(file_lines), len(file_lines), last_line_indent // 4
+            raise ValueError(
+                f"Best match score ({best_match['score']:.2f}) below threshold ({threshold})"
+            )
+
+        return (
+            best_match["start_line"],
+            best_match["start_line"] + len(target_lines),
+            best_match["indent"] // 4,
+        )
+
+    # Improvement 4: Update the aggressive normalization method to be indent-aware
+    def _find_pattern_with_aggressive_normalization(
+        self,
+        file_lines: List[str],
+        target: str,
+        fuzzy_match: bool = True,
+        operation: str = None,
+        indent_sensitive: bool = False,
+    ) -> tuple[int, int, int]:
+        """Attempt to find pattern with more aggressive normalization.
+
+        This is a fallback method that tries harder to find matches by:
+        1. Removing all whitespace except for indentation structure
+        2. Normalizing variable names
+        3. Ignoring comments
+
+        Args:
+            file_lines: List of lines from the file
+            target: The target code block to find
+            fuzzy_match: Whether to allow fuzzy matching
+            operation: The type of operation being performed
+            indent_sensitive: Whether to preserve indentation structure
+
+        Returns:
+            Tuple of (start_line, end_line, indent_level)
+        """
+
+        def aggressive_normalize(
+            code: str, preserve_indent_structure: bool = False
+        ) -> str:
+            lines = code.splitlines()
+            result = []
+
+            for line in lines:
+                # Skip comments
+                if line.lstrip().startswith("#"):
+                    continue
+
+                # Remove inline comments
+                line = re.sub(r"#.*$", "", line)
+
+                if preserve_indent_structure:
+                    # Preserve indentation level but not the actual spaces
+                    indent_level = len(line) - len(line.lstrip())
+                    content = line.lstrip()
+
+                    # Skip empty lines
+                    if not content:
+                        continue
+
+                    # Normalize variable names and collapse spaces
+                    content = re.sub(r"[a-zA-Z_]\w*", "VAR", content)
+                    content = re.sub(r"\s+", "", content)
+
+                    # Add indent marker
+                    result.append(f"I{indent_level}:{content}")
+                else:
+                    # Just fully normalize without preserving structure
+                    line = line.strip()
+                    if not line:
+                        continue
+                    line = re.sub(r"[a-zA-Z_]\w*", "VAR", line)
+                    line = re.sub(r"\s+", "", line)
+                    result.append(line)
+
+            return "\n".join(result)
+
+        target_lines = target.splitlines()
+        window_size = len(target_lines)
+
+        # Skip empty lines in target
+        target_lines = [line for line in target_lines if line.strip()]
+        if not target_lines:
+            raise ValueError("Empty target after cleaning")
+
+        # Aggressively normalize target
+        target_normalized = aggressive_normalize(target, indent_sensitive)
+
+        best_matches = []
+
+        # Create windows of appropriate size for comparison
+        filtered_file_lines = [line for line in file_lines if line.strip()]
+
+        # Use dynamic window size since we've removed empty lines
+        min_window_size = len(target_lines)
+        max_window_size = min(len(filtered_file_lines), min_window_size * 2)
+
+        for window_size in range(min_window_size, max_window_size + 1):
+            for i in range(len(file_lines) - window_size + 1):
+                window = "\n".join(file_lines[i : i + window_size])
+
+                # Skip windows with too little content
+                if not window.strip():
+                    continue
+
+                window_normalized = aggressive_normalize(window, indent_sensitive)
+
+                # Skip if normalized window is empty
+                if not window_normalized:
+                    continue
+
+                similarity = difflib.SequenceMatcher(
+                    None, window_normalized, target_normalized
+                ).ratio()
+
+                if similarity > 0:
+                    indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+
+                    # For indent-sensitive code, check indentation patterns too
+                    if indent_sensitive:
+                        # Extract non-empty lines for indentation structure comparison
+                        window_lines = [
+                            line
+                            for line in file_lines[i : i + window_size]
+                            if line.strip()
+                        ]
+                        target_lines_clean = [
+                            line for line in target_lines if line.strip()
+                        ]
+
+                        # Compare indentation structure
+                        indent_similarity = self._compare_indent_structure(
+                            window_lines, target_lines_clean
+                        )
+
+                        # Adjust similarity score
+                        adjusted_similarity = (similarity * 0.6) + (
+                            indent_similarity * 0.4
+                        )
+                    else:
+                        adjusted_similarity = similarity
+
+                    best_matches.append(
+                        {
+                            "start_line": i,
+                            "score": adjusted_similarity,
+                            "segment": file_lines[i : i + window_size],
+                            "indent": indent,
+                        }
+                    )
+
+        if not best_matches:
+            if operation == "insert":
+                # For inserts, default to end of file
+                last_line_indent = (
+                    len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                    if file_lines
+                    else 0
+                )
+                return len(file_lines), len(file_lines), last_line_indent // 4
+
+            raise ValueError("No matches found even with aggressive normalization")
+
+        best_matches.sort(key=lambda x: x["score"], reverse=True)
+        best_match = best_matches[0]
+
+        # Adjust thresholds based on operation and sensitivity
+        if indent_sensitive:
+            threshold = 0.55 if fuzzy_match else 0.65
+        else:
+            threshold = 0.5 if fuzzy_match else 0.6
+
+        if operation == "insert":
+            # Lower threshold for inserts
+            threshold = max(0.4, threshold - 0.1)
+
+        if best_match["score"] < threshold:
+            if operation == "insert":
+                # For inserts, default to end of file
+                last_line_indent = (
+                    len(file_lines[-1]) - len(file_lines[-1].lstrip())
+                    if file_lines
+                    else 0
+                )
+                return len(file_lines), len(file_lines), last_line_indent // 4
+
+            raise ValueError(
+                f"Best aggressive match score ({best_match['score']:.2f}) below threshold ({threshold})"
+            )
+
+        # Determine end line more carefully for indent-sensitive code
+        if indent_sensitive:
+            # Find where the indentation level returns to the starting level or less
+            start_line = best_match["start_line"]
+            start_indent = len(file_lines[start_line]) - len(
+                file_lines[start_line].lstrip()
+            )
+
+            end_line = start_line + 1
+            while end_line < len(file_lines) and end_line < start_line + window_size:
+                line = file_lines[end_line]
+                if line.strip() and len(line) - len(line.lstrip()) <= start_indent:
+                    break
+                end_line += 1
+
+            return start_line, end_line, start_indent // 4
+        else:
+            # Use fixed window size for non-indent-sensitive code
+            return (
+                best_match["start_line"],
+                best_match["start_line"] + len(target_lines),
+                best_match["indent"] // 4,
+            )
+
+    # Improvement 5: Update _indent_code_block to handle indentation more intelligently
+    def _indent_code_block(self, content: str, base_indent: str) -> List[str]:
+        """Apply base indentation to a block of code while preserving relative indents.
+
+        Args:
+            content: The content to indent
+            base_indent: Base indentation to apply (as a string of spaces)
+
+        Returns:
+            List of indented lines
+        """
+        lines = content.splitlines()
+        if not lines:
+            return []
+
+        # Find any existing indentation in the content
+        indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+        min_indent = min(indents) if indents else 0
+
+        # Check if this is Python/YAML style indentation
+        is_indent_sensitive = self._is_indent_sensitive_content(lines)
+        uses_tabs = any("\t" in line for line in lines)
+
+        # Determine appropriate indent character (space or tab)
+        indent_char = "\t" if uses_tabs else " "
+        spaces_per_level = 1 if uses_tabs else 4  # Default to 4 spaces per level
+
+        # Try to infer spaces per level from the content
+        indent_differences = []
+        for i in range(1, len(indents)):
+            diff = abs(indents[i] - indents[i - 1])
+            if diff > 0:
+                indent_differences.append(diff)
+
+        if indent_differences:
+            # Find the most common difference that's at least 2
+            common_diffs = [diff for diff in indent_differences if diff >= 2]
+            if common_diffs:
+                spaces_per_level = min(common_diffs)
+
+        result = []
+
+        # Detect if content is from a code block that has incorrect base indentation
+        first_non_empty = next((i for i, line in enumerate(lines) if line.strip()), 0)
+        first_line_indent = len(lines[first_non_empty]) - len(
+            lines[first_non_empty].lstrip()
+        )
+
+        # Look for common indentation patterns in code
+        for i, line in enumerate(lines):
+            if not line.strip():
+                # Preserve empty lines
+                result.append("\n")
+                continue
+
+            # Calculate relative indentation from the original content
+            current_indent = len(line) - len(line.lstrip())
+
+            if is_indent_sensitive:
+                # For Python/YAML, preserve relative indentation carefully
+                relative_level = (current_indent - min_indent) // spaces_per_level
+                indent_string = (
+                    base_indent + (indent_char * spaces_per_level) * relative_level
+                )
+                result.append(f"{indent_string}{line.lstrip()}\n")
+            else:
+                # For other languages, focus on preserving the first line indent
+                if i == first_non_empty:
+                    result.append(f"{base_indent}{line.lstrip()}\n")
+                else:
+                    # Calculate indentation relative to the first line
+                    relative_indent = current_indent - first_line_indent
+                    if relative_indent > 0:
+                        # Apply base indent plus relative indent
+                        result.append(
+                            f"{base_indent}{' ' * relative_indent}{line.lstrip()}\n"
+                        )
+                    else:
+                        # Same level as first line
+                        result.append(f"{base_indent}{line.lstrip()}\n")
+
+        return result
 
     def _is_js_or_ts_file(self, file_path: str) -> bool:
         """
@@ -1510,295 +2183,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
 
         return variations
 
-    def _normalize_code(self, code: str, preserve_indent: bool = False) -> str:
-        """Normalize code for comparison while handling indentation carefully.
-
-        Args:
-            code: The code to normalize
-            preserve_indent: Whether to preserve indentation in output
-
-        Returns:
-            Normalized code string
-        """
-        if not code:
-            return code
-
-        lines = code.splitlines()
-
-        # Remove empty lines at start and end
-        while lines and not lines[0].strip():
-            lines.pop(0)
-        while lines and not lines[-1].strip():
-            lines.pop()
-
-        if not lines:
-            return ""
-
-        # Get base indentation from first non-empty line
-        first_line = next((line for line in lines if line.strip()), "")
-        base_indent = len(first_line) - len(first_line.lstrip())
-
-        normalized = []
-        for line in lines:
-            if not line.strip():
-                normalized.append("")
-                continue
-
-            if preserve_indent:
-                # Calculate relative indentation
-                current_indent = len(line) - len(line.lstrip())
-                relative_indent = max(0, current_indent - base_indent)
-                content = line.lstrip()
-                normalized_line = " " * relative_indent + content
-            else:
-                normalized_line = line.lstrip()
-
-            # Normalize Python-specific syntax
-            normalized_line = re.sub(
-                r"\s*=\s*", "=", normalized_line
-            )  # Normalize around =
-            normalized_line = re.sub(
-                r"\s*,\s*", ",", normalized_line
-            )  # Normalize around ,
-            normalized_line = re.sub(
-                r"\s+", " ", normalized_line
-            )  # Normalize other whitespace
-
-            normalized.append(normalized_line)
-
-        return "\n".join(normalized)
-
-    def _find_pattern_boundaries(
-        self,
-        file_lines: List[str],
-        target: str,
-        fuzzy_match: bool = True,
-        operation: str = None,
-    ) -> tuple[int, int, int]:
-        """Find start and end line indices of the target code block in file lines.
-
-        Args:
-            file_lines: List of lines from the file
-            target: The target code block to find
-            fuzzy_match: Whether to allow fuzzy matching
-            operation: The type of operation being performed
-
-        Returns:
-            Tuple of (start_line, end_line, indent_level)
-        """
-        # Handle special cases for empty files or new files
-        if not file_lines:
-            if operation == "insert":
-                return 0, 0, 0
-            raise ValueError("Cannot find pattern in empty file")
-
-        # Handle numeric line number targets
-        if str(target).isdigit():
-            line_num = int(target)
-            if line_num <= len(file_lines):
-                return (
-                    line_num,
-                    line_num,
-                    (
-                        len(file_lines[line_num - 1])
-                        - len(file_lines[line_num - 1].lstrip())
-                        if line_num > 0
-                        else 0
-                    ),
-                )
-            elif operation == "insert":
-                # Allow insertion at end of file
-                return len(file_lines), len(file_lines), 0
-            else:
-                raise ValueError(
-                    f"Line number {line_num} exceeds file length {len(file_lines)}"
-                )
-
-        # Split and clean target
-        target_lines = [line.rstrip() for line in target.splitlines()]
-        while target_lines and not target_lines[0].strip():
-            target_lines.pop(0)
-        while target_lines and not target_lines[-1].strip():
-            target_lines.pop()
-
-        if not target_lines:
-            raise ValueError("Empty target after cleaning")
-
-        # Get target base indentation
-        target_base_indent = len(target_lines[0]) - len(target_lines[0].lstrip())
-
-        # Special handling for insertions
-        if operation == "insert":
-            if re.match(
-                r"^(\s*)(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_lines[0]
-            ):
-                return self._handle_insertion_point(
-                    file_lines, target_lines[0].lstrip()
-                )
-            # If it's an insert operation and we can't find the target,
-            # suggest inserting at the end of the file
-            if len(file_lines) > 0:
-                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
-                return len(file_lines), len(file_lines), last_line_indent // 4
-
-        # Try different indentation variations of the target
-        target_variations = self._try_different_indentations(target)
-        best_matches = []
-
-        # Process file lines
-        processed_file_lines = [line.rstrip() for line in file_lines]
-        window_size = len(target_lines)
-
-        # Look for matches with each target variation
-        for target_var in target_variations:
-            target_var_lines = target_var.splitlines()
-
-            for i in range(len(processed_file_lines) - window_size + 1):
-                window_lines = processed_file_lines[i : i + window_size]
-                window_text = "\n".join(window_lines)
-
-                # Compare normalized versions
-                window_normalized = self._normalize_code(window_text)
-                target_normalized = self._normalize_code(target_var)
-
-                similarity = difflib.SequenceMatcher(
-                    None, window_normalized, target_normalized
-                ).ratio()
-
-                if similarity > 0:
-                    # Get window indentation
-                    window_base_indent = len(window_lines[0]) - len(
-                        window_lines[0].lstrip()
-                    )
-
-                    best_matches.append(
-                        {
-                            "start_line": i,
-                            "score": similarity,
-                            "segment": window_lines,
-                            "indent": window_base_indent,
-                            "target_var": target_var,
-                        }
-                    )
-
-        if not best_matches:
-            # Try more aggressive normalization if no matches found
-            return self._find_pattern_with_aggressive_normalization(
-                file_lines, target, fuzzy_match, operation
-            )
-
-        # Sort by score and indentation similarity
-        best_matches.sort(
-            key=lambda x: (x["score"], -abs(x["indent"] - target_base_indent)),
-            reverse=True,
-        )
-
-        best_match = best_matches[0]
-        threshold = 0.7 if fuzzy_match else 0.9
-
-        if best_match["score"] < threshold:
-            # For insert operations, if we can't find a good match,
-            # suggest inserting at the end of the file
-            if operation == "insert":
-                last_line_indent = len(file_lines[-1]) - len(file_lines[-1].lstrip())
-                return len(file_lines), len(file_lines), last_line_indent // 4
-
-            # Try one more time with aggressive normalization
-            try:
-                return self._find_pattern_with_aggressive_normalization(
-                    file_lines, target, fuzzy_match, operation
-                )
-            except ValueError:
-                error_msg = [
-                    f"Best match score ({best_match['score']:.2f}) below threshold ({threshold}).",
-                    "",
-                    "Target:",
-                    target,
-                    "",
-                    "Best matching segment found:",
-                    "\n".join(best_match["segment"]),
-                    "",
-                    "Please provide a more accurate target.",
-                ]
-                raise ValueError("\n".join(error_msg))
-
-        return (
-            best_match["start_line"],
-            best_match["start_line"] + len(target_lines),
-            best_match["indent"] // 4,
-        )
-
-    def _find_pattern_with_aggressive_normalization(
-        self,
-        file_lines: List[str],
-        target: str,
-        fuzzy_match: bool = True,
-        operation: str = None,
-    ) -> tuple[int, int, int]:
-        """Attempt to find pattern with more aggressive normalization.
-
-        This is a fallback method that tries harder to find matches by:
-        1. Removing all whitespace
-        2. Normalizing variable names
-        3. Ignoring comments
-        """
-
-        def aggressive_normalize(code: str) -> str:
-            # Remove comments
-            code = re.sub(r"#.*$", "", code, flags=re.MULTILINE)
-            # Remove all whitespace
-            code = re.sub(r"\s+", "", code)
-            # Normalize variable names (replace with placeholders)
-            code = re.sub(r"[a-zA-Z_]\w*", "VAR", code)
-            return code
-
-        target_lines = target.splitlines()
-        window_size = len(target_lines)
-
-        # Aggressively normalize target
-        target_normalized = aggressive_normalize(target)
-
-        best_matches = []
-
-        for i in range(len(file_lines) - window_size + 1):
-            window = "\n".join(file_lines[i : i + window_size])
-            window_normalized = aggressive_normalize(window)
-
-            similarity = difflib.SequenceMatcher(
-                None, window_normalized, target_normalized
-            ).ratio()
-
-            if similarity > 0:
-                indent = len(file_lines[i]) - len(file_lines[i].lstrip())
-                best_matches.append(
-                    {
-                        "start_line": i,
-                        "score": similarity,
-                        "segment": file_lines[i : i + window_size],
-                        "indent": indent,
-                    }
-                )
-
-        if not best_matches:
-            raise ValueError("No matches found even with aggressive normalization")
-
-        best_matches.sort(key=lambda x: x["score"], reverse=True)
-        best_match = best_matches[0]
-
-        threshold = (
-            0.7 if fuzzy_match else 0.8
-        )  # Lower threshold for aggressive matching
-        if best_match["score"] < threshold:
-            raise ValueError(
-                f"Best aggressive match score ({best_match['score']:.2f}) below threshold ({threshold})"
-            )
-
-        return (
-            best_match["start_line"],
-            best_match["start_line"] + len(target_lines),
-            best_match["indent"] // 4,
-        )
-
     def _handle_insertion_point(
         self, file_lines: List[str], target_line: str
     ) -> tuple[int, int, int]:
@@ -2250,14 +2634,14 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                             indent_level = _get_correct_indent_level(
                                 modified_lines, start_line
                             )
-                            new_content = _indent_code_block(content, indent_level)
+                            new_content = self._indent_code_block(content, indent_level)
                             new_lines[start_line:end_line] = new_content
                             has_changes = True
                         elif operation == "insert" and content:
                             indent_level = _get_correct_indent_level(
                                 modified_lines, start_line
                             )
-                            new_content = _indent_code_block(content, indent_level)
+                            new_content = self._indent_code_block(content, indent_level)
                             # Handle spacing around insertion
                             if (
                                 start_line > 0
