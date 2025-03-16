@@ -1,7 +1,10 @@
 import requests
 import logging
+import os
+import json
 from fastapi import HTTPException
 from Globals import getenv
+from endpoints.TeslaIntegration import ensure_keys_exist, get_tesla_private_key
 
 """
 Required environment variables:
@@ -10,15 +13,7 @@ Required environment variables:
 - TESLA_CLIENT_SECRET: Tesla OAuth client secret
 - TESLA_REDIRECT_URI: OAuth redirect URI
 - TESLA_AUDIENCE: Fleet API base URL (https://fleet-api.prd.na.vn.cloud.tesla.com)
-
-Required scopes for Tesla OAuth:
-- openid: Allow Tesla customers to sign in
-- offline_access: Allow getting refresh tokens
-- user_data: Contact/profile information
-- vehicle_device_data: Vehicle live data and information
-- vehicle_cmds: Core vehicle commands (lock, unlock, etc)
-- vehicle_charging_cmds: Charging control commands
-- vehicle_location: Vehicle location access
+- TESLA_DOMAIN: Your domain that hosts the public key (default: api.agixt.dev)
 """
 
 # Combined scopes needed for full vehicle control
@@ -43,17 +38,71 @@ class TeslaSSO:
         self.refresh_token = refresh_token
         self.client_id = getenv("TESLA_CLIENT_ID")
         self.client_secret = getenv("TESLA_CLIENT_SECRET")
+        self.domain = getenv("TESLA_DOMAIN", "api.agixt.dev")
         self.audience = getenv(
             "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
         )
-        self.auth_base_url = "https://auth.tesla.com/oauth2/v3/authorize"
+        self.token_url = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token"
         self.api_base_url = f"{self.audience}/api/1"
+        self.auth_base_url = "https://auth.tesla.com/oauth2/v3"
+
+        # Ensure we have Tesla keys generated
+        ensure_keys_exist()
+
+        # Get user info
         self.user_info = self.get_user_info()
+
+    def diagnose_api(self):
+        """Run diagnostics on the Tesla API"""
+        logging.info("Running Tesla API diagnostics...")
+
+        if not self.access_token:
+            logging.warning("No access token available for Tesla API diagnostics")
+            return
+
+        endpoints = [
+            # Try different user endpoint variations
+            "/user",
+            "/users/me",
+            "/me",
+            # Try partner or other endpoints
+            "/partner_accounts",
+            "/partners",
+            "/vehicles",
+        ]
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+
+        for endpoint in endpoints:
+            url = f"{self.api_base_url}{endpoint}"
+            try:
+                logging.info(f"Testing Tesla API endpoint: {url}")
+                response = requests.get(url, headers=headers)
+
+                if response.status_code == 200:
+                    logging.info(f"✅ Endpoint {endpoint} works!")
+                    logging.info(f"Response: {response.text[:100]}...")
+                elif response.status_code == 404:
+                    logging.warning(f"❌ Endpoint {endpoint} not found (404)")
+                elif response.status_code == 401:
+                    logging.warning(f"❌ Endpoint {endpoint} unauthorized (401)")
+                elif response.status_code == 412:
+                    logging.warning(
+                        f"❌ Endpoint {endpoint} registration required (412): {response.text}"
+                    )
+                else:
+                    logging.warning(
+                        f"❌ Endpoint {endpoint} error {response.status_code}: {response.text}"
+                    )
+            except Exception as e:
+                logging.error(f"Error testing endpoint {endpoint}: {str(e)}")
 
     def get_new_token(self):
         """Get a new access token using the refresh token"""
+        refresh_url = f"{self.auth_base_url}/token"
+
         response = requests.post(
-            f"{self.auth_base_url}/token",
+            refresh_url,
             data={
                 "grant_type": "refresh_token",
                 "client_id": self.client_id,
@@ -84,13 +133,35 @@ class TeslaSSO:
         headers = {"Authorization": f"Bearer {self.access_token}"}
         try:
             # First try with current token
-            response = requests.get(f"{self.api_base_url}/user", headers=headers)
+            user_url = f"{self.api_base_url}/user"
+            logging.info(f"Fetching Tesla user info from: {user_url}")
+
+            response = requests.get(user_url, headers=headers)
+            logging.info(f"Tesla API response: {response.status_code}")
 
             # If token expired, try refreshing
             if response.status_code == 401 and self.refresh_token:
+                logging.info("Tesla token expired, refreshing...")
                 self.access_token = self.get_new_token()
                 headers = {"Authorization": f"Bearer {self.access_token}"}
-                response = requests.get(f"{self.api_base_url}/user", headers=headers)
+                response = requests.get(user_url, headers=headers)
+
+            # If we get a 404, the endpoint might be different, try to diagnose
+            if response.status_code == 404:
+                logging.warning(f"Tesla API endpoint not found: {user_url}")
+                self.diagnose_api()
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to get user info: {response.text}",
+                )
+
+            # If we need registration, log it clearly
+            if response.status_code == 412 and "must be registered" in response.text:
+                logging.error(f"Tesla account needs registration: {response.text}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to get user info: {response.text}",
+                )
 
             if response.status_code != 200:
                 raise HTTPException(
@@ -105,6 +176,8 @@ class TeslaSSO:
                 "last_name": data.get("last_name"),
             }
 
+        except HTTPException:
+            raise
         except Exception as e:
             logging.error(f"Error getting Tesla user info: {str(e)}")
             raise HTTPException(
@@ -117,25 +190,34 @@ def tesla_sso(code, redirect_uri=None):
     if not redirect_uri:
         redirect_uri = getenv("TESLA_REDIRECT_URI")
 
-    # Exchange authorization code for tokens
-    response = requests.post(
-        "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token",
-        data={
-            "grant_type": "authorization_code",
-            "client_id": getenv("TESLA_CLIENT_ID"),
-            "client_secret": getenv("TESLA_CLIENT_SECRET"),
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "scope": " ".join(SCOPES),
-            "audience": getenv(
-                "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
-            ),
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    logging.info(
+        f"Exchanging Tesla authorization code for tokens with redirect URI: {redirect_uri}"
     )
 
+    # Exchange authorization code for tokens
+    token_url = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token"
+
+    payload = {
+        "grant_type": "authorization_code",
+        "client_id": getenv("TESLA_CLIENT_ID"),
+        "client_secret": getenv("TESLA_CLIENT_SECRET"),
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(SCOPES),
+        "audience": getenv(
+            "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
+        ),
+    }
+
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    logging.info(f"Sending token request to {token_url}")
+    response = requests.post(token_url, data=payload, headers=headers)
+
     if response.status_code != 200:
-        logging.error(f"Error getting Tesla access token: {response.text}")
+        logging.error(
+            f"Error getting Tesla access token: {response.status_code} - {response.text}"
+        )
         return None
 
     data = response.json()
@@ -143,7 +225,20 @@ def tesla_sso(code, redirect_uri=None):
     refresh_token = data.get("refresh_token")
     expires_in = data.get("expires_in")
 
-    return TeslaSSO(access_token=access_token, refresh_token=refresh_token)
+    logging.info(
+        f"Successfully obtained Tesla tokens. Access token expires in {expires_in} seconds."
+    )
+
+    tesla_client = TeslaSSO(access_token=access_token, refresh_token=refresh_token)
+
+    # If we got here but user_info is None, run diagnostics
+    if not tesla_client.user_info:
+        logging.warning(
+            "Got Tesla tokens but couldn't get user info. Running diagnostics..."
+        )
+        tesla_client.diagnose_api()
+
+    return tesla_client
 
 
 def get_authorization_url(state=None, prompt_missing_scopes=True):
