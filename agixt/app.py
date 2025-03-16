@@ -18,6 +18,7 @@ from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
 from endpoints.Auth import app as auth_endpoints
 from endpoints.Health import app as health_endpoints
+from endpoints.TeslaIntegration import register_tesla_routes
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
@@ -240,6 +241,8 @@ async def serve_file(
         logging.error(f"Unexpected error serving file: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+register_tesla_routes(app)
 
 from strawberry.fastapi import GraphQLRouter
 from endpoints.GQL import schema
