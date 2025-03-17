@@ -16,12 +16,12 @@ class solana_wallet(Extensions):
 
     def __init__(
         self,
-        SOLANA_API_URI: str = "https://api.devnet.solana.com",
-        WALLET_PRIVATE_KEY: str = "",
         **kwargs,
     ):
+        SOLANA_API_URI = "https://api.devnet.solana.com"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = Client(SOLANA_API_URI)
+        WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
 
         # If an existing wallet private key is provided, load the keypair
         if WALLET_PRIVATE_KEY:
@@ -34,7 +34,6 @@ class solana_wallet(Extensions):
             self.wallet_address = None
 
         self.commands = {
-            "Create Solana Wallet": self.create_wallet,
             "Get Solana Wallet Balance": self.get_wallet_balance,
             "Send SOL": self.send_sol,
             "Get Transaction Info": self.get_transaction_info,
