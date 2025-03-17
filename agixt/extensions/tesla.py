@@ -1,7 +1,6 @@
-import os
+import json
 import logging
 import requests
-from datetime import datetime, timedelta
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
@@ -91,7 +90,16 @@ class tesla(Extensions):
             raise Exception("No valid Tesla access token found")
 
     async def get_vehicles(self):
-        """Get list of vehicles"""
+        """Get list of vehicles
+
+        Args:
+            None
+
+        Returns:
+            dict: List of vehicles
+
+        Note: This should be used any time the user asks for any vehicle interaction to ensure the correct vehicle is selected by vehicle tag.
+        """
         try:
             self.verify_user()
             headers = {
@@ -106,7 +114,9 @@ class tesla(Extensions):
             if response.status_code != 200:
                 raise Exception(f"Failed to get vehicles: {response.text}")
 
-            return response.json()
+            data = response.json()
+            logging.info(f"Vehicles: {data}")
+            return json.dumps(data, indent=2)
 
         except Exception as e:
             logging.error(f"Error getting vehicles: {str(e)}")
