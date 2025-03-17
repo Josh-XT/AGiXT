@@ -3,6 +3,7 @@ import logging
 import requests
 from Extensions import Extensions
 from Globals import getenv
+from MagicalAuth import MagicalAuth
 
 
 class x(Extensions):
@@ -46,6 +47,13 @@ class x(Extensions):
                 "X - Get Direct Messages": self.get_direct_messages,
                 "X - Get Trending Topics": self.get_trending_topics,
             }
+
+            if self.api_key:
+                try:
+                    self.auth = MagicalAuth(token=self.api_key)
+                    self.timezone = self.auth.get_timezone()
+                except Exception as e:
+                    logging.error(f"Error initializing X client: {str(e)}")
 
         self.media_dir = kwargs.get("conversation_directory", "./WORKSPACE/media")
         os.makedirs(self.media_dir, exist_ok=True)
