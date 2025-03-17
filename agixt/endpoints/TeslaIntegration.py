@@ -79,9 +79,6 @@ def register_with_tesla():
                 with open(REGISTRATION_FILE, "r") as f:
                     status = json.load(f)
                     if status.get("registered", False):
-                        logging.info(
-                            f"Tesla API registration already completed on {status.get('date')}"
-                        )
                         return True
             except Exception as e:
                 logging.warning(f"Error reading Tesla registration status: {str(e)}")
@@ -218,4 +215,3 @@ def register_tesla_routes(app):
         import threading
 
         threading.Timer(10.0, register_with_tesla).start()
-        logging.info("Scheduled Tesla API registration (will run after 10 seconds)")

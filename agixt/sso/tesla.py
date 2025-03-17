@@ -54,48 +54,10 @@ class TeslaSSO:
 
     def diagnose_api(self):
         """Run diagnostics on the Tesla API"""
-        logging.info("Running Tesla API diagnostics...")
-
-        if not self.access_token:
-            logging.warning("No access token available for Tesla API diagnostics")
-            return
-
-        endpoints = [
-            # Try different user endpoint variations
-            "/user",
-            "/users/me",
-            "/me",
-            # Try partner or other endpoints
-            "/partner_accounts",
-            "/partners",
-            "/vehicles",
-        ]
-
-        headers = {"Authorization": f"Bearer {self.access_token}"}
-
-        for endpoint in endpoints:
-            url = f"{self.api_base_url}{endpoint}"
-            try:
-                logging.info(f"Testing Tesla API endpoint: {url}")
-                response = requests.get(url, headers=headers)
-
-                if response.status_code == 200:
-                    logging.info(f"✅ Endpoint {endpoint} works!")
-                    logging.info(f"Response: {response.text[:100]}...")
-                elif response.status_code == 404:
-                    logging.warning(f"❌ Endpoint {endpoint} not found (404)")
-                elif response.status_code == 401:
-                    logging.warning(f"❌ Endpoint {endpoint} unauthorized (401)")
-                elif response.status_code == 412:
-                    logging.warning(
-                        f"❌ Endpoint {endpoint} registration required (412): {response.text}"
-                    )
-                else:
-                    logging.warning(
-                        f"❌ Endpoint {endpoint} error {response.status_code}: {response.text}"
-                    )
-            except Exception as e:
-                logging.error(f"Error testing endpoint {endpoint}: {str(e)}")
+        response = requests.get(
+            f"{self.api_base_url}/users/me",
+            headers={"Authorization": f"Bearer {self.access_token}"},
+        )
 
     def get_new_token(self):
         """Get a new access token using the refresh token"""
@@ -133,7 +95,7 @@ class TeslaSSO:
         headers = {"Authorization": f"Bearer {self.access_token}"}
         try:
             # First try with current token
-            user_url = f"{self.api_base_url}/user"
+            user_url = f"{self.api_base_url}/user/me"
             logging.info(f"Fetching Tesla user info from: {user_url}")
 
             response = requests.get(user_url, headers=headers)
@@ -149,7 +111,6 @@ class TeslaSSO:
             # If we get a 404, the endpoint might be different, try to diagnose
             if response.status_code == 404:
                 logging.warning(f"Tesla API endpoint not found: {user_url}")
-                self.diagnose_api()
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Failed to get user info: {response.text}",
@@ -229,14 +190,17 @@ def tesla_sso(code, redirect_uri=None):
         f"Successfully obtained Tesla tokens. Access token expires in {expires_in} seconds."
     )
 
-    tesla_client = TeslaSSO(access_token=access_token, refresh_token=refresh_token)
+    return TeslaSSO(access_token=access_token, refresh_token=refresh_token)
 
     # If we got here but user_info is None, run diagnostics
     if not tesla_client.user_info:
         logging.warning(
             "Got Tesla tokens but couldn't get user info. Running diagnostics..."
         )
-        tesla_client.diagnose_api()
+        response = requests.get(
+            f"{tesla_client.api_base_url}/users/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
 
     return tesla_client
 
