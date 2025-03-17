@@ -23,6 +23,7 @@ class x(Extensions):
     """
 
     def __init__(self, **kwargs):
+        self.api_key = kwargs.get("api_key", None)
         self.access_token = kwargs.get("X_ACCESS_TOKEN", None)
         self.x_client_id = getenv("X_CLIENT_ID")
         self.x_client_secret = getenv("X_CLIENT_SECRET")
