@@ -77,7 +77,7 @@ class AmazonSSO:
 
 def amazon_sso(code, redirect_uri=None) -> AmazonSSO:
     if not redirect_uri:
-        redirect_uri = getenv("MAGIC_LINK_URL")
+        redirect_uri = getenv("APP_URI")
     code = (
         str(code)
         .replace("%2F", "/")

@@ -82,7 +82,7 @@ class MicrosoftSSO:
 
 def microsoft_sso(code, redirect_uri=None) -> MicrosoftSSO:
     if not redirect_uri:
-        redirect_uri = getenv("MAGIC_LINK_URL")
+        redirect_uri = getenv("APP_URI")
     code = (
         str(code)
         .replace("%2F", "/")

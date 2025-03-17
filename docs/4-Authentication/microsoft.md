@@ -22,7 +22,7 @@ These values can be obtained by registering your application in the Microsoft Az
 3. In the left-hand navigation pane, select **App registrations**.
 4. Select **New registration**.
 5. Enter a name for your application.
-6. Under **Redirect URI**, enter a redirect URI where the authentication response can be sent. This should match the `MAGIC_LINK_URL` environment variable in your `.env` file.
+6. Under **Redirect URI**, enter a redirect URI where the authentication response can be sent. This should match the `APP_URI` environment variable in your `.env` file.
 7. Click **Register**.
 
 ### Step 2: Configure API Permissions

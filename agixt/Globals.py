@@ -9,6 +9,7 @@ load_dotenv()
 def getenv(var_name: str, default_value: str = "") -> str:
     default_values = {
         "AGIXT_URI": "http://localhost:7437",
+        "APP_URI": "http://localhost:3437",
         "AGIXT_API_KEY": "None",
         "EZLOCALAI_URI": "http://localhost:8091/v1/",
         "EZLOCALAI_API_KEY": "",
@@ -63,6 +64,8 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "DEEPSEEK_API_KEY": "",
         "AZURE_OPENAI_ENDPOINT": "",
     }
+    if var_name == "MAGIC_LINK_URL":
+        var_name = "APP_URI"
     if default_value != "":
         default_values[var_name] = default_value
     default_value = default_values[var_name] if var_name in default_values else ""

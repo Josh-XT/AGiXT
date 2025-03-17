@@ -89,7 +89,7 @@ class GoogleSSO:
 
 def google_sso(code, redirect_uri=None) -> GoogleSSO:
     if not redirect_uri:
-        redirect_uri = getenv("MAGIC_LINK_URL")
+        redirect_uri = getenv("APP_URI")
     code = (
         str(code)
         .replace("%2F", "/")
