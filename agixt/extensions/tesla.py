@@ -368,15 +368,15 @@ class tesla(Extensions):
             raise Exception("No valid Tesla access token found")
 
     async def get_vehicles(self):
-        """Get list of vehicles
+        """Get list of vehicles with key state information
 
         Args:
             None
 
         Returns:
-            dict: List of vehicles
+            str: Table of user's Tesla vehicles with key information
 
-        Note: This should be used any time the user asks for any vehicle interaction to ensure the correct vehicle is selected by vehicle tag.
+        Note: This should be used any time the user asks for any vehicle interaction to ensure the correct vehicle is selected by vehicle tag (VIN).
         """
         try:
             self.verify_user()
@@ -385,8 +385,8 @@ class tesla(Extensions):
                 "Content-Type": "application/json",
             }
 
+            # Get the list of vehicles
             url = f"{self.api_base_url}/vehicles"
-
             response = requests.get(url, headers=headers)
 
             if response.status_code != 200:
@@ -394,14 +394,118 @@ class tesla(Extensions):
 
             data = response.json()
             vehicle_data = data["response"]
+
+            # Collect VINs for decoding
             vins = []
             for vehicle in vehicle_data:
                 if "vin" in vehicle:
                     vins.append(vehicle["vin"])
+
+            # Decode VINs
             vin_decodings = TeslaVINDecoder.batch_decode(vins)
-            vehicles = "User's Tesla Vehicles:\n| VIN | Model | Year | Description |\n| --- | --- | --- | --- |\n"
-            for result in vin_decodings:
-                vehicles += f"| {result['vin']} | {result['model']} | {result['model_year']} | {result['full_description']} |\n"
+
+            # Create result table header with additional columns
+            vehicles = "User's Tesla Vehicles:\n| VIN | Model | Year | Description | Battery | Status | Climate | Odometer |\n"
+            vehicles += "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+
+            # Process each vehicle
+            for vehicle in vehicle_data:
+                if "vin" not in vehicle:
+                    continue
+
+                # Find the VIN decoding for this vehicle
+                decoded_info = next(
+                    (
+                        decoded
+                        for decoded in vin_decodings
+                        if decoded["vin"] == vehicle["vin"]
+                    ),
+                    {},
+                )
+
+                # Initialize additional data fields
+                battery_level = "N/A"
+                vehicle_status = vehicle.get("state", "Unknown")
+                climate_info = "N/A"
+                odometer = "N/A"
+
+                # Only fetch additional data if vehicle is online
+                if vehicle.get("state") == "online":
+                    try:
+                        # Get vehicle data
+                        vehicle_id = vehicle["id_s"]
+                        vehicle_data_url = (
+                            f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
+                        )
+                        vehicle_response = requests.get(
+                            vehicle_data_url, headers=headers
+                        )
+
+                        if vehicle_response.status_code == 200:
+                            v_data = vehicle_response.json().get("response", {})
+
+                            # Extract battery info
+                            charge_state = v_data.get("charge_state", {})
+                            if charge_state:
+                                battery_level = (
+                                    f"{charge_state.get('battery_level', 'N/A')}%"
+                                )
+                                vehicle_status = charge_state.get(
+                                    "charging_state", vehicle_status
+                                )
+
+                            # Extract climate info
+                            climate_state = v_data.get("climate_state", {})
+                            if climate_state:
+                                is_climate_on = climate_state.get(
+                                    "is_climate_on", False
+                                )
+                                inside_temp = climate_state.get("inside_temp")
+                                temp_units = (
+                                    "°F"
+                                    if v_data.get("gui_settings", {}).get(
+                                        "gui_temperature_units"
+                                    )
+                                    == "F"
+                                    else "°C"
+                                )
+
+                                if inside_temp is not None:
+                                    climate_info = f"{'On' if is_climate_on else 'Off'} ({inside_temp}{temp_units})"
+                                else:
+                                    climate_info = "On" if is_climate_on else "Off"
+
+                            # Extract odometer
+                            vehicle_state = v_data.get("vehicle_state", {})
+                            if (
+                                vehicle_state
+                                and vehicle_state.get("odometer") is not None
+                            ):
+                                odometer_value = vehicle_state.get("odometer")
+                                distance_units = (
+                                    v_data.get("gui_settings", {})
+                                    .get("gui_distance_units", "mi/hr")
+                                    .split("/")[0]
+                                )
+                                odometer = f"{odometer_value:.1f} {distance_units}"
+
+                    except Exception as e:
+                        logging.error(
+                            f"Error getting data for vehicle {vehicle.get('id_s')}: {str(e)}"
+                        )
+
+                # Add row to table
+                vehicles += (
+                    f"| {vehicle['vin']} | "
+                    f"{decoded_info.get('model', 'Unknown')} | "
+                    f"{decoded_info.get('model_year', 'Unknown')} | "
+                    f"{decoded_info.get('full_description', 'Unknown')} | "
+                    f"{battery_level} | "
+                    f"{vehicle_status} | "
+                    f"{climate_info} | "
+                    f"{odometer} |\n"
+                )
+
             return vehicles
         except Exception as e:
             logging.error(f"Error getting vehicles: {str(e)}")
