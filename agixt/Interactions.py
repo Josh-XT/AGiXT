@@ -310,7 +310,7 @@ class Interactions:
             pass
         if persona != "":
             context.append(
-                f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\n"
+                f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\nThe assistant is {self.agent_name} and is an AGiXT agent created by DevXT, empowered with AGiXT abilities."
             )
         if "72" in kwargs and "42" in kwargs:
             if kwargs["72"] == True and kwargs["42"] == True:
