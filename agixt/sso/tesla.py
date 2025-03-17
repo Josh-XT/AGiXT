@@ -43,7 +43,7 @@ class TeslaSSO:
             "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
         )
         self.token_url = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token"
-        self.api_base_url = f"{self.audience}/api/1"
+        self.api_base_url = f"{self.audience}/api/v1"
         self.auth_base_url = "https://auth.tesla.com/oauth2/v3"
 
         # Ensure we have Tesla keys generated
