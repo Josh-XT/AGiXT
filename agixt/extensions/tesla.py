@@ -1,10 +1,9 @@
-import json
 import logging
 import requests
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Any
 
 
 class TeslaVINDecoder:
@@ -283,46 +282,6 @@ class TeslaVINDecoder:
     def batch_decode(vins: List[str]) -> List[Dict[str, Any]]:
         """Decode multiple VINs and return a list of decoded results."""
         return [TeslaVINDecoder.decode_vin(vin) for vin in vins]
-
-    @staticmethod
-    def decode_from_api_response(
-        api_response: Union[str, Dict],
-    ) -> List[Dict[str, Any]]:
-        """
-        Parse a Tesla API response and decode the VINs from the vehicles.
-
-        Args:
-            api_response: Either a JSON string or a dictionary containing Tesla API response
-
-        Returns:
-            A list of dictionaries with decoded vehicle information
-        """
-        if isinstance(api_response, str):
-            try:
-                data = json.loads(api_response)
-            except json.JSONDecodeError:
-                return [{"error": "Invalid JSON format"}]
-        else:
-            data = api_response
-
-        vehicles = data.get("response", [])
-        if not vehicles:
-            return [{"error": "No vehicles found in API response"}]
-
-        results = []
-        for vehicle in vehicles:
-            vin = vehicle.get("vin")
-            if vin:
-                vehicle_info = TeslaVINDecoder.decode_vin(vin)
-                # Add additional info from the API response
-                vehicle_info["id"] = vehicle.get("id")
-                vehicle_info["display_name"] = vehicle.get("display_name")
-                vehicle_info["state"] = vehicle.get("state")
-                results.append(vehicle_info)
-            else:
-                results.append({"error": "Vehicle missing VIN", "data": vehicle})
-
-        return results
 
 
 class tesla(Extensions):
