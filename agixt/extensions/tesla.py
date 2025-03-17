@@ -4,6 +4,325 @@ import requests
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
+from typing import Dict, List, Optional, Any, Union
+
+
+class TeslaVINDecoder:
+    """
+    A class for decoding Tesla Vehicle Identification Numbers (VINs).
+
+    Tesla VIN Structure:
+    - Position 1-3: World Manufacturer Identifier (WMI)
+    - Position 4: Vehicle Type/Line
+    - Position 5: Body Type
+    - Position 6: Restraint System
+    - Position 7: Drivetrain
+    - Position 8: Motor/Battery Config
+    - Position 9: Check Digit
+    - Position 10: Model Year
+    - Position 11: Manufacturing Plant
+    - Position 12-17: Production Sequence Number
+    """
+
+    # World Manufacturer Identifier
+    WMI_CODES = {
+        "5YJ": "Tesla USA",
+        "7SA": "Tesla USA (Model Y)",
+        "LRW": "Tesla China",
+        "XP7": "Tesla Europe (Berlin)",
+    }
+
+    # Vehicle Type/Line (Position 4)
+    MODEL_CODES = {
+        "S": "Model S",
+        "3": "Model 3",
+        "X": "Model X",
+        "Y": "Model Y",
+        "E": "Model 3",
+        "G": "Model Y",
+        "R": "Roadster",
+        "C": "Cybertruck",
+    }
+
+    # Body Type (Position 5)
+    BODY_CODES = {
+        "A": "Sedan or Hatchback",
+        "B": "SUV or Crossover",
+        "C": "Coupe",
+        "E": "Sedan or Hatchback",
+        "F": "SUV or Crossover",
+        "P": "Performance",
+        "R": "Roadster",
+        "S": "Standard",
+        "T": "Truck",
+    }
+
+    # Drivetrain (Position 7)
+    DRIVETRAIN_CODES = {
+        "1": "Dual Motor - AWD",  # Updated from RWD to AWD
+        "2": "Dual Motor - AWD",
+        "3": "Performance Dual Motor - AWD",
+        "4": "Tri Motor - AWD (Plaid)",  # Added Plaid designation
+        "5": "Dual Motor - AWD (Performance)",  # Updated from RWD to AWD
+        "6": "Quad Motor - AWD",
+        "A": "Dual Motor - AWD",  # Updated from RWD to AWD
+        "B": "Dual Motor - AWD",
+        "C": "Performance Dual Motor - AWD",
+        "D": "Tri Motor - AWD (Plaid)",  # Added Plaid designation
+        "E": "Tri Motor - AWD (Plaid)",  # Updated to Plaid based on your feedback
+        "F": "Quad Motor - AWD",
+    }
+
+    # Motor/Battery Config (Position 8)
+    BATTERY_CODES = {
+        "1": "Standard Range",
+        "2": "Mid Range",
+        "3": "Long Range",
+        "4": "Performance",
+        "C": "Standard Range",
+        "D": "Mid Range",
+        "E": "Long Range",
+        "F": "Performance",
+        "P": "Performance",
+    }
+
+    # Model Year (Position 10)
+    MODEL_YEARS = {
+        "A": 2010,
+        "B": 2011,
+        "C": 2012,
+        "D": 2013,
+        "E": 2014,
+        "F": 2015,
+        "G": 2016,
+        "H": 2017,
+        "J": 2018,
+        "K": 2019,
+        "L": 2020,
+        "M": 2021,
+        "N": 2022,
+        "P": 2023,
+        "R": 2024,
+        "S": 2025,
+        "T": 2026,
+        "V": 2027,
+        "W": 2028,
+        "X": 2029,
+        "Y": 2030,
+    }
+
+    # Plant Codes (Position 11)
+    PLANT_CODES = {
+        "F": "Fremont, California, USA",
+        "R": "Reno, Nevada, USA (Gigafactory 1)",
+        "C": "Shanghai, China (Gigafactory 3)",
+        "B": "Berlin, Germany (Gigafactory 4)",
+        "A": "Austin, Texas, USA (Gigafactory 5)",
+    }
+
+    @staticmethod
+    def validate_vin(vin: str) -> bool:
+        """Validate if the VIN is properly formatted for Tesla."""
+        if not vin or len(vin) != 17:
+            return False
+
+        # Check if the VIN starts with a known Tesla WMI
+        for wmi in TeslaVINDecoder.WMI_CODES.keys():
+            if vin.startswith(wmi):
+                return True
+
+        return False
+
+    @staticmethod
+    def decode_vin(vin: str) -> Dict[str, Any]:
+        """
+        Decode a Tesla VIN and return a dictionary with vehicle information.
+
+        Args:
+            vin: A 17-character Tesla Vehicle Identification Number
+
+        Returns:
+            A dictionary containing decoded vehicle information
+        """
+        if not TeslaVINDecoder.validate_vin(vin):
+            return {"error": "Invalid Tesla VIN format", "vin": vin}
+
+        # Initialize result dictionary
+        result = {
+            "vin": vin,
+            "manufacturer": TeslaVINDecoder.WMI_CODES.get(
+                vin[0:3], "Unknown Manufacturer"
+            ),
+            "model_code": vin[3],
+            "model": TeslaVINDecoder.MODEL_CODES.get(vin[3], "Unknown Model"),
+            "body_type": TeslaVINDecoder.BODY_CODES.get(vin[4], "Unknown Body Type"),
+            "restraint_system": vin[5],  # Typically safety/restraint system info
+            "drivetrain_code": vin[6],
+            "battery_config_code": vin[7],
+            "check_digit": vin[8],
+            "model_year_code": vin[9],
+            "model_year": TeslaVINDecoder.MODEL_YEARS.get(vin[9], "Unknown Year"),
+            "plant_code": vin[10],
+            "manufacturing_plant": TeslaVINDecoder.PLANT_CODES.get(
+                vin[10], "Unknown Plant"
+            ),
+            "production_sequence": vin[11:17],
+        }
+
+        # Determine drivetrain and trim based on model-specific rules
+        model_code = vin[3]
+        drivetrain_code = vin[6]
+        battery_code = vin[7]
+
+        # Model S specific interpretations
+        if model_code == "S":
+            if drivetrain_code == "E":
+                result["drivetrain"] = "Tri Motor - AWD (Plaid)"
+                result["trim"] = "Plaid"
+            else:
+                result["drivetrain"] = TeslaVINDecoder.DRIVETRAIN_CODES.get(
+                    drivetrain_code, "Unknown Drivetrain"
+                )
+                if "Plaid" in result["drivetrain"]:
+                    result["trim"] = "Plaid"
+                elif "Performance" in result["drivetrain"]:
+                    result["trim"] = "Performance"
+                else:
+                    result["trim"] = TeslaVINDecoder.BATTERY_CODES.get(battery_code, "")
+
+            result["battery_config"] = TeslaVINDecoder.BATTERY_CODES.get(
+                battery_code, "Unknown Battery Config"
+            )
+
+        # Model 3 specific interpretations
+        elif model_code == "3" or model_code == "E":
+            if drivetrain_code == "E":
+                if battery_code == "C":
+                    result["drivetrain"] = "Dual Motor - AWD (Performance)"
+                    result["trim"] = "Performance"
+                else:
+                    result["drivetrain"] = "Dual Motor - AWD"
+                    result["trim"] = TeslaVINDecoder.BATTERY_CODES.get(battery_code, "")
+            else:
+                result["drivetrain"] = TeslaVINDecoder.DRIVETRAIN_CODES.get(
+                    drivetrain_code, "Unknown Drivetrain"
+                )
+                if "Performance" in result["drivetrain"]:
+                    result["trim"] = "Performance"
+                else:
+                    result["trim"] = TeslaVINDecoder.BATTERY_CODES.get(battery_code, "")
+
+            result["battery_config"] = TeslaVINDecoder.BATTERY_CODES.get(
+                battery_code, "Unknown Battery Config"
+            )
+
+        # Model Y specific interpretations
+        elif model_code == "Y" or model_code == "G":
+            if drivetrain_code == "E":
+                if battery_code == "E":
+                    result["drivetrain"] = "Dual Motor - AWD"
+                    result["trim"] = "Long Range"
+                elif battery_code == "F" or battery_code == "P":
+                    result["drivetrain"] = "Dual Motor - AWD (Performance)"
+                    result["trim"] = "Performance"
+                else:
+                    result["drivetrain"] = "Dual Motor - AWD"
+                    result["trim"] = TeslaVINDecoder.BATTERY_CODES.get(battery_code, "")
+            else:
+                result["drivetrain"] = TeslaVINDecoder.DRIVETRAIN_CODES.get(
+                    drivetrain_code, "Unknown Drivetrain"
+                )
+                if "Performance" in result["drivetrain"]:
+                    result["trim"] = "Performance"
+                else:
+                    result["trim"] = TeslaVINDecoder.BATTERY_CODES.get(battery_code, "")
+
+            result["battery_config"] = TeslaVINDecoder.BATTERY_CODES.get(
+                battery_code, "Unknown Battery Config"
+            )
+
+        # Model X and other models
+        else:
+            result["drivetrain"] = TeslaVINDecoder.DRIVETRAIN_CODES.get(
+                drivetrain_code, "Unknown Drivetrain"
+            )
+            result["battery_config"] = TeslaVINDecoder.BATTERY_CODES.get(
+                battery_code, "Unknown Battery Config"
+            )
+
+            if "Plaid" in result["drivetrain"]:
+                result["trim"] = "Plaid"
+            elif (
+                "Performance" in result["drivetrain"]
+                or "Performance" in result["battery_config"]
+            ):
+                result["trim"] = "Performance"
+            else:
+                result["trim"] = TeslaVINDecoder.BATTERY_CODES.get(battery_code, "")
+
+        # Determine drive type
+        if "AWD" in result.get("drivetrain", ""):
+            result["drive_type"] = "AWD"
+        elif "RWD" in result.get("drivetrain", ""):
+            result["drive_type"] = "RWD"
+        else:
+            result["drive_type"] = ""
+
+        # Create full model description
+        full_description_parts = [result["model"]]
+        if "trim" in result and result["trim"]:
+            full_description_parts.append(result["trim"])
+        if "drive_type" in result and result["drive_type"]:
+            full_description_parts.append(result["drive_type"])
+
+        result["full_description"] = " ".join(full_description_parts)
+
+        return result
+
+    @staticmethod
+    def batch_decode(vins: List[str]) -> List[Dict[str, Any]]:
+        """Decode multiple VINs and return a list of decoded results."""
+        return [TeslaVINDecoder.decode_vin(vin) for vin in vins]
+
+    @staticmethod
+    def decode_from_api_response(
+        api_response: Union[str, Dict],
+    ) -> List[Dict[str, Any]]:
+        """
+        Parse a Tesla API response and decode the VINs from the vehicles.
+
+        Args:
+            api_response: Either a JSON string or a dictionary containing Tesla API response
+
+        Returns:
+            A list of dictionaries with decoded vehicle information
+        """
+        if isinstance(api_response, str):
+            try:
+                data = json.loads(api_response)
+            except json.JSONDecodeError:
+                return [{"error": "Invalid JSON format"}]
+        else:
+            data = api_response
+
+        vehicles = data.get("response", [])
+        if not vehicles:
+            return [{"error": "No vehicles found in API response"}]
+
+        results = []
+        for vehicle in vehicles:
+            vin = vehicle.get("vin")
+            if vin:
+                vehicle_info = TeslaVINDecoder.decode_vin(vin)
+                # Add additional info from the API response
+                vehicle_info["id"] = vehicle.get("id")
+                vehicle_info["display_name"] = vehicle.get("display_name")
+                vehicle_info["state"] = vehicle.get("state")
+                results.append(vehicle_info)
+            else:
+                results.append({"error": "Vehicle missing VIN", "data": vehicle})
+
+        return results
 
 
 class tesla(Extensions):
@@ -115,9 +434,16 @@ class tesla(Extensions):
                 raise Exception(f"Failed to get vehicles: {response.text}")
 
             data = response.json()
-            logging.info(f"Vehicles: {data}")
-            return json.dumps(data, indent=2)
-
+            vehicle_data = data["response"]
+            vins = []
+            for vehicle in vehicle_data:
+                if "vin" in vehicle:
+                    vins.append(vehicle["vin"])
+            vin_decodings = TeslaVINDecoder.batch_decode(vins)
+            vehicles = "User's Tesla Vehicles:\n| VIN | Model | Year | Description |\n| --- | --- | --- | --- |\n"
+            for result in vin_decodings:
+                vehicles += f"| {result['vin']} | {result['model']} | {result['model_year']} | {result['full_description']} |\n"
+            return vehicles
         except Exception as e:
             logging.error(f"Error getting vehicles: {str(e)}")
             return {"error": str(e)}
