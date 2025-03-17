@@ -429,70 +429,78 @@ class tesla(Extensions):
                 climate_info = "N/A"
                 odometer = "N/A"
 
-                # Only fetch additional data if vehicle is online
-                if vehicle.get("state") == "online":
-                    try:
-                        # Get vehicle data
-                        vehicle_id = vehicle["id_s"]
-                        vehicle_data_url = (
-                            f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
-                        )
-                        vehicle_response = requests.get(
-                            vehicle_data_url, headers=headers
-                        )
+                # Attempt to get data for all vehicles, waking them if necessary
+                try:
+                    vehicle_id = vehicle["id_s"]
 
-                        if vehicle_response.status_code == 200:
-                            v_data = vehicle_response.json().get("response", {})
+                    # If vehicle is asleep, wake it up first
+                    if vehicle.get("state") == "asleep":
+                        wake_url = f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"
+                        wake_response = requests.post(wake_url, headers=headers)
+                        logging.info(f"Waking up vehicle {vehicle_id}")
 
-                            # Extract battery info
-                            charge_state = v_data.get("charge_state", {})
-                            if charge_state:
-                                battery_level = (
-                                    f"{charge_state.get('battery_level', 'N/A')}%"
+                        # Wait for vehicle to wake up (may take a few seconds)
+                        import time
+
+                        time.sleep(5)  # Allow time for the vehicle to wake
+
+                        # Update vehicle status
+                        if wake_response.status_code == 200:
+                            vehicle_status = "Waking"
+
+                    # Get vehicle data
+                    vehicle_data_url = (
+                        f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
+                    )
+                    vehicle_response = requests.get(vehicle_data_url, headers=headers)
+
+                    if vehicle_response.status_code == 200:
+                        v_data = vehicle_response.json().get("response", {})
+
+                        # Extract battery info
+                        charge_state = v_data.get("charge_state", {})
+                        if charge_state:
+                            battery_level = (
+                                f"{charge_state.get('battery_level', 'N/A')}%"
+                            )
+                            vehicle_status = charge_state.get(
+                                "charging_state", vehicle_status
+                            )
+
+                        # Extract climate info
+                        climate_state = v_data.get("climate_state", {})
+                        if climate_state:
+                            is_climate_on = climate_state.get("is_climate_on", False)
+                            inside_temp = climate_state.get("inside_temp")
+                            temp_units = (
+                                "°F"
+                                if v_data.get("gui_settings", {}).get(
+                                    "gui_temperature_units"
                                 )
-                                vehicle_status = charge_state.get(
-                                    "charging_state", vehicle_status
-                                )
+                                == "F"
+                                else "°C"
+                            )
 
-                            # Extract climate info
-                            climate_state = v_data.get("climate_state", {})
-                            if climate_state:
-                                is_climate_on = climate_state.get(
-                                    "is_climate_on", False
-                                )
-                                inside_temp = climate_state.get("inside_temp")
-                                temp_units = (
-                                    "°F"
-                                    if v_data.get("gui_settings", {}).get(
-                                        "gui_temperature_units"
-                                    )
-                                    == "F"
-                                    else "°C"
-                                )
+                            if inside_temp is not None:
+                                climate_info = f"{'On' if is_climate_on else 'Off'} ({inside_temp}{temp_units})"
+                            else:
+                                climate_info = "On" if is_climate_on else "Off"
 
-                                if inside_temp is not None:
-                                    climate_info = f"{'On' if is_climate_on else 'Off'} ({inside_temp}{temp_units})"
-                                else:
-                                    climate_info = "On" if is_climate_on else "Off"
+                        # Extract odometer
+                        vehicle_state = v_data.get("vehicle_state", {})
+                        if vehicle_state and vehicle_state.get("odometer") is not None:
+                            odometer_value = vehicle_state.get("odometer")
+                            distance_units = (
+                                v_data.get("gui_settings", {})
+                                .get("gui_distance_units", "mi/hr")
+                                .split("/")[0]
+                            )
+                            odometer = f"{odometer_value:.1f} {distance_units}"
 
-                            # Extract odometer
-                            vehicle_state = v_data.get("vehicle_state", {})
-                            if (
-                                vehicle_state
-                                and vehicle_state.get("odometer") is not None
-                            ):
-                                odometer_value = vehicle_state.get("odometer")
-                                distance_units = (
-                                    v_data.get("gui_settings", {})
-                                    .get("gui_distance_units", "mi/hr")
-                                    .split("/")[0]
-                                )
-                                odometer = f"{odometer_value:.1f} {distance_units}"
-
-                    except Exception as e:
-                        logging.error(
-                            f"Error getting data for vehicle {vehicle.get('id_s')}: {str(e)}"
-                        )
+                except Exception as e:
+                    logging.error(
+                        f"Error getting data for vehicle {vehicle.get('id_s')}: {str(e)}"
+                    )
 
                 # Add row to table
                 vehicles += (
