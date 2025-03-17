@@ -34,6 +34,7 @@ from sso.google import google_sso
 from sso.microsoft import microsoft_sso
 from sso.walmart import walmart_sso
 from sso.tesla import tesla_sso
+from sso.x import x_sso
 import pyotp
 import logging
 import traceback
@@ -135,6 +136,8 @@ def get_sso_provider(provider: str, code, redirect_uri=None):
             return walmart_sso(code=code, redirect_uri=redirect_uri)
         elif provider == "tesla":
             return tesla_sso(code=code, redirect_uri=redirect_uri)
+        elif provider == "x":
+            return x_sso(code=code, redirect_uri=redirect_uri)
         else:
             return None
     except Exception as e:
@@ -2430,6 +2433,7 @@ class MagicalAuth:
             "github",
             "walmart",
             "tesla",
+            "x",
         ]:
             provider = "microsoft"
 
@@ -2456,40 +2460,7 @@ class MagicalAuth:
             if hasattr(sso_data, "expires_in")
             else None
         )
-
-        # Get account identifier based on provider
-        if provider == "microsoft":
-            account_name = (
-                user_data.get("mail")
-                or user_data.get("userPrincipalName")
-                or user_data.get("email")
-            )
-        elif provider == "google":
-            account_name = user_data.get("email")
-        elif provider == "github":
-            response = requests.get(
-                "https://api.github.com/user",
-                headers={"Authorization": f"token {access_token}"},
-            )
-            response.raise_for_status()
-            account_name = response.json()["login"]
-        elif provider == "walmart":
-            account_name = user_data.get("email")
-        elif provider == "amazon":
-            account_name = user_data.get("email")
-        elif provider == "tesla":
-            response = requests.get(
-                f"https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/users/me",
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            response.raise_for_status()
-            account_name = response.json()["response"]["email"]
-        else:
-            account_name = (
-                user_data.get("email")
-                or user_data.get("mail")
-                or user_data.get("login")
-            )
+        account_name = sso_data.user_info.get("email", self.email)
 
         if not account_name:
             logging.error(
