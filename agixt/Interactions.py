@@ -920,14 +920,17 @@ class Interactions:
                     new_processed_length = len(self.response)
                     if new_processed_length > processed_length:
                         # Get continuation only if we got new content
-                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process..."
+                        # Make the context about command execution clearer
+                        command_output = self.response[processed_length:].strip()
+                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response[:processed_length]}\n\nCommand executed with output: {command_output}\n\nThe assistant should continue its thought process based on this command output..."
                         command_response = await self.agent.inference(
                             prompt=new_prompt, use_smartest=use_smartest
                         )
                         self.response = f"{self.response}{command_response}"
                         processed_length = new_processed_length
                     else:
-                        break
+                        if "<execute>" not in self.response[processed_length:]:
+                            break
                 if "<think>" in self.response:
                     self.response.replace("<think>", "<thinking>")
                     self.response.replace("</think>", "</thinking>")
@@ -937,7 +940,10 @@ class Interactions:
                         response=self.response, thinking_id=thinking_id, c=c
                     )
                 # Check if we have new commands to process
-                if self.response[processed_length:].strip().endswith("</output>"):
+                if (
+                    "</output>" in self.response[processed_length:]
+                    or "<execute>" in self.response[processed_length:]
+                ):
                     if "<think>" in self.response:
                         self.response.replace("<think>", "<thinking>")
                         self.response.replace("</think>", "</thinking>")
@@ -977,7 +983,19 @@ class Interactions:
                     self.response = f"{self.response}{response}"
                     continue
                 else:
-                    # We have an answer block and no new commands to process
+                    # We have an answer block - check if there are unprocessed commands before it
+                    pre_answer = self.response.split("<answer>")[0]
+                    if (
+                        "<execute>" in pre_answer
+                        and "</output>" not in pre_answer.split("<execute>")[-1]
+                    ):
+                        # There's an unprocessed command before the answer block
+                        await self.execution_agent(conversation_name=conversation_name)
+                        new_processed_length = len(self.response)
+                        if new_processed_length > processed_length:
+                            # Continue processing if we got new content
+                            continue
+
                     answer_block = self.response.split("</answer>")[0].split(
                         "<answer>"
                     )[-1]
@@ -1203,9 +1221,8 @@ class Interactions:
         reformatted_response = self.response
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:
-                command_id = (
-                    f"{command_name}:{json.dumps(command_args, sort_keys=True)}"
-                )
+                position = self.response.index(command_block)
+                command_id = f"{position}:{command_name}:{json.dumps(command_args, sort_keys=True)}"
                 # Skip if we've already processed this exact command
                 if command_id in self._processed_commands:
                     logging.debug(f"Skipping duplicate command: {command_id}")
@@ -1268,7 +1285,7 @@ class Interactions:
 
                 # Replace the original command block with the formatted execution and output
                 reformatted_response = reformatted_response.replace(
-                    command_block, formatted_execution
+                    command_block, formatted_execution, 1
                 )
                 logging.info(f"Command output: {command_output}")
         else:
