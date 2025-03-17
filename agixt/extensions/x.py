@@ -1,12 +1,8 @@
 import os
 import logging
 import requests
-import base64
-from datetime import datetime, timedelta
 from Extensions import Extensions
 from Globals import getenv
-from MagicalAuth import MagicalAuth
-from urllib.parse import quote
 
 
 class x(Extensions):
@@ -26,7 +22,6 @@ class x(Extensions):
     """
 
     def __init__(self, **kwargs):
-        self.api_key = kwargs.get("api_key")
         self.access_token = kwargs.get("X_ACCESS_TOKEN", None)
         self.x_client_id = getenv("X_CLIENT_ID")
         self.x_client_secret = getenv("X_CLIENT_SECRET")
@@ -51,12 +46,6 @@ class x(Extensions):
                 "X - Get Direct Messages": self.get_direct_messages,
                 "X - Get Trending Topics": self.get_trending_topics,
             }
-
-            if self.api_key:
-                try:
-                    self.auth = MagicalAuth(token=self.api_key)
-                except Exception as e:
-                    logging.error(f"Error initializing X client: {str(e)}")
 
         self.media_dir = kwargs.get("conversation_directory", "./WORKSPACE/media")
         os.makedirs(self.media_dir, exist_ok=True)
