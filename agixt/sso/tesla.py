@@ -43,7 +43,7 @@ class TeslaSSO:
             "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
         )
         self.token_url = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token"
-        self.api_base_url = f"{self.audience}/api/v1"
+        self.api_base_url = f"{self.audience}/api/1"
         self.auth_base_url = "https://auth.tesla.com/oauth2/v3"
 
         # Ensure we have Tesla keys generated
@@ -51,13 +51,6 @@ class TeslaSSO:
 
         # Get user info
         self.user_info = self.get_user_info()
-
-    def diagnose_api(self):
-        """Run diagnostics on the Tesla API"""
-        response = requests.get(
-            f"{self.api_base_url}/users/me",
-            headers={"Authorization": f"Bearer {self.access_token}"},
-        )
 
     def get_new_token(self):
         """Get a new access token using the refresh token"""
@@ -95,7 +88,7 @@ class TeslaSSO:
         headers = {"Authorization": f"Bearer {self.access_token}"}
         try:
             # First try with current token
-            user_url = f"{self.api_base_url}/user/me"
+            user_url = f"{self.api_base_url}/users/me"
             logging.info(f"Fetching Tesla user info from: {user_url}")
 
             response = requests.get(user_url, headers=headers)

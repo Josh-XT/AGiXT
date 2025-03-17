@@ -2479,7 +2479,7 @@ class MagicalAuth:
             account_name = user_data.get("email")
         elif provider == "tesla":
             response = requests.get(
-                f"https://fleet-api.prd.na.vn.cloud.tesla.com/api/v1/users/me",
+                f"https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/users/me",
                 headers={"Authorization": f"Bearer {access_token}"},
             )
             response.raise_for_status()
