@@ -74,6 +74,7 @@ class tesla(Extensions):
                 "Tesla - Navigate To": self.navigate_to,
                 "Tesla - Navigate To Supercharger": self.navigate_to_supercharger,
                 "Tesla - Set Waypoints": self.set_waypoints,
+                "Tesla - Get Vehicles": self.get_vehicles,
             }
 
             if self.api_key:
@@ -88,6 +89,28 @@ class tesla(Extensions):
             self.access_token = self.auth.refresh_oauth_token(provider="tesla")
         if not self.access_token:
             raise Exception("No valid Tesla access token found")
+
+    async def get_vehicles(self):
+        """Get list of vehicles"""
+        try:
+            self.verify_user()
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            url = f"{self.api_base_url}/vehicles"
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                raise Exception(f"Failed to get vehicles: {response.text}")
+
+            return response.json()
+
+        except Exception as e:
+            logging.error(f"Error getting vehicles: {str(e)}")
+            return {"error": str(e)}
 
     async def send_command(self, vehicle_tag, command, data=None):
         """Send command to vehicle"""
