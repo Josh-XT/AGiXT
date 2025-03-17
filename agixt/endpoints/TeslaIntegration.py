@@ -4,7 +4,6 @@ import requests
 import json
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
-from pathlib import Path
 from Globals import getenv
 
 # Create a router for Tesla integration
@@ -18,6 +17,9 @@ TESLA_DIR = os.path.join(MODELS_DIR, "tesla")
 PRIVATE_KEY_PATH = os.path.join(TESLA_DIR, "tesla_private_key.pem")
 PUBLIC_KEY_PATH = os.path.join(TESLA_DIR, "tesla_public_key.pem")
 REGISTRATION_FILE = os.path.join(TESLA_DIR, "registration_status.json")
+TESLA_DOMAIN = (
+    getenv("AGIXT_URI").replace("https://", "").replace("http://", "").rstrip("/")
+)
 
 
 def ensure_keys_exist():
@@ -68,8 +70,7 @@ def ensure_keys_exist():
 # Function to handle registration with Tesla
 def register_with_tesla():
     """Register with Tesla Fleet API - should be called at startup time"""
-    domain = getenv("TESLA_DOMAIN")
-    if not domain:
+    if not TESLA_DOMAIN:
         logging.warning("Tesla domain not set, skipping registration")
         return False
     try:
@@ -126,9 +127,9 @@ def register_with_tesla():
             "Content-Type": "application/json",
         }
 
-        register_payload = {"domain": domain}
+        register_payload = {"domain": TESLA_DOMAIN}
 
-        logging.info(f"Registering with Tesla Fleet API using domain: {domain}")
+        logging.info(f"Registering with Tesla Fleet API using domain: {TESLA_DOMAIN}")
         register_response = requests.post(
             register_url, headers=register_headers, json=register_payload
         )
@@ -142,7 +143,7 @@ def register_with_tesla():
             status = {
                 "registered": True,
                 "date": datetime.datetime.now().isoformat(),
-                "domain": domain,
+                "domain": TESLA_DOMAIN,
             }
 
             with open(REGISTRATION_FILE, "w") as f:
@@ -207,8 +208,7 @@ def register_tesla_routes(app):
     """Register Tesla routes with the main FastAPI app"""
     tesla_client_id = getenv("TESLA_CLIENT_ID")
     tesla_client_secret = getenv("TESLA_CLIENT_SECRET")
-    tesla_domain = getenv("TESLA_DOMAIN")
-    if tesla_client_id != "" and tesla_client_secret != "" and tesla_domain != "":
+    if tesla_client_id != "" and tesla_client_secret != "" and TESLA_DOMAIN != "":
         app.include_router(tesla_router)
         # Generate keys on startup
         ensure_keys_exist()

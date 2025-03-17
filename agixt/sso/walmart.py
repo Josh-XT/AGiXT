@@ -116,7 +116,7 @@ def walmart_sso(code, redirect_uri=None) -> WalmartSSO:
     Handles the OAuth2 authorization code flow for Walmart Marketplace
     """
     if not redirect_uri:
-        redirect_uri = getenv("MAGIC_LINK_URL")
+        redirect_uri = getenv("APP_URI")
 
     code = (
         str(code)

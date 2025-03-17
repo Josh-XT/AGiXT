@@ -11,9 +11,7 @@ Required environment variables:
 
 - TESLA_CLIENT_ID: Tesla OAuth client ID
 - TESLA_CLIENT_SECRET: Tesla OAuth client secret
-- TESLA_REDIRECT_URI: OAuth redirect URI
 - TESLA_AUDIENCE: Fleet API base URL (https://fleet-api.prd.na.vn.cloud.tesla.com)
-- TESLA_DOMAIN: Your domain that hosts the public key (default: api.agixt.dev)
 """
 
 # Combined scopes needed for full vehicle control
@@ -38,7 +36,12 @@ class TeslaSSO:
         self.refresh_token = refresh_token
         self.client_id = getenv("TESLA_CLIENT_ID")
         self.client_secret = getenv("TESLA_CLIENT_SECRET")
-        self.domain = getenv("TESLA_DOMAIN", "api.agixt.dev")
+        self.domain = (
+            getenv("AGIXT_URI")
+            .replace("https://", "")
+            .replace("http://", "")
+            .rstrip("/")
+        )
         self.audience = getenv(
             "TESLA_AUDIENCE", "https://fleet-api.prd.na.vn.cloud.tesla.com"
         )
@@ -89,10 +92,7 @@ class TeslaSSO:
         try:
             # First try with current token
             user_url = f"{self.api_base_url}/users/me"
-            logging.info(f"Fetching Tesla user info from: {user_url}")
-
             response = requests.get(user_url, headers=headers)
-            logging.info(f"Tesla API response: {response.status_code}")
 
             # If token expired, try refreshing
             if response.status_code == 401 and self.refresh_token:
@@ -124,6 +124,8 @@ class TeslaSSO:
                 )
 
             data = response.json()
+            if "response" in data:
+                data = data["response"]
             return {
                 "email": data.get("email"),
                 "first_name": data.get("first_name"),
@@ -142,7 +144,7 @@ class TeslaSSO:
 def tesla_sso(code, redirect_uri=None):
     """Handle Tesla OAuth flow"""
     if not redirect_uri:
-        redirect_uri = getenv("TESLA_REDIRECT_URI")
+        redirect_uri = getenv("APP_URI")
 
     logging.info(
         f"Exchanging Tesla authorization code for tokens with redirect URI: {redirect_uri}"
@@ -201,7 +203,7 @@ def tesla_sso(code, redirect_uri=None):
 def get_authorization_url(state=None, prompt_missing_scopes=True):
     """Generate Tesla authorization URL"""
     client_id = getenv("TESLA_CLIENT_ID")
-    redirect_uri = getenv("TESLA_REDIRECT_URI")
+    redirect_uri = getenv("APP_URI")
 
     params = {
         "response_type": "code",

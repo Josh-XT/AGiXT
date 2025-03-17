@@ -190,7 +190,6 @@ def get_default_env_vars():
         "APP_DESCRIPTION": "A chat powered by AGiXT.",
         "APP_NAME": "AGiXT Chat",
         "APP_URI": "http://localhost:3437",
-        "AUTH_WEB": "http://localhost:3437/user",
         "CREATE_AGENT_ON_REGISTER": "true",
         "CREATE_AGIXT_AGENT": "true",
         "DISABLED_PROVIDERS": "",
