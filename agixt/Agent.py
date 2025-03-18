@@ -63,7 +63,7 @@ def impersonate_user(user_id: str):
     return token
 
 
-def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
+async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
     session = get_session()
@@ -92,6 +92,27 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         token = impersonate_user(user_id=str(user_id))
         auth = MagicalAuth(token=token)
         provider_settings["company_id"] = str(auth.company_id)
+        
+    # Create Solana wallet for the agent
+    from agixt.extensions.solana_wallet import solana_wallet
+    wallet = solana_wallet()
+    wallet_info = await wallet.create_wallet()
+    
+    # Parse wallet info from the response string
+    import re
+    public_key = re.search(r"Public Key: ([^\n]+)", wallet_info).group(1)
+    secret_key = re.search(r"Secret Key \(hex\): ([^\n]+)", wallet_info).group(1)
+    
+    # Generate a passphrase using a secure method
+    import secrets
+    import string
+    alphabet = string.ascii_letters + string.digits
+    passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
+    
+    # Add wallet information to provider settings
+    provider_settings["SOLANA_WALLET_API_KEY"] = secret_key
+    provider_settings["SOLANA_WALLET_PASSPHRASE_API_KEY"] = passphrase
+    provider_settings["SOLANA_WALLET_ADDRESS"] = public_key
     # Iterate over DEFAULT_SETTINGS and add any missing keys
     for key in DEFAULT_SETTINGS:
         if key not in provider_settings:

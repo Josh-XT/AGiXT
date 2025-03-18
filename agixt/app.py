@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
-
+from agixt.endpoints.Wallet import app as wallet_router
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -95,7 +95,7 @@ app.include_router(prompt_endpoints)
 app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
 app.include_router(health_endpoints)
-
+app.include_router(wallet_router)
 
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
 @app.get("/outputs/{agent_id}/{filename:path}", tags=["Workspace"])
