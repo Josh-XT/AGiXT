@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict
-from agixt.endpoints.Agent import verify_api_key
-from agixt.Agent import get_agent
+from ApiClient import verify_api_key
+from Agent import get_agent
 from DB import get_session, AgentSettingModel
 
 app = APIRouter()
