@@ -24,9 +24,9 @@ class solana_wallet(Extensions):
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
 
         # If an existing wallet private key is provided, load the keypair
-        if SOLANA_WALLET_API_KEY:
+        if WALLET_PRIVATE_KEY:
             # Convert hex string to bytes and create keypair
-            private_key_bytes = bytes.fromhex(SOLANA_WALLET_API_KEY)
+            private_key_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
             self.wallet_keypair = Keypair.from_bytes(private_key_bytes)
             self.wallet_address = self.wallet_keypair.pubkey().to_string()
         else:
