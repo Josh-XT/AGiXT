@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict
-from ApiClient import verify_api_key
+from ApiClient import verify_api_key, get_api_client
 from Agent import get_agent
 from Models import AgentSettingModel
 from DB import get_session
@@ -14,10 +14,11 @@ app = APIRouter()
     summary="Get agent wallet information",
     description="Retrieves the private wallet information for an agent including private key and passphrase.",
 )
-async def get_agent_wallet_info(agent_name: str) -> Dict[str, str]:
+async def get_agent_wallet_info(agent_name: str, authorization: str = Depends(verify_api_key)) -> Dict[str, str]:
     session = get_session()
     try:
-        agent = get_agent(agent_name)
+        api_client = get_api_client(authorization)
+        agent = get_agent(agent_name, ApiClient=api_client)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
             

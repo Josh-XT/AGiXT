@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 
 
-def get_agent(agent_name: str, user: str = DEFAULT_USER):
+def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
     """Get an agent instance by name and user.
     
     Args:
@@ -50,7 +50,7 @@ def get_agent(agent_name: str, user: str = DEFAULT_USER):
     Returns:
         Agent: Instance of the Agent class for the requested agent
     """
-    return Agent(agent_name=agent_name, user=user)
+    return Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
 
 
 def impersonate_user(user_id: str):
@@ -402,12 +402,18 @@ class Agent:
         except Exception as e:
             self.max_input_tokens = 32000
         self.chunk_size = 256
+        
+        # Get auth token if ApiClient is not provided
+        auth_token = token
+        if ApiClient and ApiClient.headers:
+            auth_token = ApiClient.headers.get("Authorization", token)
+            
         self.extensions = Extensions(
             agent_name=self.agent_name,
             agent_id=self.agent_id,
             agent_config=self.AGENT_CONFIG,
             ApiClient=ApiClient,
-            api_key=ApiClient.headers.get("Authorization"),
+            api_key=auth_token,
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
