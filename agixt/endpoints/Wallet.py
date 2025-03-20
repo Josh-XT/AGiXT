@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict
 from ApiClient import verify_api_key
 from Agent import get_agent
-from DB import get_session, AgentSettingModel
+from Models import AgentSettingModel
+from DB import get_session
 
 app = APIRouter()
 
