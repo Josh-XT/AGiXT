@@ -44,7 +44,7 @@ logging.basicConfig(
 )
 
 
-def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
+async def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
     """Get an agent instance by name and user.
     
     Args:
@@ -54,7 +54,7 @@ def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
     Returns:
         Agent: Instance of the Agent class for the requested agent
     """
-    return Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    return await Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
 
 
 def impersonate_user(user_id: str):
@@ -302,7 +302,7 @@ def get_agents(user=DEFAULT_USER, company=None):
 
 
 class Agent:
-    def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
+    async def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         user = user if user is not None else DEFAULT_USER
         self.user = user.lower()
@@ -311,7 +311,7 @@ class Agent:
         self.auth = MagicalAuth(token=token)
         self.company_id = None
         self.agent_id = str(self.get_agent_id())
-        self.AGENT_CONFIG = self.get_agent_config()
+        self.AGENT_CONFIG = await self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
@@ -506,7 +506,7 @@ class Agent:
         session.close()
         return agent_settings
 
-    def get_agent_config(self):
+    async def get_agent_config(self):
         session = get_session()
         agent = (
             session.query(AgentModel)
@@ -523,7 +523,7 @@ class Agent:
             )
             if not agent:
                 # Create an agent.
-                add_agent(agent_name=self.agent_name, user=self.user)
+                await add_agent(agent_name=self.agent_name, user=self.user)
                 # Get the agent
                 agent = (
                     session.query(AgentModel)

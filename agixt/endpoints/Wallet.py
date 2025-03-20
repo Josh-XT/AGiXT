@@ -18,7 +18,7 @@ async def get_agent_wallet_info(agent_name: str, authorization: str = Depends(ve
     session = get_session()
     try:
         api_client = get_api_client(authorization)
-        agent = get_agent(agent_name, ApiClient=api_client)
+        agent = await get_agent(agent_name, ApiClient=api_client)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
             
