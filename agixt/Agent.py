@@ -33,6 +33,10 @@ import base64
 import jwt
 import os
 import re
+import secrets
+import string
+from agixt.extensions.solana_wallet import solana_wallet
+import re
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -107,18 +111,14 @@ async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFA
         provider_settings["company_id"] = str(auth.company_id)
         
     # Create Solana wallet for the agent
-    from agixt.extensions.solana_wallet import solana_wallet
     wallet = solana_wallet()
     wallet_info = await wallet.create_wallet()
     
     # Parse wallet info from the response string
-    import re
     public_key = re.search(r"Public Key: ([^\n]+)", wallet_info).group(1)
     secret_key = re.search(r"Secret Key \(hex\): ([^\n]+)", wallet_info).group(1)
     
     # Generate a passphrase using a secure method
-    import secrets
-    import string
     alphabet = string.ascii_letters + string.digits
     passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
     
