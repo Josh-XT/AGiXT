@@ -301,10 +301,22 @@ def get_agents(user=DEFAULT_USER, company=None):
 
 
 class Agent:
-    async def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
-        self.agent_name = agent_name if agent_name is not None else "AGiXT"
-        user = user if user is not None else DEFAULT_USER
-        self.user = user.lower()
+    def __init__(self, agent_name: str = None, user: str = DEFAULT_USER, ApiClient: AGiXTSDK = None):
+        self.agent_name = agent_name
+        self.user = user
+        self.ApiClient = ApiClient
+        
+    @classmethod
+    async def create(cls, agent_name=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
+        instance = cls(agent_name, user, ApiClient)
+        await instance.initialize()
+        return instance
+        
+    async def initialize(self):
+        # Initialize base properties using instance variables
+        self.agent_name = self.agent_name if self.agent_name is not None else "AGiXT"
+        self.user = self.user if self.user is not None else DEFAULT_USER
+        self.user = self.user.lower()
         self.user_id = get_user_id(user=self.user)
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
