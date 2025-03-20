@@ -40,6 +40,19 @@ logging.basicConfig(
 )
 
 
+def get_agent(agent_name: str, user: str = DEFAULT_USER):
+    """Get an agent instance by name and user.
+    
+    Args:
+        agent_name (str): Name of the agent to retrieve
+        user (str, optional): User who owns the agent. Defaults to DEFAULT_USER.
+    
+    Returns:
+        Agent: Instance of the Agent class for the requested agent
+    """
+    return Agent(agent_name=agent_name, user=user)
+
+
 def impersonate_user(user_id: str):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     # Get users email
