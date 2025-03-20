@@ -35,8 +35,7 @@ import os
 import re
 import secrets
 import string
-from agixt.extensions.solana_wallet import solana_wallet
-import re
+from extensions.solana_wallet import solana_wallet
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -426,9 +425,9 @@ class Agent:
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
         self.company_agent = None
         if self.company_id and str(self.company_id).lower() != "none":
-            self.company_agent = self.get_company_agent()
+            self.company_agent = await self.get_company_agent()
 
-    def get_company_agent(self):
+    async def get_company_agent(self):
         if self.company_id:
             company_agent_session = self.auth.get_company_agent_session(
                 company_id=self.company_id
@@ -437,7 +436,7 @@ class Agent:
                 return None
             user = company_agent_session.get_user()
             logging.info(f"Company agent user: {user}")
-            agent = Agent(
+            agent = await Agent(
                 agent_name="AGiXT",
                 user=user["email"],
                 ApiClient=company_agent_session,
