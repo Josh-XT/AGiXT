@@ -42,15 +42,21 @@ class Interactions:
         self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
+            self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.websearch = Websearch(
-                agent_name=self.agent_name,
-                collection_number=collection_id, 
-                user=self.user, 
-                ApiClient=self.ApiClient
+                collection_number=collection_id,
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
             )
-            self.agent = None  # Will be set in initialize()
-            self.agent_memory = None  # Will be set in initialize()
-            self.uri = f"{self.uri}/outputs"
+            self.agent_memory = Memories(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number="0",
+                ApiClient=self.ApiClient,
+                user=self.user,
+            )
+            self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
             self.agent = None
@@ -62,22 +68,6 @@ class Interactions:
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
         self._processed_commands = set()
-
-    async def initialize(self):
-        if self.agent_name:
-            self.agent = await Agent.create(self.agent_name, user=self.user, ApiClient=self.ApiClient)
-            self.websearch.agent = self.agent
-            self.agent_memory = Memories(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="0",
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
-            self.uri = f"{self.uri}/outputs/{self.agent.agent_id}"
-            await self.websearch.initialize()
-            self.agent_memory.agent_config = self.agent.AGENT_CONFIG
-            self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
 
     def custom_format(self, string, **kwargs):
         if "fp" in kwargs:
@@ -428,7 +418,7 @@ class Interactions:
                 del args[arg]
         agent_commands = ""
         if "disable_commands" not in kwargs:
-            agent_commands = await self.agent.get_commands_prompt(
+            agent_commands = self.agent.get_commands_prompt(
                 conversation_id=conversation_id
             )
         formatted_prompt = self.custom_format(
