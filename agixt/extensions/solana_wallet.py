@@ -1,9 +1,17 @@
 from Extensions import Extensions
 from solana.rpc.api import Client
+from solana.rpc.commitment import Confirmed
+from solana.transaction import TransactionInstruction
+from spl.token.constants import TOKEN_PROGRAM_ID
+from solders.instruction import AccountMeta
 from solders.transaction import Transaction
 from solders.pubkey import Pubkey
 from solders.keypair import Keypair
 from solders.system_program import transfer
+from solana.rpc.types import TxOpts
+import requests
+import json
+from typing import List, Dict, Optional, Any
 
 
 class solana_wallet(Extensions):
@@ -18,7 +26,10 @@ class solana_wallet(Extensions):
         self,
         **kwargs,
     ):
-        SOLANA_API_URI = "https://api.devnet.solana.com"
+        RAYDIUM_API_URI = "https://api.raydium.io"
+        SOLANA_API_URI = "https://api.mainnet-beta.solana.com"
+        self.RAYDIUM_API_URI = RAYDIUM_API_URI
+        self.WSOL_MINT = "So11111111111111111111111111111111111111112"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = Client(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
@@ -46,6 +57,8 @@ class solana_wallet(Extensions):
             "Get Token List": self.get_token_list,
             "Get Token Price": self.get_token_price,
             "Get Wallet Token Accounts": self.get_wallet_token_accounts,
+            "Get Route Quote": self.get_route_quote,
+            "Execute Trade": self.execute_trade,
         }
 
     async def create_wallet(self):
@@ -139,7 +152,6 @@ class solana_wallet(Extensions):
     async def get_token_balance(self, wallet_address: str = None, token_mint: str = ""):
         """
         Retrieves the balance of a specific SPL token for the given wallet.
-        (Placeholder: implement actual token queries as needed.)
         """
         if wallet_address is None:
             wallet_address = self.wallet_address
@@ -164,48 +176,161 @@ class solana_wallet(Extensions):
 
     async def get_swap_quote(self, from_token: str, to_token: str, amount: float):
         """
-        Retrieves a simulated quote for swapping one token to another.
-        (Placeholder: integrate with a DEX API for real quotes.)
+        Retrieves a quote for swapping one token to another using Raydium API.
         """
-        simulated_quote = amount * 0.95
-        return f"Simulated swap quote: {amount} {from_token} ≈ {simulated_quote:.2f} {to_token}."
+        try:
+            url = f"{self.RAYDIUM_API_URI}/quote"
+            payload = {
+                "inputMint": from_token,
+                "outputMint": to_token,
+                "amount": str(int(amount * 1e9)),  # Convert to lamports
+                "slippage": 0.5  # 0.5% slippage
+            }
+            response = requests.post(url, json=payload)
+            quote_data = response.json()
+            
+            if "error" in quote_data:
+                return f"Error getting quote: {quote_data['error']}"
+                
+            return {
+                "inputAmount": quote_data["inputAmount"],
+                "outputAmount": quote_data["outputAmount"],
+                "route": quote_data["route"],
+                "priceImpact": quote_data["priceImpact"]
+            }
+        except Exception as e:
+            return f"Error getting swap quote: {str(e)}"
 
     async def execute_swap(
         self,
         wallet_address: str = None,
-        from_token: str = "",
-        to_token: str = "",
+        quote: Dict[str, Any] = None,
         amount: float = 0.0,
     ):
         """
-        Executes a simulated token swap for the given wallet.
-        (Placeholder: integrate with a DEX API for real swaps.)
+        Executes a token swap using Raydium's API.
         """
         if wallet_address is None:
             wallet_address = self.wallet_address
-        simulated_received = amount * 0.95
-        return f"Simulated token swap: {amount} {from_token} swapped for {simulated_received:.2f} {to_token} in wallet {wallet_address}."
+        if not quote:
+            return "No quote provided for swap"
+            
+        try:
+            # Build the swap transaction using quote data
+            url = f"{self.RAYDIUM_API_URI}/swap"
+            payload = {
+                "wallet": wallet_address,
+                "quote": quote
+            }
+            
+            # Get transaction data from Raydium
+            response = requests.post(url, json=payload)
+            tx_data = response.json()
+            
+            if "error" in tx_data:
+                return f"Error building swap transaction: {tx_data['error']}"
+            
+            # Create and sign transaction
+            tx = Transaction.from_json(tx_data["transaction"])
+            opts = TxOpts(skip_preflight=False)
+            
+            # Send transaction
+            response = self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
+            
+            return {
+                "success": True,
+                "signature": response["result"],
+                "inputAmount": quote["inputAmount"],
+                "outputAmount": quote["outputAmount"]
+            }
+        except Exception as e:
+            return f"Error executing swap: {str(e)}"
+            
+    async def get_route_quote(self, from_token: str, to_token: str, amount: float):
+        """
+        Get a quote for the best trading route between two tokens.
+        """
+        try:
+            url = f"{self.RAYDIUM_API_URI}/route"
+            payload = {
+                "inputMint": from_token,
+                "outputMint": to_token,
+                "amount": str(int(amount * 1e9)),
+                "slippage": 0.5
+            }
+            
+            response = requests.post(url, json=payload)
+            route_data = response.json()
+            
+            if "error" in route_data:
+                return f"Error getting route: {route_data['error']}"
+            
+            # Get quote for the best route
+            quote = await self.get_swap_quote(from_token, to_token, amount)
+            
+            return {
+                "route": route_data["route"],
+                "quote": quote
+            }
+        except Exception as e:
+            return f"Error getting route quote: {str(e)}"
+            
+    async def execute_trade(self, route_quote: Dict[str, Any]):
+        """
+        Execute a trade using a previously obtained route quote.
+        """
+        if not route_quote or "quote" not in route_quote:
+            return "Invalid route quote"
+            
+        try:
+            result = await self.execute_swap(
+                quote=route_quote["quote"]
+            )
+            
+            return {
+                "success": True,
+                "txId": result["signature"] if "signature" in result else None,
+                "route": route_quote["route"],
+                "amounts": result
+            }
+        except Exception as e:
+            return f"Error executing trade: {str(e)}"
 
     async def get_token_list(self):
         """
-        Returns a simulated list of popular tokens on the Solana network.
+        Returns a list of popular tokens on the Solana network from Raydium API.
         """
-        tokens = ["SOL", "USDC", "USDT", "SRM", "RAY"]
-        return "Token list: " + ", ".join(tokens)
+        try:
+            response = requests.get(f"{self.RAYDIUM_API_URI}/tokens")
+            tokens = response.json()
+            return tokens
+        except Exception as e:
+            return f"Error retrieving token list: {str(e)}"
 
     async def get_token_price(self, token: str):
         """
-        Retrieves a simulated price for the specified token.
+        Retrieves the current price for the specified token from Raydium API.
         """
-        simulated_price = 1.23
-        return f"Price for {token}: ${simulated_price} (example price)."
+        try:
+            response = requests.get(f"{self.RAYDIUM_API_URI}/price?token={token}")
+            price_data = response.json()
+            if "error" in price_data:
+                return f"Error getting price: {price_data['error']}"
+            return price_data["price"]
+        except Exception as e:
+            return f"Error retrieving token price: {str(e)}"
 
     async def get_wallet_token_accounts(self, wallet_address: str = None):
         """
         Retrieves all token accounts associated with the given wallet.
-        (Placeholder: implement actual token account lookup.)
         """
         if wallet_address is None:
             wallet_address = self.wallet_address
-        simulated_accounts = ["TokenAccount1", "TokenAccount2"]
-        return f"Token accounts for wallet {wallet_address}: {simulated_accounts}"
+        try:
+            response = self.client.get_token_accounts_by_owner(
+                Pubkey.from_string(wallet_address),
+                {"programId": TOKEN_PROGRAM_ID}
+            )
+            return response["result"]
+        except Exception as e:
+            return f"Error retrieving token accounts: {str(e)}"
