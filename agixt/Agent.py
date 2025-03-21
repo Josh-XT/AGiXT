@@ -448,11 +448,11 @@ class Agent:
                 return None
             user = company_agent_session.get_user()
             logging.info(f"Company agent user: {user}")
-            agent = await Agent(
+            agent = await Agent.create(
                 agent_name="AGiXT",
                 user=user["email"],
                 ApiClient=company_agent_session,
-            )
+            ) 
             return agent
         else:
             return None
