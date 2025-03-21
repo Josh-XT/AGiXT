@@ -26,10 +26,9 @@ class solana_wallet(Extensions):
         # If an existing wallet private key is provided, load the keypair
         if WALLET_PRIVATE_KEY:
             # Convert hex string to bytes and create keypair
-            # Pad the hex string if needed to ensure 64 bytes
-            hex_string = WALLET_PRIVATE_KEY.zfill(128)  # 128 hex chars = 64 bytes
-            private_key_bytes = bytes.fromhex(hex_string)
-            self.wallet_keypair = Keypair.from_bytes(private_key_bytes)
+            # Use from_seed to create keypair from just the secret key
+            secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
+            self.wallet_keypair = Keypair.from_seed(secret_bytes)
             self.wallet_address = str(self.wallet_keypair.pubkey())
         else:
             self.wallet_keypair = None
@@ -57,9 +56,8 @@ class solana_wallet(Extensions):
         new_keypair = Keypair()
         self.wallet_keypair = new_keypair
         self.wallet_address = str(new_keypair.pubkey())
-        secret_hex = (
-            new_keypair.secret().hex()
-        )  # for display; store securely in practice
+        # Get the secret key as bytes and convert to hex
+        secret_hex = new_keypair.secret().hex()
         return (
             f"Created new Solana wallet.\n"
             f"Public Key: {self.wallet_address}\n"
