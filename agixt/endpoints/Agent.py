@@ -355,9 +355,8 @@ async def get_agentconfig(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    agent = await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = await agent.get_agent_config()
     for key, value in agent_config["settings"].items():
         logging.info(f"Checking {key} for {agent_name}.")
         if value.strip() != "":
