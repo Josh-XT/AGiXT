@@ -302,8 +302,9 @@ def get_agents(user=DEFAULT_USER, company=None):
 
 class Agent:
     def __init__(self, agent_name: str = None, user: str = DEFAULT_USER, ApiClient: AGiXTSDK = None):
+        self.user = user.lower() if user else DEFAULT_USER
+        self.user_id = get_user_id(user=self.user)
         self.agent_name = agent_name
-        self.user = user
         self.AGENT_CONFIG = {"commands": [], "settings": {}}
         self.ApiClient = ApiClient
         
@@ -314,12 +315,9 @@ class Agent:
         return instance
         
     async def initialize(self):
-        self.user_id = self.user
         # Initialize base properties using instance variables
         self.agent_name = self.agent_name if self.agent_name is not None else "AGiXT"
-        self.user = self.user if self.user is not None else DEFAULT_USER
-        self.user = self.user.lower()
-        self.user_id = get_user_id(user=self.user)
+        # User and user_id are already initialized in __init__
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
         self.company_id = None

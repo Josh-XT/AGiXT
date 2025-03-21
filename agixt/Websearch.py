@@ -36,8 +36,8 @@ async def search_the_web(
     c = Conversations(conversation_name=conversation_name, user=user)
     conversaton_id = c.get_conversation_id()
     websearch = Websearch(
-        agent=Agent(agent_name=agent_name, ApiClient=ApiClient, user=user),
-        user=user,
+        agent=await Agent.create(agent_name=agent_name, ApiClient=ApiClient, user=user),
+        user=user, 
         collection_number=conversaton_id,
     )
     text_content, link_list = await websearch.web_search(
@@ -65,6 +65,10 @@ class Websearch:
         self.requirements = ["agixtsdk"]
         self.failures = []
         self.collection_number = collection_number
+        self.browsed_links = []
+
+    async def initialize(self):
+        """Initialize async components of Websearch"""
         browsed_links = self.agent.get_browsed_links()
         if browsed_links:
             self.browsed_links = [link["url"] for link in browsed_links]

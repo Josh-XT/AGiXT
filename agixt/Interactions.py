@@ -29,7 +29,7 @@ logging.basicConfig(
 
 
 class Interactions:
-    def __init__(
+    async def __init__(
         self,
         agent_name: str = "",
         user=DEFAULT_USER,
@@ -42,13 +42,14 @@ class Interactions:
         self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
-            self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
+            self.agent = await Agent.create(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.websearch = Websearch(
                 collection_number=collection_id,
                 agent=self.agent,
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
+            await self.websearch.initialize()
             self.agent_memory = Memories(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,

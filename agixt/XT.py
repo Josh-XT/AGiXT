@@ -72,7 +72,11 @@ class AGiXT:
             )
             self.conversation_id = self.conversation.get_conversation_id()
         self.ApiClient = get_api_client(api_key)
-        self.agent_interactions = Interactions(
+        self.agent_interactions = None  # Will be initialized in initialize()
+
+    async def initialize(self):
+        """Initialize async components of AGiXT"""
+        self.agent_interactions = await Interactions(
             agent_name=self.agent_name,
             user=self.user_email,
             ApiClient=self.ApiClient,
