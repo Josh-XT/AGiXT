@@ -43,7 +43,7 @@ logging.basicConfig(
 )
 
 
-async def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
+def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
     """Get an agent instance by name and user.
     
     Args:
@@ -53,8 +53,7 @@ async def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None)
     Returns:
         Agent: Instance of the Agent class for the requested agent
     """
-    return await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
-
+    return Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
 
 def impersonate_user(user_id: str):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
@@ -79,7 +78,7 @@ def impersonate_user(user_id: str):
     return token
 
 
-async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
+def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
     session = get_session()
@@ -108,11 +107,11 @@ async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFA
         token = impersonate_user(user_id=str(user_id))
         auth = MagicalAuth(token=token)
         provider_settings["company_id"] = str(auth.company_id)
-        
+    
     # Create Solana wallet for the agent
     wallet = solana_wallet()
-    wallet_info = await wallet.create_wallet()
-    
+    wallet_info = wallet.create_wallet()
+
     # Parse wallet info from the response string
     try:
         public_key = re.search(r"Public Key: (\w+)", wallet_info).group(1)
@@ -126,11 +125,12 @@ async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFA
     # Generate a passphrase using a secure method
     alphabet = string.ascii_letters + string.digits
     passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
-    
+
     # Add wallet information to provider settings
     provider_settings["SOLANA_WALLET_API_KEY"] = secret_key
     provider_settings["SOLANA_WALLET_PASSPHRASE_API_KEY"] = passphrase
     provider_settings["SOLANA_WALLET_ADDRESS"] = public_key
+    
     # Iterate over DEFAULT_SETTINGS and add any missing keys
     for key in DEFAULT_SETTINGS:
         if key not in provider_settings:
@@ -307,36 +307,17 @@ def get_agents(user=DEFAULT_USER, company=None):
 
 
 class Agent:
-    def __init__(self, agent_name: str = None, user: str = DEFAULT_USER, ApiClient: AGiXTSDK = None):
-        self.user = user.lower() if user else DEFAULT_USER
+    def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
+        self.agent_name = agent_name if agent_name is not None else "AGiXT"
+        user = user if user is not None else DEFAULT_USER
+        self.user = user.lower()
         self.user_id = get_user_id(user=self.user)
-        self.agent_name = agent_name
-        self.AGENT_CONFIG = {"commands": [], "settings": {}}  # Agent configuration storage
-        self.agent_id = None  # Initialize agent identifier
-        self.ApiClient = ApiClient
-        
-    @classmethod
-    async def create(cls, agent_name=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
-        instance = cls(agent_name, user, ApiClient)
-        await instance.initialize()
-        return instance
-        
-    async def initialize(self):
-        # Initialize base properties using instance variables
-        self.agent_name = self.agent_name if self.agent_name is not None else "AGiXT"
-        # User and user_id are already initialized in __init__
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
-        self.AGENT_CONFIG = await self.get_agent_config()
+        self.company_id = None
+        self.agent_id = str(self.get_agent_id())
+        self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
-        agent_id = self.get_agent_id()
-        if not agent_id:
-            await add_agent(agent_name=self.agent_name, user=self.user)
-            agent_id = self.get_agent_id()
-            if not agent_id:
-                raise HTTPException(status_code=500, detail="Failed to create or retrieve agent ID")
-        self.agent_id = str(agent_id)
-
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
         self.PROVIDER_SETTINGS = (
@@ -351,7 +332,7 @@ class Agent:
                 del self.PROVIDER_SETTINGS[key]
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER,
-            ApiClient=self.ApiClient,
+            ApiClient=ApiClient,
             agent_name=self.agent_name,
             user=self.user,
             api_key=token,
@@ -370,7 +351,7 @@ class Agent:
             try:
                 self.VISION_PROVIDER = Providers(
                     name=vision_provider,
-                    ApiClient=self.ApiClient,
+                    ApiClient=ApiClient,
                     agent_name=self.agent_name,
                     user=self.user,
                     api_key=token,
@@ -388,7 +369,7 @@ class Agent:
         )
         if tts_provider != "None" and tts_provider != None and tts_provider != "":
             self.TTS_PROVIDER = Providers(
-                name=tts_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
+                name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
             )
         else:
             self.TTS_PROVIDER = None
@@ -398,7 +379,7 @@ class Agent:
             else "default"
         )
         self.TRANSCRIPTION_PROVIDER = Providers(
-            name=transcription_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
+            name=transcription_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
         translation_provider = (
             self.AGENT_CONFIG["settings"]["translation_provider"]
@@ -406,7 +387,7 @@ class Agent:
             else "default"
         )
         self.TRANSLATION_PROVIDER = Providers(
-            name=translation_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
+            name=translation_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
         image_provider = (
             self.AGENT_CONFIG["settings"]["image_provider"]
@@ -414,7 +395,7 @@ class Agent:
             else "default"
         )
         self.IMAGE_PROVIDER = Providers(
-            name=image_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
+            name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
         embeddings_provider = (
             self.AGENT_CONFIG["settings"]["embeddings_provider"]
@@ -426,18 +407,12 @@ class Agent:
         except Exception as e:
             self.max_input_tokens = 32000
         self.chunk_size = 256
-        
-        # Get auth token if ApiClient is not provided
-        auth_token = token
-        if self.ApiClient and self.ApiClient.headers:
-            auth_token = self.ApiClient.headers.get("Authorization", token)
-            
         self.extensions = Extensions(
             agent_name=self.agent_name,
             agent_id=self.agent_id,
             agent_config=self.AGENT_CONFIG,
-            ApiClient=self.ApiClient,
-            api_key=auth_token,
+            ApiClient=ApiClient,
+            api_key=ApiClient.headers.get("Authorization"),
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
@@ -450,9 +425,9 @@ class Agent:
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
         self.company_agent = None
         if self.company_id and str(self.company_id).lower() != "none":
-            self.company_agent = await self.get_company_agent()
+            self.company_agent = self.get_company_agent()
 
-    async def get_company_agent(self):
+    def get_company_agent(self):
         if self.company_id:
             company_agent_session = self.auth.get_company_agent_session(
                 company_id=self.company_id
@@ -461,20 +436,20 @@ class Agent:
                 return None
             user = company_agent_session.get_user()
             logging.info(f"Company agent user: {user}")
-            agent = await Agent.create(
+            agent = Agent(
                 agent_name="AGiXT",
                 user=user["email"],
                 ApiClient=company_agent_session,
-            ) 
+            )
             return agent
         else:
             return None
 
-    async def get_company_agent_extensions(self):
-        agent_extensions = self.get_agent_extensions()  # This is already a regular method, not async
-        if self.company_id and self.company_agent:
-            agent = self.company_agent  # company_agent is already initialized in initialize()
-            company_extensions = agent.get_agent_extensions() if agent else []
+    def get_company_agent_extensions(self):
+        agent_extensions = self.get_agent_extensions()
+        if self.company_id:
+            agent = self.get_company_agent()
+            company_extensions = agent.get_agent_extensions()
             # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
             for company_extension in company_extensions:
                 for agent_extension in agent_extensions:
@@ -530,9 +505,15 @@ class Agent:
         session.close()
         return agent_settings
 
-    async def get_agent_config(self):
+    def get_agent_config(self):
         session = get_session()
-        agent = session.query(AgentModel).filter(AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id).first()
+        agent = (
+            session.query(AgentModel)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
+            .first()
+        )
         if not agent:
             agent = (
                 session.query(AgentModel)
@@ -541,7 +522,7 @@ class Agent:
             )
             if not agent:
                 # Create an agent.
-                await add_agent(agent_name=self.agent_name, user=self.user)
+                add_agent(agent_name=self.agent_name, user=self.user)
                 # Get the agent
                 agent = (
                     session.query(AgentModel)
@@ -588,9 +569,9 @@ class Agent:
             self.company_id = company_id
             if str(self.user).endswith(".xt"):
                 return config
-            company_agent = await self.get_company_agent()
+            company_agent = self.get_company_agent()
             if company_agent:
-                company_agent_config = await company_agent.get_agent_config()
+                company_agent_config = company_agent.get_agent_config()
                 company_settings = company_agent_config.get("settings")
                 for key, value in company_settings.items():
                     if key not in config["settings"]:
@@ -892,7 +873,7 @@ class Agent:
                     agent_command.state = enabled
                 else:
                     agent_command = AgentCommand(
-                        agent_id=str(self.agent_id) if self.agent_id else agent.id,
+                        agent_id=self.agent_id,
                         command_id=command.id,
                         state=enabled,
                     )
@@ -901,7 +882,7 @@ class Agent:
             for setting_name, setting_value in new_config.items():
                 agent_setting = (
                     session.query(AgentSettingModel)
-                    .filter_by(agent_id=str(self.agent_id) if self.agent_id else agent.id, name=setting_name)
+                    .filter_by(agent_id=self.agent_id, name=setting_name)
                     .first()
                 )
                 if agent_setting:
@@ -911,7 +892,7 @@ class Agent:
                         agent_setting.value = str(setting_value)
                 else:
                     agent_setting = AgentSettingModel(
-                        agent_id=str(self.agent_id) if self.agent_id else agent.id,
+                        agent_id=self.agent_id,
                         name=setting_name,
                         value=str(setting_value),
                     )
@@ -1049,9 +1030,6 @@ class Agent:
             )
             .first()
         )
-        if agent:
-            session.close()
-            return agent.id
         if not agent:
             agent = (
                 session.query(AgentModel)
@@ -1064,9 +1042,7 @@ class Agent:
             session.close()
             if not agent:
                 return None
-            return agent.id
         session.close()
-        return None
         return agent.id
 
     def get_conversation_tasks(self, conversation_id: str) -> str:
@@ -1121,7 +1097,7 @@ class Agent:
             logging.error(f"Error getting tasks by agent: {str(e)}")
             return []
 
-    async def get_commands_prompt(self, conversation_id):
+    def get_commands_prompt(self, conversation_id):
         command_list = [
             available_command["friendly_name"]
             for available_command in self.available_commands
@@ -1145,7 +1121,7 @@ class Agent:
                 f"http://localhost:7437/outputs/{self.agent_id}/{conversation_id}/"
             )
             try:
-                agent_extensions = await self.get_company_agent_extensions()
+                agent_extensions = self.get_company_agent_extensions()
                 if agent_extensions == "":
                     agent_extensions = self.get_agent_extensions()
             except Exception as e:
