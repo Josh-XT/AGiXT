@@ -504,7 +504,7 @@ async def get_commands(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent = await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
     return {"commands": agent.AGENT_CONFIG["commands"]}
 
 

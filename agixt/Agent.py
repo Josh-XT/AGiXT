@@ -304,6 +304,7 @@ class Agent:
     def __init__(self, agent_name: str = None, user: str = DEFAULT_USER, ApiClient: AGiXTSDK = None):
         self.agent_name = agent_name
         self.user = user
+        self.AGENT_CONFIG = {"commands": [], "settings": {}}
         self.ApiClient = ApiClient
         
     @classmethod
@@ -315,6 +316,7 @@ class Agent:
     async def initialize(self):
         # Initialize base properties using instance variables
         self.agent_name = self.agent_name if self.agent_name is not None else "AGiXT"
+        self.AGENT_CONFIG = await self.get_agent_config()
         self.user = self.user if self.user is not None else DEFAULT_USER
         self.user = self.user.lower()
         self.user_id = get_user_id(user=self.user)
@@ -519,13 +521,11 @@ class Agent:
 
     async def get_agent_config(self):
         session = get_session()
-        agent = (
-            session.query(AgentModel)
-            .filter(
-                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
-            )
-            .first()
-        )
+        agent = session.query(AgentModel).filter(AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id).first()
+        session.close()
+        if not agent:
+            return {"commands": [], "settings": {}}
+        return {"commands": agent.commands or [], "settings": agent.settings or {}}
         if not agent:
             agent = (
                 session.query(AgentModel)
