@@ -305,7 +305,9 @@ class Agent:
         self.user = user.lower() if user else DEFAULT_USER
         self.user_id = get_user_id(user=self.user)
         self.agent_name = agent_name
-        self.AGENT_CONFIG = {"commands": [], "settings": {}}
+        self.AGENT_CONFIG = {"commands": [], "settings": {}}  # Agent configuration storage
+        self.agent_id = None  # Initialize agent identifier
+        self.agent_id = None
         self.ApiClient = ApiClient
         
     @classmethod
