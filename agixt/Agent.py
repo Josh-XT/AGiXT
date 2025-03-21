@@ -53,7 +53,7 @@ async def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None)
     Returns:
         Agent: Instance of the Agent class for the requested agent
     """
-    return await Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    return await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
 
 
 def impersonate_user(user_id: str):
