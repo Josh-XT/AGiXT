@@ -428,7 +428,7 @@ class Interactions:
                 del args[arg]
         agent_commands = ""
         if "disable_commands" not in kwargs:
-            agent_commands = self.agent.get_commands_prompt(
+            agent_commands = await self.agent.get_commands_prompt(
                 conversation_id=conversation_id
             )
         formatted_prompt = self.custom_format(

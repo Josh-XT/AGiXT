@@ -472,8 +472,8 @@ class Agent:
 
     async def get_company_agent_extensions(self):
         agent_extensions = self.get_agent_extensions()  # This is already a regular method, not async
-        if self.company_id:
-            agent = await self.get_company_agent()  # Already awaited correctly
+        if self.company_id and self.company_agent:
+            agent = self.company_agent  # company_agent is already initialized in initialize()
             company_extensions = agent.get_agent_extensions() if agent else []
             # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
             for company_extension in company_extensions:
@@ -1121,7 +1121,7 @@ class Agent:
             logging.error(f"Error getting tasks by agent: {str(e)}")
             return []
 
-    def get_commands_prompt(self, conversation_id):
+    async def get_commands_prompt(self, conversation_id):
         command_list = [
             available_command["friendly_name"]
             for available_command in self.available_commands
@@ -1145,7 +1145,7 @@ class Agent:
                 f"http://localhost:7437/outputs/{self.agent_id}/{conversation_id}/"
             )
             try:
-                agent_extensions = self.get_company_agent_extensions()
+                agent_extensions = await self.get_company_agent_extensions()
                 if agent_extensions == "":
                     agent_extensions = self.get_agent_extensions()
             except Exception as e:
