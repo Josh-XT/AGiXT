@@ -357,7 +357,7 @@ class Agent:
             try:
                 self.VISION_PROVIDER = Providers(
                     name=vision_provider,
-                    ApiClient=ApiClient,
+                    ApiClient=self.ApiClient,
                     agent_name=self.agent_name,
                     user=self.user,
                     api_key=token,
@@ -375,7 +375,7 @@ class Agent:
         )
         if tts_provider != "None" and tts_provider != None and tts_provider != "":
             self.TTS_PROVIDER = Providers(
-                name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+                name=tts_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
             )
         else:
             self.TTS_PROVIDER = None
@@ -385,7 +385,7 @@ class Agent:
             else "default"
         )
         self.TRANSCRIPTION_PROVIDER = Providers(
-            name=transcription_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            name=transcription_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
         )
         translation_provider = (
             self.AGENT_CONFIG["settings"]["translation_provider"]
@@ -393,7 +393,7 @@ class Agent:
             else "default"
         )
         self.TRANSLATION_PROVIDER = Providers(
-            name=translation_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            name=translation_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
         )
         image_provider = (
             self.AGENT_CONFIG["settings"]["image_provider"]
@@ -401,7 +401,7 @@ class Agent:
             else "default"
         )
         self.IMAGE_PROVIDER = Providers(
-            name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            name=image_provider, ApiClient=self.ApiClient, **self.PROVIDER_SETTINGS
         )
         embeddings_provider = (
             self.AGENT_CONFIG["settings"]["embeddings_provider"]
@@ -416,14 +416,14 @@ class Agent:
         
         # Get auth token if ApiClient is not provided
         auth_token = token
-        if ApiClient and ApiClient.headers:
-            auth_token = ApiClient.headers.get("Authorization", token)
+        if self.ApiClient and self.ApiClient.headers:
+            auth_token = self.ApiClient.headers.get("Authorization", token)
             
         self.extensions = Extensions(
             agent_name=self.agent_name,
             agent_id=self.agent_id,
             agent_config=self.AGENT_CONFIG,
-            ApiClient=ApiClient,
+            ApiClient=self.ApiClient,
             api_key=auth_token,
             user=self.user,
         )
