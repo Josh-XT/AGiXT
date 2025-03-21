@@ -52,9 +52,9 @@ class solana_wallet(Extensions):
         Creates a new Solana wallet by generating a new keypair.
         This method can be used if no wallet was connected via the init params.
         """
-        new_keypair = Keypair.new()
+        new_keypair = Keypair()
         self.wallet_keypair = new_keypair
-        self.wallet_address = new_keypair.pubkey().to_string()
+        self.wallet_address = new_keypair.pubkey().to_base58()
         secret_hex = (
             new_keypair.secret().hex()
         )  # for display; store securely in practice
