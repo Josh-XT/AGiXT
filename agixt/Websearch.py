@@ -36,12 +36,10 @@ async def search_the_web(
     c = Conversations(conversation_name=conversation_name, user=user)
     conversaton_id = c.get_conversation_id()
     websearch = Websearch(
-        agent_name=agent_name,
-        user=user, 
+        agent=Agent(agent_name=agent_name, ApiClient=ApiClient, user=user),
+        user=user,
         collection_number=conversaton_id,
-        ApiClient=ApiClient
     )
-    await websearch.initialize()
     text_content, link_list = await websearch.web_search(
         query=query, conversation_id=conversaton_id
     )
@@ -53,31 +51,20 @@ class Websearch:
     def __init__(
         self,
         collection_number: str = "0",
-        agent_name: str = "",
+        agent: Agent = None,
         user: str = None,
         ApiClient=None,
         **kwargs,
     ):
         self.ApiClient = ApiClient
+        self.agent = agent
         self.user = user
-        self.agent_name = agent_name
+        self.agent_name = self.agent.agent_name
+        self.agent_config = self.agent.AGENT_CONFIG
+        self.agent_settings = self.agent_config["settings"]
         self.requirements = ["agixtsdk"]
-        self.agent = None  # Will be initialized later if needed
-        self.agent_config = {}
-        self.agent_settings = {}
         self.failures = []
         self.collection_number = collection_number
-        self.browsed_links = []
-
-    async def initialize(self):
-        self.agent = await Agent.create(
-            agent_name=self.agent_name, 
-            ApiClient=self.ApiClient,
-            user=self.user
-        )
-        self.agent_config = self.ApiClient.get_agentconfig(self.agent_name)
-        self.agent_settings = self.agent_config.get("settings", {})
-        """Initialize async components of Websearch"""
         browsed_links = self.agent.get_browsed_links()
         if browsed_links:
             self.browsed_links = [link["url"] for link in browsed_links]
@@ -86,10 +73,10 @@ class Websearch:
         self.tasks = []
         self.agent_memory = Memories(
             agent_name=self.agent_name,
-            agent_config=self.agent_config,
-            collection_number=str(self.collection_number), 
-            ApiClient=self.ApiClient,
-            user=self.user,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=str(collection_number),
+            ApiClient=ApiClient,
+            user=user,
         )
         self.websearch_endpoint = (
             self.agent_settings["websearch_endpoint"]
@@ -210,7 +197,7 @@ class Websearch:
             self.browsed_links.append(url)
             self.agent.add_browsed_link(
                 url=url, conversation_id=conversation_id
-            )
+            )  # add conversation ID
             if summarize_content:
                 content = await self.summarize_web_content(url=url, content=content)
             await self.agent_memory.write_text_to_memory(
