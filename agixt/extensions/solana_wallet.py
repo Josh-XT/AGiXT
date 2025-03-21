@@ -1,18 +1,18 @@
 from Extensions import Extensions
 from solana.rpc.api import Client
 from solana.rpc.commitment import Confirmed
-from solana.transaction import TransactionInstruction
-from spl.token.constants import TOKEN_PROGRAM_ID
-from solders.instruction import AccountMeta
 from solders.transaction import Transaction
 from solders.pubkey import Pubkey
 from solders.keypair import Keypair
 from solders.system_program import transfer
 from solana.rpc.types import TxOpts
-import requests
+import requests, asyncio
 import json
 from typing import List, Dict, Optional, Any
 
+
+# Constants
+TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 
 class solana_wallet(Extensions):
     """
