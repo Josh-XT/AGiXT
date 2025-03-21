@@ -39,7 +39,7 @@ class solana_wallet(Extensions):
     """
 
     # Raydium SDK constants
-    RAYDIUM_ROUTER_ID = Pubkey.from_string("routerv1ZKPe3GxvR8EkBEeYXbRzQKYLQQu3roLyZFtNKDj")
+    RAYDIUM_ROUTER_ID = Pubkey.from_string("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")  # Raydium Router Program ID
     POOL_STATE_VERSION_V1 = 1
     AMM_PROGRAM_ID = Pubkey.from_string("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")
     SERUM_PROGRAM_ID = Pubkey.from_string("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin")
