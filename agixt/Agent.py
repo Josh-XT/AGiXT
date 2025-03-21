@@ -33,12 +33,27 @@ import base64
 import jwt
 import os
 import re
+import secrets
+import string
+from extensions.solana_wallet import solana_wallet
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
 
+
+def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
+    """Get an agent instance by name and user.
+    
+    Args:
+        agent_name (str): Name of the agent to retrieve
+        user (str, optional): User who owns the agent. Defaults to DEFAULT_USER.
+    
+    Returns:
+        Agent: Instance of the Agent class for the requested agent
+    """
+    return Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
 
 def impersonate_user(user_id: str):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
@@ -92,6 +107,30 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         token = impersonate_user(user_id=str(user_id))
         auth = MagicalAuth(token=token)
         provider_settings["company_id"] = str(auth.company_id)
+    
+    # Create Solana wallet for the agent
+    wallet = solana_wallet()
+    wallet_info = wallet.create_wallet()
+
+    # Parse wallet info from the response string
+    try:
+        public_key = re.search(r"Public Key: (\w+)", wallet_info).group(1)
+        secret_key = re.search(r"Secret Key \(hex\): ([0-9a-f]+)", wallet_info).group(1)
+    except AttributeError:
+        logging.error("Failed to parse wallet keys from response")
+        public_key = "Failed to generate"
+        secret_key = "Failed to generate"
+        passphrase = "Failed to generate"
+
+    # Generate a passphrase using a secure method
+    alphabet = string.ascii_letters + string.digits
+    passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
+
+    # Add wallet information to provider settings
+    provider_settings["SOLANA_WALLET_API_KEY"] = secret_key
+    provider_settings["SOLANA_WALLET_PASSPHRASE_API_KEY"] = passphrase
+    provider_settings["SOLANA_WALLET_ADDRESS"] = public_key
+    
     # Iterate over DEFAULT_SETTINGS and add any missing keys
     for key in DEFAULT_SETTINGS:
         if key not in provider_settings:
