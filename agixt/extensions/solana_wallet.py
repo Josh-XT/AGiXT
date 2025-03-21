@@ -539,6 +539,12 @@ class solana_wallet(Extensions):
                 Pubkey.from_string(wallet_address),
                 {"programId": TOKEN_PROGRAM_ID}
             )
-            return response["result"]
+            
+            # Process the response to handle the token account data structure
+            if "result" in response and "value" in response["result"]:
+                return {"token_accounts": response["result"]["value"]}
+            else:
+                return {"token_accounts": []}
+                
         except Exception as e:
             return f"Error retrieving token accounts: {str(e)}"
