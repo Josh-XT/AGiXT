@@ -2,9 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict
 from ApiClient import verify_api_key, get_api_client
 from Agent import get_agent
-from Models import AgentSettingModel
-from DB import get_session
-
+from DB import AgentSetting, get_session
 app = APIRouter()
 
 @app.get(
@@ -22,8 +20,8 @@ async def get_agent_wallet_info(agent_name: str, authorization: str = Depends(ve
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
             
-        agent_settings = session.query(AgentSettingModel).filter(
-            AgentSettingModel.agent_id == agent.get_agent_id()
+        agent_settings = session.query(AgentSetting).filter(
+            AgentSetting.agent_id == agent.get_agent_id()
         ).all()
         
         wallet_info = {}

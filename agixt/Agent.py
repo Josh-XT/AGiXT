@@ -314,6 +314,7 @@ class Agent:
         return instance
         
     async def initialize(self):
+        self.user_id = self.user
         # Initialize base properties using instance variables
         self.agent_name = self.agent_name if self.agent_name is not None else "AGiXT"
         self.AGENT_CONFIG = await self.get_agent_config()
