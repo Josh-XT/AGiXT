@@ -29,7 +29,7 @@ logging.basicConfig(
 
 
 class Interactions:
-    async def __init__(
+    def __init__(
         self,
         agent_name: str = "",
         user=DEFAULT_USER,
@@ -42,22 +42,15 @@ class Interactions:
         self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
-            self.agent = await Agent.create(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.websearch = Websearch(
-                collection_number=collection_id,
-                agent=self.agent,
-                user=self.user,
-                ApiClient=self.ApiClient,
-            )
-            await self.websearch.initialize()
-            self.agent_memory = Memories(
                 agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="0",
-                ApiClient=self.ApiClient,
-                user=self.user,
+                collection_number=collection_id, 
+                user=self.user, 
+                ApiClient=self.ApiClient
             )
-            self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
+            self.agent = None  # Will be set in initialize()
+            self.agent_memory = None  # Will be set in initialize()
+            self.uri = f"{self.uri}/outputs"
         else:
             self.agent_name = ""
             self.agent = None
@@ -69,6 +62,22 @@ class Interactions:
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
         self._processed_commands = set()
+
+    async def initialize(self):
+        if self.agent_name:
+            self.agent = await Agent.create(self.agent_name, user=self.user, ApiClient=self.ApiClient)
+            self.websearch.agent = self.agent
+            self.agent_memory = Memories(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number="0",
+                ApiClient=self.ApiClient,
+                user=self.user,
+            )
+            self.uri = f"{self.uri}/outputs/{self.agent.agent_id}"
+            await self.websearch.initialize()
+            self.agent_memory.agent_config = self.agent.AGENT_CONFIG
+            self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
 
     def custom_format(self, string, **kwargs):
         if "fp" in kwargs:
