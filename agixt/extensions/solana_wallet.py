@@ -28,7 +28,7 @@ class solana_wallet(Extensions):
             # Convert hex string to bytes and create keypair
             private_key_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
             self.wallet_keypair = Keypair.from_bytes(private_key_bytes)
-            self.wallet_address = self.wallet_keypair.pubkey().to_string()
+            self.wallet_address = str(self.wallet_keypair.pubkey())
         else:
             self.wallet_keypair = None
             self.wallet_address = None
@@ -54,7 +54,7 @@ class solana_wallet(Extensions):
         """
         new_keypair = Keypair()
         self.wallet_keypair = new_keypair
-        self.wallet_address = new_keypair.pubkey().to_base58()
+        self.wallet_address = str(new_keypair.pubkey())
         secret_hex = (
             new_keypair.secret().hex()
         )  # for display; store securely in practice
