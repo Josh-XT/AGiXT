@@ -327,15 +327,15 @@ class Agent:
         # User and user_id are already initialized in __init__
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
-        self.company_id = None
         self.AGENT_CONFIG = await self.get_agent_config()
-        self.agent_id = str(self.get_agent_id())
         self.load_config_keys()
-        
-        # Ensure agent_id exists in database
-        if not self.agent_id or self.agent_id.lower() == "none":
+        agent_id = self.get_agent_id()
+        if not agent_id:
             await add_agent(agent_name=self.agent_name, user=self.user)
-            self.agent_id = str(self.get_agent_id())
+            agent_id = self.get_agent_id()
+            if not agent_id:
+                raise HTTPException(status_code=500, detail="Failed to create or retrieve agent ID")
+        self.agent_id = str(agent_id)
 
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
@@ -892,7 +892,7 @@ class Agent:
                     agent_command.state = enabled
                 else:
                     agent_command = AgentCommand(
-                        agent_id=self.agent_id,
+                        agent_id=str(self.agent_id) if self.agent_id else agent.id,
                         command_id=command.id,
                         state=enabled,
                     )
