@@ -12,11 +12,11 @@ app = APIRouter()
     summary="Get agent wallet information",
     description="Retrieves the private wallet information for an agent including private key and passphrase.",
 )
-async def get_agent_wallet_info(agent_name: str, authorization: str = Depends(verify_api_key)) -> Dict[str, str]:
+def get_agent_wallet_info(agent_name: str, authorization: str = Depends(verify_api_key)) -> Dict[str, str]:
     session = get_session()
     try:
         api_client = get_api_client(authorization)
-        agent = await get_agent(agent_name, ApiClient=api_client)
+        agent = get_agent(agent_name, ApiClient=api_client)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
             
