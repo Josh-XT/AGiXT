@@ -114,9 +114,15 @@ async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFA
     wallet_info = await wallet.create_wallet()
     
     # Parse wallet info from the response string
-    public_key = re.search(r"Public Key: ([^\n]+)", wallet_info).group(1)
-    secret_key = re.search(r"Secret Key \(hex\): ([^\n]+)", wallet_info).group(1)
-    
+        try:
+        public_key = re.search(r"Public Key: (\w+)", wallet_info).group(1)
+        secret_key = re.search(r"Secret Key \(hex\): ([0-9a-f]+)", wallet_info).group(1)
+    except AttributeError:
+            logging.error("Failed to parse wallet keys from response")
+            public_key = "Failed to generate"
+            secret_key = "Failed to generate"
+            passphrase = "Failed to generate"
+
     # Generate a passphrase using a secure method
     alphabet = string.ascii_letters + string.digits
     passphrase = ''.join(secrets.choice(alphabet) for i in range(32))

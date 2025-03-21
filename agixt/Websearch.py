@@ -75,7 +75,7 @@ class Websearch:
             ApiClient=self.ApiClient,
             user=self.user
         )
-        self.agent_config = self.ApiClient.get_agent_config(self.agent_name)
+        self.agent_config = self.ApiClient.get_agentconfig(self.agent_name)
         self.agent_settings = self.agent_config.get("settings", {})
         """Initialize async components of Websearch"""
         browsed_links = self.agent.get_browsed_links()
