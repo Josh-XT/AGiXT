@@ -307,7 +307,6 @@ class Agent:
         self.agent_name = agent_name
         self.AGENT_CONFIG = {"commands": [], "settings": {}}  # Agent configuration storage
         self.agent_id = None  # Initialize agent identifier
-        self.agent_id = None
         self.ApiClient = ApiClient
         
     @classmethod
@@ -326,6 +325,12 @@ class Agent:
         self.AGENT_CONFIG = await self.get_agent_config()
         self.agent_id = str(self.get_agent_id())
         self.load_config_keys()
+        
+        # Ensure agent_id exists in database
+        if not self.agent_id or self.agent_id.lower() == "none":
+            await add_agent(agent_name=self.agent_name, user=self.user)
+            self.agent_id = str(self.get_agent_id())
+
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
         self.PROVIDER_SETTINGS = (
