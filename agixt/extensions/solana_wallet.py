@@ -8,7 +8,6 @@ from solders.system_program import TransferParams, transfer
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction
 from solders.system_program import ID as SYS_PROGRAM_ID
-from spl.token.constants import TOKEN_PROGRAM_ID
 from typing import Dict, Any, Optional, Tuple, List
 import base58
 import requests
@@ -27,8 +26,9 @@ import json
 from typing import List, Dict, Optional, Any
 
 
-# Constants
+# Define TOKEN_PROGRAM_ID (this is a well-known address in Solana)
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+
 
 class solana_wallet(Extensions):
     """
