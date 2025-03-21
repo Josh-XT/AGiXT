@@ -60,7 +60,7 @@ async def get_extensions(user=Depends(verify_api_key)):
 async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
     ApiClient = get_api_client()
     agent = await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    extensions = agent.get_agent_extensions()
+    extensions = await agent.get_company_agent_extensions()
     return {"extensions": extensions}
 
 

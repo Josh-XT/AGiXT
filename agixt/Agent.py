@@ -457,11 +457,11 @@ class Agent:
         else:
             return None
 
-    def get_company_agent_extensions(self):
+    async def get_company_agent_extensions(self):
         agent_extensions = self.get_agent_extensions()
         if self.company_id:
-            agent = self.get_company_agent()
-            company_extensions = agent.get_agent_extensions()
+            agent = await self.get_company_agent()
+            company_extensions = agent.get_agent_extensions() if agent else []
             # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
             for company_extension in company_extensions:
                 for agent_extension in agent_extensions:
@@ -581,9 +581,9 @@ class Agent:
             self.company_id = company_id
             if str(self.user).endswith(".xt"):
                 return config
-            company_agent = self.get_company_agent()
+            company_agent = await self.get_company_agent()
             if company_agent:
-                company_agent_config = company_agent.get_agent_config()
+                company_agent_config = await company_agent.get_agent_config()
                 company_settings = company_agent_config.get("settings")
                 for key, value in company_settings.items():
                     if key not in config["settings"]:
