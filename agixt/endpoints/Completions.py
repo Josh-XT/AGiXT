@@ -61,8 +61,6 @@ async def chat_completion(
         api_key=authorization,
         conversation_name=conversation_name,
     )
-    await agixt.initialize(
-    )
     return await agixt.chat_completions(prompt=prompt)
 
 
