@@ -51,9 +51,10 @@ async def query_memories(
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
+    agent = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    )
+    agent_config = await agent.get_agent_config()
     memories = await Memories(
         agent_name=agent_name,
         agent_config=agent_config,
@@ -81,9 +82,10 @@ async def export_agent_memories(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
+    agent = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    )
+    agent_config = await agent.get_agent_config()
     memories = await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).export_collections_to_json()
@@ -105,9 +107,10 @@ async def import_agent_memories(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
+    agent = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    )
+    agent_config = await agent.get_agent_config()
     await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).import_collections_from_json(memories)
@@ -129,9 +132,10 @@ async def learn_text(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
+    agent = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    )
+    agent_config = await agent.get_agent_config()
     if len(data.collection_number) > 4:
         conversation = Conversations(
             conversation_name=data.collection_number, user=user

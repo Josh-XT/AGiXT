@@ -460,18 +460,36 @@ class Memories:
             agent_name=self.agent_name,
             collection_id=self.collection_number,
         )
-        if agent_config is None:
-            agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
-        self.agent_config = (
-            agent_config
-            if agent_config
-            else {"settings": {"embeddings_provider": "default"}}
-        )
+        
+        # Initialize with default config
+        self.agent_config = {"settings": {"embeddings_provider": "default"}}
+        
+        # If agent_config is provided directly, use it
+        if agent_config is not None:
+            self.agent_config = agent_config
+        
         self.agent_settings = (
-            self.agent_config["settings"]
-            if "settings" in self.agent_config
+            self.agent_config.get("settings", {})
+            if isinstance(self.agent_config, dict)
             else {"embeddings_provider": "default"}
         )
+
+        # If no agent_config but ApiClient exists, schedule async update
+        if agent_config is None and ApiClient is not None:
+            asyncio.create_task(self._update_config(ApiClient, agent_name))
+
+    async def _update_config(self, ApiClient, agent_name):
+        try:
+            new_config = await ApiClient.get_agentconfig(agent_name=agent_name)
+            if new_config:
+                self.agent_config = new_config
+            self.agent_settings = (
+                self.agent_config.get("settings", {})
+                if isinstance(self.agent_config, dict)
+                else {"embeddings_provider": "default"}
+            )
+        except Exception as e:
+            logging.error(f"Error updating agent config: {e}")
         self.ApiClient = ApiClient
         self.chunk_size = 256
         self.summarize_content = summarize_content

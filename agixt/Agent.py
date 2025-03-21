@@ -471,9 +471,9 @@ class Agent:
             return None
 
     async def get_company_agent_extensions(self):
-        agent_extensions = self.get_agent_extensions()
+        agent_extensions = self.get_agent_extensions()  # This is already a regular method, not async
         if self.company_id:
-            agent = await self.get_company_agent()
+            agent = await self.get_company_agent()  # Already awaited correctly
             company_extensions = agent.get_agent_extensions() if agent else []
             # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
             for company_extension in company_extensions:

@@ -1934,7 +1934,7 @@ class Query:
                 user=user,
                 ApiClient=magic.get_user_agent_session(),
             )
-            config = agent_instance.get_agent_config()
+            config = await agent_instance.get_agent_config()
             agent_settings = {}
             for key, value in config["settings"].items():
                 if value.strip() != "":
@@ -2057,7 +2057,7 @@ class Query:
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
             agent_name=agent_name,
-            agent_config=agent.get_agent_config(),
+            agent_config=await agent.get_agent_config(),
             collection_number=collection_number,
             user=user,
             ApiClient=ApiClient,
@@ -2091,7 +2091,7 @@ class Query:
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
             agent_name=agent_name,
-            agent_config=agent.get_agent_config(),
+            agent_config=await agent.get_agent_config(),
             collection_number="0",
             user=user,
             ApiClient=ApiClient,
@@ -2105,7 +2105,7 @@ class Query:
         user, auth, magic = await get_user_from_context(info)
         ApiClient = magic.get_user_agent_session()
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-        agent_config = agent.get_agent_config()
+        agent_config = await agent.get_agent_config()
 
         memories = Memories(
             agent_name=agent_name,
@@ -3155,7 +3155,7 @@ class Mutation:
         agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
         memories = Memories(
             agent_name=agent_name,
-            agent_config=agent.get_agent_config(),
+            agent_config=await agent.get_agent_config(),
             user=user,
             ApiClient=ApiClient,
         )
@@ -3194,7 +3194,7 @@ class Mutation:
         agent = Agent(
             agent_name=agent_name, user=user, ApiClient=magic.get_user_agent_session()
         )
-        agent_config = agent.get_agent_config()
+        agent_config = await agent.get_agent_config()
 
         conversation_id = None
         if input.conversation_name:
