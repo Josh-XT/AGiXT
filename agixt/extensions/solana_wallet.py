@@ -1,4 +1,20 @@
 from Extensions import Extensions
+import json
+from solana.rpc.api import Client
+from solana.rpc.commitment import Confirmed
+from solders.transaction import Transaction
+from solders.keypair import Keypair
+from solders.system_program import TransferParams, transfer
+from solders.pubkey import Pubkey
+from solders.instruction import Instruction
+from solders.system_program import ID as SYS_PROGRAM_ID
+from spl.token.constants import TOKEN_PROGRAM_ID
+from typing import Dict, Any, Optional, Tuple, List
+import base58
+import requests
+import struct
+from dataclasses import dataclass
+from decimal import Decimal
 from solana.rpc.api import Client
 from solana.rpc.commitment import Confirmed
 from solders.transaction import Transaction
@@ -22,6 +38,88 @@ class solana_wallet(Extensions):
     The extension supports creating wallets, checking balances, sending SOL, and more.
     """
 
+    # Raydium SDK constants
+    RAYDIUM_ROUTER_ID = Pubkey.from_string("routerv1ZKPe3GxvR8EkBEeYXbRzQKYLQQu3roLyZFtNKDj")
+    POOL_STATE_VERSION_V1 = 1
+    AMM_PROGRAM_ID = Pubkey.from_string("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")
+    SERUM_PROGRAM_ID = Pubkey.from_string("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin")
+    
+    @dataclass
+    class PoolInfo:
+        address: Pubkey
+        input_reserve: int
+        output_reserve: int
+        input_decimals: int
+        fee_numerator: int
+        fee_denominator: int
+        
+    async def _get_token_decimals(self, token: Pubkey) -> int:
+        """Get token decimals from mint account"""
+        try:
+            token_info = await self.client.get_account_info(token)
+            if not token_info["result"]["value"]:
+                return 9  # Default to 9 decimals if not found
+            
+            data = base58.b58decode(token_info["result"]["value"]["data"][0])
+            # Parse mint account data (decimals at offset 44)
+            decimals = data[44]
+            return decimals
+        except Exception:
+            return 9  # Default to 9 decimals on error
+            
+    async def _get_pool_info(self, input_token: Pubkey, output_token: Pubkey) -> Optional[Dict]:
+        """Get pool information for a token pair"""
+        try:
+            # Derive pool address using SDK algorithm
+            seeds = [
+                bytes("amm_pool", "utf-8"),
+                bytes(input_token),
+                bytes(output_token)
+            ]
+            pool_address, _ = Pubkey.find_program_address(seeds, self.AMM_PROGRAM_ID)
+            
+            # Get pool account data
+            pool_data = await self.client.get_account_info(pool_address)
+            if not pool_data["result"]["value"]:
+                return None
+                
+            # Parse pool state data
+            data = base58.b58decode(pool_data["result"]["value"]["data"][0])
+            
+            # Extract pool info from data using similar structure as SDK
+            (version, status, nonce, token_a, token_b, reserve_a, 
+             reserve_b, fee_numerator, fee_denominator) = struct.unpack("<BBQQQQQQQ", data[:73])
+             
+            return {
+                "address": str(pool_address),
+                "input_reserve": reserve_a if input_token == token_a else reserve_b,
+                "output_reserve": reserve_b if input_token == token_a else reserve_a,
+                "input_decimals": await self._get_token_decimals(input_token),
+                "fee_numerator": fee_numerator,
+                "fee_denominator": fee_denominator
+            }
+        except Exception as e:
+            print(f"Error getting pool info: {str(e)}")
+            return None
+            
+    def _compute_output_amount(self, input_amount: int, input_reserve: int, 
+                             output_reserve: int, fee_numerator: int, 
+                             fee_denominator: int) -> int:
+        """Compute output amount based on Raydium's constant product formula"""
+        fee_amount = (input_amount * fee_numerator) // fee_denominator
+        amount_with_fee = input_amount - fee_amount
+        numerator = amount_with_fee * output_reserve
+        denominator = input_reserve + amount_with_fee
+        return numerator // denominator if denominator != 0 else 0
+        
+    def _calculate_price_impact(self, input_amount: int, output_amount: int,
+                              input_reserve: int, output_reserve: int) -> float:
+        """Calculate price impact of a swap"""
+        price_before = Decimal(output_reserve) / Decimal(input_reserve)
+        price_after = Decimal(output_amount) / Decimal(input_amount)
+        price_impact = abs((price_before - price_after) / price_before) * 100
+        return float(price_impact)
+    
     def __init__(
         self,
         **kwargs,
@@ -176,27 +274,41 @@ class solana_wallet(Extensions):
 
     async def get_swap_quote(self, from_token: str, to_token: str, amount: float):
         """
-        Retrieves a quote for swapping one token to another using Raydium API.
+        Retrieves a quote for swapping one token to another using Raydium SDK computations.
         """
         try:
-            url = f"{self.RAYDIUM_API_URI}/quote"
-            payload = {
-                "inputMint": from_token,
-                "outputMint": to_token,
-                "amount": str(int(amount * 1e9)),  # Convert to lamports
-                "slippage": 0.5  # 0.5% slippage
-            }
-            response = requests.post(url, json=payload)
-            quote_data = response.json()
+            # Convert token addresses to Pubkey objects
+            input_token = Pubkey.from_string(from_token)
+            output_token = Pubkey.from_string(to_token)
             
-            if "error" in quote_data:
-                return f"Error getting quote: {quote_data['error']}"
-                
+            # Get pool info for the token pair
+            pool_info = await self._get_pool_info(input_token, output_token)
+            if not pool_info:
+                return f"No pool found for {from_token} -> {to_token}"
+            
+            # Calculate amounts using pool reserves and weights
+            input_amount = int(amount * 10**pool_info["input_decimals"])
+            output_amount = self._compute_output_amount(
+                input_amount,
+                pool_info["input_reserve"],
+                pool_info["output_reserve"],
+                pool_info["fee_numerator"],
+                pool_info["fee_denominator"]
+            )
+            
+            # Calculate price impact
+            price_impact = self._calculate_price_impact(
+                input_amount,
+                output_amount,
+                pool_info["input_reserve"],
+                pool_info["output_reserve"]
+            )
+            
             return {
-                "inputAmount": quote_data["inputAmount"],
-                "outputAmount": quote_data["outputAmount"],
-                "route": quote_data["route"],
-                "priceImpact": quote_data["priceImpact"]
+                "inputAmount": str(input_amount),
+                "outputAmount": str(output_amount),
+                "priceImpact": price_impact,
+                "pool": pool_info["address"]
             }
         except Exception as e:
             return f"Error getting swap quote: {str(e)}"
@@ -208,7 +320,7 @@ class solana_wallet(Extensions):
         amount: float = 0.0,
     ):
         """
-        Executes a token swap using Raydium's API.
+        Executes a token swap using Raydium SDK instructions.
         """
         if wallet_address is None:
             wallet_address = self.wallet_address
@@ -216,26 +328,26 @@ class solana_wallet(Extensions):
             return "No quote provided for swap"
             
         try:
-            # Build the swap transaction using quote data
-            url = f"{self.RAYDIUM_API_URI}/swap"
-            payload = {
-                "wallet": wallet_address,
-                "quote": quote
-            }
+            # Build swap instruction
+            pool_address = Pubkey.from_string(quote["pool"])
+            wallet_pubkey = Pubkey.from_string(wallet_address)
             
-            # Get transaction data from Raydium
-            response = requests.post(url, json=payload)
-            tx_data = response.json()
-            
-            if "error" in tx_data:
-                return f"Error building swap transaction: {tx_data['error']}"
+            swap_instruction = self._build_swap_instruction(
+                pool_address,
+                wallet_pubkey,
+                int(quote["inputAmount"]),
+                int(quote["outputAmount"])
+            )
             
             # Create and sign transaction
-            tx = Transaction.from_json(tx_data["transaction"])
-            opts = TxOpts(skip_preflight=False)
+            recent_blockhash = await self.client.get_recent_blockhash()
+            tx = Transaction()
+            tx.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
+            tx.add(swap_instruction)
             
             # Send transaction
-            response = self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
+            opts = TxOpts(skip_preflight=False)
+            response = await self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
             
             return {
                 "success": True,
@@ -246,52 +358,134 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error executing swap: {str(e)}"
             
+    def _build_swap_instruction(self, pool: Pubkey, wallet: Pubkey, 
+                              input_amount: int, min_output: int) -> Instruction:
+        """Build Raydium swap instruction"""
+        keys = [
+            {"pubkey": pool, "isSigner": False, "isWritable": True},
+            {"pubkey": wallet, "isSigner": True, "isWritable": True},
+            {"pubkey": TOKEN_PROGRAM_ID, "isSigner": False, "isWritable": False},
+            {"pubkey": self.AMM_PROGRAM_ID, "isSigner": False, "isWritable": False}
+        ]
+        
+        # Swap instruction data layout matches Raydium SDK
+        instruction_data = struct.pack("<BQQ", 
+                                     9,  # Swap instruction code
+                                     input_amount,  # Input amount 
+                                     min_output)  # Minimum output amount
+        
+        return Instruction(
+            program_id=self.AMM_PROGRAM_ID,
+            data=instruction_data,
+            accounts=keys
+        )
+            
     async def get_route_quote(self, from_token: str, to_token: str, amount: float):
         """
-        Get a quote for the best trading route between two tokens.
+        Get a quote for the best trading route between two tokens using SDK computations.
         """
         try:
-            url = f"{self.RAYDIUM_API_URI}/route"
-            payload = {
-                "inputMint": from_token,
-                "outputMint": to_token,
-                "amount": str(int(amount * 1e9)),
-                "slippage": 0.5
-            }
+            input_token = Pubkey.from_string(from_token)
+            output_token = Pubkey.from_string(to_token)
             
-            response = requests.post(url, json=payload)
-            route_data = response.json()
+            # First try direct pool
+            direct_quote = await self.get_swap_quote(from_token, to_token, amount)
+            if not isinstance(direct_quote, str):  # Not an error message
+                return {
+                    "route": [{
+                        "type": "swap",
+                        "in": from_token,
+                        "out": to_token,
+                        "pool": direct_quote["pool"]
+                    }],
+                    "quote": direct_quote
+                }
             
-            if "error" in route_data:
-                return f"Error getting route: {route_data['error']}"
+            # Try routing through USDC as intermediate
+            usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
             
-            # Get quote for the best route
-            quote = await self.get_swap_quote(from_token, to_token, amount)
+            # First hop: from_token -> USDC
+            first_hop = await self.get_swap_quote(from_token, usdc_mint, amount)
+            if isinstance(first_hop, str):
+                return f"No route found: {first_hop}"
+                
+            # Second hop: USDC -> to_token
+            usdc_amount = float(first_hop["outputAmount"]) / 1e6  # USDC has 6 decimals
+            second_hop = await self.get_swap_quote(usdc_mint, to_token, usdc_amount)
+            if isinstance(second_hop, str):
+                return f"No route found: {second_hop}"
+            
+            # Calculate combined price impact
+            total_impact = float(first_hop["priceImpact"]) + float(second_hop["priceImpact"])
             
             return {
-                "route": route_data["route"],
-                "quote": quote
+                "route": [{
+                    "type": "swap",
+                    "in": from_token,
+                    "out": usdc_mint,
+                    "pool": first_hop["pool"]
+                }, {
+                    "type": "swap",
+                    "in": usdc_mint,
+                    "out": to_token,
+                    "pool": second_hop["pool"]
+                }],
+                "quote": {
+                    "inputAmount": first_hop["inputAmount"],
+                    "outputAmount": second_hop["outputAmount"],
+                    "priceImpact": total_impact,
+                    "pools": [first_hop["pool"], second_hop["pool"]]
+                }
             }
+            
         except Exception as e:
             return f"Error getting route quote: {str(e)}"
             
     async def execute_trade(self, route_quote: Dict[str, Any]):
         """
         Execute a trade using a previously obtained route quote.
+        Handles both direct swaps and multi-hop routes.
         """
-        if not route_quote or "quote" not in route_quote:
+        if not route_quote or "quote" not in route_quote or "route" not in route_quote:
             return "Invalid route quote"
             
         try:
-            result = await self.execute_swap(
-                quote=route_quote["quote"]
-            )
+            if len(route_quote["route"]) == 1:
+                # Direct swap
+                result = await self.execute_swap(quote=route_quote["quote"])
+            else:
+                # Multi-hop route
+                tx = Transaction()
+                recent_blockhash = await self.client.get_recent_blockhash()
+                tx.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
+                
+                # Add swap instruction for each hop
+                wallet_pubkey = Pubkey.from_string(self.wallet_address)
+                for idx, hop in enumerate(route_quote["route"]):
+                    pool_address = Pubkey.from_string(route_quote["quote"]["pools"][idx])
+                    input_amount = route_quote["quote"]["inputAmount"] if idx == 0 else None
+                    output_amount = route_quote["quote"]["outputAmount"] if idx == len(route_quote["route"]) - 1 else None
+                    
+                    swap_ix = self._build_swap_instruction(
+                        pool_address,
+                        wallet_pubkey,
+                        int(input_amount) if input_amount else 0,
+                        int(output_amount) if output_amount else 0
+                    )
+                    tx.add(swap_ix)
+                
+                # Send transaction
+                opts = TxOpts(skip_preflight=False)
+                result = await self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
             
             return {
                 "success": True,
                 "txId": result["signature"] if "signature" in result else None,
                 "route": route_quote["route"],
-                "amounts": result
+                "amounts": {
+                    "inputAmount": route_quote["quote"]["inputAmount"],
+                    "outputAmount": route_quote["quote"]["outputAmount"]
+                }
             }
         except Exception as e:
             return f"Error executing trade: {str(e)}"
