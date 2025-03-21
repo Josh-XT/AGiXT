@@ -53,10 +53,10 @@ class solana_wallet(Extensions):
         fee_numerator: int
         fee_denominator: int
         
-    def _get_token_decimals(self, token: Pubkey) -> int:
+    async def _get_token_decimals(self, token: Pubkey) -> int:
         """Get token decimals from mint account"""
         try:
-            token_info = self.client.get_account_info(token)
+            token_info = await self.client.get_account_info(token)
             if not token_info["result"]["value"]:
                 return 9  # Default to 9 decimals if not found
             
@@ -67,7 +67,7 @@ class solana_wallet(Extensions):
         except Exception:
             return 9  # Default to 9 decimals on error
             
-    def _get_pool_info(self, input_token: Pubkey, output_token: Pubkey) -> Optional[Dict]:
+    async def _get_pool_info(self, input_token: Pubkey, output_token: Pubkey) -> Optional[Dict]:
         """Get pool information for a token pair"""
         try:
             # Derive pool address using SDK algorithm
@@ -79,7 +79,7 @@ class solana_wallet(Extensions):
             pool_address, _ = Pubkey.find_program_address(seeds, self.AMM_PROGRAM_ID)
             
             # Get pool account data
-            pool_data = self.client.get_account_info(pool_address)
+            pool_data = await self.client.get_account_info(pool_address)
             if not pool_data["result"]["value"]:
                 return None
                 
@@ -94,7 +94,7 @@ class solana_wallet(Extensions):
                 "address": str(pool_address),
                 "input_reserve": reserve_a if input_token == token_a else reserve_b,
                 "output_reserve": reserve_b if input_token == token_a else reserve_a,
-                "input_decimals": self._get_token_decimals(input_token),
+                "input_decimals": await self._get_token_decimals(input_token),
                 "fee_numerator": fee_numerator,
                 "fee_denominator": fee_denominator
             }
@@ -160,7 +160,7 @@ class solana_wallet(Extensions):
             "Get Public Key": self.get_public_key,
         }
 
-    def create_wallet(self):
+    async def create_wallet(self):
         """
         Creates a new Solana wallet by generating a new keypair.
         This method can be used if no wallet was connected via the init params.
@@ -176,7 +176,7 @@ class solana_wallet(Extensions):
             f"Secret Key (hex): {secret_hex}"
         )
 
-    def get_wallet_balance(self, wallet_address: str = None):
+    async def get_wallet_balance(self, wallet_address: str = None):
         """
         Retrieves the SOL balance for the given wallet address.
         If no address is provided, uses the wallet address from initialization.
@@ -194,7 +194,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error retrieving balance: {str(e)}"
 
-    def send_sol(
+    async def send_sol(
         self, from_wallet: str = None, to_wallet: str = "", amount: float = 0.0
     ):
         """
@@ -220,7 +220,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error sending SOL: {str(e)}"
 
-    def get_transaction_info(self, tx_signature: str):
+    async def get_transaction_info(self, tx_signature: str):
         """
         Retrieves information about a specific transaction using its signature.
         """
@@ -230,7 +230,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error retrieving transaction info: {str(e)}"
 
-    def get_recent_transactions(
+    async def get_recent_transactions(
         self, wallet_address: str = None, limit: int = 10
     ):
         """
@@ -248,7 +248,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error retrieving recent transactions: {str(e)}"
 
-    def get_token_balance(self, wallet_address: str = None, token_mint: str = ""):
+    async def get_token_balance(self, wallet_address: str = None, token_mint: str = ""):
         """
         Retrieves the balance of a specific SPL token for the given wallet.
         """
@@ -256,7 +256,7 @@ class solana_wallet(Extensions):
             wallet_address = self.wallet_address
         return f"Token balance for token {token_mint} in wallet {wallet_address}: [Not implemented]."
 
-    def airdrop_sol(self, wallet_address: str = None, amount: float = 0.0):
+    async def airdrop_sol(self, wallet_address: str = None, amount: float = 0.0):
         """
         Requests an airdrop of SOL (on devnet) to the specified wallet address.
         """
@@ -273,7 +273,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error requesting airdrop: {str(e)}"
 
-    def get_swap_quote(self, from_token: str, to_token: str, amount: float):
+    async def get_swap_quote(self, from_token: str, to_token: str, amount: float):
         """
         Retrieves a quote for swapping one token to another using Raydium SDK computations.
         """
@@ -283,7 +283,7 @@ class solana_wallet(Extensions):
             output_token = Pubkey.from_string(to_token)
             
             # Get pool info for the token pair
-            pool_info = self._get_pool_info(input_token, output_token)
+            pool_info = await self._get_pool_info(input_token, output_token)
             if not pool_info:
                 return f"No pool found for {from_token} -> {to_token}"
             
@@ -314,7 +314,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error getting swap quote: {str(e)}"
 
-    def execute_swap(
+    async def execute_swap(
         self,
         wallet_address: str = None,
         quote: Dict[str, Any] = None,
@@ -341,14 +341,14 @@ class solana_wallet(Extensions):
             )
             
             # Create and sign transaction
+            recent_blockhash = await self.client.get_recent_blockhash()
             tx = Transaction()
-            recent_blockhash = self.client.get_recent_blockhash()
             tx.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
             tx.add(swap_instruction)
             
             # Send transaction
             opts = TxOpts(skip_preflight=False)
-            response = self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
+            response = await self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
             
             return {
                 "success": True,
@@ -381,7 +381,7 @@ class solana_wallet(Extensions):
             accounts=keys
         )
             
-    def get_route_quote(self, from_token: str, to_token: str, amount: float):
+    async def get_route_quote(self, from_token: str, to_token: str, amount: float):
         """
         Get a quote for the best trading route between two tokens using SDK computations.
         """
@@ -390,7 +390,7 @@ class solana_wallet(Extensions):
             output_token = Pubkey.from_string(to_token)
             
             # First try direct pool
-            direct_quote = self.get_swap_quote(from_token, to_token, amount)
+            direct_quote = await self.get_swap_quote(from_token, to_token, amount)
             if not isinstance(direct_quote, str):  # Not an error message
                 return {
                     "route": [{
@@ -406,13 +406,13 @@ class solana_wallet(Extensions):
             usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
             
             # First hop: from_token -> USDC
-            first_hop = self.get_swap_quote(from_token, usdc_mint, amount)
+            first_hop = await self.get_swap_quote(from_token, usdc_mint, amount)
             if isinstance(first_hop, str):
                 return f"No route found: {first_hop}"
                 
             # Second hop: USDC -> to_token
             usdc_amount = float(first_hop["outputAmount"]) / 1e6  # USDC has 6 decimals
-            second_hop = self.get_swap_quote(usdc_mint, to_token, usdc_amount)
+            second_hop = await self.get_swap_quote(usdc_mint, to_token, usdc_amount)
             if isinstance(second_hop, str):
                 return f"No route found: {second_hop}"
             
@@ -442,7 +442,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error getting route quote: {str(e)}"
             
-    def get_public_key(self):
+    async def get_public_key(self):
         """
         Get the public key of the current wallet.
         
@@ -453,7 +453,7 @@ class solana_wallet(Extensions):
             return {"public_key": self.wallet_address}
         return {"error": "No wallet initialized"}
 
-    def execute_trade(self, route_quote: Dict[str, Any]):
+    async def execute_trade(self, route_quote: Dict[str, Any]):
         """
         Execute a trade using a previously obtained route quote.
         Handles both direct swaps and multi-hop routes.
@@ -464,11 +464,11 @@ class solana_wallet(Extensions):
         try:
             if len(route_quote["route"]) == 1:
                 # Direct swap
-                result = self.execute_swap(quote=route_quote["quote"])
+                result = await self.execute_swap(quote=route_quote["quote"])
             else:
                 # Multi-hop route
                 tx = Transaction()
-                recent_blockhash = self.client.get_recent_blockhash()
+                recent_blockhash = await self.client.get_recent_blockhash()
                 tx.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
                 
                 # Add swap instruction for each hop
@@ -488,7 +488,7 @@ class solana_wallet(Extensions):
                 
                 # Send transaction
                 opts = TxOpts(skip_preflight=False)
-                result = self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
+                result = await self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
             
             return {
                 "success": True,
@@ -502,7 +502,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error executing trade: {str(e)}"
 
-    def get_token_list(self):
+    async def get_token_list(self):
         """
         Returns a list of popular tokens on the Solana network from Raydium API.
         """
@@ -513,7 +513,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error retrieving token list: {str(e)}"
 
-    def get_token_price(self, token: str):
+    async def get_token_price(self, token: str):
         """
         Retrieves the current price for the specified token from Raydium API.
         """
@@ -528,7 +528,7 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error retrieving token price: {str(e)}"
 
-    def get_wallet_token_accounts(self, wallet_address: str = None):
+    async def get_wallet_token_accounts(self, wallet_address: str = None):
         """
         Retrieves all token accounts associated with the given wallet.
         """
