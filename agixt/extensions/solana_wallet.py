@@ -157,6 +157,7 @@ class solana_wallet(Extensions):
             "Get Wallet Token Accounts": self.get_wallet_token_accounts,
             "Get Route Quote": self.get_route_quote,
             "Execute Trade": self.execute_trade,
+            "Get Public Key": self.get_public_key,
         }
 
     async def create_wallet(self):
@@ -441,6 +442,17 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error getting route quote: {str(e)}"
             
+    async def get_public_key(self):
+        """
+        Get the public key of the current wallet.
+        
+        Returns:
+            dict: A dictionary containing the public key of the wallet or an error message if no wallet is initialized
+        """
+        if self.wallet_address:
+            return {"public_key": self.wallet_address}
+        return {"error": "No wallet initialized"}
+
     async def execute_trade(self, route_quote: Dict[str, Any]):
         """
         Execute a trade using a previously obtained route quote.
@@ -510,6 +522,8 @@ class solana_wallet(Extensions):
             price_data = response.json()
             if "error" in price_data:
                 return f"Error getting price: {price_data['error']}"
+            if "price" not in price_data:
+                return f"Error: Price data not available for token {token}"
             return price_data["price"]
         except Exception as e:
             return f"Error retrieving token price: {str(e)}"
