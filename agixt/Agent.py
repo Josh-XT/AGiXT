@@ -338,7 +338,7 @@ class Agent:
                 del self.PROVIDER_SETTINGS[key]
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER,
-            ApiClient=ApiClient,
+            ApiClient=self.ApiClient,
             agent_name=self.agent_name,
             user=self.user,
             api_key=token,
