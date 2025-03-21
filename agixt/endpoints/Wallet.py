@@ -21,7 +21,7 @@ async def get_agent_wallet_info(agent_name: str, authorization: str = Depends(ve
             raise HTTPException(status_code=404, detail="Agent not found")
             
         agent_settings = session.query(AgentSetting).filter(
-            AgentSetting.agent_id == agent.get_agent_id()
+            AgentSetting.agent_id == agent.agent_id
         ).all()
         
         wallet_info = {}

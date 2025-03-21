@@ -1972,10 +1972,10 @@ class Query:
     @strawberry.field
     async def agent(self, info, name: str) -> AgentType:
         user, auth, magic = await get_user_from_context(info)
-        agent = Agent(
+        agent = await Agent.create(
             agent_name=name, user=user, ApiClient=magic.get_user_agent_session()
         )
-        config = agent.get_agent_config()
+        config = await agent.get_agent_config()
         agents = get_agents(user=user)
         settings = []
         for key, value in config["settings"].items():
