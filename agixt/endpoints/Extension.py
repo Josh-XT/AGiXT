@@ -59,7 +59,7 @@ async def get_extensions(user=Depends(verify_api_key)):
 )
 async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
     ApiClient = get_api_client()
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent = await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
     extensions = agent.get_agent_extensions()
     return {"extensions": extensions}
 
@@ -81,8 +81,8 @@ async def run_command(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    agent_config = agent.get_agent_config()
+    agent = await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = await agent.get_agent_config()
     c = Conversations(conversation_name=command.conversation_name)
     command_output = await Extensions(
         agent_name=agent_name,
