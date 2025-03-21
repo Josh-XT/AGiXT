@@ -89,7 +89,7 @@ class Websearch:
             agent_config=self.agent_config,
             collection_number=str(self.collection_number), 
             ApiClient=self.ApiClient,
-            user=user,
+            user=self.user,
         )
         self.websearch_endpoint = (
             self.agent_settings["websearch_endpoint"]

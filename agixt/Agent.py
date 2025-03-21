@@ -901,7 +901,7 @@ class Agent:
             for setting_name, setting_value in new_config.items():
                 agent_setting = (
                     session.query(AgentSettingModel)
-                    .filter_by(agent_id=self.agent_id, name=setting_name)
+                    .filter_by(agent_id=str(self.agent_id) if self.agent_id else agent.id, name=setting_name)
                     .first()
                 )
                 if agent_setting:
@@ -911,7 +911,7 @@ class Agent:
                         agent_setting.value = str(setting_value)
                 else:
                     agent_setting = AgentSettingModel(
-                        agent_id=self.agent_id,
+                        agent_id=str(self.agent_id) if self.agent_id else agent.id,
                         name=setting_name,
                         value=str(setting_value),
                     )
@@ -1049,6 +1049,9 @@ class Agent:
             )
             .first()
         )
+        if agent:
+            session.close()
+            return agent.id
         if not agent:
             agent = (
                 session.query(AgentModel)
@@ -1061,7 +1064,9 @@ class Agent:
             session.close()
             if not agent:
                 return None
+            return agent.id
         session.close()
+        return None
         return agent.id
 
     def get_conversation_tasks(self, conversation_id: str) -> str:
