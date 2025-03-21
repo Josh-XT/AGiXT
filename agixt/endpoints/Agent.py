@@ -62,7 +62,7 @@ async def addagent(
 ) -> Dict[str, str]:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    await add_agent(
+    add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
         commands=agent.commands,
@@ -98,7 +98,7 @@ async def import_agent(
 ) -> Dict[str, str]:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    return await add_agent(
+    return add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
         commands=agent.commands,
@@ -355,8 +355,9 @@ async def get_agentconfig(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent = await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    agent_config = await agent.get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     for key, value in agent_config["settings"].items():
         logging.info(f"Checking {key} for {agent_name}.")
         if value.strip() != "":
@@ -503,7 +504,7 @@ async def get_commands(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent = await Agent.create(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     return {"commands": agent.AGENT_CONFIG["commands"]}
 
 
