@@ -1005,7 +1005,7 @@ class MagicalAuth:
                     try:
                         product_id = item["price"]["product"]
                         product = stripe.Product.retrieve(product_id)
-
+                        logging.info(f"Found product {product}")
                         if product.get("metadata", {}).get("APP_NAME") == getenv(
                             "APP_NAME"
                         ):
