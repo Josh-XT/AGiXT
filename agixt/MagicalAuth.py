@@ -981,42 +981,53 @@ class MagicalAuth:
             requirements["stripe_id"] = "None"
         return requirements
 
-    def get_subscribed_products(self, stripe_api_key, stripe_customer_id):
+    def get_subscribed_products(self, stripe_api_key, user_email):
         import stripe
 
         stripe.api_key = stripe_api_key
-        logging.info(f"Checking subscriptions for customer {stripe_customer_id}...")
+        logging.info(f"Checking subscriptions for user {user_email}...")
         try:
-            all_subscriptions = stripe.Subscription.list(
-                customer=stripe_customer_id,
-                expand=["data.items.data.price"],
-            )
-            logging.info(f"Found {len(all_subscriptions)} subscriptions.")
+            # First, find all customer records with this email
+            customers = stripe.Customer.list(email=user_email)
 
             relevant_subscriptions = []
 
-            for subscription in all_subscriptions:
-                if subscription.status != "active":
-                    logging.info(f"Subscription {subscription['id']} not active.")
-                    continue
+            # Check subscriptions for each customer record
+            for customer in customers.data:
+                logging.info(f"Found customer: {customer.id} for email {user_email}")
+                all_subscriptions = stripe.Subscription.list(
+                    customer=customer.id,
+                    expand=["data.items.data.price"],
+                )
 
-                app_relevant = False
-                for item in subscription["items"]["data"]:
-                    try:
-                        product_id = item["price"]["product"]
-                        product = stripe.Product.retrieve(product_id)
-                        logging.info(f"Found product {product}")
-                        if product.get("metadata", {}).get("APP_NAME") == getenv(
-                            "APP_NAME"
-                        ):
-                            app_relevant = True
-                            break
-                    except Exception as e:
-                        logging.error(f"Error checking product: {e}")
+                logging.info(
+                    f"Found {len(all_subscriptions)} subscriptions for customer {customer.id}."
+                )
 
-                if app_relevant:
-                    relevant_subscriptions.append(subscription)
-                    logging.info(f"Found relevant subscription {subscription['id']}")
+                # Add all active subscriptions for this app
+                for subscription in all_subscriptions:
+                    if subscription.status != "active":
+                        continue
+
+                    app_relevant = False
+                    for item in subscription["items"]["data"]:
+                        try:
+                            product_id = item["price"]["product"]
+                            product = stripe.Product.retrieve(product_id)
+
+                            if product.get("metadata", {}).get("APP_NAME") == getenv(
+                                "APP_NAME"
+                            ):
+                                app_relevant = True
+                                break
+                        except Exception as e:
+                            logging.error(f"Error checking product: {e}")
+
+                    if app_relevant:
+                        relevant_subscriptions.append(subscription)
+                        logging.info(
+                            f"Found relevant subscription {subscription['id']}"
+                        )
 
             return relevant_subscriptions
 
@@ -1107,7 +1118,7 @@ class MagicalAuth:
                     # Check if this user has their own subscription first
                     if "stripe_id" in user_preferences:
                         relevant_subscriptions = self.get_subscribed_products(
-                            api_key, user_preferences["stripe_id"]
+                            api_key, user_preferences["stripe_id"], user.email
                         )
                         if relevant_subscriptions:
                             is_subscription = True
@@ -1179,7 +1190,7 @@ class MagicalAuth:
                                     "Stripe ID found: " + user_preferences["stripe_id"]
                                 )
                                 relevant_subscriptions = self.get_subscribed_products(
-                                    api_key, user_preferences["stripe_id"]
+                                    api_key, user_preferences["stripe_id"], user.email
                                 )
                                 if not relevant_subscriptions:
                                     logging.info(
