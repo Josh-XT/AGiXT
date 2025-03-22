@@ -950,50 +950,43 @@ class MagicalAuth:
 
         stripe.api_key = stripe_api_key
         logging.info(f"Checking subscriptions for customer {stripe_customer_id}...")
-        all_subscriptions = stripe.Subscription.list(
-            customer=stripe_customer_id,
-            expand=["data.items.data.price"],
-        )
-        logging.info(f"Found {len(all_subscriptions)} subscriptions.")
-        relevant_subscriptions = []
-        for subscription in all_subscriptions:
-            logging.info(f"Checking subscription {subscription['id']}")
-            if subscription.status == "active":
-                logging.info(f"Subscription {subscription['id']} active.")
-                relevant_to_this_app = None
-                for item in subscription["items"]:
-                    product_id = item["price"]["product"]
-                    product = stripe.Product.retrieve(product_id)
+        try:
+            all_subscriptions = stripe.Subscription.list(
+                customer=stripe_customer_id,
+                expand=["data.items.data.price"],
+            )
+            logging.info(f"Found {len(all_subscriptions)} subscriptions.")
+
+            relevant_subscriptions = []
+
+            for subscription in all_subscriptions:
+                if subscription.status != "active":
+                    logging.info(f"Subscription {subscription['id']} not active.")
+                    continue
+
+                app_relevant = False
+                for item in subscription["items"]["data"]:
                     try:
-                        relevant_app = product["metadata"]["APP_NAME"]
-                    except:
-                        relevant_app = "[No App Defined in Product]"
-                        logging.warning(
-                            f"Subscription detected with items missing relevant APP_NAME metadata: {subscription['id']}"
-                        )
-                    if relevant_app == getenv("APP_NAME"):
-                        if relevant_to_this_app == False:
-                            raise Exception(
-                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
-                            )
-                        relevant_to_this_app = True
-                        logging.info(
-                            f"Subscription {subscription['id']} relevant to this app {getenv('APP_NAME')}."
-                        )
-                    else:
-                        if relevant_to_this_app == True:
-                            raise Exception(
-                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
-                            )
-                        relevant_to_this_app = False
-                        logging.info(
-                            f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {relevant_app}."
-                        )
-                    if relevant_to_this_app:
-                        relevant_subscriptions.append(subscription)
-            else:
-                logging.info(f"Subscription {subscription['id']} not active.")
-        return relevant_subscriptions
+                        product_id = item["price"]["product"]
+                        product = stripe.Product.retrieve(product_id)
+
+                        if product.get("metadata", {}).get("APP_NAME") == getenv(
+                            "APP_NAME"
+                        ):
+                            app_relevant = True
+                            break
+                    except Exception as e:
+                        logging.error(f"Error checking product: {e}")
+
+                if app_relevant:
+                    relevant_subscriptions.append(subscription)
+                    logging.info(f"Found relevant subscription {subscription['id']}")
+
+            return relevant_subscriptions
+
+        except Exception as e:
+            logging.error(f"Error checking subscriptions: {e}")
+            return []
 
     def update_user_role(self, company_id: str, user_id: str, role_id: int):
         session = get_session()
@@ -1075,96 +1068,119 @@ class MagicalAuth:
                 )
                 is_subscription = False
                 if not user.email.endswith(".xt"):
-                    for user_company in user_companies:
-                        # Get the company admins
-                        company_admins = (
-                            session.query(User)
-                            .filter(Company.id == user_company.company_id)
-                            .filter(UserCompany.role_id <= 2)
-                            .all()
+                    # Check if this user has their own subscription first
+                    if "stripe_id" in user_preferences:
+                        relevant_subscriptions = self.get_subscribed_products(
+                            api_key, user_preferences["stripe_id"]
                         )
-                        for company_admin in company_admins:
-                            company_admin_preferences = (
-                                session.query(UserPreferences)
-                                .filter(UserPreferences.user_id == company_admin.id)
+                        if relevant_subscriptions:
+                            is_subscription = True
+
+                    # Only check company subscriptions if the user doesn't have their own
+                    if not is_subscription:
+                        for user_company in user_companies:
+                            # Get the company admins
+                            company_admins = (
+                                session.query(User)
+                                .join(
+                                    UserCompany, User.id == UserCompany.user_id
+                                )  # Add proper JOIN
+                                .filter(
+                                    UserCompany.company_id == user_company.company_id
+                                )
+                                .filter(UserCompany.role_id <= 2)
                                 .all()
                             )
-                            company_admin_preferences = {
-                                x.pref_key: x.pref_value
-                                for x in company_admin_preferences
-                            }
-                            if "stripe_id" in company_admin_preferences:
-                                # add to users preferences
-                                user_preferences["stripe_id"] = (
-                                    company_admin_preferences["stripe_id"]
+                            for company_admin in company_admins:
+                                company_admin_preferences = (
+                                    session.query(UserPreferences)
+                                    .filter(UserPreferences.user_id == company_admin.id)
+                                    .all()
                                 )
-                                # check if it has an active subscription
-                                relevant_subscriptions = self.get_subscribed_products(
-                                    api_key, company_admin_preferences["stripe_id"]
-                                )
-                                if relevant_subscriptions:
-                                    is_subscription = True
-                                    break
-                    if not is_subscription:
-                        if "stripe_id" not in user_preferences or not user_preferences[
-                            "stripe_id"
-                        ].startswith("cus_"):
-                            logging.info("No Stripe ID found in user preferences.")
-                            customer = stripe.Customer.create(email=user.email)
-                            user_preferences["stripe_id"] = customer.id
-                            user_preference = UserPreferences(
-                                user_id=self.user_id,
-                                pref_key="stripe_id",
-                                pref_value=customer.id,
-                            )
-                            session.add(user_preference)
-                            session.commit()
-                            raise HTTPException(
-                                status_code=402,
-                                detail={
-                                    "message": "No active subscriptions.",
-                                    "customer_id": customer.id,
-                                },
-                            )
-                        else:
-                            logging.info(
-                                "Stripe ID found: " + user_preferences["stripe_id"]
-                            )
-                            relevant_subscriptions = self.get_subscribed_products(
-                                api_key, user_preferences["stripe_id"]
-                            )
-                            if not relevant_subscriptions:
-                                logging.info(
-                                    f"No active subscriptions for this app detected."
-                                )
-                                if getenv("STRIPE_PRICING_TABLE_ID"):
-                                    c_session = stripe.CustomerSession.create(
-                                        customer=user_preferences["stripe_id"],
-                                        components={"pricing_table": {"enabled": True}},
+                                company_admin_preferences = {
+                                    x.pref_key: x.pref_value
+                                    for x in company_admin_preferences
+                                }
+                                if "stripe_id" in company_admin_preferences:
+                                    # add to users preferences
+                                    user_preferences["stripe_id"] = (
+                                        company_admin_preferences["stripe_id"]
                                     )
-                                else:
-                                    c_session = ""
-
-                                user = (
-                                    session.query(User)
-                                    .filter(User.id == self.user_id)
-                                    .first()
+                                    # check if it has an active subscription
+                                    relevant_subscriptions = (
+                                        self.get_subscribed_products(
+                                            api_key,
+                                            company_admin_preferences["stripe_id"],
+                                        )
+                                    )
+                                    if relevant_subscriptions:
+                                        is_subscription = True
+                                        break
+                        if not is_subscription:
+                            if (
+                                "stripe_id" not in user_preferences
+                                or not user_preferences["stripe_id"].startswith("cus_")
+                            ):
+                                logging.info("No Stripe ID found in user preferences.")
+                                customer = stripe.Customer.create(email=user.email)
+                                user_preferences["stripe_id"] = customer.id
+                                user_preference = UserPreferences(
+                                    user_id=self.user_id,
+                                    pref_key="stripe_id",
+                                    pref_value=customer.id,
                                 )
-                                user.is_active = False
+                                session.add(user_preference)
                                 session.commit()
-                                session.close()
                                 raise HTTPException(
                                     status_code=402,
                                     detail={
-                                        "message": f"No active subscriptions.",
-                                        "customer_session": c_session,
-                                        "customer_id": user_preferences["stripe_id"],
+                                        "message": "No active subscriptions.",
+                                        "customer_id": customer.id,
                                     },
                                 )
                             else:
                                 logging.info(
-                                    f"{len(relevant_subscriptions)} subscriptions relevant to this app detected."
+                                    "Stripe ID found: " + user_preferences["stripe_id"]
                                 )
+                                relevant_subscriptions = self.get_subscribed_products(
+                                    api_key, user_preferences["stripe_id"]
+                                )
+                                if not relevant_subscriptions:
+                                    logging.info(
+                                        f"No active subscriptions for this app detected."
+                                    )
+                                    if getenv("STRIPE_PRICING_TABLE_ID"):
+                                        c_session = stripe.CustomerSession.create(
+                                            customer=user_preferences["stripe_id"],
+                                            components={
+                                                "pricing_table": {"enabled": True}
+                                            },
+                                        )
+                                    else:
+                                        c_session = ""
+
+                                    user = (
+                                        session.query(User)
+                                        .filter(User.id == self.user_id)
+                                        .first()
+                                    )
+                                    user.is_active = False
+                                    session.commit()
+                                    session.close()
+                                    raise HTTPException(
+                                        status_code=402,
+                                        detail={
+                                            "message": f"No active subscriptions.",
+                                            "customer_session": c_session,
+                                            "customer_id": user_preferences[
+                                                "stripe_id"
+                                            ],
+                                        },
+                                    )
+                                else:
+                                    logging.info(
+                                        f"{len(relevant_subscriptions)} subscriptions relevant to this app detected."
+                                    )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
