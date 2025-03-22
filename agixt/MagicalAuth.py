@@ -716,6 +716,42 @@ class MagicalAuth:
 
             return TeslaSSO(access_token=access_token)
 
+    def check_user_limit(self, user_id: str) -> bool:
+        """Check if a user has reached their subscription user limit"""
+        session = get_session()
+        try:
+            # Get the user's limit from preferences
+            user_limit_pref = (
+                session.query(UserPreferences)
+                .filter_by(user_id=user_id, pref_key="user_limit")
+                .first()
+            )
+
+            if not user_limit_pref:
+                session.close()
+                return False  # No limit defined, assume they can't add users
+
+            user_limit = int(user_limit_pref.pref_value)
+
+            # Count how many users are in the company
+            company_id = self.get_user_company_id(user_id)
+            if not company_id:
+                session.close()
+                return False
+
+            current_users = (
+                session.query(UserCompany)
+                .filter(UserCompany.company_id == company_id)
+                .count()
+            )
+
+            session.close()
+            return current_users < user_limit
+        except Exception as e:
+            logging.error(f"Error checking user limit: {str(e)}")
+            session.close()
+            return False
+
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
@@ -1784,6 +1820,12 @@ class MagicalAuth:
     def create_invitation(self, invitation: InvitationCreate) -> InvitationResponse:
         if str(invitation.company_id) not in self.get_user_companies():
             invitation.company_id = self.get_user_company_id()
+        if getenv("STRIPE_API_KEY") != "":
+            if not self.check_user_limit(self.user_id):
+                raise HTTPException(
+                    status_code=402,
+                    detail="You've reached your user limit. Please upgrade your subscription.",
+                )
         with get_session() as db:
             try:
                 # Check if user has appropriate role
