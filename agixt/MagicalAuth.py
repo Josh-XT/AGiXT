@@ -1118,7 +1118,7 @@ class MagicalAuth:
                     # Check if this user has their own subscription first
                     if "stripe_id" in user_preferences:
                         relevant_subscriptions = self.get_subscribed_products(
-                            api_key, user_preferences["stripe_id"], user.email
+                            api_key, user.email
                         )
                         if relevant_subscriptions:
                             is_subscription = True
@@ -1190,7 +1190,7 @@ class MagicalAuth:
                                     "Stripe ID found: " + user_preferences["stripe_id"]
                                 )
                                 relevant_subscriptions = self.get_subscribed_products(
-                                    api_key, user_preferences["stripe_id"], user.email
+                                    api_key, user.email
                                 )
                                 if not relevant_subscriptions:
                                     logging.info(
