@@ -62,7 +62,7 @@ async def addagent(
 ) -> Dict[str, str]:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    add_agent(
+    await add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
         commands=agent.commands,

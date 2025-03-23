@@ -78,7 +78,7 @@ def impersonate_user(user_id: str):
     return token
 
 
-def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
+async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
     session = get_session()
@@ -110,7 +110,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     
     # Create Solana wallet for the agent
     wallet = solana_wallet()
-    wallet_info = wallet.create_wallet()
+    wallet_info = await wallet.create_wallet()
 
     # Parse wallet info from the response string
     try:
