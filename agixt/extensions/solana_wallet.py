@@ -178,11 +178,18 @@ class solana_wallet(Extensions):
             return "No wallet address specified."
         try:
             # Convert the wallet address string to a Pubkey object
-            response = self.client.get_balance(Pubkey.from_string(wallet_address))
+            pubkey = Pubkey.from_string(wallet_address)
+            # Remove await since Client.get_balance is synchronous
+            response = self.client.get_balance(pubkey, commitment=Confirmed)
+            
             # Access the balance using the .value attribute of GetBalanceResp
             balance_lamports = response.value
-            sol_balance = balance_lamports / 1e9  # Convert lamports to SOL
-            return f"Wallet {wallet_address} balance: {sol_balance} SOL."
+            sol_balance = balance_lamports / 1_000_000_000  # Convert lamports to SOL
+            
+            # Format with full precision instead of rounding to 0
+            sol_balance_str = f"{sol_balance:.9f}".rstrip('0').rstrip('.')
+            
+            return f"The balance of the Solana wallet with public key {wallet_address} is {sol_balance_str} SOL."
         except Exception as e:
             return f"Error retrieving balance: {str(e)}"
 
