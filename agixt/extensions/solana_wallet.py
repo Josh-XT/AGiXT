@@ -1,29 +1,20 @@
 from Extensions import Extensions
-import json
 from solana.rpc.api import Client
 from solana.rpc.commitment import Confirmed
+from solana.rpc.types import TxOpts
 from solders.transaction import Transaction
 from solders.keypair import Keypair
-from solders.system_program import TransferParams, transfer
+from solders.system_program import TransferParams, transfer, ID as SYS_PROGRAM_ID
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction
-from solders.system_program import ID as SYS_PROGRAM_ID
-from typing import Dict, Any, Optional, Tuple, List
+import json
 import base58
 import requests
+import asyncio
 import struct
 from dataclasses import dataclass
 from decimal import Decimal
-from solana.rpc.api import Client
-from solana.rpc.commitment import Confirmed
-from solders.transaction import Transaction
-from solders.pubkey import Pubkey
-from solders.keypair import Keypair
-from solders.system_program import transfer
-from solana.rpc.types import TxOpts
-import requests, asyncio
-import json
-from typing import List, Dict, Optional, Any
+from typing import Dict, Any, Optional, Tuple, List
 
 
 # Define TOKEN_PROGRAM_ID (this is a well-known address in Solana)
@@ -188,8 +179,9 @@ class solana_wallet(Extensions):
         try:
             # Convert the wallet address string to a Pubkey object
             response = self.client.get_balance(Pubkey.from_string(wallet_address))
-            balance_lamports = response["result"]["value"]
-            sol_balance = balance_lamports / 1e9
+            # Access the balance using the .value attribute of GetBalanceResp
+            balance_lamports = response.value
+            sol_balance = balance_lamports / 1e9  # Convert lamports to SOL
             return f"Wallet {wallet_address} balance: {sol_balance} SOL."
         except Exception as e:
             return f"Error retrieving balance: {str(e)}"
