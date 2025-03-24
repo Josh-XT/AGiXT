@@ -2,6 +2,7 @@ from Extensions import Extensions
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
+import os
 from solders.keypair import Keypair
 from solders.system_program import TransferParams, transfer, ID as SYS_PROGRAM_ID
 from solders.pubkey import Pubkey
@@ -159,7 +160,10 @@ class solana_wallet(Extensions):
         Creates a new Solana wallet by generating a new keypair.
         This method can be used if no wallet was connected via the init params.
         """
-        new_keypair = Keypair()
+        # Generate 64 random bytes for the keypair (32 for secret key + 32 for public key)
+        secret_bytes = os.urandom(32)
+        # Create keypair from secret bytes
+        new_keypair = Keypair.from_seed(secret_bytes)
         self.wallet_keypair = new_keypair
         self.wallet_address = str(new_keypair.pubkey())
         # Get the secret key as bytes and convert to hex

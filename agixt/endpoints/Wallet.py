@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict
 from ApiClient import verify_api_key, get_api_client
-from DB import AgentSetting, Agent as AgentModel, get_session
-from MagicalAuth import get_user_id
+from DB import AgentSetting, Agent, get_session
+from Models import (
+    WalletResponseModel,
+)
+from MagicalAuth import MagicalAuth
 app = APIRouter()
 
 @app.get(
@@ -12,21 +15,25 @@ app = APIRouter()
     summary="Get agent wallet information",
     description="Retrieves the private wallet information for an agent including private key and passphrase.",
 )
-def get_agent_wallet_info(agent_name: str, authorization: str = Depends(verify_api_key)) -> Dict[str, str]:
+def get_agent_wallet_info(agent_name: str, authorization: str = Depends(verify_api_key)) -> WalletResponseModel:
     session = get_session()
     try:
-        user = get_api_client(authorization).user
-        user_id = get_user_id(user)
+        auth = MagicalAuth(authorization)
+        user_id = auth.user_id
         
-        agent = session.query(AgentModel).filter(
-            AgentModel.name == agent_name,
-            AgentModel.user_id == user_id
+        # First get the agent ID
+        agent = session.query(Agent).filter(
+            Agent.name == agent_name,
+            Agent.user_id == user_id
         ).first()
         
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
             
-        agent_settings = session.query(AgentSetting).filter(AgentSetting.agent_id == agent.id).all()
+        # Query settings using agent_id
+        agent_settings = session.query(AgentSetting).filter(
+            AgentSetting.agent_id == agent.id
+        ).all()
         
         wallet_info = {}
         for setting in agent_settings:

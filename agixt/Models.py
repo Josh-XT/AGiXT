@@ -172,13 +172,6 @@ class AgentSettings(BaseModel):
     training_urls: Optional[List[str]] = []
 
 
-class AgentSettingModel(BaseModel):
-    """Model for agent wallet settings."""
-    agent_name: str
-    private_key: Optional[str] = None
-    passphrase: Optional[str] = None
-
-
 class AgentConfig(BaseModel):
     agent_name: str
     settings: Dict[str, Any]
@@ -627,3 +620,7 @@ class UpdateUserRole(BaseModel):
 
 class RenameCompanyInput(BaseModel):
     name: str
+
+class WalletResponseModel(BaseModel):
+    private_key: str
+    passphrase: str
