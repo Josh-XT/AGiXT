@@ -67,7 +67,7 @@ def impersonate_user(user_id: str):
     return token
 
 
-async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
+def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
     session = get_session()
@@ -470,7 +470,7 @@ class Agent:
         session.close()
         return agent_settings
 
-    def get_agent_config(self):
+    async def get_agent_config(self):
         session = get_session()
         agent = (
             session.query(AgentModel)
@@ -529,33 +529,33 @@ class Agent:
                 or "SOLANA_WALLET_ADDRESS" not in config["settings"]
             ):
                 # Create wallet asynchronously using create_task
-                async def create_wallet_async():
+                try:
+                    wallet = solana_wallet()
+                    # Create and await the task properly
+                    task = asyncio.create_task(wallet.create_wallet())
+                    wallet_info = await task
+                    
+                    # Parse wallet info from the response string
                     try:
-                        wallet = solana_wallet()
-                        wallet_info = await wallet.create_wallet()
-                        
-                        # Parse wallet info from the response string
-                        try:
-                            public_key = re.search(r"Public Key: (\w+)", wallet_info).group(1)
-                            secret_key = re.search(r"Secret Key \(hex\): ([0-9a-f]+)", wallet_info).group(1)
-                        except AttributeError:
-                            logging.error("Failed to parse wallet keys from response")
-                            public_key = "Failed to generate"
-                            secret_key = "Failed to generate"
-                
-                        # Generate a passphrase using a secure method
-                        alphabet = string.ascii_letters + string.digits
-                        passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
-                        
-                        # Update config with wallet information
-                        config["settings"]["SOLANA_WALLET_API_KEY"] = secret_key
-                        config["settings"]["SOLANA_WALLET_PASSPHRASE_API_KEY"] = passphrase 
-                        config["settings"]["SOLANA_WALLET_ADDRESS"] = public_key
-                        
-                        self.update_agent_config(new_config=config["settings"], config_key="settings")
-                    except Exception as e:
-                        logging.error(f"Failed to create wallet: {str(e)}")
-                asyncio.create_task(create_wallet_async())
+                        public_key = re.search(r"Public Key: (\w+)", wallet_info).group(1)
+                        secret_key = re.search(r"Secret Key \(hex\): ([0-9a-f]+)", wallet_info).group(1)
+                    except AttributeError:
+                        logging.error("Failed to parse wallet keys from response")
+                        public_key = "Failed to generate"
+                        secret_key = "Failed to generate"
+            
+                    # Generate a passphrase using a secure method
+                    alphabet = string.ascii_letters + string.digits
+                    passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
+                    
+                    # Update config with wallet information
+                    config["settings"]["SOLANA_WALLET_API_KEY"] = secret_key
+                    config["settings"]["SOLANA_WALLET_PASSPHRASE_API_KEY"] = passphrase 
+                    config["settings"]["SOLANA_WALLET_ADDRESS"] = public_key
+                    
+                    self.update_agent_config(new_config=config["settings"], config_key="settings")
+                except Exception as e:
+                    logging.error(f"Failed to create wallet: {str(e)}")
         else:
             config = {"settings": DEFAULT_SETTINGS, "commands": {}}
             user_settings = self.get_registration_requirement_settings()
@@ -571,7 +571,7 @@ class Agent:
                 return config
             company_agent = self.get_company_agent()
             if company_agent:
-                company_agent_config = company_agent.get_agent_config()
+                company_agent_config = await company_agent.get_agent_config()
                 company_settings = company_agent_config.get("settings")
                 for key, value in company_settings.items():
                     if key not in config["settings"]:
