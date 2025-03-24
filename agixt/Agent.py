@@ -470,7 +470,7 @@ class Agent:
         session.close()
         return agent_settings
 
-    async def get_agent_config(self):
+    def get_agent_config(self):
         session = get_session()
         agent = (
             session.query(AgentModel)
