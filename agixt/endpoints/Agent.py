@@ -66,7 +66,7 @@ async def addagent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
         commands=agent.commands,
-        user=user,
+        user=user
     )
     if agent.training_urls != [] and agent.training_urls != None:
         if len(agent.training_urls) < 1:

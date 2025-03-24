@@ -35,6 +35,7 @@ import os
 import re
 import secrets
 import string
+import asyncio
 from extensions.solana_wallet import solana_wallet
 
 logging.basicConfig(
@@ -42,18 +43,6 @@ logging.basicConfig(
     format=getenv("LOG_FORMAT"),
 )
 
-
-def get_agent(agent_name: str, user: str = DEFAULT_USER, ApiClient = None):
-    """Get an agent instance by name and user.
-    
-    Args:
-        agent_name (str): Name of the agent to retrieve
-        user (str, optional): User who owns the agent. Defaults to DEFAULT_USER.
-    
-    Returns:
-        Agent: Instance of the Agent class for the requested agent
-    """
-    return Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
 
 def impersonate_user(user_id: str):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
@@ -107,30 +96,6 @@ async def add_agent(agent_name, provider_settings=None, commands=None, user=DEFA
         token = impersonate_user(user_id=str(user_id))
         auth = MagicalAuth(token=token)
         provider_settings["company_id"] = str(auth.company_id)
-    
-    # Create Solana wallet for the agent
-    wallet = solana_wallet()
-    wallet_info = await wallet.create_wallet()
-
-    # Parse wallet info from the response string
-    try:
-        public_key = re.search(r"Public Key: (\w+)", wallet_info).group(1)
-        secret_key = re.search(r"Secret Key \(hex\): ([0-9a-f]+)", wallet_info).group(1)
-    except AttributeError:
-        logging.error("Failed to parse wallet keys from response")
-        public_key = "Failed to generate"
-        secret_key = "Failed to generate"
-        passphrase = "Failed to generate"
-
-    # Generate a passphrase using a secure method
-    alphabet = string.ascii_letters + string.digits
-    passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
-
-    # Add wallet information to provider settings
-    provider_settings["SOLANA_WALLET_API_KEY"] = secret_key
-    provider_settings["SOLANA_WALLET_PASSPHRASE_API_KEY"] = passphrase
-    provider_settings["SOLANA_WALLET_ADDRESS"] = public_key
-    
     # Iterate over DEFAULT_SETTINGS and add any missing keys
     for key in DEFAULT_SETTINGS:
         if key not in provider_settings:
@@ -556,6 +521,41 @@ class Agent:
             user_settings = self.get_registration_requirement_settings()
             for key, value in user_settings.items():
                 config["settings"][key] = value
+            
+            # Check if wallet settings are missing and create if needed
+            if (
+                "SOLANA_WALLET_API_KEY" not in config["settings"] 
+                or "SOLANA_WALLET_PASSPHRASE_API_KEY" not in config["settings"]
+                or "SOLANA_WALLET_ADDRESS" not in config["settings"]
+            ):
+                # Create wallet asynchronously using create_task
+                async def create_wallet_async():
+                    try:
+                        wallet = solana_wallet()
+                        wallet_info = await wallet.create_wallet()
+                        
+                        # Parse wallet info from the response string
+                        try:
+                            public_key = re.search(r"Public Key: (\w+)", wallet_info).group(1)
+                            secret_key = re.search(r"Secret Key \(hex\): ([0-9a-f]+)", wallet_info).group(1)
+                        except AttributeError:
+                            logging.error("Failed to parse wallet keys from response")
+                            public_key = "Failed to generate"
+                            secret_key = "Failed to generate"
+                
+                        # Generate a passphrase using a secure method
+                        alphabet = string.ascii_letters + string.digits
+                        passphrase = ''.join(secrets.choice(alphabet) for i in range(32))
+                        
+                        # Update config with wallet information
+                        config["settings"]["SOLANA_WALLET_API_KEY"] = secret_key
+                        config["settings"]["SOLANA_WALLET_PASSPHRASE_API_KEY"] = passphrase 
+                        config["settings"]["SOLANA_WALLET_ADDRESS"] = public_key
+                        
+                        self.update_agent_config(new_config=config["settings"], config_key="settings")
+                    except Exception as e:
+                        logging.error(f"Failed to create wallet: {str(e)}")
+                asyncio.create_task(create_wallet_async())
         else:
             config = {"settings": DEFAULT_SETTINGS, "commands": {}}
             user_settings = self.get_registration_requirement_settings()
