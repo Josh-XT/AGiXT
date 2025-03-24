@@ -212,8 +212,8 @@ class solana_wallet(Extensions):
             if amount_float <= 0:
                 return "Amount must be greater than 0."
 
-            # Get current balance synchronously (no await needed)
-            balance_response = self.client.get_balance(Pubkey.from_string(from_wallet), commitment=Confirmed)
+            # Get current balance asynchronously
+            balance_response = await self.client.get_balance(Pubkey.from_string(from_wallet), commitment=Confirmed)
             available_lamports = balance_response.value  # Access the value attribute
 
             # Estimate transaction fee (assume 5000 lamports as a typical fee)
@@ -238,27 +238,32 @@ class solana_wallet(Extensions):
             if lamports_amount <= 0:
                 return "Amount too small to send after fee adjustment."
 
-            # Create transaction
-            tx = Transaction()
-            tx.add(
-                transfer(
-                    TransferParams(
-                        from_pubkey=Pubkey.from_string(from_wallet),
-                        to_pubkey=Pubkey.from_string(to_wallet),
-                        lamports=lamports_amount,
-                    )
+            # Create the transfer instruction
+            transfer_ix = transfer(
+                TransferParams(
+                    from_pubkey=Pubkey.from_string(from_wallet),
+                    to_pubkey=Pubkey.from_string(to_wallet),
+                    lamports=lamports_amount,
                 )
             )
 
-            # Get recent blockhash (async call)
+            # Get recent blockhash
             blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
-            tx.recent_blockhash = blockhash_response.value.blockhash
+            recent_blockhash = blockhash_response.value.blockhash
 
-            # Sign the transaction
-            tx.sign([self.wallet_keypair])
+            # Create the message
+            message = Message.new_with_blockhash(
+                instructions=[transfer_ix],
+                payer=Pubkey.from_string(from_wallet),
+                blockhash=recent_blockhash
+            )
 
-            # Send transaction (async call)
-            response = await self.client.send_transaction(tx, self.wallet_keypair)
+            # Create the transaction from the message
+            tx = Transaction.from_message(message=message, from_keypairs=[self.wallet_keypair])
+
+            # Send the transaction with options
+            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
+            response = await self.client.send_transaction(tx, opts=opts)
             tx_signature = response.value
 
             return f"Transaction submitted successfully. Signature: {tx_signature}"
