@@ -1,5 +1,5 @@
 from Extensions import Extensions
-from solana.rpc.api import Client
+from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
 from solders.transaction import Transaction
@@ -7,6 +7,7 @@ from solders.keypair import Keypair
 from solders.system_program import TransferParams, transfer, ID as SYS_PROGRAM_ID
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction
+from solders.message import Message
 import json
 import base58
 import requests
@@ -120,7 +121,7 @@ class solana_wallet(Extensions):
         self.RAYDIUM_API_URI = RAYDIUM_API_URI
         self.WSOL_MINT = "So11111111111111111111111111111111111111112"
         self.SOLANA_API_URI = SOLANA_API_URI
-        self.client = Client(SOLANA_API_URI)
+        self.client = AsyncClient(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
 
         # If an existing wallet private key is provided, load the keypair
@@ -179,8 +180,8 @@ class solana_wallet(Extensions):
         try:
             # Convert the wallet address string to a Pubkey object
             pubkey = Pubkey.from_string(wallet_address)
-            # Remove await since Client.get_balance is synchronous
-            response = self.client.get_balance(pubkey, commitment=Confirmed)
+            # Add await since AsyncClient.get_balance is asynchronous
+            response = await self.client.get_balance(pubkey, commitment=Confirmed)
             
             # Access the balance using the .value attribute of GetBalanceResp
             balance_lamports = response.value
@@ -193,29 +194,87 @@ class solana_wallet(Extensions):
         except Exception as e:
             return f"Error retrieving balance: {str(e)}"
 
-    async def send_sol(
-        self, from_wallet: str = None, to_wallet: str = "", amount: float = 0.0
-    ):
+    async def send_sol(self, from_wallet: str = None, to_wallet: str = "", amount: str = "0.0"):
         """
-        Sends a specified amount of SOL (in SOL units) from one wallet to another.
-        Uses self.wallet_keypair for signing if from_wallet is not provided.
+        Sends a specified amount of SOL from one wallet to another.
+        Amount is provided as a string and converted appropriately, with fee consideration.
         """
         if from_wallet is None:
             from_wallet = self.wallet_address
         if from_wallet is None or self.wallet_keypair is None:
-            return "No sender wallet or keypair available."
+            return "No sender wallet or private key available. Please initialize with SOLANA_WALLET_API_KEY or create a wallet."
+        if not to_wallet:
+            return "No recipient wallet specified."
+
         try:
-            lamports_amount = int(amount * 1e9)
-            tx = Transaction()
-            tx.add(
-                transfer(
+            # Convert amount from string to float
+            amount_float = float(amount)
+            if amount_float <= 0:
+                return "Amount must be greater than 0."
+
+            # Get current balance asynchronously
+            balance_response = await self.client.get_balance(Pubkey.from_string(from_wallet), commitment=Confirmed)
+            available_lamports = balance_response.value  # Access the value attribute
+
+            # Estimate transaction fee (assume 5000 lamports as a typical fee)
+            FEE_LAMPORTS = 5000  # Adjust based on network conditions if needed
+            max_lamports_to_send = available_lamports - FEE_LAMPORTS
+
+            if max_lamports_to_send <= 0:
+                return f"Insufficient funds: Balance ({available_lamports / 1e9} SOL) is less than the estimated fee ({FEE_LAMPORTS / 1e9} SOL)."
+
+            # If amount is very large (>1000 SOL), assume it's in lamports
+            if amount_float > 1000:
+                lamports_amount = int(amount_float)
+            else:
+                lamports_amount = int(amount_float * 1_000_000_000)
+
+            # Ensure amount doesn't exceed available balance minus fee
+            if lamports_amount > max_lamports_to_send:
+                lamports_amount = max_lamports_to_send
+                adjusted_amount_sol = lamports_amount / 1_000_000_000
+                print(f"Adjusted amount to {adjusted_amount_sol} SOL to account for transaction fee.")
+
+            if lamports_amount <= 0:
+                return "Amount too small to send after fee adjustment."
+
+            # Create transfer instruction
+            transfer_instruction = transfer(
+                TransferParams(
                     from_pubkey=Pubkey.from_string(from_wallet),
                     to_pubkey=Pubkey.from_string(to_wallet),
                     lamports=lamports_amount,
                 )
             )
-            response = self.client.send_transaction(tx, self.wallet_keypair)
-            return f"Transaction submitted: {response.get('result')}"
+
+            # Get recent blockhash
+            blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
+            recent_blockhash = blockhash_response.value.blockhash
+
+            # Compile the message
+            message = Message.new_with_blockhash(
+                instructions=[transfer_instruction],
+                payer=Pubkey.from_string(from_wallet),
+                blockhash=recent_blockhash,
+            )
+
+            # Create and sign transaction
+            tx = Transaction.from_message(
+                message=message,
+                from_keypairs=[self.wallet_keypair]
+            )
+
+            # Send transaction
+            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
+            response = await self.client.send_transaction(
+                tx,
+                opts=opts
+            )
+            tx_signature = response.value
+
+            return f"Transaction submitted successfully. Signature: {tx_signature}"
+        except ValueError as ve:
+            return f"Error: Invalid amount format - {str(ve)}"
         except Exception as e:
             return f"Error sending SOL: {str(e)}"
 
@@ -224,14 +283,12 @@ class solana_wallet(Extensions):
         Retrieves information about a specific transaction using its signature.
         """
         try:
-            response = self.client.get_confirmed_transaction(tx_signature)
+            response = await self.client.get_confirmed_transaction(tx_signature)
             return f"Transaction info: {response}"
         except Exception as e:
             return f"Error retrieving transaction info: {str(e)}"
 
-    async def get_recent_transactions(
-        self, wallet_address: str = None, limit: int = 10
-    ):
+    async def get_recent_transactions(self, wallet_address: str = None, limit: int = 10):
         """
         Retrieves the most recent transaction signatures for the given wallet address.
         """
@@ -240,7 +297,7 @@ class solana_wallet(Extensions):
         if wallet_address is None:
             return "No wallet address specified."
         try:
-            response = self.client.get_signatures_for_address(
+            response = await self.client.get_signatures_for_address(
                 Pubkey.from_string(wallet_address), limit=limit
             )
             return f"Recent transactions for wallet {wallet_address}: {response.get('result')}"
@@ -265,8 +322,8 @@ class solana_wallet(Extensions):
             return "No wallet address specified."
         try:
             lamports_amount = int(amount * 1e9)
-            response = self.client.request_airdrop(
-                Pubkey.from_string(wallet_address), lamports_amount
+            response = await self.client.request_airdrop(
+                Pubkey.from_string(wallet_address), lamports_amount, commitment=Confirmed
             )
             return f"Airdrop requested: {response.get('result')}"
         except Exception as e:
@@ -339,19 +396,27 @@ class solana_wallet(Extensions):
                 int(quote["outputAmount"])
             )
             
+            # Get recent blockhash
+            blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
+            recent_blockhash = blockhash_response.value.blockhash
+            
+            # Create message
+            message = Message.new_with_blockhash(
+                instructions=[swap_instruction],
+                payer=wallet_pubkey,
+                blockhash=recent_blockhash
+            )
+            
             # Create and sign transaction
-            recent_blockhash = await self.client.get_recent_blockhash()
-            tx = Transaction()
-            tx.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
-            tx.add(swap_instruction)
+            tx = Transaction.from_message(message=message, from_keypairs=[self.wallet_keypair])
             
             # Send transaction
-            opts = TxOpts(skip_preflight=False)
-            response = await self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
+            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
+            response = await self.client.send_transaction(tx, opts=opts)
             
             return {
                 "success": True,
-                "signature": response["result"],
+                "signature": response.value,
                 "inputAmount": quote["inputAmount"],
                 "outputAmount": quote["outputAmount"]
             }
@@ -440,13 +505,10 @@ class solana_wallet(Extensions):
             
         except Exception as e:
             return f"Error getting route quote: {str(e)}"
-            
+
     async def get_public_key(self):
         """
         Get the public key of the current wallet.
-        
-        Returns:
-            dict: A dictionary containing the public key of the wallet or an error message if no wallet is initialized
         """
         if self.wallet_address:
             return {"public_key": self.wallet_address}
@@ -454,96 +516,77 @@ class solana_wallet(Extensions):
 
     async def execute_trade(self, route_quote: Dict[str, Any]):
         """
-        Execute a trade using a previously obtained route quote.
-        Handles both direct swaps and multi-hop routes.
+        Execute a complex trade involving one or more swaps.
         """
-        if not route_quote or "quote" not in route_quote or "route" not in route_quote:
-            return "Invalid route quote"
+        if not route_quote or "route" not in route_quote:
+            return "Invalid route quote provided"
             
         try:
-            if len(route_quote["route"]) == 1:
-                # Direct swap
-                result = await self.execute_swap(quote=route_quote["quote"])
-            else:
-                # Multi-hop route
-                tx = Transaction()
-                recent_blockhash = await self.client.get_recent_blockhash()
-                tx.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
-                
-                # Add swap instruction for each hop
-                wallet_pubkey = Pubkey.from_string(self.wallet_address)
-                for idx, hop in enumerate(route_quote["route"]):
-                    pool_address = Pubkey.from_string(route_quote["quote"]["pools"][idx])
-                    input_amount = route_quote["quote"]["inputAmount"] if idx == 0 else None
-                    output_amount = route_quote["quote"]["outputAmount"] if idx == len(route_quote["route"]) - 1 else None
-                    
-                    swap_ix = self._build_swap_instruction(
-                        pool_address,
-                        wallet_pubkey,
-                        int(input_amount) if input_amount else 0,
-                        int(output_amount) if output_amount else 0
+            result = []
+            for step in route_quote["route"]:
+                if step["type"] == "swap":
+                    swap_result = await self.execute_swap(
+                        wallet_address=self.wallet_address,
+                        quote={
+                            "pool": step["pool"],
+                            "inputAmount": route_quote["quote"]["inputAmount"],
+                            "outputAmount": route_quote["quote"]["outputAmount"]
+                        }
                     )
-                    tx.add(swap_ix)
-                
-                # Send transaction
-                opts = TxOpts(skip_preflight=False)
-                result = await self.client.send_transaction(tx, self.wallet_keypair, opts=opts)
-            
+                    result.append(swap_result)
+                    
             return {
                 "success": True,
-                "txId": result["signature"] if "signature" in result else None,
-                "route": route_quote["route"],
-                "amounts": {
-                    "inputAmount": route_quote["quote"]["inputAmount"],
-                    "outputAmount": route_quote["quote"]["outputAmount"]
-                }
+                "steps": result,
+                "inputAmount": route_quote["quote"]["inputAmount"],
+                "outputAmount": route_quote["quote"]["outputAmount"],
+                "priceImpact": route_quote["quote"]["priceImpact"]
             }
         except Exception as e:
             return f"Error executing trade: {str(e)}"
 
     async def get_token_list(self):
         """
-        Returns a list of popular tokens on the Solana network from Raydium API.
+        Get a list of supported tokens.
         """
         try:
             response = requests.get(f"{self.RAYDIUM_API_URI}/tokens")
-            tokens = response.json()
-            return tokens
+            return response.json()
         except Exception as e:
-            return f"Error retrieving token list: {str(e)}"
+            return f"Error getting token list: {str(e)}"
 
     async def get_token_price(self, token: str):
         """
-        Retrieves the current price for the specified token from Raydium API.
+        Get the current price of a token in USDC.
         """
         try:
-            response = requests.get(f"{self.RAYDIUM_API_URI}/price?token={token}")
-            price_data = response.json()
-            if "error" in price_data:
-                return f"Error getting price: {price_data['error']}"
-            if "price" not in price_data:
-                return f"Error: Price data not available for token {token}"
-            return price_data["price"]
+            usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            quote = await self.get_swap_quote(token, usdc_mint, 1.0)
+            
+            if isinstance(quote, str):  # Error message
+                return quote
+                
+            return {
+                "price": float(quote["outputAmount"]) / 1e6,  # USDC has 6 decimals
+                "priceImpact": quote["priceImpact"]
+            }
         except Exception as e:
-            return f"Error retrieving token price: {str(e)}"
+            return f"Error getting token price: {str(e)}"
 
     async def get_wallet_token_accounts(self, wallet_address: str = None):
         """
-        Retrieves all token accounts associated with the given wallet.
+        Get all token accounts owned by a wallet.
         """
         if wallet_address is None:
             wallet_address = self.wallet_address
+        if wallet_address is None:
+            return "No wallet address specified."
+            
         try:
-            response = self.client.get_token_accounts_by_owner(
+            response = await self.client.get_token_accounts_by_owner(
                 Pubkey.from_string(wallet_address),
                 {"programId": TOKEN_PROGRAM_ID}
             )
-            
-            # Process the response to handle the token account data structure
-            if "result" in response and "value" in response["result"]:
-                return {"token_accounts": response["result"]["value"]}
-            else:
-                return {"token_accounts": []}
-                
+            return response
         except Exception as e:
-            return f"Error retrieving token accounts: {str(e)}"
+            return f"Error getting token accounts: {str(e)}"
