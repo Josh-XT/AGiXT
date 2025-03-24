@@ -355,9 +355,36 @@ async def get_agentconfig(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
+    agent = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    )
+    agent_config = agent.get_agent_config()
+    
+    # Create wallet if it doesn't exist
+    if not agent_config["settings"].get("SOLANA_WALLET_API_KEY"):
+        from extensions.solana_wallet import solana_wallet
+        wallet = solana_wallet()
+        result = await wallet.create_wallet()
+        
+        # Parse the result to get private key and address
+        import re
+        private_key = re.search(r'Secret Key \(hex\): (\w+)', result).group(1)
+        public_key = re.search(r'Public Key: (\w+)', result).group(1)
+        
+        # Generate a secure passphrase
+        import secrets
+        import string
+        passphrase = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(32))
+        
+        # Update agent settings with wallet info
+        new_settings = {
+            "SOLANA_WALLET_API_KEY": private_key,
+            "SOLANA_WALLET_PASSPHRASE_API_KEY": passphrase,
+            "SOLANA_WALLET_ADDRESS": public_key
+        }
+        agent.update_agent_config(new_config=new_settings, config_key="settings")
+        agent_config = agent.get_agent_config()
+        
     for key, value in agent_config["settings"].items():
         logging.info(f"Checking {key} for {agent_name}.")
         if value.strip() != "":
