@@ -16,7 +16,10 @@ import struct
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, Any, Optional, Tuple, List
-
+from solders.transaction import Transaction
+from solders.system_program import TransferParams, transfer
+from solders.pubkey import Pubkey
+from solders.rpc.config import RpcTransactionConfig
 
 # Define TOKEN_PROGRAM_ID (this is a well-known address in Solana)
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -198,7 +201,16 @@ class solana_wallet(Extensions):
         """
         Sends a specified amount of SOL from one wallet to another.
         Amount is provided as a string and converted appropriately, with fee consideration.
+        
+        Args:
+            from_wallet (str): Sender's public key (defaults to self.wallet_address if None).
+            to_wallet (str): Recipient's public key.
+            amount (str): Amount of SOL to send as a string (e.g., "0.005657068").
+        
+        Returns:
+            str: Success message with transaction signature or an error message.
         """
+        # Default to instance wallet if from_wallet not provided
         if from_wallet is None:
             from_wallet = self.wallet_address
         if from_wallet is None or self.wallet_keypair is None:
@@ -214,22 +226,22 @@ class solana_wallet(Extensions):
 
             # Get current balance asynchronously
             balance_response = await self.client.get_balance(Pubkey.from_string(from_wallet), commitment=Confirmed)
-            available_lamports = balance_response.value  # Access the value attribute
+            available_lamports = balance_response.value  # Lamports available in the wallet
 
-            # Estimate transaction fee (assume 5000 lamports as a typical fee)
+            # Estimate transaction fee (5000 lamports is a typical fee)
             FEE_LAMPORTS = 5000  # Adjust based on network conditions if needed
             max_lamports_to_send = available_lamports - FEE_LAMPORTS
 
             if max_lamports_to_send <= 0:
                 return f"Insufficient funds: Balance ({available_lamports / 1e9} SOL) is less than the estimated fee ({FEE_LAMPORTS / 1e9} SOL)."
 
-            # If amount is very large (>1000 SOL), assume it's in lamports
+            # Convert amount to lamports; if >1000 SOL, assume input is already in lamports
             if amount_float > 1000:
                 lamports_amount = int(amount_float)
             else:
-                lamports_amount = int(amount_float * 1_000_000_000)
+                lamports_amount = int(amount_float * 1_000_000_000)  # Convert SOL to lamports
 
-            # Ensure amount doesn't exceed available balance minus fee
+            # Adjust amount if it exceeds available balance minus fee
             if lamports_amount > max_lamports_to_send:
                 lamports_amount = max_lamports_to_send
                 adjusted_amount_sol = lamports_amount / 1_000_000_000
@@ -251,18 +263,18 @@ class solana_wallet(Extensions):
             blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
             recent_blockhash = blockhash_response.value.blockhash
 
-            # Create the message
-            message = Message.new_with_blockhash(
+            # Construct the transaction
+            tx = Transaction(
+                fee_payer=Pubkey.from_string(from_wallet),
                 instructions=[transfer_ix],
-                payer=Pubkey.from_string(from_wallet),
-                blockhash=recent_blockhash
+                recent_blockhash=recent_blockhash
             )
 
-            # Create the transaction from the message
-            tx = Transaction.from_message(message=message, from_keypairs=[self.wallet_keypair])
+            # Sign the transaction with the sender's keypair
+            tx.sign([self.wallet_keypair])
 
             # Send the transaction with options
-            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
+            opts = TxOpts(skip_preflight=False, preflightCommitment=Confirmed)
             response = await self.client.send_transaction(tx, opts=opts)
             tx_signature = response.value
 
@@ -405,7 +417,7 @@ class solana_wallet(Extensions):
             tx = Transaction.from_message(message=message, from_keypairs=[self.wallet_keypair])
             
             # Send transaction
-            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
+            opts = TxOpts(skip_preflight=False, preflightCommitment=Confirmed)
             response = await self.client.send_transaction(tx, opts=opts)
             
             return {
