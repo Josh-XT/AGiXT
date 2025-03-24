@@ -274,7 +274,7 @@ class solana_wallet(Extensions):
             tx = VersionedTransaction(msg, [self.wallet_keypair])
 
             # Send the transaction with options
-            opts = TxOpts(skip_preflight=False, preflightCommitment=Confirmed)
+            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
             response = await self.client.send_transaction(tx, opts=opts)
             tx_signature = response.value
 
@@ -417,7 +417,7 @@ class solana_wallet(Extensions):
             tx = Transaction.from_message(message=message, from_keypairs=[self.wallet_keypair])
             
             # Send transaction
-            opts = TxOpts(skip_preflight=False, preflightCommitment=Confirmed)
+            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
             response = await self.client.send_transaction(tx, opts=opts)
             
             return {
