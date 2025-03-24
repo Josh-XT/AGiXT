@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict
 from ApiClient import verify_api_key, get_api_client
-from Agent import get_agent
-from DB import AgentSetting, get_session
+from DB import AgentSetting, Agent as AgentModel, get_session
+from MagicalAuth import get_user_id
 app = APIRouter()
 
 @app.get(
@@ -15,14 +15,18 @@ app = APIRouter()
 def get_agent_wallet_info(agent_name: str, authorization: str = Depends(verify_api_key)) -> Dict[str, str]:
     session = get_session()
     try:
-        api_client = get_api_client(authorization)
-        agent = get_agent(agent_name, ApiClient=api_client)
+        user = get_api_client(authorization).user
+        user_id = get_user_id(user)
+        
+        agent = session.query(AgentModel).filter(
+            AgentModel.name == agent_name,
+            AgentModel.user_id == user_id
+        ).first()
+        
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
             
-        agent_settings = session.query(AgentSetting).filter(
-            AgentSetting.agent_id == agent.agent_id
-        ).all()
+        agent_settings = session.query(AgentSetting).filter(AgentSetting.agent_id == agent.id).all()
         
         wallet_info = {}
         for setting in agent_settings:
