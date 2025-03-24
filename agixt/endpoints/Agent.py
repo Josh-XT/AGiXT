@@ -362,23 +362,19 @@ async def get_agentconfig(
     
     # Create wallet if it doesn't exist
     if not agent_config["settings"].get("SOLANA_WALLET_API_KEY"):
-        from extensions.solana_wallet import solana_wallet
-        wallet = solana_wallet()
-        result = await wallet.create_wallet()
+        # Initialize wallet extension and get wallet info
+        extension = Extensions(agent_name=agent_name, user=user, ApiClient=ApiClient)
+        result = await extension.execute_command("Get Public Key", {})
         
-        # Parse the result to get private key and address
-        new_keypair = wallet.wallet_keypair
+        # Parse the result
         import re
-        public_key = new_keypair.pubkey().to_string()
+        private_key = re.search(r'Private Key: ([^\n]+)', result).group(1)
+        public_key = re.search(r'Public Key: (.+)\n', result).group(1)
         
-        # Generate a secure passphrase
-        import secrets
-        import string
-        passphrase = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(32))
-        
-        # Update agent settings with wallet info
+        # Generate passphrase and update settings
+        passphrase = ''.join(__import__('secrets').choice(__import__('string').ascii_letters + __import__('string').digits) for _ in range(32))
         new_settings = {
-            "SOLANA_WALLET_API_KEY": new_keypair.to_base58_string(),
+            "SOLANA_WALLET_API_KEY": private_key,
             "SOLANA_WALLET_PASSPHRASE_API_KEY": passphrase,
             "SOLANA_WALLET_ADDRESS": public_key
         }

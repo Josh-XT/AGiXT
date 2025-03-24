@@ -3,6 +3,7 @@ from solana.rpc.api import Client
 from solders.transaction import Transaction
 from solders.pubkey import Pubkey
 from solders.keypair import Keypair
+import base58
 from solders.system_program import transfer
 
 
@@ -22,6 +23,8 @@ class solana_wallet(Extensions):
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = Client(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
+        self.wallet_keypair = None
+        self.wallet_address = None
 
         # If an existing wallet private key is provided, load the keypair
         if WALLET_PRIVATE_KEY:
@@ -29,13 +32,8 @@ class solana_wallet(Extensions):
             try:
                 self.wallet_keypair = Keypair.from_base58_string(WALLET_PRIVATE_KEY)
                 self.wallet_address = self.wallet_keypair.pubkey().to_string()
-            except ValueError:
-                # If the private key is invalid, create a new wallet
-                self.wallet_keypair = None
-                self.wallet_address = None
-        else:
-            self.wallet_keypair = None
-            self.wallet_address = None
+            except (ValueError, TypeError):
+                pass
 
         self.commands = {
             "Get Solana Wallet Balance": self.get_wallet_balance,
@@ -44,6 +42,7 @@ class solana_wallet(Extensions):
             "Get Recent Transactions": self.get_recent_transactions,
             "Get Solana Token Balance": self.get_token_balance,
             "Airdrop SOL": self.airdrop_sol,
+            "Get Public Key": self.get_public_key,
             "Get Token Swap Quote": self.get_swap_quote,
             "Execute Token Swap": self.execute_swap,
             "Get Token List": self.get_token_list,
@@ -56,17 +55,33 @@ class solana_wallet(Extensions):
         Creates a new Solana wallet by generating a new keypair.
         This method can be used if no wallet was connected via the init params.
         """
-        new_keypair = Keypair.generate()
+        new_keypair = Keypair()
         self.wallet_keypair = new_keypair
-        self.wallet_address = new_keypair.pubkey().to_string()
-        secret_hex = (
-            new_keypair.secret().hex()
-        )  # for display; store securely in practice
+        self.wallet_address = str(new_keypair.pubkey())
+        private_key = base58.b58encode(bytes(new_keypair)).decode()
         return (
             f"Created new Solana wallet.\n"
             f"Public Key: {self.wallet_address}\n"
-            f"Secret Key (hex): {secret_hex}"
+            f"Private Key: {private_key}"
         )
+
+    async def get_public_key(self):
+        """
+        Get the public key (wallet address) for the current wallet.
+        Returns the public key as a string if wallet exists, otherwise returns an error message.
+        """
+        if self.wallet_address is None:
+            # Create new wallet if none exists
+            new_keypair = Keypair()
+            self.wallet_keypair = new_keypair
+            self.wallet_address = str(new_keypair.pubkey())
+            private_key = base58.b58encode(bytes(new_keypair)).decode()
+            # Return both private key and public key so it can be saved
+            return f"Created new wallet.\nPublic Key: {self.wallet_address}\n" \
+                   f"Private Key: {private_key}"
+            
+        return (f"Public Key: {self.wallet_address}")
+
 
     async def get_wallet_balance(self, wallet_address: str = None):
         """
