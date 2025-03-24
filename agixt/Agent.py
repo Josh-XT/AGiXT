@@ -533,7 +533,7 @@ class Agent:
                     wallet = solana_wallet()
                     # Create and await the task properly
                     task = asyncio.create_task(wallet.create_wallet())
-                    wallet_info = await task
+                    wallet_info = task
                     
                     # Parse wallet info from the response string
                     try:
@@ -571,7 +571,7 @@ class Agent:
                 return config
             company_agent = self.get_company_agent()
             if company_agent:
-                company_agent_config = await company_agent.get_agent_config()
+                company_agent_config = company_agent.get_agent_config()
                 company_settings = company_agent_config.get("settings")
                 for key, value in company_settings.items():
                     if key not in config["settings"]:
