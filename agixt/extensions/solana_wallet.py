@@ -212,8 +212,8 @@ class solana_wallet(Extensions):
             if amount_float <= 0:
                 return "Amount must be greater than 0."
 
-            # Get current balance asynchronously
-            balance_response = await self.client.get_balance(Pubkey.from_string(from_wallet), commitment=Confirmed)
+            # Get current balance synchronously (no await needed)
+            balance_response = self.client.get_balance(Pubkey.from_string(from_wallet), commitment=Confirmed)
             available_lamports = balance_response.value  # Access the value attribute
 
             # Estimate transaction fee (assume 5000 lamports as a typical fee)
@@ -238,38 +238,27 @@ class solana_wallet(Extensions):
             if lamports_amount <= 0:
                 return "Amount too small to send after fee adjustment."
 
-            # Create transfer instruction
-            transfer_instruction = transfer(
-                TransferParams(
-                    from_pubkey=Pubkey.from_string(from_wallet),
-                    to_pubkey=Pubkey.from_string(to_wallet),
-                    lamports=lamports_amount,
+            # Create transaction
+            tx = Transaction()
+            tx.add(
+                transfer(
+                    TransferParams(
+                        from_pubkey=Pubkey.from_string(from_wallet),
+                        to_pubkey=Pubkey.from_string(to_wallet),
+                        lamports=lamports_amount,
+                    )
                 )
             )
 
-            # Get recent blockhash
+            # Get recent blockhash (async call)
             blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
-            recent_blockhash = blockhash_response.value.blockhash
+            tx.recent_blockhash = blockhash_response.value.blockhash
 
-            # Compile the message
-            message = Message.new_with_blockhash(
-                instructions=[transfer_instruction],
-                payer=Pubkey.from_string(from_wallet),
-                blockhash=recent_blockhash,
-            )
+            # Sign the transaction
+            tx.sign([self.wallet_keypair])
 
-            # Create and sign transaction
-            tx = Transaction.from_message(
-                message=message,
-                from_keypairs=[self.wallet_keypair]
-            )
-
-            # Send transaction
-            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
-            response = await self.client.send_transaction(
-                tx,
-                opts=opts
-            )
+            # Send transaction (async call)
+            response = await self.client.send_transaction(tx, self.wallet_keypair)
             tx_signature = response.value
 
             return f"Transaction submitted successfully. Signature: {tx_signature}"
@@ -277,7 +266,7 @@ class solana_wallet(Extensions):
             return f"Error: Invalid amount format - {str(ve)}"
         except Exception as e:
             return f"Error sending SOL: {str(e)}"
-
+    
     async def get_transaction_info(self, tx_signature: str):
         """
         Retrieves information about a specific transaction using its signature.
