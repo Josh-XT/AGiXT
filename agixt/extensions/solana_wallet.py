@@ -2,12 +2,11 @@ from Extensions import Extensions
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
-from solders.transaction import Transaction
 from solders.keypair import Keypair
 from solders.system_program import TransferParams, transfer, ID as SYS_PROGRAM_ID
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction
-from solders.message import Message
+from solders.message import Message, MessageV0
 import json
 import base58
 import requests
@@ -16,7 +15,7 @@ import struct
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, Any, Optional, Tuple, List
-from solders.transaction import Transaction
+from solders.transaction import VersionedTransaction
 from solders.system_program import TransferParams, transfer
 from solders.pubkey import Pubkey
 from solders.rpc.config import RpcTransactionConfig
@@ -263,15 +262,16 @@ class solana_wallet(Extensions):
             blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
             recent_blockhash = blockhash_response.value.blockhash
 
-            # Construct the transaction
-            tx = Transaction(
-                fee_payer=Pubkey.from_string(from_wallet),
+            # Create the message using MessageV0
+            msg = MessageV0.try_compile(
+                payer=Pubkey.from_string(from_wallet),
                 instructions=[transfer_ix],
-                recent_blockhash=recent_blockhash
+                address_lookup_table_accounts=[],
+                recent_blockhash=recent_blockhash,
             )
 
-            # Sign the transaction with the sender's keypair
-            tx.sign([self.wallet_keypair])
+            # Create and sign the versioned transaction
+            tx = VersionedTransaction(msg, [self.wallet_keypair])
 
             # Send the transaction with options
             opts = TxOpts(skip_preflight=False, preflightCommitment=Confirmed)
