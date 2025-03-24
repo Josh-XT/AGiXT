@@ -367,9 +367,9 @@ async def get_agentconfig(
         result = await wallet.create_wallet()
         
         # Parse the result to get private key and address
+        new_keypair = wallet.wallet_keypair
         import re
-        private_key = re.search(r'Secret Key \(hex\): (\w+)', result).group(1)
-        public_key = re.search(r'Public Key: (\w+)', result).group(1)
+        public_key = new_keypair.pubkey().to_string()
         
         # Generate a secure passphrase
         import secrets
@@ -378,7 +378,7 @@ async def get_agentconfig(
         
         # Update agent settings with wallet info
         new_settings = {
-            "SOLANA_WALLET_API_KEY": private_key,
+            "SOLANA_WALLET_API_KEY": new_keypair.to_base58_string(),
             "SOLANA_WALLET_PASSPHRASE_API_KEY": passphrase,
             "SOLANA_WALLET_ADDRESS": public_key
         }

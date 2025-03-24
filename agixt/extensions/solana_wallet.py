@@ -26,9 +26,13 @@ class solana_wallet(Extensions):
         # If an existing wallet private key is provided, load the keypair
         if WALLET_PRIVATE_KEY:
             # Here we assume the private key is a base58-encoded string.
-            # (You might instead have a hex string; adjust as needed.)
-            self.wallet_keypair = Keypair.from_base58_string(WALLET_PRIVATE_KEY)
-            self.wallet_address = self.wallet_keypair.pubkey().to_string()
+            try:
+                self.wallet_keypair = Keypair.from_base58_string(WALLET_PRIVATE_KEY)
+                self.wallet_address = self.wallet_keypair.pubkey().to_string()
+            except ValueError:
+                # If the private key is invalid, create a new wallet
+                self.wallet_keypair = None
+                self.wallet_address = None
         else:
             self.wallet_keypair = None
             self.wallet_address = None
