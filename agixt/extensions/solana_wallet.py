@@ -23,7 +23,7 @@ class solana_wallet(Extensions):
         self,
         **kwargs,
     ):
-        SOLANA_API_URI = "https://api.devnet.solana.com"
+        SOLANA_API_URI = "https://api.mainnet-beta.solana.com"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = AsyncClient(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
@@ -92,7 +92,7 @@ class solana_wallet(Extensions):
         Retrieves the SOL balance for the given wallet address.
         If no address is provided, uses the wallet address from initialization.
         """
-        if wallet_address is None:
+        if not wallet_address:  # Handles both None and empty string
             wallet_address = self.wallet_address
         if wallet_address is None:
             return "No wallet address specified."
