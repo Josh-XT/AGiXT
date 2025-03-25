@@ -139,8 +139,12 @@ class solana_wallet(Extensions):
             # Convert the wallet address string to a Pubkey object
             response = await self.client.get_balance(Pubkey.from_string(wallet_address), commitment=Confirmed)
             balance_lamports = response.value
-            sol_balance = balance_lamports / 1e9
-            return f"Wallet {wallet_address} balance: {sol_balance} SOL."
+            sol_balance = balance_lamports / 1_000_000_000  # Convert lamports to SOL
+            
+            # Format with full precision (up to 9 decimals) and strip trailing zeros
+            sol_balance_str = f"{sol_balance:.9f}".rstrip('0').rstrip('.')
+            
+            return f"Wallet {wallet_address} balance: {sol_balance_str} SOL"
         except Exception as e:
             return f"Error retrieving balance: {str(e)}"
 
