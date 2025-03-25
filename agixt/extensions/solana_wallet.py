@@ -157,17 +157,34 @@ class solana_wallet(Extensions):
     async def create_wallet(self):
         """
         Creates a new Solana wallet by generating a new keypair.
-        This method can be used if no wallet was connected via the init params.
+        Saves the wallet to agent config for persistence.
         """
+        # Get agent's config which is stored in the base Extensions class
+        agent_config = self.AGENT_CONFIG["settings"] if hasattr(self, "AGENT_CONFIG") else {}
+        
+        # Check if we already have a saved wallet
+        saved_key = agent_config.get("SOLANA_WALLET_API_KEY")
+        if saved_key:
+            try:
+                secret_bytes = bytes.fromhex(saved_key)
+                self.wallet_keypair = Keypair.from_seed(secret_bytes)
+                self.wallet_address = str(self.wallet_keypair.pubkey())
+                return f"Using existing Solana wallet with public key: {self.wallet_address}"
+            except Exception:
+                pass  # If loading fails, create new wallet
+                
         new_keypair = Keypair()
         self.wallet_keypair = new_keypair
         self.wallet_address = str(new_keypair.pubkey())
         # Get the secret key as bytes and convert to hex
         secret_hex = new_keypair.secret().hex()
+        
+        # Save to agent config for persistence
+        if hasattr(self, "update_agent_config"):
+            self.update_agent_config({"SOLANA_WALLET_API_KEY": secret_hex})
+        
         return (
-            f"Created new Solana wallet.\n"
-            f"Public Key: {self.wallet_address}\n"
-            f"Secret Key (hex): {secret_hex}"
+            f"Created and saved new Solana wallet with public key: {self.wallet_address}"
         )
 
     async def get_wallet_balance(self, wallet_address: str = None):
@@ -514,10 +531,21 @@ class solana_wallet(Extensions):
 
     async def get_public_key(self):
         """
-        Get the public key of the current wallet. Creates a new wallet if none exists.
+        Get the public key of the current wallet. Loads from config or creates new if none exists.
         """
-        if not self.wallet_address:
-            await self.create_wallet()
+        # Only create/load wallet if we don't have one yet
+        if not self.wallet_address and not self.wallet_keypair:
+            # Check agent config first
+            agent_config = self.AGENT_CONFIG["settings"] if hasattr(self, "AGENT_CONFIG") else {}
+            saved_key = agent_config.get("SOLANA_WALLET_API_KEY")
+            if saved_key:
+                # Load existing wallet
+                secret_bytes = bytes.fromhex(saved_key)
+                self.wallet_keypair = Keypair.from_seed(secret_bytes)
+                self.wallet_address = str(self.wallet_keypair.pubkey())
+            else:
+                # Create new wallet if none exists
+                await self.create_wallet()
         return {"public_key": self.wallet_address}
 
     async def execute_trade(self, route_quote: Dict[str, Any]):

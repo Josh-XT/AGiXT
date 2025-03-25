@@ -362,24 +362,28 @@ async def get_agentconfig(
     
     # Create wallet if it doesn't exist
     if not agent_config["settings"].get("SOLANA_WALLET_API_KEY"):
-        # Initialize wallet extension and get wallet info
         extension = Extensions(agent_name=agent_name, user=user, ApiClient=ApiClient)
-        result = await extension.execute_command("Get Public Key", {})
-        
-        # Parse the result
-        import re
-        private_key = re.search(r'Private Key: ([^\n]+)', result).group(1)
-        public_key = re.search(r'Public Key: (.+)\n', result).group(1)
-        
-        # Generate passphrase and update settings
+
+        # Create new wallet
+        solana_wallet = extension.get_extension("solana_wallet")
+        if not solana_wallet:
+            raise HTTPException(status_code=500, detail="Solana wallet extension not available")
+
+        # Create new keypair and get wallet info
+        new_keypair = solana_wallet.Keypair()
+        private_key = new_keypair.secret().hex()
+        public_key = str(new_keypair.pubkey())
+
+        # Generate random passphrase
         passphrase = ''.join(__import__('secrets').choice(__import__('string').ascii_letters + __import__('string').digits) for _ in range(32))
+
+        # Update agent settings
         new_settings = {
             "SOLANA_WALLET_API_KEY": private_key,
             "SOLANA_WALLET_PASSPHRASE_API_KEY": passphrase,
             "SOLANA_WALLET_ADDRESS": public_key
         }
-        agent.update_agent_config(new_config=new_settings, config_key="settings")
-        agent_config = agent.get_agent_config()
+        update_config = agent.update_agent_config(new_config=new_settings, config_key="settings")
         
     for key, value in agent_config["settings"].items():
         logging.info(f"Checking {key} for {agent_name}.")
