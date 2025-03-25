@@ -26,9 +26,17 @@ class solana_wallet(Extensions):
         SOLANA_API_URI = "https://api.mainnet-beta.solana.com"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = AsyncClient(SOLANA_API_URI)
-        WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
         self.wallet_keypair = None
         self.wallet_address = None
+        self.agent_name = kwargs.get("agent_name")
+        
+        # First try loading from agent config if agent_name is provided
+        if self.agent_name:
+            from Agent import Agent
+            agent = Agent(agent_name=self.agent_name)
+            WALLET_PRIVATE_KEY = agent.AGENT_CONFIG["settings"].get("SOLANA_WALLET_API_KEY")
+        else:
+            WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY")
 
         # If an existing wallet private key is provided, load the keypair
         if WALLET_PRIVATE_KEY:
@@ -56,13 +64,44 @@ class solana_wallet(Extensions):
 
     async def create_wallet(self):
         """
-        Creates a new Solana wallet by generating a new keypair.
-        This method can be used if no wallet was connected via the init params.
+        Creates a new Solana wallet by generating a new keypair, or returns existing wallet if one exists.
+        Once a wallet is created for an agent, the same wallet will be used forever.
+        The wallet information is stored in the agent's config.
         """
+        if self.wallet_keypair:
+            private_key = base58.b58encode(bytes(self.wallet_keypair)).decode()
+            return (
+                f"Using existing Solana wallet.\n"
+                f"Public Key: {self.wallet_address}\n"
+                f"Private Key: {private_key}"
+            )
+            
+        from Agent import Agent
+        agent_name = self.agent_name if hasattr(self, 'agent_name') else None
+        if agent_name:
+            agent = Agent(agent_name=agent_name)
+            existing_key = agent.AGENT_CONFIG["settings"].get("SOLANA_WALLET_API_KEY")
+            if existing_key:
+                try:
+                    self.wallet_keypair = Keypair.from_base58_string(existing_key)
+                    self.wallet_address = str(self.wallet_keypair.pubkey())
+                    return (
+                        f"Using existing Solana wallet from config.\n"
+                        f"Public Key: {self.wallet_address}\n"
+                        f"Private Key: {existing_key}"
+                    )
+                except (ValueError, TypeError):
+                    pass
+
         new_keypair = Keypair()
         self.wallet_keypair = new_keypair
         self.wallet_address = str(new_keypair.pubkey())
         private_key = base58.b58encode(bytes(new_keypair)).decode()
+        
+        if agent_name:
+            agent.AGENT_CONFIG["settings"]["SOLANA_WALLET_API_KEY"] = private_key
+            agent.update_config()
+            
         return (
             f"Created new Solana wallet.\n"
             f"Public Key: {self.wallet_address}\n"
