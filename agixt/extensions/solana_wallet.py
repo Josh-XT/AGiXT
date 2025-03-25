@@ -95,7 +95,7 @@ class solana_wallet(Extensions):
         try:
             # Convert the wallet address string to a Pubkey object
             response = self.client.get_balance(Pubkey.from_string(wallet_address))
-            balance_lamports = response["result"]["value"]
+            balance_lamports = response.value
             sol_balance = balance_lamports / 1e9
             return f"Wallet {wallet_address} balance: {sol_balance} SOL."
         except Exception as e:
