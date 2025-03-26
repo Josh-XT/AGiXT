@@ -24,6 +24,27 @@ from solders.rpc.config import RpcTransactionConfig
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 
 
+import os
+import binascii
+
+# Define the standalone wallet creation function
+def create_solana_wallet() -> Tuple[str, str, str]:
+    """
+    Creates a new Solana wallet keypair and generates a secure passphrase.
+
+    Returns:
+        Tuple[str, str, str]: A tuple containing the private key (hex string),
+                              a generated passphrase (hex string), and the public key (string).
+    """
+    new_keypair = Keypair()
+    private_key_hex = new_keypair.secret().hex()
+    public_key_str = str(new_keypair.pubkey())
+    # Generate a secure random passphrase (e.g., 16 bytes hex encoded)
+    passphrase_hex = binascii.hexlify(os.urandom(16)).decode('utf-8')
+    return private_key_hex, passphrase_hex, public_key_str
+
+
+
 class solana_wallet(Extensions):
     """
     The SolanaWallets extension enables interaction with Solana blockchain wallets using the solana‑py SDK.
