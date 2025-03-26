@@ -160,18 +160,19 @@ class solana_wallet(Extensions):
         self.commands = {
             "Get Solana Wallet Balance": self.get_wallet_balance,
             "Send SOL": self.send_sol,
-            "Get Transaction Info": self.get_transaction_info,
-            "Get Recent Transactions": self.get_recent_transactions,
-            "Get Solana Token Balance": self.get_token_balance,
-            "Airdrop SOL": self.airdrop_sol,
-            "Get Token Swap Quote": self.get_swap_quote,
-            "Execute Token Swap": self.execute_swap,
-            "Get Token List": self.get_token_list,
-            "Get Token Price": self.get_token_price,
-            "Get Wallet Token Accounts": self.get_wallet_token_accounts,
-            "Get Route Quote": self.get_route_quote,
-            "Execute Trade": self.execute_trade,
             "Get Public Key": self.get_public_key,
+            #"Get Transaction Info": self.get_transaction_info,
+            #"Get Recent Transactions": self.get_recent_transactions,
+            #"Get Solana Token Balance": self.get_token_balance,
+            #"Airdrop SOL": self.airdrop_sol,
+            #"Get Token Swap Quote": self.get_swap_quote,
+            #"Execute Token Swap": self.execute_swap,
+            #"Get Token List": self.get_token_list,
+            #"Get Token Price": self.get_token_price,
+            #"Get Wallet Token Accounts": self.get_wallet_token_accounts,
+            #"Get Route Quote": self.get_route_quote,
+            #"Execute Trade": self.execute_trade,
+            
         }
 
 
