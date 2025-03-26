@@ -19,13 +19,12 @@ from solders.transaction import VersionedTransaction
 from solders.system_program import TransferParams, transfer
 from solders.pubkey import Pubkey
 from solders.rpc.config import RpcTransactionConfig
+import os
+import binascii
+
 
 # Define TOKEN_PROGRAM_ID (this is a well-known address in Solana)
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-
-
-import os
-import binascii
 
 # Define the standalone wallet creation function
 def create_solana_wallet() -> Tuple[str, str, str]:
@@ -175,21 +174,6 @@ class solana_wallet(Extensions):
             "Get Public Key": self.get_public_key,
         }
 
-    async def create_wallet(self):
-        """
-        Creates a new Solana wallet by generating a new keypair.
-        This method can be used if no wallet was connected via the init params.
-        """
-        new_keypair = Keypair()
-        self.wallet_keypair = new_keypair
-        self.wallet_address = str(new_keypair.pubkey())
-        # Get the secret key as bytes and convert to hex
-        secret_hex = new_keypair.secret().hex()
-        return (
-            f"Created new Solana wallet.\n"
-            f"Public Key: {self.wallet_address}\n"
-            f"Secret Key (hex): {secret_hex}"
-        )
 
     async def get_wallet_balance(self, wallet_address: str = None):
         """

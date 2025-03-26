@@ -1,6 +1,6 @@
 # agixt/endpoints/Wallet.py
-from fastapi import APIRouter, Depends, HTTPException
-from DB import get_session, AgentSetting as AgentSettingModel, Agent as AgentModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from DB import get_session, AgentSetting as AgentSettingModel, Agent as AgentModel, User
 from Models import WalletResponseModel, ResponseMessage
 from MagicalAuth import MagicalAuth, get_user_id
 import logging
@@ -11,17 +11,29 @@ app = APIRouter()
     "/api/agent/{agent_name}/wallet",
     tags=["Agent"],
     response_model=WalletResponseModel,
-    responses={404: {"model": ResponseMessage}},
+    responses={
+        401: {"model": ResponseMessage},
+        403: {"model": ResponseMessage},
+        404: {"model": ResponseMessage},
+    },
 )
 async def get_agent_wallet(
     agent_name: str,
-    user_id: str = Depends(get_user_id),  # Use get_user_id as requested
+    api_key: str = Query(..., description="User's API Key for authentication"),
 ):
     """
     Retrieves the private key and passphrase for the agent's Solana wallet.
     Strictly enforces one wallet per agent. Assumes wallet exists if agent exists.
+    Authenticates using the provided API key.
     """
     session = get_session()
+    try:
+        # Authenticate using the API key
+        auth = MagicalAuth(token=api_key)
+        user_id = auth.user_id
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid API Key: {e}")
+
     try:
         # Find the agent first to ensure it belongs to the user
         agent = session.query(AgentModel).filter(
