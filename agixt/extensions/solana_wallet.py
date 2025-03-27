@@ -168,16 +168,21 @@ class solana_wallet(Extensions):
         self.client = AsyncClient(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
 
-        # If an existing wallet private key is provided, load the keypair
         if WALLET_PRIVATE_KEY:
-            # Convert hex string to bytes and create keypair
-            # Use from_seed to create keypair from just the secret key
-            secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
-            self.wallet_keypair = Keypair.from_seed(secret_bytes)
-            self.wallet_address = str(self.wallet_keypair.pubkey())
-        else:
-            self.wallet_keypair = None
-            self.wallet_address = None
+            try:
+                # Try hex decoding first
+                try:
+                    secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
+                except ValueError:
+                    # If that fails, try base58 decoding
+                    secret_bytes = base58.b58decode(WALLET_PRIVATE_KEY)
+
+                self.wallet_keypair = Keypair.from_seed(secret_bytes)
+                self.wallet_address = str(self.wallet_keypair.pubkey())
+            except Exception as e:
+                print(f"Error initializing wallet: {e}")
+                self.wallet_keypair = None
+                self.wallet_address = None
 
         self.commands = {
             "Get Solana Wallet Balance": self.get_wallet_balance,
