@@ -33,6 +33,7 @@ import base64
 import jwt
 import os
 import re
+from extensions.solana_wallet import create_solana_wallet
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -495,6 +496,32 @@ class Agent:
                 )
         self.agent_id = str(agent.id) if agent else None
         config = {"settings": {}, "commands": {}}
+
+        # Wallet Creation Logic - Runs only if agent exists
+        if agent:
+            # Check for existing wallet address setting
+            existing_wallet_address = session.query(AgentSettingModel).filter(
+                AgentSettingModel.agent_id == agent.id,
+                AgentSettingModel.name == "SOLANA_WALLET_ADDRESS"
+            ).first()
+
+            if not existing_wallet_address:
+                # Wallet doesn't exist, create and save it
+                logging.info(f"Solana wallet not found for agent {agent.name} ({agent.id}). Creating one...")
+                try:
+                    private_key, passphrase, address = create_solana_wallet()
+                    settings_to_add = [
+                        AgentSettingModel(agent_id=agent.id, name="SOLANA_WALLET_API_KEY", value=private_key),
+                        AgentSettingModel(agent_id=agent.id, name="SOLANA_WALLET_PASSPHRASE_API_KEY", value=passphrase),
+                        AgentSettingModel(agent_id=agent.id, name="SOLANA_WALLET_ADDRESS", value=address),
+                    ]
+                    session.add_all(settings_to_add)
+                    session.commit()
+                    logging.info(f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id}).")
+                except Exception as e:
+                    logging.error(f"Error creating/saving Solana wallet for agent {agent.name} ({agent.id}): {e}")
+                    session.rollback() # Rollback DB changes on error
+
         if agent:
             all_commands = session.query(Command).all()
             agent_settings = (
