@@ -7,6 +7,7 @@ import logging
 
 app = APIRouter()
 
+
 @app.get(
     "/api/agent/{agent_name}/wallet",
     tags=["Agent"],
@@ -36,29 +37,45 @@ async def get_agent_wallet(
 
     try:
         # Find the agent first to ensure it belongs to the user
-        agent = session.query(AgentModel).filter(
-            AgentModel.name == agent_name,
-            AgentModel.user_id == user_id
-        ).first()
+        agent = (
+            session.query(AgentModel)
+            .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
+            .first()
+        )
 
         if not agent:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found for this user.")
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_name}' not found for this user."
+            )
 
         # Retrieve wallet settings using the agent_id
-        private_key_setting = session.query(AgentSettingModel).filter(
-            AgentSettingModel.agent_id == agent.id,
-            AgentSettingModel.name == "SOLANA_WALLET_API_KEY"
-        ).first()
+        private_key_setting = (
+            session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == agent.id,
+                AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
+            )
+            .first()
+        )
 
-        passphrase_setting = session.query(AgentSettingModel).filter(
-            AgentSettingModel.agent_id == agent.id,
-            AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY"
-        ).first()
+        passphrase_setting = (
+            session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == agent.id,
+                AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
+            )
+            .first()
+        )
 
         if not private_key_setting or not passphrase_setting:
             # This case should ideally not happen if the creation logic in Agent.py works correctly
-            logging.error(f"Wallet details incomplete or missing for agent {agent_name} ({agent.id}).")
-            raise HTTPException(status_code=404, detail=f"Wallet details not found for agent '{agent_name}'. Wallet might not have been created yet.")
+            logging.error(
+                f"Wallet details incomplete or missing for agent {agent_name} ({agent.id})."
+            )
+            raise HTTPException(
+                status_code=404,
+                detail=f"Wallet details not found for agent '{agent_name}'. Wallet might not have been created yet.",
+            )
 
         return WalletResponseModel(
             private_key=private_key_setting.value,
@@ -66,10 +83,12 @@ async def get_agent_wallet(
         )
     except HTTPException as e:
         session.rollback()
-        raise e # Re-raise HTTPException
+        raise e  # Re-raise HTTPException
     except Exception as e:
         session.rollback()
         logging.error(f"Error retrieving wallet for agent {agent_name}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error retrieving wallet details.")
+        raise HTTPException(
+            status_code=500, detail="Internal server error retrieving wallet details."
+        )
     finally:
         session.close()
