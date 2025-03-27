@@ -620,3 +620,10 @@ class UpdateUserRole(BaseModel):
 
 class RenameCompanyInput(BaseModel):
     name: str
+
+
+
+# Wallet Models
+class WalletResponseModel(BaseModel):
+    private_key: str
+    passphrase: str
