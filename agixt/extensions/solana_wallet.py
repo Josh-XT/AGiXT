@@ -190,15 +190,16 @@ class solana_wallet(Extensions):
             "Get Public Key": self.get_public_key,
             # "Get Transaction Info": self.get_transaction_info,
             # "Get Recent Transactions": self.get_recent_transactions,
-            # "Get Solana Token Balance": self.get_token_balance,
+           "Get Solana Token Balance": self.get_token_balance, # Placeholder, needs implementation
             # "Airdrop SOL": self.airdrop_sol,
             # "Get Token Swap Quote": self.get_swap_quote,
             # "Execute Token Swap": self.execute_swap,
             # "Get Token List": self.get_token_list,
-            # "Get Token Price": self.get_token_price,
+           "Get Solana Token Price": self.get_price, # Uses Jupiter Price API V2
             # "Get Wallet Token Accounts": self.get_wallet_token_accounts,
             # "Get Route Quote": self.get_route_quote,
             # "Execute Trade": self.execute_trade,
+            "Get Jupiter Quote": self.get_jupiter_quote,
         }
 
     async def get_wallet_balance(self, wallet_address: str = None):
@@ -651,3 +652,109 @@ class solana_wallet(Extensions):
             return response
         except Exception as e:
             return f"Error getting token accounts: {str(e)}"
+
+    async def get_jupiter_quote(
+        self, input_mint: str, output_mint: str, amount: int, slippage_bps: int = 50
+    ):
+        """
+        Retrieves a swap quote from Jupiter's v6 API.
+
+        Args:
+            input_mint (str): The mint address of the input token (e.g., SOL mint).
+            output_mint (str): The mint address of the output token (e.g., USDC mint).
+            amount (int): The amount of the input token in its smallest unit (lamports/atomic units).
+            slippage_bps (int): Slippage tolerance in basis points (default: 50).
+
+        Returns:
+            str: A formatted string with the quote details or an error message.
+        """
+        JUPITER_QUOTE_API_URL = "https://quote-api.jup.ag/v6/quote"
+        params = {
+            "inputMint": input_mint,
+            "outputMint": output_mint,
+            "amount": amount,
+            "slippageBps": slippage_bps,
+        }
+
+        try:
+            # NOTE: Using synchronous requests.get in an async function.
+            # Consider using an async HTTP client like aiohttp for better performance in async contexts.
+            response = requests.get(JUPITER_QUOTE_API_URL, params=params)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            quote_data = response.json()
+
+            if not quote_data:
+                return "Failed to get quote from Jupiter API: Empty response."
+
+            out_amount_raw = int(quote_data.get("outAmount", 0))
+            # Jupiter API returns priceImpactPct as a decimal (e.g., 0.001 for 0.1%), convert to percentage
+            price_impact_pct = float(quote_data.get("priceImpactPct", 0.0)) * 100
+
+            # Get decimals for formatting
+            input_decimals = await self._get_token_decimals(Pubkey.from_string(input_mint))
+            output_decimals = await self._get_token_decimals(Pubkey.from_string(output_mint))
+
+            # Convert amounts to decimal format for user readability
+            # Ensure Decimal is imported: from decimal import Decimal
+            amount_decimal = Decimal(amount) / (Decimal(10) ** input_decimals)
+            out_amount_decimal = Decimal(out_amount_raw) / (Decimal(10) ** output_decimals)
+
+            # Format the output string
+            return (
+                f"Expected to receive approximately {out_amount_decimal} tokens of {output_mint} "
+                f"for {amount_decimal} of {input_mint}, "
+                f"with a price impact of {price_impact_pct:.2f}%."
+            )
+
+        except requests.RequestException as e:
+            return f"Error fetching quote from Jupiter API: {str(e)}"
+        except (KeyError, ValueError, TypeError) as e:
+            # Catch potential issues with parsing JSON or converting types
+            return f"Error parsing Jupiter API response: {str(e)}"
+        except Exception as e:
+            # Catch any other unexpected errors
+            return f"An unexpected error occurred: {str(e)}"
+
+
+    async def get_price(self, ids: str, vs_token: str = None, show_extra_info: bool = False):
+        """
+        Retrieves the price of one or more SPL tokens using the Jupiter Price API V2.
+
+        Args:
+            ids (str): Comma-separated list of token mint addresses.
+            vs_token (str, optional): The mint address of the token to compare against. Defaults to USDC.
+            show_extra_info (bool, optional): If True, returns detailed price information including depth and confidence.
+                                            Cannot be used with vs_token. Defaults to False.
+
+        Returns:
+            dict or str: A dictionary containing the price data or an error message string.
+        """
+        BASE_URL = "https://api.jup.ag/price/v2"
+        params = {"ids": ids}
+
+        if show_extra_info:
+            if vs_token:
+                return "Error: 'show_extra_info=True' cannot be used together with 'vs_token'."
+            params["showExtraInfo"] = "true"
+        elif vs_token:
+            params["vsToken"] = vs_token
+
+        try:
+            # Using synchronous requests.get in an async function.
+            # Consider using an async HTTP client like aiohttp for better performance.
+            response = requests.get(BASE_URL, params=params)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            price_data = response.json()
+
+            if not price_data or "data" not in price_data:
+                return "Failed to get price data from Jupiter API: Invalid response format."
+
+            return price_data
+
+        except requests.RequestException as e:
+            return f"Error fetching price from Jupiter API: {str(e)}"
+        except (KeyError, ValueError, TypeError) as e:
+            return f"Error parsing Jupiter API response: {str(e)}"
+        except Exception as e:
+            return f"An unexpected error occurred: {str(e)}"
+
