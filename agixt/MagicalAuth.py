@@ -718,6 +718,7 @@ class MagicalAuth:
 
     def check_user_limit(self, user_id: str) -> bool:
         """Check if a user has reached their subscription user limit"""
+        return 100
         session = get_session()
         try:
             # Get the user's limit from preferences
