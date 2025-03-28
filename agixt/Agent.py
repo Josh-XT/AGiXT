@@ -33,19 +33,31 @@ import base64
 import jwt
 import os
 import re
-
-try:
-    from extensions.solana_wallet import create_solana_wallet
-except Exception as e:
-
-    def create_solana_wallet():
-        return None, None, None
-
+from solders.keypair import Keypair
+from typing import Tuple
+import binascii
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+# Define the standalone wallet creation function
+def create_solana_wallet() -> Tuple[str, str, str]:
+    """
+    Creates a new Solana wallet keypair and generates a secure passphrase.
+
+    Returns:
+        Tuple[str, str, str]: A tuple containing the private key (hex string),
+                              a generated passphrase (hex string), and the public key (string).
+    """
+    new_keypair = Keypair()
+    private_key_hex = new_keypair.secret().hex()
+    public_key_str = str(new_keypair.pubkey())
+    # Generate a secure random passphrase (e.g., 16 bytes hex encoded)
+    passphrase_hex = binascii.hexlify(os.urandom(16)).decode("utf-8")
+    return private_key_hex, passphrase_hex, public_key_str
 
 
 def impersonate_user(user_id: str):

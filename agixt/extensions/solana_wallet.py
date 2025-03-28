@@ -12,33 +12,13 @@ import requests
 import struct
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 from solders.transaction import VersionedTransaction, Transaction
 from solders.system_program import TransferParams, transfer
 from solders.pubkey import Pubkey
-import os
-import binascii
-
 
 # Define TOKEN_PROGRAM_ID (this is a well-known address in Solana)
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-
-
-# Define the standalone wallet creation function
-def create_solana_wallet() -> Tuple[str, str, str]:
-    """
-    Creates a new Solana wallet keypair and generates a secure passphrase.
-
-    Returns:
-        Tuple[str, str, str]: A tuple containing the private key (hex string),
-                              a generated passphrase (hex string), and the public key (string).
-    """
-    new_keypair = Keypair()
-    private_key_hex = new_keypair.secret().hex()
-    public_key_str = str(new_keypair.pubkey())
-    # Generate a secure random passphrase (e.g., 16 bytes hex encoded)
-    passphrase_hex = binascii.hexlify(os.urandom(16)).decode("utf-8")
-    return private_key_hex, passphrase_hex, public_key_str
 
 
 class solana_wallet(Extensions):
