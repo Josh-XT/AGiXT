@@ -33,7 +33,14 @@ import base64
 import jwt
 import os
 import re
-from extensions.solana_wallet import create_solana_wallet
+
+try:
+    from extensions.solana_wallet import create_solana_wallet
+except Exception as e:
+
+    def create_solana_wallet():
+        return None, None, None
+
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
