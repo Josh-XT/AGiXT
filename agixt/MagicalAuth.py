@@ -716,42 +716,107 @@ class MagicalAuth:
 
             return TeslaSSO(access_token=access_token)
 
-    def check_user_limit(self, user_id: str) -> bool:
-        """Check if a user has reached their subscription user limit"""
-        return 100
+    def check_user_limit(self, company_id: str) -> bool:
+        """Check if a user has reached their subscription user limit
+
+        True = user limit not reached
+        False = user limit reached
+        """
+        # We have to check how many users the company purchased from Stripe, compare to user count for the company
         session = get_session()
-        try:
-            # Get the user's limit from preferences
-            user_limit_pref = (
-                session.query(UserPreferences)
-                .filter_by(user_id=user_id, pref_key="user_limit")
-                .first()
-            )
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            session.close()
+            raise HTTPException(status_code=404, detail="Company not found")
 
-            if not user_limit_pref:
-                session.close()
-                return False  # No limit defined, assume they can't add users
+        # Get user count for the company
+        user_count = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id == company.id)
+            .count()
+        )
 
-            user_limit = int(user_limit_pref.pref_value)
+        # If company has an explicit user limit set, check against that
+        if company.user_limit is not None and user_count >= company.user_limit:
+            session.close()
+            return False
 
-            # Count how many users are in the company
-            company_id = self.get_user_company_id(user_id)
-            if not company_id:
+        # If no explicit limit is set, check Stripe subscription
+        stripe_api_key = getenv("STRIPE_API_KEY")
+        if stripe_api_key and stripe_api_key.lower() != "none":
+            try:
+                import stripe
+
+                stripe.api_key = stripe_api_key
+
+                # Get company admin to check for subscription
+                company_admin = (
+                    session.query(User)
+                    .join(UserCompany, User.id == UserCompany.user_id)
+                    .filter(UserCompany.company_id == company.id)
+                    .filter(UserCompany.role_id <= 2)  # Admin roles
+                    .first()
+                )
+
+                if not company_admin:
+                    session.close()
+                    return False  # No admin found, can't verify subscription
+
+                # Get admin preferences to find Stripe customer ID
+                admin_preferences = (
+                    session.query(UserPreferences)
+                    .filter(UserPreferences.user_id == company_admin.id)
+                    .all()
+                )
+
+                admin_pref_dict = {p.pref_key: p.pref_value for p in admin_preferences}
+                stripe_id = admin_pref_dict.get("stripe_id")
+
+                if not stripe_id or not stripe_id.startswith("cus_"):
+                    session.close()
+                    return False  # No valid Stripe ID
+
+                # Get subscriptions for this customer
+                subscriptions = self.get_subscribed_products(
+                    stripe_api_key, company_admin.email
+                )
+
+                if not subscriptions:
+                    session.close()
+                    return False  # No active subscriptions
+
+                # Check user limits from subscription metadata
+                for subscription in subscriptions:
+                    for item in subscription.get("items", {}).get("data", []):
+                        product_id = item.get("price", {}).get("product")
+                        if product_id:
+                            product = stripe.Product.retrieve(product_id)
+                            metadata = product.get("metadata", {})
+
+                            # Check if product has user limit in metadata
+                            if "user_limit" in metadata:
+                                subscription_user_limit = int(metadata["user_limit"])
+                                if user_count < subscription_user_limit:
+                                    session.close()
+                                    return True  # Under the subscription limit
+
+                            # If product specifies unlimited users
+                            if metadata.get("unlimited_users") == "true":
+                                session.close()
+                                return True
+
+                # If we got here, no subscription with adequate user limits was found
                 session.close()
                 return False
 
-            current_users = (
-                session.query(UserCompany)
-                .filter(UserCompany.company_id == company_id)
-                .count()
-            )
+            except Exception as e:
+                logging.error(f"Error checking Stripe subscription: {str(e)}")
+                session.close()
+                return False
 
-            session.close()
-            return current_users < user_limit
-        except Exception as e:
-            logging.error(f"Error checking user limit: {str(e)}")
-            session.close()
-            return False
+        # If no Stripe integration or other limits, default to allowing the user
+        session.close()
+        return True
 
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
@@ -1833,7 +1898,7 @@ class MagicalAuth:
         if str(invitation.company_id) not in self.get_user_companies():
             invitation.company_id = self.get_user_company_id()
         if getenv("STRIPE_API_KEY") != "":
-            if not self.check_user_limit(self.user_id):
+            if not self.check_user_limit(invitation.company_id):
                 raise HTTPException(
                     status_code=402,
                     detail="You've reached your user limit. Please upgrade your subscription.",
