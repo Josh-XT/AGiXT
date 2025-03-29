@@ -34,6 +34,7 @@ from Models import (
     PersonaInput,
     ChatCompletions,
     ThinkingPrompt,
+    WalletResponseModel,
 )
 import logging
 import base64
@@ -770,3 +771,28 @@ async def delete_provider(
         new_config=new_settings, config_key="settings"
     )
     return ResponseMessage(message=update_config)
+
+
+@app.get(
+    "/api/agent/{agent_name}/wallet",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent wallet",
+    description="Retrieves the private key and passphrase for the agent's Solana wallet. Assumes wallet exists if agent exists.",
+    response_model=WalletResponseModel,
+)
+async def get_agent_wallet(
+    agent_name: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    agent = Agent(
+        agent_name=agent_name,
+        user=user,
+        ApiClient=get_api_client(authorization=authorization),
+    )
+    wallet_info = agent.get_agent_wallet()
+    return WalletResponseModel(
+        private_key=wallet_info["private_key"],
+        passphrase=wallet_info["passphrase"],
+    )
