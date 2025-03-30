@@ -145,6 +145,35 @@ def get_sso_provider(provider: str, code, redirect_uri=None):
         return None
 
 
+def get_oauth_providers():
+    import importlib.util
+
+    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
+    files = os.listdir(sso_dir)
+    providers = []
+    for file in files:
+        if not file.endswith(".py"):
+            continue
+        file_path = os.path.join(sso_dir, file)
+        spec = importlib.util.spec_from_file_location(file, file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            client_id = os.getenv(f"{file.replace('.py', '').upper()}_CLIENT_ID")
+            if client_id:
+                providers.append(
+                    {
+                        "name": file.replace(".py", ""),
+                        "scopes": " ".join(module.SCOPES),
+                        "authorize": module.AUTHORIZE,
+                        "client_id": client_id,
+                    }
+                )
+        except:
+            pass
+    return providers
+
+
 def is_agixt_admin(email: str = "", api_key: str = ""):
     if api_key == getenv("AGIXT_API_KEY"):
         return True

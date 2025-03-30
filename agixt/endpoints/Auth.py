@@ -1,4 +1,4 @@
-from Models import (  # type: ignore
+from Models import (
     Detail,
     Login,
     Register,
@@ -13,10 +13,15 @@ from Models import (  # type: ignore
     UpdateUserRole,
 )
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
-from MagicalAuth import MagicalAuth, verify_api_key, impersonate_user  # type: ignore
-from Agent import Agent  # type: ignore
-from typing import List, Optional
-from Globals import getenv  # type: ignore
+from MagicalAuth import (
+    MagicalAuth,
+    verify_api_key,
+    impersonate_user,
+    get_oauth_providers,
+)
+from Agent import Agent
+from typing import List
+from Globals import getenv
 import logging
 import pyotp
 
@@ -376,7 +381,7 @@ async def update_oauth_token(
     summary="List of currently connected OAuth2 providers for the user",
     tags=["Auth"],
 )
-async def get_oauth_providers(
+async def get_providers(
     email: str = Depends(verify_api_key),
     authorization: str = Header(None),
 ):
@@ -389,6 +394,12 @@ async def get_oauth_providers(
             status_code=500,
             detail=f"An error occurred while fetching OAuth2 providers: {str(e)}",
         )
+
+
+# Get list of available oauth providers, client ID, their scopes, and login URLs
+@app.get("/v1/oauth")
+async def get_oauth():
+    return {"providers": get_oauth_providers()}
 
 
 @app.delete(

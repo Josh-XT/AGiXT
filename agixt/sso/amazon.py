@@ -17,6 +17,8 @@ Required scopes for AWS OAuth
 - email
 - profile
 """
+SCOPES = ["openid", "email", "profile"]
+AUTHORIZE = "https://www.amazon.com/ap/oa"
 
 
 class AmazonSSO:

@@ -1,7 +1,5 @@
 import requests
 import logging
-import os
-import json
 from fastapi import HTTPException
 from Globals import getenv
 from endpoints.TeslaIntegration import ensure_keys_exist, get_tesla_private_key
@@ -24,6 +22,7 @@ SCOPES = [
     "vehicle_charging_cmds",
     "vehicle_location",
 ]
+AUTHORIZE = "https://auth.tesla.com/oauth2/v3/authorize"
 
 
 class TeslaSSO:

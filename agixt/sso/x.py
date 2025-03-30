@@ -12,7 +12,19 @@ Required environment variables:
 Required scopes for Twitter OAuth:
 """
 
-scopes = "tweet.read tweet.write users.read offline.access like.read like.write follows.read follows.write dm.read dm.write"
+SCOPES = [
+    "tweet.read",
+    "tweet.write",
+    "users.read",
+    "offline.access",
+    "like.read",
+    "like.write",
+    "follows.read",
+    "follows.write",
+    "dm.read",
+    "dm.write",
+]
+AUTHORIZE = "https://twitter.com/i/oauth2/authorize"
 
 
 class XSSO:
@@ -35,7 +47,7 @@ class XSSO:
                 "client_secret": self.client_secret,
                 "refresh_token": self.refresh_token,
                 "grant_type": "refresh_token",
-                "scope": scopes,
+                "scope": " ".join(SCOPES),
             },
         )
         if response.status_code != 200:
@@ -93,7 +105,7 @@ def x_sso(code, redirect_uri=None) -> XSSO:
             "client_secret": getenv("X_CLIENT_SECRET"),
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
-            "scope": scopes,
+            "scope": SCOPES,
         },
     )
     if response.status_code != 200:
