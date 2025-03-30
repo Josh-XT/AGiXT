@@ -23,7 +23,14 @@ Required scopes for Microsoft OAuth
 - https://graph.microsoft.com/Calendars.ReadWrite
 
 """
-scopes = "offline_access https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Calendars.ReadWrite.Shared https://graph.microsoft.com/Calendars.ReadWrite"
+SCOPES = [
+    "offline_access",
+    "https://graph.microsoft.com/User.Read",
+    "https://graph.microsoft.com/Mail.Send",
+    "https://graph.microsoft.com/Calendars.ReadWrite.Shared",
+    "https://graph.microsoft.com/Calendars.ReadWrite",
+]
+AUTHORIZE = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 
 
 class MicrosoftSSO:
@@ -46,7 +53,7 @@ class MicrosoftSSO:
                 "client_secret": self.client_secret,
                 "refresh_token": self.refresh_token,
                 "grant_type": "refresh_token",
-                "scope": scopes,
+                "scope": " ".join(SCOPES),
             },
         )
         return response.json()["access_token"]
@@ -98,7 +105,7 @@ def microsoft_sso(code, redirect_uri=None) -> MicrosoftSSO:
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
-            "scope": scopes,
+            "scope": " ".join(SCOPES),
         },
     )
     if response.status_code != 200:

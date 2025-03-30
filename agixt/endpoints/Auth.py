@@ -391,6 +391,14 @@ async def get_oauth_providers(
         )
 
 
+# Get list of available oauth providers, client ID, their scopes, and login URLs
+@app.get("/v1/oauth")
+async def get_oauth():
+    from MagicalAuth import get_oauth_providers
+
+    return get_oauth_providers()
+
+
 @app.delete(
     "/v1/oauth2/{provider}",
     response_model=Detail,
