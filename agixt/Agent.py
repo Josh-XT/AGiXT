@@ -738,7 +738,7 @@ class Agent:
         user = session.query(User).filter(User.id == self.user_id).first()
         sso_providers = {}
         # Get py files in sso folder
-        sso_files = os.listdir("agixt/sso")
+        sso_files = os.listdir("sso")
         for sso_file in sso_files:
             if sso_file.endswith(".py"):
                 sso_providers[sso_file.replace(".py", "")] = False
