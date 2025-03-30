@@ -1889,8 +1889,6 @@ class MagicalAuth:
             try:
                 # Check if user has appropriate role
                 user_role = self.get_user_role(invitation.company_id)
-                logging.info(f"User role: {user_role}")
-                logging.info(f"Invitation: {invitation}")
                 if not invitation.role_id:
                     invitation.role_id = 3
                 if user_role > 2:  # Only allow tenant_admin and company_admin
@@ -1898,7 +1896,7 @@ class MagicalAuth:
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
                     )
-                if int(invitation.role_id) > user_role:
+                if int(invitation.role_id) < user_role:
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
@@ -1924,7 +1922,7 @@ class MagicalAuth:
                             invitation_link="none",
                             email=invitation.email,
                             company_id=str(invitation.company_id),
-                            role_id=user_company.role_id,
+                            role_id=invitation.role_id,
                             inviter_id=str(self.user_id),
                             created_at=convert_time(
                                 datetime.now(), user_id=self.user_id
