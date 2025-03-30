@@ -67,3 +67,4 @@ gql
 solana
 base58
 solders
+mnemonic

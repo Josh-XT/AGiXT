@@ -5,3 +5,4 @@ solana
 base58
 solders
 pypandoc
+mnemonic
