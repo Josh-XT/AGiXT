@@ -82,7 +82,7 @@ class GitHubSSO:
             )
 
 
-def github_sso(code, redirect_uri=None) -> GitHubSSO:
+def sso(code, redirect_uri=None) -> GitHubSSO:
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")
     code = (

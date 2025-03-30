@@ -28,13 +28,8 @@ from Globals import getenv, get_default_agent
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from agixtsdk import AGiXTSDK
-from sso.amazon import amazon_sso
-from sso.github import github_sso
-from sso.google import google_sso
-from sso.microsoft import microsoft_sso
-from sso.walmart import walmart_sso
-from sso.tesla import tesla_sso
-from sso.x import x_sso
+import importlib.util
+import importlib
 import pyotp
 import logging
 import traceback
@@ -123,31 +118,21 @@ def is_admin(email: str = "USER", api_key: str = None):
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None):
-    try:
-        if provider == "amazon":
-            return amazon_sso(code=code, redirect_uri=redirect_uri)
-        elif provider == "github":
-            return github_sso(code=code, redirect_uri=redirect_uri)
-        elif provider == "google":
-            return google_sso(code=code, redirect_uri=redirect_uri)
-        elif provider == "microsoft":
-            return microsoft_sso(code=code, redirect_uri=redirect_uri)
-        elif provider == "walmart":
-            return walmart_sso(code=code, redirect_uri=redirect_uri)
-        elif provider == "tesla":
-            return tesla_sso(code=code, redirect_uri=redirect_uri)
-        elif provider == "x":
-            return x_sso(code=code, redirect_uri=redirect_uri)
-        else:
-            return None
-    except Exception as e:
-        logging.error(f"Error getting SSO provider info: {e}")
-        return None
+    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
+    files = os.listdir(sso_dir)
+    for file in files:
+        if not file.endswith(".py"):
+            continue
+        file_path = os.path.join(sso_dir, file)
+        spec = importlib.util.spec_from_file_location(file, file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if file.replace(".py", "") == provider:
+            return module.sso(code=code, redirect_uri=redirect_uri)
+    return None
 
 
 def get_oauth_providers():
-    import importlib.util
-
     sso_dir = os.path.join(os.path.dirname(__file__), "sso")
     files = os.listdir(sso_dir)
     providers = []
@@ -172,6 +157,21 @@ def get_oauth_providers():
         except:
             pass
     return providers
+
+
+def get_sso_instance(provider: str):
+    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
+    files = os.listdir(sso_dir)
+    for file in files:
+        if not file.endswith(".py"):
+            continue
+        file_path = os.path.join(sso_dir, file)
+        if file.replace(".py", "") == provider:
+            module = importlib.import_module(f"sso.{provider}")
+            provider_class = getattr(module, f"{provider.capitalize()}SSO")
+            return provider_class
+    provider = "microsoft"
+    return get_sso_instance(provider)
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
@@ -646,32 +646,9 @@ class MagicalAuth:
             and user_oauth.refresh_token
         ):
             try:
-                if provider == "microsoft":
-                    from sso.microsoft import MicrosoftSSO
-
-                    sso_instance = MicrosoftSSO(
-                        refresh_token=user_oauth.refresh_token,
-                    )
-                elif provider == "google":
-                    from sso.google import GoogleSSO
-
-                    sso_instance = GoogleSSO(
-                        refresh_token=user_oauth.refresh_token,
-                    )
-                elif provider == "tesla":
-                    from sso.tesla import TeslaSSO
-
-                    sso_instance = TeslaSSO(
-                        refresh_token=user_oauth.refresh_token,
-                    )
-                else:
-                    session.close()
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Token refresh not implemented for provider: {provider}",
-                    )
-
-                # Get new tokens
+                sso_instance = get_sso_instance(provider)(
+                    refresh_token=user_oauth.refresh_token
+                )
                 new_tokens = sso_instance.get_new_token()
 
                 # Update stored tokens
@@ -720,30 +697,7 @@ class MagicalAuth:
             raise HTTPException(status_code=404, detail="User OAuth not found")
         access_token = user_oauth.access_token
         session.close()
-        if provider.name == "google":
-            from sso.google import GoogleSSO
-
-            return GoogleSSO(access_token=access_token)
-        elif provider.name == "microsoft":
-            from sso.microsoft import MicrosoftSSO
-
-            return MicrosoftSSO(access_token=access_token)
-        elif provider.name == "github":
-            from sso.github import GitHubSSO
-
-            return GitHubSSO(access_token=access_token)
-        elif provider.name == "amazon":
-            from sso.amazon import AmazonSSO
-
-            return AmazonSSO(access_token=access_token)
-        elif provider.name == "walmart":
-            from sso.walmart import WalmartSSO
-
-            return WalmartSSO(access_token=access_token)
-        elif provider.name == "tesla":
-            from sso.tesla import TeslaSSO
-
-            return TeslaSSO(access_token=access_token)
+        return get_sso_instance(provider.name)(access_token=access_token)
 
     def check_user_limit(self, company_id: str) -> bool:
         """Check if a user has reached their subscription user limit
@@ -2589,18 +2543,11 @@ class MagicalAuth:
     ):
         if not referrer:
             referrer = getenv("APP_URI")
+        # Check if one of the providers in the sso folder
         provider = str(provider).lower()
-        if provider not in [
-            "amazon",
-            "microsoft",
-            "google",
-            "github",
-            "walmart",
-            "tesla",
-            "x",
-        ]:
+        files = os.listdir("app/sso")
+        if f"{provider}.py" not in files:
             provider = "microsoft"
-
         sso_data = get_sso_provider(provider=provider, code=code, redirect_uri=referrer)
         if not sso_data:
             logging.error(f"Failed to get user data from {provider.capitalize()}.")

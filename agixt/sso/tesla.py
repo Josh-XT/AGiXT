@@ -140,7 +140,7 @@ class TeslaSSO:
             )
 
 
-def tesla_sso(code, redirect_uri=None):
+def sso(code, redirect_uri=None):
     """Handle Tesla OAuth flow"""
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")

@@ -77,7 +77,7 @@ class AmazonSSO:
             )
 
 
-def amazon_sso(code, redirect_uri=None) -> AmazonSSO:
+def sso(code, redirect_uri=None) -> AmazonSSO:
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")
     code = (

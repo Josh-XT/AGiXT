@@ -87,7 +87,7 @@ class XSSO:
             )
 
 
-def x_sso(code, redirect_uri=None) -> XSSO:
+def sso(code, redirect_uri=None) -> XSSO:
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")
     code = (
