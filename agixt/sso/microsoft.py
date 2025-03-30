@@ -87,7 +87,7 @@ class MicrosoftSSO:
             )
 
 
-def microsoft_sso(code, redirect_uri=None) -> MicrosoftSSO:
+def sso(code, redirect_uri=None) -> MicrosoftSSO:
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")
     code = (

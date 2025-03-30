@@ -326,9 +326,6 @@ async def send_mfa_email(request: Request):
 async def oauth_login(
     request: Request, provider: str = "microsoft", authorization: str = Header(None)
 ):
-    logging.info("OAuth login request received")
-    logging.info(f"Authorization header: {authorization}")
-    logging.info(f"All headers: {dict(request.headers)}")
     data = await request.json()
     logging.info(f"OAuth2 login request received for {provider}: {data}")
     auth = MagicalAuth(token=authorization)
