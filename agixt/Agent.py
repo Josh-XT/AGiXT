@@ -736,12 +736,12 @@ class Agent:
             session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
         )
         user = session.query(User).filter(User.id == self.user_id).first()
-        microsoft_sso = False
-        google_sso = False
-        github_sso = False
-        walmart_sso = False
-        tesla_sso = False
-        x_sso = False
+        sso_providers = {}
+        # Get py files in sso folder
+        sso_files = os.listdir("agixt/sso")
+        for sso_file in sso_files:
+            if sso_file.endswith(".py"):
+                sso_providers[sso_file.replace(".py", "")] = False
         if user_oauth:
             for oauth in user_oauth:
                 provider = (
@@ -751,36 +751,14 @@ class Agent:
                 )
                 if provider:
                     if not str(user.email).lower().endswith(".xt"):
-                        if str(provider.name).lower() == "microsoft":
-                            microsoft_sso = True
-                        if str(provider.name).lower() == "google":
-                            google_sso = True
-                        if str(provider.name).lower() == "github":
-                            github_sso = True
-                        if str(provider.name).lower() == "walmart":
-                            walmart_sso = True
-                        if str(provider.name).lower() == "tesla":
-                            tesla_sso = True
-                        if str(provider.name).lower() == "x":
-                            x_sso = True
+                        if str(provider.name).lower() in sso_providers:
+                            sso_providers[str(provider.name).lower()] = True
         for extension in extensions:
-            if str(extension["extension_name"]).lower() == "microsoft365":
-                if not microsoft_sso:
+            if str(extension["extension_name"]).lower() in sso_providers:
+                if not sso_providers[str(extension["extension_name"]).lower()]:
                     continue
-            if str(extension["extension_name"]).lower() == "google":
-                if not google_sso:
-                    continue
-            if str(extension["extension_name"]).lower() == "walmart":
-                if not walmart_sso:
-                    continue
-            if str(extension["extension_name"]).lower() == "tesla":
-                if not tesla_sso:
-                    continue
-            if str(extension["extension_name"]).lower() == "x":
-                if not x_sso:
-                    continue
-            if github_sso and str(extension["extension_name"]).lower() == "github":
-                extension["settings"] = []
+                if str(extension["extension_name"]).lower() == "github":
+                    extension["settings"] = []
             required_keys = extension["settings"]
             new_extension = extension.copy()
             for key in required_keys:

@@ -8,7 +8,7 @@ from MagicalAuth import MagicalAuth
 import base64
 
 
-class microsoft365(Extensions):
+class microsoft(Extensions):
     """
     The Microsoft 365 extension provides comprehensive integration with Microsoft Office 365 services.
     This extension allows AI agents to:
