@@ -146,41 +146,29 @@ def get_sso_provider(provider: str, code, redirect_uri=None):
 
 
 def get_oauth_providers():
-    # Get list of available oauth providers, client ID, their scopes, and login URLs
-    # Use importlib on each file of the sso directory
-    # There is a "SCOPES" and an "AUTHORIZE" global variable in each file
-    # Client ID is in {provider}_CLIENT_ID (upper)
-
-    # Get all files in the sso directory
     import importlib.util
 
     sso_dir = os.path.join(os.path.dirname(__file__), "sso")
     files = os.listdir(sso_dir)
-
     providers = []
     for file in files:
         if not file.endswith(".py"):
             continue
-
-        # Import the file
         file_path = os.path.join(sso_dir, file)
         spec = importlib.util.spec_from_file_location(file, file_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-
-        # Get the global variables
         try:
-            scopes = module.SCOPES
-            authorize = module.AUTHORIZE
             client_id = os.getenv(f"{file.replace('.py', '').upper()}_CLIENT_ID")
-            providers.append(
-                {
-                    "name": file.replace(".py", ""),
-                    "scopes": " ".join(scopes),
-                    "authorize": authorize,
-                    "client_id": client_id,
-                }
-            )
+            if client_id:
+                providers.append(
+                    {
+                        "name": file.replace(".py", ""),
+                        "scopes": " ".join(module.SCOPES),
+                        "authorize": module.AUTHORIZE,
+                        "client_id": client_id,
+                    }
+                )
         except:
             pass
     return providers
