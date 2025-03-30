@@ -1,11 +1,9 @@
-# ./agixt/extensions/discord.py
-import os
 import logging
 import requests
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
-from typing import List, Dict, Optional
+from typing import Optional
 import datetime
 
 # Configure logging
@@ -24,9 +22,7 @@ class discord(Extensions):
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key", None)  # User's AGiXT JWT
-        self.access_token = kwargs.get(
-            "DISCORD_ACCESS_TOKEN", None
-        )  # Injected Discord OAuth token
+        self.access_token = kwargs.get("DISCORD_ACCESS_TOKEN", None)
         discord_client_id = getenv("DISCORD_CLIENT_ID")
         discord_client_secret = getenv("DISCORD_CLIENT_SECRET")
         self.base_uri = "https://discord.com/api/v10"  # Use Discord API v10
@@ -36,7 +32,6 @@ class discord(Extensions):
         if discord_client_id and discord_client_secret:
             # Define commands only if Discord SSO is configured
             self.commands = {
-                # Existing Commands
                 "Discord - Send Message": self.send_message,
                 "Discord - Get Messages": self.get_messages,
                 "Discord - Delete Message": self.delete_message,
@@ -59,7 +54,6 @@ class discord(Extensions):
             }
             if self.api_key:
                 try:
-                    # Use MagicalAuth for token refreshing
                     self.auth = MagicalAuth(token=self.api_key)
                 except Exception as e:
                     logging.error(
@@ -325,7 +319,7 @@ class discord(Extensions):
 
     async def get_guilds(self):
         """
-        Get the list of servers (guilds) the authenticated user is a member of. Requires 'guilds' scope.
+        Get the list of servers (guilds) the authenticated user is a member of.
 
         Returns:
             list: List of guild objects (id, name, icon hash, is_owner) or error string.
@@ -411,7 +405,7 @@ class discord(Extensions):
 
     async def get_guild_channels(self, guild_id: str):
         """
-        Get the list of channels in a specific Discord server (guild). Requires 'guilds' scope.
+        Get the list of channels in a specific Discord server (guild).
 
         Args:
             guild_id (str): The ID of the Discord server.
@@ -955,7 +949,7 @@ class discord(Extensions):
 
     async def get_guild_roles(self, guild_id: str):
         """
-        Get the list of roles in a specific Discord server (guild). Requires 'guilds' scope.
+        Get the list of roles in a specific Discord server (guild).
 
         Args:
             guild_id (str): The ID of the server.
