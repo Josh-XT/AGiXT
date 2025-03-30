@@ -13,16 +13,19 @@ Required environment variables:
 Required APIs and Scopes for Walmart OAuth:
 
 - https://marketplace.walmartapis.com/v3/token
-- Required scopes: 
-    - orders
-    - items
-    - inventory
-    - pricing
-    - reports
-    - returns
+
+Required scopes: 
 """
 
-scopes = "orders items inventory pricing reports returns"
+SCOPES = [
+    "orders",
+    "items",
+    "inventory",
+    "pricing",
+    "reports",
+    "returns",
+]
+AUTHORIZE = "https://developer.walmart.com/api/oauth/authorize"
 
 
 class WalmartSSO:

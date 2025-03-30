@@ -20,13 +20,14 @@ then add the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` environment variables
 Required scopes for Google SSO
 """
 
-scopes = (
-    "https://www.googleapis.com/auth/userinfo.profile "
-    "https://www.googleapis.com/auth/userinfo.email "
-    "https://www.googleapis.com/auth/calendar.events.owned "
-    "https://www.googleapis.com/auth/contacts.readonly "
-    "https://www.googleapis.com/auth/gmail.modify"
-)
+SCOPES = [
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/calendar.events.owned",
+    "https://www.googleapis.com/auth/contacts.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
+]
+AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 
 
 class GoogleSSO:
@@ -50,7 +51,7 @@ class GoogleSSO:
                 "client_secret": self.client_secret,
                 "refresh_token": self.refresh_token,
                 "grant_type": "refresh_token",
-                "scope": scopes,
+                "scope": " ".join(SCOPES),
             },
         )
         if response.status_code != 200:
@@ -105,7 +106,7 @@ def google_sso(code, redirect_uri=None) -> GoogleSSO:
             "client_secret": getenv("GOOGLE_CLIENT_SECRET"),
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
-            "scope": scopes,
+            "scope": " ".join(SCOPES),
             "access_type": "offline",
         },
     )

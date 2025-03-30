@@ -11,9 +11,14 @@ Required environment variables:
 
 Required scopes for GitHub OAuth
 
+- repo
 - user:email
 - read:user
+- workflow
 """
+
+SCOPES = ["repo", "user:email", "read:user", "workflow"]
+AUTHORIZE = "https://github.com/login/oauth/authorize"
 
 
 class GitHubSSO:
