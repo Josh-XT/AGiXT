@@ -190,6 +190,8 @@ class Prompts:
                 }
             )
         session.close()
+        global_prompts = self.get_global_prompts()
+        prompts += global_prompts
         return prompts
 
     def get_prompts(self, prompt_category="Default"):
