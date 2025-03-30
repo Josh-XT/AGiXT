@@ -88,7 +88,7 @@ class GoogleSSO:
             )
 
 
-def google_sso(code, redirect_uri=None) -> GoogleSSO:
+def sso(code, redirect_uri=None) -> GoogleSSO:
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")
     code = (

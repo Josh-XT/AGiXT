@@ -114,7 +114,7 @@ class WalmartSSO:
             )
 
 
-def walmart_sso(code, redirect_uri=None) -> WalmartSSO:
+def sso(code, redirect_uri=None) -> WalmartSSO:
     """
     Handles the OAuth2 authorization code flow for Walmart Marketplace
     """
