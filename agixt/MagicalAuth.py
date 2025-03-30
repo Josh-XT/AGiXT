@@ -170,8 +170,7 @@ def get_sso_instance(provider: str):
             module = importlib.import_module(f"sso.{provider}")
             provider_class = getattr(module, f"{provider.capitalize()}SSO")
             return provider_class
-    provider = "microsoft"
-    return get_sso_instance(provider)
+    return get_sso_instance(provider="microsoft")
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
@@ -1891,6 +1890,11 @@ class MagicalAuth:
                 # Check if user has appropriate role
                 user_role = self.get_user_role(invitation.company_id)
                 if user_role > 2:  # Only allow tenant_admin and company_admin
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Unauthorized. Insufficient permissions.",
+                    )
+                if invitation.role_id > user_role:
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
