@@ -2549,7 +2549,7 @@ class MagicalAuth:
             referrer = getenv("APP_URI")
         # Check if one of the providers in the sso folder
         provider = str(provider).lower()
-        files = os.listdir("app/sso")
+        files = os.listdir("sso")
         if f"{provider}.py" not in files:
             provider = "microsoft"
         sso_data = get_sso_provider(provider=provider, code=code, redirect_uri=referrer)
