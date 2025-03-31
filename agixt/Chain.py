@@ -635,8 +635,27 @@ class Chain:
                 .first()
             )
             if chain_step:
-                session.delete(chain_step)  # Remove the chain step from the session
+                # Store the deleted step's number before removing it
+                deleted_step_number = chain_step.step_number
+
+                # Delete the chain step
+                session.delete(chain_step)
                 session.commit()
+
+                # Update all step numbers greater than the deleted step's number
+                # Decrement them by 1 to close the gap
+                session.query(ChainStep).filter(
+                    ChainStep.chain_id == chain.id,
+                    ChainStep.step_number > deleted_step_number,
+                ).update(
+                    {"step_number": ChainStep.step_number - 1},
+                    synchronize_session=False,
+                )
+                session.commit()
+
+                logging.info(
+                    f"Deleted step {deleted_step_number} from chain '{chain_name}' and reordered remaining steps"
+                )
             else:
                 logging.info(
                     f"No step found with number {step_number} in chain '{chain_name}'"
