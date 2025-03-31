@@ -821,7 +821,7 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
             step=step.get("step_number", 0),
             agent_name=step.get("agent_name", step.get("agent", "")),
             prompt_type=step.get("prompt_type", ""),
-            prompt=ste.get("prompt", {}),
+            prompt=step.get("prompt", {}),
         )
         steps.append(new_step)
 
