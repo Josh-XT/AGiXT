@@ -759,7 +759,7 @@ class ChainStep:
     step: int
     agent_name: str
     prompt_type: str
-    # Use the custom JSONObject scalar
+    target_name: str
     prompt: JSONObject
 
 
@@ -809,26 +809,55 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
     steps = []
     chain_steps = chain_data.get("steps", [])
 
-    # Handle case where chain_steps might be a SQLAlchemy relationship
-    if hasattr(chain_steps, "all"):
-        chain_steps = chain_steps.all()
-
     logging.info(f"Processing chain steps: {chain_steps}")
 
-    for step in chain_steps:
-        logging.info(f"Processing dictionary step: {step}")
+    for step_dict in chain_steps:  # Use a different variable name to avoid confusion
+        logging.info(f"Processing dictionary step: {step_dict}")
+
+        prompt_type = step_dict.get("prompt_type", "").lower()
+        prompt_content = step_dict.get("prompt", {})  # This dict now holds name + args
+
+        target_name = ""
+        prompt_args = {}
+
+        # Extract the name and separate arguments
+        if prompt_type == "prompt":
+            target_name = prompt_content.get("prompt_name", "")
+            prompt_args = {
+                k: v
+                for k, v in prompt_content.items()
+                if k not in ["prompt_name", "prompt_category"]
+            }
+        elif prompt_type == "command":
+            target_name = prompt_content.get("command_name", "")
+            prompt_args = {
+                k: v for k, v in prompt_content.items() if k != "command_name"
+            }
+        elif prompt_type == "chain":
+            target_name = prompt_content.get("chain_name", "") or prompt_content.get(
+                "chain", ""
+            )
+            prompt_args = {
+                k: v
+                for k, v in prompt_content.items()
+                if k not in ["chain_name", "chain"]
+            }
+        else:  # Fallback or Unknown type
+            target_name = str(prompt_content)  # Store whatever is there
+            prompt_args = {}
+
         new_step = ChainStep(
-            step=step.get("step_number", 0),
-            agent_name=step.get("agent_name", step.get("agent", "")),
-            prompt_type=step.get("prompt_type", ""),
-            prompt=step.get("prompt", {}),
+            step=step_dict.get("step", 0),  # Use original dict here
+            agent_name=step_dict.get("agent_name", ""),
+            prompt_type=step_dict.get("prompt_type", ""),
+            target_name=target_name,  # **** Use the extracted name ****
+            prompt=prompt_args,  # **** Use the separated arguments ****
         )
         steps.append(new_step)
 
-    # Get ID and name, handling both dictionary and SQLAlchemy object cases
-    chain_id = str(getattr(chain_data, "id", chain_data.get("id", "")))
-    chain_name = getattr(chain_data, "name", chain_data.get("name", ""))
-    description = getattr(chain_data, "description", chain_data.get("description"))
+    chain_id = str(chain_data.get("id", ""))
+    chain_name = chain_data.get("chain_name", "")
+    description = chain_data.get("description")
 
     result = DetailedChain(
         id=chain_id, chain_name=chain_name, description=description, steps=steps
