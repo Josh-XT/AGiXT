@@ -811,11 +811,17 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
 
     logging.info(f"Processing chain steps: {chain_steps}")
 
-    for step_dict in chain_steps:  # Use a different variable name to avoid confusion
+    for step_dict in chain_steps:
         logging.info(f"Processing dictionary step: {step_dict}")
 
         prompt_type = step_dict.get("prompt_type", "").lower()
-        prompt_content = step_dict.get("prompt", {})  # This dict now holds name + args
+        # Ensure prompt_content is always a dictionary, even if empty or None in source
+        prompt_content = step_dict.get("prompt", {})
+        if not isinstance(prompt_content, dict):
+            logging.warning(
+                f"Step prompt is not a dictionary: {prompt_content}. Setting to empty dict."
+            )
+            prompt_content = {}  # Default to empty dict if invalid
 
         target_name = ""
         prompt_args = {}
@@ -843,24 +849,42 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
                 if k not in ["chain_name", "chain"]
             }
         else:  # Fallback or Unknown type
-            target_name = str(prompt_content)  # Store whatever is there
+            # Attempt to stringify if it's not a dict, otherwise treat as args
+            if not isinstance(prompt_content, dict):
+                target_name = str(prompt_content)
+                prompt_args = {}
+            else:
+                target_name = ""  # No specific name key found
+                prompt_args = prompt_content  # Treat the whole dict as args
+
+        # Ensure prompt_args is always a valid dictionary for JSONObject
+        if not isinstance(prompt_args, dict):
+            logging.warning(
+                f"Final prompt_args is not a dictionary: {prompt_args}. Setting to empty dict."
+            )
             prompt_args = {}
 
         new_step = ChainStep(
-            step=step_dict.get("step", 0),  # Use original dict here
+            step=step_dict.get("step", 0),
             agent_name=step_dict.get("agent_name", ""),
             prompt_type=step_dict.get("prompt_type", ""),
-            target_name=target_name,  # **** Use the extracted name ****
-            prompt=prompt_args,  # **** Use the separated arguments ****
+            target_name=target_name,
+            prompt=prompt_args,
         )
         steps.append(new_step)
 
-    chain_id = str(chain_data.get("id", ""))
-    chain_name = chain_data.get("chain_name", "")
-    description = chain_data.get("description")
+    # **** Explicitly retrieve and log the name before assignment ****
+    retrieved_id = str(chain_data.get("id", ""))
+    retrieved_name = chain_data.get("name", "")  # Use .get() directly on the dict
+    retrieved_description = chain_data.get("description")
+    logging.info(f"Retrieved name before creating DetailedChain: '{retrieved_name}'")
+    # **** End Explicit Retrieval ****
 
     result = DetailedChain(
-        id=chain_id, chain_name=chain_name, description=description, steps=steps
+        id=retrieved_id,
+        chain_name=retrieved_name,  # Assign the explicitly retrieved name
+        description=retrieved_description,
+        steps=steps,
     )
     logging.info(f"Conversion result: {result}")
     return result
@@ -2227,62 +2251,62 @@ class Query:
         """Get all user-specific chains"""
         user, auth, magical = await get_user_from_context(info)
         chain_manager = Chain(user=user)
-        user_chains = chain_manager.get_user_chains()
+        user_chains = chain_manager.get_user_chains()  # This returns List[Dict]
         logging.info(f"Raw user chains from manager: {user_chains}")
 
         result = []
-        for chain in user_chains:
+        for chain_dict in user_chains:  # Iterate through the list of dictionaries
             try:
-                logging.info(f"Converting user chain: {chain}")
-                logging.info(f"Chain steps: {chain.get('steps', [])}")
+                logging.info(f"Converting user chain dict: {chain_dict}")
+                # Ensure chain_dict is actually a dictionary before proceeding
+                if not isinstance(chain_dict, dict):
+                    logging.error(
+                        f"Expected dictionary, got {type(chain_dict)}: {chain_dict}"
+                    )
+                    continue
 
-                converted_chain = convert_chain_to_detailed(
-                    {
-                        "id": chain.get("id"),
-                        "name": chain.get("name"),
-                        "description": chain.get("description"),
-                        "steps": chain.get("steps", []),
-                    }
-                )
+                logging.info(f"Chain steps from dict: {chain_dict.get('steps', [])}")
+
+                # Pass the dictionary directly to the conversion function
+                converted_chain = convert_chain_to_detailed(chain_dict)
+
                 logging.info(f"Converted user chain: {converted_chain}")
                 if converted_chain:
                     result.append(converted_chain)
             except Exception as e:
-                logging.error(f"Error converting user chain {chain.get('name')}: {e}")
+                import traceback
+
+                logging.error(
+                    f"Error converting user chain {chain_dict.get('name', 'UNKNOWN')}: {e}"
+                )
+                logging.error(traceback.format_exc())  # Log full traceback
                 continue
 
         logging.info(f"Final user chains result: {result}")
         return result
 
     @strawberry.field
-    async def chain(
-        self, info, chain_name: str
-    ) -> ChainConfig:  # Changed return type annotation for clarity
+    async def chain(self, info, chain_name: str) -> ChainConfig:
         """Get details of a specific chain"""
         user, auth, magical = await get_user_from_context(info)
-
         chain_manager = Chain(user=user)
-        # 1. Get the raw chain data (old structure)
         raw_chain_data = chain_manager.get_chain(chain_name=chain_name)
 
-        if not raw_chain_data or not raw_chain_data.get(
-            "steps"
-        ):  # Check if chain exists and has steps
+        if not raw_chain_data or not raw_chain_data.get("steps"):
             raise Exception(f"Chain '{chain_name}' not found or has no steps.")
 
-        # 2. Use the existing conversion logic to parse it into the new structure
         try:
+            # Use the same conversion logic
             detailed_chain = convert_chain_to_detailed(raw_chain_data)
         except Exception as e:
             logging.error(f"Error converting raw chain data for '{chain_name}': {e}")
             raise Exception(f"Failed to process chain data for '{chain_name}'.")
 
-        # 3. Build the ChainConfig response using the correctly parsed data
-        #    Note: ChainConfig and DetailedChain have very similar structures now
+        # Build ChainConfig from the converted DetailedChain
         return ChainConfig(
             id=detailed_chain.id,
-            chain_name=detailed_chain.chain_name,  # Use chain_name from detailed_chain
-            steps=detailed_chain.steps,  # Use the steps directly from detailed_chain
+            chain_name=detailed_chain.chain_name,  # Should be correct now
+            steps=detailed_chain.steps,
         )
 
     @strawberry.field
