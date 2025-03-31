@@ -292,12 +292,9 @@ async def update_step(
     step_number: int,
     chain_step: ChainStep,
     user=Depends(verify_api_key),
-    authorization: str = Header(None),
 ) -> ResponseMessage:
     if chain_name == "":
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).update_step(
         chain_name=chain_name,
         step_number=step_number if step_number else chain_step.step_number,

@@ -816,51 +816,15 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
     logging.info(f"Processing chain steps: {chain_steps}")
 
     for step in chain_steps:
-        try:
-            if hasattr(step, "_sa_instance_state"):  # SQLAlchemy model object
-                logging.info(f"Processing SQLAlchemy step: {step.__dict__}")
-                # Get agent name through relationship if it exists
-                agent_name = ""
-                if hasattr(step, "agent"):
-                    agent = step.agent
-                    if agent:
-                        agent_name = agent.name
-
-                # Parse prompt JSON if it exists
-                try:
-                    prompt_dict = json.loads(step.prompt) if step.prompt else {}
-                except (json.JSONDecodeError, TypeError):
-                    prompt_dict = {}
-
-                logging.info(f"Parsed prompt data: {prompt_dict}")
-
-                new_step = ChainStep(
-                    step=step.step_number,
-                    agent_name=agent_name,
-                    prompt_type=step.prompt_type or "",
-                    prompt=prompt_dict,
-                )
-                steps.append(new_step)
-            else:  # Dictionary
-                logging.info(f"Processing dictionary step: {step}")
-                prompt = step.get("prompt", {})
-                if isinstance(prompt, str):
-                    try:
-                        prompt = json.loads(prompt)
-                    except json.JSONDecodeError:
-                        prompt = {}
-
-                new_step = ChainStep(
-                    step=step.get("step_number", 0),
-                    agent_name=step.get("agent_name", ""),
-                    prompt_type=step.get("prompt_type", ""),
-                    prompt=prompt,
-                )
-                steps.append(new_step)
-
-        except Exception as e:
-            logging.error(f"Error converting step: {str(e)}", exc_info=True)
-            continue
+        step_data = step.__dict__
+        logging.info(f"Processing dictionary step: {step_data}")
+        new_step = ChainStep(
+            step=step_data.get("step_number", 0),
+            agent_name=step_data.get("agent_name", step_data.get("agent", ""),
+            prompt_type=step_data.get("prompt_type", ""),
+            prompt=step_data.get("prompt", {}),
+        )
+        steps.append(new_step)
 
     # Get ID and name, handling both dictionary and SQLAlchemy object cases
     chain_id = str(getattr(chain_data, "id", chain_data.get("id", "")))
