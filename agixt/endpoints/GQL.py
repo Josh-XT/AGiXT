@@ -730,6 +730,28 @@ class MemoryImportEntry:
     timestamp: Optional[str] = None
 
 
+import json
+from typing import Dict, Any
+
+
+@strawberry.scalar(
+    name="JSONObject",
+    description="A JSON object that can contain any valid JSON data",
+    serialize=lambda v: v,
+    parse_value=lambda v: v,
+)
+class JSONObject:
+    @staticmethod
+    def serialize(value: Dict[str, Any]) -> Dict[str, Any]:
+        return value
+
+    @staticmethod
+    def parse_literal(node) -> Dict[str, Any]:
+        if isinstance(node, dict):
+            return node
+        return json.loads(node)
+
+
 @strawberry.type
 class ChainStep:
     """Represents a step in a chain"""
@@ -737,7 +759,8 @@ class ChainStep:
     step: int
     agent_name: str
     prompt_type: str
-    prompt: Any
+    # Use the custom JSONObject scalar
+    prompt: JSONObject
 
 
 class ChainDetails:
