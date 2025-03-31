@@ -444,11 +444,9 @@ class Chain:
             .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
             .first()
         )
+        default_user = session.query(User).filter(User.email == DEFAULT_USER).first()
         # Fallback to default user agent if not found for current user
         if not agent:
-            default_user = (
-                session.query(User).filter(User.email == DEFAULT_USER).first()
-            )
             if default_user:
                 agent = (
                     session.query(Agent)
