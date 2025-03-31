@@ -68,3 +68,5 @@ solana
 base58
 solders
 mnemonic
+pynacl
+bip32
