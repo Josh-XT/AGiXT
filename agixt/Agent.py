@@ -539,107 +539,56 @@ class Agent:
 
         # Wallet Creation/Migration Logic - Runs only if agent exists
         if agent and not skip_migration:
-            # Check for existing wallet address setting
-            existing_wallet_address = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
-                )
-                .first()
+            # Force override/creation of wallet settings, bypassing migration check
+            logging.info(
+                f"Overriding/Creating Solana wallet settings for agent {agent.name} ({agent.id})..."
             )
+            try:
+                # Generate new credentials
+                new_private_key, new_mnemonic, new_address = create_solana_wallet()
 
-            existing_passphrase_setting = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
-                )
-                .first()
-            )
+                 # Define setting names
+                setting_names = {
+                   "SOLANA_WALLET_API_KEY": new_private_key,
+                    "SOLANA_WALLET_PASSPHRASE_API_KEY": new_mnemonic,
+                    "SOLANA_WALLET_ADDRESS": new_address,
+                }
 
-            existing_private_key_setting = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
-                )
-                .first()
-            )
+                # Find existing settings or create new ones
+                settings_to_update = []
+                settings_to_add = []
+                for name, value in setting_names.items():
+                    existing_setting = (
+                        session.query(AgentSettingModel)
+                        .filter(
+                            AgentSettingModel.agent_id == agent.id,
+                            AgentSettingModel.name == name,
+                        )
+                        .first()
+                    )
+                    if existing_setting:
+                        existing_setting.value = value
+                        settings_to_update.append(existing_setting)
+                    else:
+                        settings_to_add.append(
+                            AgentSettingModel(
+                                agent_id=agent.id, name=name, value=value
+                            )
+                        )
 
-            if not existing_wallet_address:
-                # Wallet doesn't exist, create and save it
-                logging.info(
-                    f"Solana wallet not found for agent {agent.name} ({agent.id}). Creating one..."
-                )
-                try:
-                    private_key, passphrase, address = create_solana_wallet()
-                    settings_to_add = [
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_API_KEY",
-                            value=private_key,
-                        ),
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_PASSPHRASE_API_KEY",
-                            value=passphrase,
-                        ),
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_ADDRESS",
-                            value=address,
-                        ),
-                    ]
+                # Add new settings and commit changes
+                if settings_to_add:
                     session.add_all(settings_to_add)
-                    session.commit()
-                    logging.info(
-                        f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
-                    )
-                except Exception as e:
-                    logging.error(
-                        f"Error creating/saving Solana wallet for agent {agent.name} ({agent.id}): {e}"
-                    )
-                    session.rollback()  # Rollback DB changes on error
+                session.commit()
+                logging.info(
+                    f"Successfully overrode/created Solana wallet for agent {agent.name} ({agent.id}). New Address: {new_address}"
+                )
 
-            elif existing_passphrase_setting and existing_private_key_setting and existing_wallet_address:
-                # Wallet exists, check if it needs migration (old hex passphrase format)
-                current_passphrase = existing_passphrase_setting.value
-                is_old_format = False
-                if len(current_passphrase) == 32 and all(
-                    c in string.hexdigits for c in current_passphrase
-                ):
-                    is_old_format = True
-
-                if is_old_format:
-                    logging.warning(
-                        f"Old hex passphrase format detected for agent {agent.name} ({agent.id}). Migrating to BIP-39..."
-                    )
-                    try:
-                        # Generate new BIP-39 credentials
-                        (
-                            new_private_key,
-                            new_mnemonic,
-                            new_address,
-                        ) = create_solana_wallet()
-
-                        # Update existing settings in the database
-                        existing_private_key_setting.value = new_private_key
-                        existing_passphrase_setting.value = new_mnemonic
-                        existing_wallet_address.value = new_address
-
-                        session.commit()
-                        logging.info(
-                            f"Successfully migrated Solana wallet to BIP-39 for agent {agent.name} ({agent.id}). New Address: {new_address}"
-                        )
-                        # Add a flag to indicate migration happened, so the constructor can reload config
-                        config["migrated_wallet"] = True
-
-                    except Exception as e:
-                        logging.error(
-                            f"Error migrating Solana wallet for agent {agent.name} ({agent.id}): {e}"
-                        )
-                        session.rollback()  # Rollback DB changes on error
+            except Exception as e:
+                logging.error(
+                    f"Error overriding/creating Solana wallet for agent {agent.name} ({agent.id}): {e}"
+                )
+                session.rollback()  # Rollback DB changes on error
 
         if agent:
             all_commands = session.query(Command).all()
