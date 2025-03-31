@@ -777,7 +777,7 @@ class ChainDetails:
 
 @strawberry.type
 class ChainRunStep:
-    """Represents the result of running a chain step"""cd
+    """Represents the result of running a chain step"""
 
     step_number: int
     content: str
