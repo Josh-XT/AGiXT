@@ -2255,29 +2255,34 @@ class Query:
         return result
 
     @strawberry.field
-    async def chain(self, info, chain_name: str) -> ChainConfig:
+    async def chain(
+        self, info, chain_name: str
+    ) -> ChainConfig:  # Changed return type annotation for clarity
         """Get details of a specific chain"""
         user, auth, magical = await get_user_from_context(info)
 
         chain_manager = Chain(user=user)
-        chain_data = chain_manager.get_chain(chain_name=chain_name)
+        # 1. Get the raw chain data (old structure)
+        raw_chain_data = chain_manager.get_chain(chain_name=chain_name)
 
-        if not chain_data:
-            raise Exception(f"Chain {chain_name} not found")
+        if not raw_chain_data or not raw_chain_data.get(
+            "steps"
+        ):  # Check if chain exists and has steps
+            raise Exception(f"Chain '{chain_name}' not found or has no steps.")
 
+        # 2. Use the existing conversion logic to parse it into the new structure
+        try:
+            detailed_chain = convert_chain_to_detailed(raw_chain_data)
+        except Exception as e:
+            logging.error(f"Error converting raw chain data for '{chain_name}': {e}")
+            raise Exception(f"Failed to process chain data for '{chain_name}'.")
+
+        # 3. Build the ChainConfig response using the correctly parsed data
+        #    Note: ChainConfig and DetailedChain have very similar structures now
         return ChainConfig(
-            id=str(chain_data["id"]),
-            chain_name=chain_data["chain_name"],
-            steps=[
-                ChainStep(
-                    step=step["step"],
-                    agent_name=step["agent_name"],
-                    prompt_type=step["prompt_type"],
-                    prompt=step["prompt"],
-                    target_name=step["target_name"],
-                )
-                for step in chain_data["steps"]
-            ],
+            id=detailed_chain.id,
+            chain_name=detailed_chain.chain_name,  # Use chain_name from detailed_chain
+            steps=detailed_chain.steps,  # Use the steps directly from detailed_chain
         )
 
     @strawberry.field
