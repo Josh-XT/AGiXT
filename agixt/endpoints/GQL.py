@@ -737,7 +737,7 @@ class ChainStep:
     step: int
     agent_name: str
     prompt_type: str
-    prompt: dict
+    prompt: Any
 
 
 class ChainDetails:
