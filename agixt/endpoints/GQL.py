@@ -816,13 +816,12 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
     logging.info(f"Processing chain steps: {chain_steps}")
 
     for step in chain_steps:
-        step_data = step.__dict__
-        logging.info(f"Processing dictionary step: {step_data}")
+        logging.info(f"Processing dictionary step: {step}")
         new_step = ChainStep(
-            step=step_data.get("step_number", 0),
-            agent_name=step_data.get("agent_name", step_data.get("agent", "")),
-            prompt_type=step_data.get("prompt_type", ""),
-            prompt=step_data.get("prompt", {}),
+            step=step.get("step_number", 0),
+            agent_name=step.get("agent_name", step.get("agent", "")),
+            prompt_type=step.get("prompt_type", ""),
+            prompt=ste.get("prompt", {}),
         )
         steps.append(new_step)
 
@@ -2207,13 +2206,6 @@ class Query:
             try:
                 logging.info(f"Converting user chain: {chain}")
                 logging.info(f"Chain steps: {chain.get('steps', [])}")
-
-                # Log each step's data
-                for step in chain.get("steps", []):
-                    if hasattr(step, "__dict__"):
-                        logging.info(f"Step attributes: {step.__dict__}")
-                    else:
-                        logging.info(f"Step data: {step}")
 
                 converted_chain = convert_chain_to_detailed(
                     {
