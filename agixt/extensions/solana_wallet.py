@@ -262,16 +262,20 @@ class solana_wallet(Extensions):
                                 # Still requires config update to mark migration as "checked" (even though skipped)
                         else: # Migration already completed
                             print("[Migration Check] Migration already marked as completed. Skipping check.")
-                            # If migration was already done, the current config is assumed correct/stable
+                            # If migration was already done, the current config is assumed correct/stable for the 32-byte key case
                             self.requires_config_update = False
 
                     elif len(secret_bytes) == 64:
-                        # Assume 64 bytes is the full keypair bytes
-                        self.wallet_keypair = Keypair.from_bytes(secret_bytes)
-                        # If 64-byte key provided, assume it's correct, no migration needed, config likely correct.
+                        # Handle 64-byte input as the SEED derived from a mnemonic
+                        print("[Wallet Init] Detected 64-byte private key (assumed BIP39 seed).")
+                        seed = secret_bytes
+                        derivation_path = "m/44'/501'/0'/0'"
+                        self.wallet_keypair = Keypair.from_seed_and_derivation_path(seed, derivation_path)
+                        print(f"[Wallet Init] Derived address from 64-byte seed: {self.wallet_keypair.pubkey()}")
+                        # If 64-byte seed provided, assume it's the intended format, no migration needed.
                         self.requires_config_update = False # Explicitly set false here
                     else:
-                        raise ValueError(f"Invalid key length: {len(secret_bytes)}. Expected 32 or 64 bytes.")
+                         raise ValueError(f"Invalid key length: {len(secret_bytes)}. Expected 32 or 64 bytes.")
 
                 # Set wallet_address and success status based on the final self.wallet_keypair
                 if self.wallet_keypair:
@@ -329,14 +333,6 @@ class solana_wallet(Extensions):
         self.migration_performed = True
         self.requires_config_update = True
         self.final_pubkey = str(new_pubkey)
-        
-        # Update agent settings if we have access to the agent instance
-        if hasattr(self, 'agent') and self.agent:
-            try:
-                self.agent.update_agent_config({"SOLANA_MIGRATION_COMPLETED": "true"}, "provider_settings")
-                print("[Migration] Successfully updated agent settings with migration status")
-            except Exception as e:
-                print(f"[Migration Warning] Failed to update agent settings: {str(e)}")
 
         try:
             print(f"[Migration Check] Checking balance for old address: {old_pubkey_str}")

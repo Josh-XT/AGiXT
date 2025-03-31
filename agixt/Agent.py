@@ -52,7 +52,7 @@ def create_solana_wallet() -> Tuple[str, str, str]:
     Uses BIP-39 mnemonic standard for passphrase generation and key derivation.
 
     Returns:
-        Tuple[str, str, str]: A tuple containing the private key (hex string),
+        Tuple[str, str, str]: A tuple containing the full 64-byte seed (hex string),
                               the generated mnemonic passphrase (string), and the public key (string).
     """
     # 1. Generate a 12-word mnemonic phrase
@@ -69,8 +69,9 @@ def create_solana_wallet() -> Tuple[str, str, str]:
     # The BIP-39 seed is 64 bytes, so we take the first 32 bytes as is common.
     derived_keypair = Keypair.from_seed(seed[:32])
 
-    # 4. Get private key (hex) and public key (string)
-    private_key_hex = derived_keypair.secret().hex()
+    # 4. Get the full 64-byte seed (hex) and public key (string)
+    # The "private key" for storage/migration purposes here will be the full seed.
+    private_key_hex = seed.hex() # Return the full 64-byte seed, hex encoded
     public_key_str = str(derived_keypair.pubkey())
 
     # 5. Return private key, mnemonic phrase, and public key
@@ -419,6 +420,19 @@ class Agent:
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
+
+        # Check if Solana wallet migration requires config update
+        try:
+            solana_ext = self.extensions.extensions.get("solana_wallet")
+            if solana_ext and getattr(solana_ext, "requires_config_update", False):
+                logging.info(f"Agent {self.agent_name}: Solana wallet migration check requires config update. Saving status.")
+                self.update_agent_config({"SOLANA_MIGRATION_COMPLETED": "true"}, "settings")
+                # Reload config after update to reflect the change immediately
+                self.AGENT_CONFIG = self.get_agent_config(skip_migration=True)
+                self.load_config_keys() # Reload keys based on potentially updated config
+        except Exception as ext_update_err:
+            logging.error(f"Agent {self.agent_name}: Error checking/updating Solana migration status: {ext_update_err}")
+
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
         if "company_id" in self.AGENT_CONFIG["settings"]:
