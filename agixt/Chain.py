@@ -133,12 +133,59 @@ class Chain:
         chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
         chain_list = []
         for chain in chains:
+            steps = (
+                session.query(ChainStep)
+                .filter(ChainStep.chain_id == chain.id)
+                .order_by(ChainStep.step_number)
+                .all()
+            )
+            chain_steps = []
+            for step in steps:
+                agent_name = session.query(Agent).get(step.agent_id).name
+                prompt = {}
+                if step.target_chain_id:
+                    prompt["chain_name"] = (
+                        session.query(ChainDB).get(step.target_chain_id).name
+                    )
+                elif step.target_command_id:
+                    prompt["command_name"] = (
+                        session.query(Command).get(step.target_command_id).name
+                    )
+                elif step.target_prompt_id:
+                    prompt["prompt_name"] = (
+                        session.query(Prompt).get(step.target_prompt_id).name
+                    )
+
+                # Retrieve argument data for the step
+                arguments = (
+                    session.query(Argument, ChainStepArgument)
+                    .join(
+                        ChainStepArgument,
+                        ChainStepArgument.argument_id == Argument.id,
+                    )
+                    .filter(ChainStepArgument.chain_step_id == step.id)
+                    .all()
+                )
+
+                prompt_args = {}
+                for argument, chain_step_argument in arguments:
+                    prompt_args[argument.name] = chain_step_argument.value
+
+                prompt.update(prompt_args)
+
+                step_data = {
+                    "step": step.step_number,
+                    "agent_name": agent_name,
+                    "prompt_type": step.prompt_type,
+                    "prompt": prompt,
+                }
+                chain_steps.append(step_data)
             chain_list.append(
                 {
                     "id": str(chain.id),
                     "name": chain.name,
                     "description": chain.description,
-                    "steps": chain.steps,
+                    "steps": chain_steps,
                     "runs": chain.runs,
                 }
             )
