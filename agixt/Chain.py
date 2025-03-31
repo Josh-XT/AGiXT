@@ -576,11 +576,21 @@ class Chain:
         # Update ChainStep object
         chain_step.agent_id = agent_id
         chain_step.prompt_type = prompt_type
-        chain_step.prompt = prompt_value_to_store  # **** FIXED ASSIGNMENT ****
+        chain_step.prompt = prompt_value_to_store
         chain_step.target_chain_id = target_chain_id
         chain_step.target_command_id = target_command_id
         chain_step.target_prompt_id = target_prompt_id
-        session.commit()
+
+        if prompt_type == "Command" and target_command_id is None:
+            command_name = prompt.get("command_name")
+            if command_name:
+                command = (
+                    session.query(Command).filter(Command.name == command_name).first()
+                )
+                if command:
+                    chain_step.target_command_id = command.id  # Re-set it here
+
+        session.commit()  # Commit the primary ChainStep updates first
 
         # Clean up any invalid argument keys before saving
         keys_to_remove = [
@@ -595,9 +605,13 @@ class Chain:
         }
 
         # Update the arguments for the step
+        # Delete existing arguments first
         session.query(ChainStepArgument).filter(
             ChainStepArgument.chain_step_id == str(chain_step.id)
         ).delete()
+        session.commit()  # Commit deletion
+
+        # Add new arguments
         for (
             argument_name,
             argument_value,
@@ -612,11 +626,11 @@ class Chain:
                     value=str(argument_value),  # Ensure value is string
                 )
                 session.add(chain_step_argument)
-                session.commit()
             else:
                 logging.warning(
                     f"Argument '{argument_name}' not found in Argument table. Skipping."
                 )
+        session.commit()  # Commit new arguments
         session.close()
 
     def delete_step(self, chain_name, step_number):

@@ -805,15 +805,10 @@ class DetailedChain:
 
 def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
     """Helper to convert chain data to DetailedChain type"""
-    logging.info(f"Converting chain data: {chain_data}")
     steps = []
     chain_steps = chain_data.get("steps", [])
 
-    logging.info(f"Processing chain steps: {chain_steps}")
-
     for step_dict in chain_steps:
-        logging.info(f"Processing dictionary step: {step_dict}")
-
         prompt_type = step_dict.get("prompt_type", "").lower()
         # Ensure prompt_content is always a dictionary, even if empty or None in source
         prompt_content = step_dict.get("prompt", {})
@@ -877,7 +872,6 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
     retrieved_id = str(chain_data.get("id", ""))
     retrieved_name = chain_data.get("name", "")  # Use .get() directly on the dict
     retrieved_description = chain_data.get("description")
-    logging.info(f"Retrieved name before creating DetailedChain: '{retrieved_name}'")
     # **** End Explicit Retrieval ****
 
     result = DetailedChain(
@@ -886,7 +880,6 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
         description=retrieved_description,
         steps=steps,
     )
-    logging.info(f"Conversion result: {result}")
     return result
 
 
@@ -2213,21 +2206,10 @@ class Query:
         user, auth, magical = await get_user_from_context(info)
         chain_manager = Chain(user=user)
         global_chains = chain_manager.get_global_chains()
-        logging.info(f"Raw global chains from manager: {global_chains}")
 
         result = []
         for chain in global_chains:
             try:
-                logging.info(f"Converting global chain: {chain}")
-                logging.info(f"Chain steps: {chain.get('steps', [])}")
-
-                # Log each step's data
-                for step in chain.get("steps", []):
-                    if hasattr(step, "__dict__"):
-                        logging.info(f"Step attributes: {step.__dict__}")
-                    else:
-                        logging.info(f"Step data: {step}")
-
                 converted_chain = convert_chain_to_detailed(
                     {
                         "id": chain.get("id"),
@@ -2236,14 +2218,11 @@ class Query:
                         "steps": chain.get("steps", []),
                     }
                 )
-                logging.info(f"Converted global chain: {converted_chain}")
                 if converted_chain:
                     result.append(converted_chain)
             except Exception as e:
                 logging.error(f"Error converting global chain {chain.get('name')}: {e}")
                 continue
-
-        logging.info(f"Final global chains result: {result}")
         return result
 
     @strawberry.field
@@ -2251,26 +2230,19 @@ class Query:
         """Get all user-specific chains"""
         user, auth, magical = await get_user_from_context(info)
         chain_manager = Chain(user=user)
-        user_chains = chain_manager.get_user_chains()  # This returns List[Dict]
-        logging.info(f"Raw user chains from manager: {user_chains}")
+        user_chains = chain_manager.get_user_chains()
 
         result = []
         for chain_dict in user_chains:  # Iterate through the list of dictionaries
             try:
-                logging.info(f"Converting user chain dict: {chain_dict}")
-                # Ensure chain_dict is actually a dictionary before proceeding
                 if not isinstance(chain_dict, dict):
                     logging.error(
                         f"Expected dictionary, got {type(chain_dict)}: {chain_dict}"
                     )
                     continue
 
-                logging.info(f"Chain steps from dict: {chain_dict.get('steps', [])}")
-
                 # Pass the dictionary directly to the conversion function
                 converted_chain = convert_chain_to_detailed(chain_dict)
-
-                logging.info(f"Converted user chain: {converted_chain}")
                 if converted_chain:
                     result.append(converted_chain)
             except Exception as e:
@@ -2281,8 +2253,6 @@ class Query:
                 )
                 logging.error(traceback.format_exc())  # Log full traceback
                 continue
-
-        logging.info(f"Final user chains result: {result}")
         return result
 
     @strawberry.field
