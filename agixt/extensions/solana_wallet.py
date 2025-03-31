@@ -149,6 +149,7 @@ class solana_wallet(Extensions):
 
     def __init__(
         self,
+        agent=None,
         **kwargs,
     ):
         nest_asyncio.apply() # Apply nest_asyncio to allow running async in sync context
@@ -158,6 +159,7 @@ class solana_wallet(Extensions):
         self.requires_config_update = False # Flag if settings might need updating
         self.final_pubkey = None
         self.error_message = None
+        self.agent = agent  # Store agent reference for configuration updates
 
         RAYDIUM_API_URI = "https://api.raydium.io"
         SOLANA_API_URI = "https://api.mainnet-beta.solana.com"
@@ -323,20 +325,51 @@ class solana_wallet(Extensions):
         FEE_LAMPORTS = 5000 # Standard fee
         old_pubkey = old_keypair.pubkey()
         old_pubkey_str = str(old_pubkey)
+        # Mark migration as completed and update settings right away since we're using the new address
+        self.migration_performed = True
+        self.requires_config_update = True
+        self.final_pubkey = str(new_pubkey)
+        
+        # Update agent settings if we have access to the agent instance
+        if hasattr(self, 'agent') and self.agent:
+            try:
+                self.agent.update_agent_config({"SOLANA_MIGRATION_COMPLETED": "true"}, "provider_settings")
+                print("[Migration] Successfully updated agent settings with migration status")
+            except Exception as e:
+                print(f"[Migration Warning] Failed to update agent settings: {str(e)}")
+
         try:
             print(f"[Migration Check] Checking balance for old address: {old_pubkey_str}")
-            balance_response = await self.client.get_balance(old_pubkey, commitment=Confirmed)
-            balance_lamports = balance_response.value
+            # Add initial delay to help avoid rate limiting
+            await asyncio.sleep(2)
+            
+            # Retry balance check up to 3 times with increasing delays
+            max_retries = 3
+            retry_delay = 3
+            for retry in range(max_retries):
+                try:
+                    balance_response = await self.client.get_balance(old_pubkey, commitment=Confirmed)
+                    balance_lamports = balance_response.value
+                    break
+                except Exception as e:
+                    if retry < max_retries - 1:
+                        print(f"[Migration] Rate limited or error checking balance, retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise e
 
-            # Attempt transfer regardless of balance. Will fail if insufficient funds for fee.
-            # We still need the balance to know *how much* to try and send if > fee.
-            amount_to_send = max(0, balance_lamports - FEE_LAMPORTS) # Send 0 if balance <= fee
-            print(f"[Migration] Old address balance: {balance_lamports / 1e9:.9f} SOL. Attempting to transfer {amount_to_send / 1e9:.9f} SOL to new address: {str(new_pubkey)}")
+            print(f"[Migration] Old address balance: {balance_lamports / 1e9:.9f} SOL")
+            
+            if balance_lamports <= FEE_LAMPORTS:
+                print(f"[Migration] Balance is zero or insufficient for transfer (less than fee). Marking migration as complete and using new wallet.")
+                return
 
-            # Only proceed with actual transaction if there's potentially something to send
-            # or if we want to force the attempt even for 0 amount (might cost fee).
-            # Let's attempt even if amount_to_send is 0 to ensure the logic runs once.
-            # The transaction will likely fail pre-flight or on-chain if lamports=0 or insufficient fee, which is acceptable.
+            await asyncio.sleep(5) # Add delay before transfer attempt
+
+            # Calculate amount to send after deducting fee
+            amount_to_send = balance_lamports - FEE_LAMPORTS
+            print(f"[Migration] Attempting to transfer {amount_to_send / 1e9:.9f} SOL to new address: {str(new_pubkey)}")
 
             # Create transfer instruction
             transfer_ix = transfer(
@@ -350,6 +383,8 @@ class solana_wallet(Extensions):
             # Get blockhash
             blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
             recent_blockhash = blockhash_response.value.blockhash
+
+            await asyncio.sleep(1) # Add delay to avoid rate limiting
 
             # Create message and transaction (signing with OLD keypair)
             msg = MessageV0.try_compile(
