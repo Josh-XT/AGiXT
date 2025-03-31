@@ -16,7 +16,9 @@ from typing import Dict, Any, Optional
 from solders.transaction import VersionedTransaction, Transaction
 from solders.system_program import TransferParams, transfer
 from solders.pubkey import Pubkey
-
+from mnemonic import Mnemonic
+from hashlib import pbkdf2_hmac
+from bip32 import BIP32
 # Define TOKEN_PROGRAM_ID (this is a well-known address in Solana)
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 
@@ -147,18 +149,40 @@ class solana_wallet(Extensions):
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = AsyncClient(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
+        WALLET_PASSPHRASE = kwargs.get("SOLANA_WALLET_PASSPHRASE", None)
 
-        if WALLET_PRIVATE_KEY:
+        if WALLET_PRIVATE_KEY or WALLET_PASSPHRASE:
             try:
-                # Try hex decoding first
-                try:
-                    secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
-                except ValueError:
-                    # If that fails, try base58 decoding
-                    secret_bytes = base58.b58decode(WALLET_PRIVATE_KEY)
+                if WALLET_PASSPHRASE:
+                    # BIP39 passphrase derivation with PBKDF2-HMAC-SHA512
 
-                self.wallet_keypair = Keypair.from_seed(secret_bytes)
-                self.wallet_address = str(self.wallet_keypair.pubkey())
+                    mnemo = Mnemonic("english")
+                    if not mnemo.check(WALLET_PASSPHRASE):
+                        raise ValueError("Invalid BIP39 mnemonic phrase")
+
+                    # Generate seed from mnemonic with empty password
+                    seed = mnemo.to_seed(WALLET_PASSPHRASE)
+
+                    # Use from_seed_and_derivation_path directly
+                    derivation_path = "m/44'/501'/0'/0'"
+                    self.wallet_keypair = Keypair.from_seed_and_derivation_path(seed, derivation_path)
+                else:
+                    # Existing private key handling
+                    try:
+                        secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
+                    except ValueError:
+                        secret_bytes = base58.b58decode(WALLET_PRIVATE_KEY)
+
+                    if len(secret_bytes) == 32:
+                        # Assume 32 bytes is a seed
+                        self.wallet_keypair = Keypair.from_seed(secret_bytes)
+                    elif len(secret_bytes) == 64:
+                         # Assume 64 bytes is the full keypair bytes
+                        self.wallet_keypair = Keypair.from_bytes(secret_bytes)
+                    else:
+                        raise ValueError(f"Invalid key length: {len(secret_bytes)}. Expected 32 or 64 bytes for secret key.")
+                
+                self.wallet_address = str(self.wallet_keypair.pubkey()) if self.wallet_keypair else None
             except Exception as e:
                 print(f"Error initializing wallet: {e}")
                 self.wallet_keypair = None
