@@ -777,7 +777,7 @@ class ChainDetails:
 
 @strawberry.type
 class ChainRunStep:
-    """Represents the result of running a chain step"""
+    """Represents the result of running a chain step"""cd
 
     step_number: int
     content: str
@@ -2274,6 +2274,7 @@ class Query:
                     agent_name=step["agent_name"],
                     prompt_type=step["prompt_type"],
                     prompt=step["prompt"],
+                    target_name=step["target_name"],
                 )
                 for step in chain_data["steps"]
             ],
