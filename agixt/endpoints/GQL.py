@@ -731,23 +731,13 @@ class MemoryImportEntry:
 
 
 @strawberry.type
-class ChainPrompt:
-    """Represents a chain step's prompt configuration"""
-
-    prompt_name: Optional[str] = None
-    command_name: Optional[str] = None
-    chain_name: Optional[str] = None
-    prompt_category: Optional[str] = "Default"
-
-
-@strawberry.type
 class ChainStep:
     """Represents a step in a chain"""
 
     step: int
     agent_name: str
     prompt_type: str
-    prompt: ChainPrompt
+    prompt: dict
 
 
 class ChainDetails:
@@ -825,12 +815,7 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
                     step=step.step_number,
                     agent_name=agent_name,
                     prompt_type=step.prompt_type or "",
-                    prompt=ChainPrompt(
-                        prompt_name=prompt_dict.get("prompt_name"),
-                        command_name=prompt_dict.get("command_name"),
-                        chain_name=prompt_dict.get("chain_name"),
-                        prompt_category=prompt_dict.get("prompt_category", "Default"),
-                    ),
+                    prompt=prompt_dict,
                 )
                 steps.append(new_step)
             else:  # Dictionary
@@ -846,12 +831,7 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
                     step=step.get("step_number", 0),
                     agent_name=step.get("agent_name", ""),
                     prompt_type=step.get("prompt_type", ""),
-                    prompt=ChainPrompt(
-                        prompt_name=prompt.get("prompt_name"),
-                        command_name=prompt.get("command_name"),
-                        chain_name=prompt.get("chain_name"),
-                        prompt_category=prompt.get("prompt_category", "Default"),
-                    ),
+                    prompt=prompt,
                 )
                 steps.append(new_step)
 
@@ -2285,7 +2265,7 @@ class Query:
                     step=step["step"],
                     agent_name=step["agent_name"],
                     prompt_type=step["prompt_type"],
-                    prompt=ChainPrompt(**step["prompt"]),
+                    prompt=step["prompt"],
                 )
                 for step in chain_data["steps"]
             ],
