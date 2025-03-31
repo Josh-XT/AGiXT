@@ -820,7 +820,7 @@ def convert_chain_to_detailed(chain_data: dict) -> DetailedChain:
         logging.info(f"Processing dictionary step: {step_data}")
         new_step = ChainStep(
             step=step_data.get("step_number", 0),
-            agent_name=step_data.get("agent_name", step_data.get("agent", ""),
+            agent_name=step_data.get("agent_name", step_data.get("agent", "")),
             prompt_type=step_data.get("prompt_type", ""),
             prompt=step_data.get("prompt", {}),
         )
