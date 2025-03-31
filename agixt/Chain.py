@@ -34,7 +34,7 @@ class Chain:
     def get_chain(self, chain_name):
         session = get_session()
         chain_name = chain_name.replace("%20", " ")
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        user_data = session.query(User).filter(User.id == self.user_id).first()
         chain_db = (
             session.query(ChainDB)
             .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
@@ -980,7 +980,11 @@ class Chain:
             "helper_agent_name",
         ]
         chain_data = self.get_chain(chain_name=chain_name)
-        steps = chain_data["steps"]
+        logging.info(f"Chain Data: {chain_data}")
+        try:
+            steps = chain_data["steps"]
+        except:
+            return []
         prompt_args = []
         args = []
         for step in steps:
