@@ -26,6 +26,7 @@ SCOPES = [
     "returns",
 ]
 AUTHORIZE = "https://developer.walmart.com/api/oauth/authorize"
+PKCE_REQUIRED = False
 
 
 class WalmartSSO:

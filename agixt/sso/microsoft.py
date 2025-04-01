@@ -31,6 +31,7 @@ SCOPES = [
     "https://graph.microsoft.com/Calendars.ReadWrite",
 ]
 AUTHORIZE = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+PKCE_REQUIRED = False
 
 
 class MicrosoftSSO:

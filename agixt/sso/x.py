@@ -25,7 +25,7 @@ SCOPES = [
     "dm.write",
 ]
 AUTHORIZE = "https://x.com/i/oauth2/authorize"
-
+PKCE_REQUIRED = True
 
 class XSSO:
     def __init__(
@@ -87,7 +87,7 @@ class XSSO:
             )
 
 
-def sso(code, redirect_uri=None) -> XSSO:
+def sso(code, redirect_uri=None, code_verifier=None) -> XSSO:
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")
     code = (
@@ -106,7 +106,7 @@ def sso(code, redirect_uri=None) -> XSSO:
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
-            "scope": SCOPES,
+            "code_verifier": code_verifier
         },
         auth=(client_id, client_secret)
     )

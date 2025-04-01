@@ -22,6 +22,7 @@ SCOPES = ["identify", "email", "guilds", "guild.members.read"]
 AUTHORIZE = "https://discord.com/api/oauth2/authorize"
 TOKEN_URL = "https://discord.com/api/oauth2/token"
 USER_INFO_URL = "https://discord.com/api/users/@me"
+PKCE_REQUIRED = False
 
 
 class DiscordSSO:
