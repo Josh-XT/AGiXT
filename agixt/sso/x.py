@@ -24,7 +24,7 @@ SCOPES = [
     "dm.read",
     "dm.write",
 ]
-AUTHORIZE = "https://twitter.com/i/oauth2/authorize"
+AUTHORIZE = "https://x.com/i/oauth2/authorize"
 
 
 class XSSO:
@@ -98,7 +98,7 @@ def sso(code, redirect_uri=None) -> XSSO:
         .replace("%3D", "=")
     )
     response = requests.post(
-        "https://api.twitter.com/2/oauth2/token",
+        "https://api.x.com/2/oauth2/token",
         data={
             "code": code,
             "client_id": getenv("X_CLIENT_ID"),
