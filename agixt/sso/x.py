@@ -97,16 +97,18 @@ def sso(code, redirect_uri=None) -> XSSO:
         .replace("%3F", "?")
         .replace("%3D", "=")
     )
+    client_id = getenv("X_CLIENT_ID")
+    client_secret = getenv("X_CLIENT_SECRET")
     response = requests.post(
         "https://api.x.com/2/oauth2/token",
         data={
             "code": code,
-            "client_id": getenv("X_CLIENT_ID"),
-            "client_secret": getenv("X_CLIENT_SECRET"),
+            "client_id": client_id,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
             "scope": SCOPES,
         },
+        auth=(client_id, client_secret)
     )
     if response.status_code != 200:
         logging.error(f"Error getting X access token: {response.text}")
