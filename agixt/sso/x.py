@@ -55,7 +55,7 @@ class XSSO:
         return response.json()["access_token"]
 
     def get_user_info(self):
-        uri = "https://api.x.com/2/users/me?user.fields=name,username,profile_image_url,email"
+        uri = "https://api.x.com/2/users/me?user.fields=name,username,profile_image_url"
         response = requests.get(
             uri,
             headers={"Authorization": f"Bearer {self.access_token}"},
