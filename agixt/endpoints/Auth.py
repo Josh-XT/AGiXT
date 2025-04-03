@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import os
 from Models import (
     Detail,
     Login,
@@ -15,6 +18,8 @@ from Models import (
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from MagicalAuth import (
     MagicalAuth,
+    decrypt,
+    encrypt,
     verify_api_key,
     impersonate_user,
     get_oauth_providers,
@@ -317,6 +322,26 @@ async def send_mfa_email(request: Request):
     return {"detail": auth.send_email_code()}
 
 
+@app.get(
+    "/v1/oauth2/pkce-simple", summary="Generate PKCE code challenge", tags=["Auth"]
+)
+async def get_pkce_challenge_simple():
+    """Generate code_verifier and code_challenge, embed verifier in state."""
+    api_key = getenv("AGIXT_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=500, detail="Server misconfiguration: Missing AGIXT_API_KEY"
+        )
+    code_verifier = base64.urlsafe_b64encode(os.urandom(32)).decode("utf-8").rstrip("=")
+    code_verifier_digest = hashlib.sha256(code_verifier.encode("utf-8")).digest()
+    return {
+        "code_challenge": base64.urlsafe_b64encode(code_verifier_digest)
+        .decode("utf-8")
+        .rstrip("="),
+        "state": encrypt(getenv("AGIXT_API_KEY"), {"verifier": code_verifier}),
+    }
+
+
 @app.post(
     "/v1/oauth2/{provider}",
     response_model=Detail,
@@ -331,12 +356,21 @@ async def oauth_login(
     auth = MagicalAuth(token=authorization)
     email = auth.email
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+    code_verifier = None
+    state = data.get("state")
+    if state:
+        try:
+            code_verifier = decrypt(getenv("AGIXT_API_KEY"), state).get("verifier")
+        except Exception as e:
+            logging.error(f"Failed to decode code_verifier from state: {str(e)}")
+
     magic_link = auth.sso(
         provider=provider.lower(),
         code=data["code"],
         ip_address=client_ip,
         referrer=data["referrer"] if "referrer" in data else getenv("APP_URI"),
         invitation_id=data["invitation_id"] if "invitation_id" in data else None,
+        code_verifier=code_verifier,
     )
 
     # If user is already logged in (has authorization token)

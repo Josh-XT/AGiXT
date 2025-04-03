@@ -23,6 +23,7 @@ SCOPES = [
     "vehicle_location",
 ]
 AUTHORIZE = "https://auth.tesla.com/oauth2/v3/authorize"
+PKCE_REQUIRED = False
 
 
 class TeslaSSO:

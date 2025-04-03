@@ -19,6 +19,7 @@ Required scopes for AWS OAuth
 """
 SCOPES = ["openid", "email", "profile"]
 AUTHORIZE = "https://www.amazon.com/ap/oa"
+PKCE_REQUIRED = False
 
 
 class AmazonSSO:

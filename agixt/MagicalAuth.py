@@ -117,7 +117,7 @@ def is_admin(email: str = "USER", api_key: str = None):
     return True
 
 
-def get_sso_provider(provider: str, code, redirect_uri=None):
+def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
     sso_dir = os.path.join(os.path.dirname(__file__), "sso")
     files = os.listdir(sso_dir)
     for file in files:
@@ -128,7 +128,17 @@ def get_sso_provider(provider: str, code, redirect_uri=None):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         if file.replace(".py", "") == provider:
-            return module.sso(code=code, redirect_uri=redirect_uri)
+            if getattr(module, "PKCE_REQUIRED", False):
+                if not code_verifier:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"PKCE required for {provider} but no code_verifier provided",
+                    )
+                return module.sso(
+                    code=code, redirect_uri=redirect_uri, code_verifier=code_verifier
+                )
+            else:
+                return module.sso(code=code, redirect_uri=redirect_uri)
     return None
 
 
@@ -152,6 +162,7 @@ def get_oauth_providers():
                         "scopes": " ".join(module.SCOPES),
                         "authorize": module.AUTHORIZE,
                         "client_id": client_id,
+                        "pkce_required": module.PKCE_REQUIRED,
                     }
                 )
         except:
@@ -2546,6 +2557,7 @@ class MagicalAuth:
         provider="microsoft",
         referrer=None,
         invitation_id=None,
+        code_verifier=None,
     ):
         if not referrer:
             referrer = getenv("APP_URI")
@@ -2554,7 +2566,12 @@ class MagicalAuth:
         files = os.listdir("sso")
         if f"{provider}.py" not in files:
             provider = "microsoft"
-        sso_data = get_sso_provider(provider=provider, code=code, redirect_uri=referrer)
+        sso_data = get_sso_provider(
+            provider=provider,
+            code=code,
+            redirect_uri=referrer,
+            code_verifier=code_verifier,
+        )
         if not sso_data:
             logging.error(f"Failed to get user data from {provider.capitalize()}.")
             raise HTTPException(
