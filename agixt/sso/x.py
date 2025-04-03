@@ -24,8 +24,8 @@ SCOPES = [
     "dm.read",
     "dm.write",
 ]
-AUTHORIZE = "https://twitter.com/i/oauth2/authorize"
-
+AUTHORIZE = "https://x.com/i/oauth2/authorize"
+PKCE_REQUIRED = True
 
 class XSSO:
     def __init__(
@@ -55,7 +55,7 @@ class XSSO:
         return response.json()["access_token"]
 
     def get_user_info(self):
-        uri = "https://api.x.com/2/users/me?user.fields=name,username,profile_image_url,email"
+        uri = "https://api.x.com/2/users/me?user.fields=name,username,profile_image_url"
         response = requests.get(
             uri,
             headers={"Authorization": f"Bearer {self.access_token}"},
@@ -87,7 +87,7 @@ class XSSO:
             )
 
 
-def sso(code, redirect_uri=None) -> XSSO:
+def sso(code, redirect_uri=None, code_verifier=None) -> XSSO:
     if not redirect_uri:
         redirect_uri = getenv("APP_URI")
     code = (
@@ -97,16 +97,18 @@ def sso(code, redirect_uri=None) -> XSSO:
         .replace("%3F", "?")
         .replace("%3D", "=")
     )
+    client_id = getenv("X_CLIENT_ID")
+    client_secret = getenv("X_CLIENT_SECRET")
     response = requests.post(
-        "https://api.twitter.com/2/oauth2/token",
+        "https://api.x.com/2/oauth2/token",
         data={
             "code": code,
-            "client_id": getenv("X_CLIENT_ID"),
-            "client_secret": getenv("X_CLIENT_SECRET"),
+            "client_id": client_id,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
-            "scope": SCOPES,
+            "code_verifier": code_verifier
         },
+        auth=(client_id, client_secret)
     )
     if response.status_code != 200:
         logging.error(f"Error getting X access token: {response.text}")

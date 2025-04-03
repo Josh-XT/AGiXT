@@ -28,6 +28,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
 ]
 AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
+PKCE_REQUIRED = False
 
 
 class GoogleSSO:
