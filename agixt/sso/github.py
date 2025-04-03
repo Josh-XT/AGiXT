@@ -19,6 +19,7 @@ Required scopes for GitHub OAuth
 
 SCOPES = ["repo", "user:email", "read:user", "workflow"]
 AUTHORIZE = "https://github.com/login/oauth/authorize"
+PKCE_REQUIRED = False
 
 
 class GitHubSSO:
