@@ -322,17 +322,23 @@ async def send_mfa_email(request: Request):
     return {"detail": auth.send_email_code()}
 
 
-@app.get("/v1/oauth2/pkce-simple", summary="Generate PKCE code challenge", tags=["Auth"])
+@app.get(
+    "/v1/oauth2/pkce-simple", summary="Generate PKCE code challenge", tags=["Auth"]
+)
 async def get_pkce_challenge_simple():
     """Generate code_verifier and code_challenge, embed verifier in state."""
     api_key = getenv("AGIXT_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="Server misconfiguration: Missing AGIXT_API_KEY")
-    code_verifier = base64.urlsafe_b64encode(os.urandom(32)).decode('utf-8').rstrip('=')
-    code_verifier_digest = hashlib.sha256(code_verifier.encode('utf-8')).digest()
+        raise HTTPException(
+            status_code=500, detail="Server misconfiguration: Missing AGIXT_API_KEY"
+        )
+    code_verifier = base64.urlsafe_b64encode(os.urandom(32)).decode("utf-8").rstrip("=")
+    code_verifier_digest = hashlib.sha256(code_verifier.encode("utf-8")).digest()
     return {
-        "code_challenge": base64.urlsafe_b64encode(code_verifier_digest).decode('utf-8').rstrip('='),
-        "state": encrypt(getenv("AGIXT_API_KEY"), {"verifier": code_verifier})
+        "code_challenge": base64.urlsafe_b64encode(code_verifier_digest)
+        .decode("utf-8")
+        .rstrip("="),
+        "state": encrypt(getenv("AGIXT_API_KEY"), {"verifier": code_verifier}),
     }
 
 
@@ -364,7 +370,7 @@ async def oauth_login(
         ip_address=client_ip,
         referrer=data["referrer"] if "referrer" in data else getenv("APP_URI"),
         invitation_id=data["invitation_id"] if "invitation_id" in data else None,
-        code_verifier=code_verifier
+        code_verifier=code_verifier,
     )
 
     # If user is already logged in (has authorization token)
