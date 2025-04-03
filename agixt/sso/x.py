@@ -27,6 +27,7 @@ SCOPES = [
 AUTHORIZE = "https://x.com/i/oauth2/authorize"
 PKCE_REQUIRED = True
 
+
 class XSSO:
     def __init__(
         self,
@@ -106,9 +107,9 @@ def sso(code, redirect_uri=None, code_verifier=None) -> XSSO:
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
-            "code_verifier": code_verifier
+            "code_verifier": code_verifier,
         },
-        auth=(client_id, client_secret)
+        auth=(client_id, client_secret),
     )
     if response.status_code != 200:
         logging.error(f"Error getting X access token: {response.text}")
