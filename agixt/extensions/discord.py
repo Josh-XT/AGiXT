@@ -59,10 +59,6 @@ class discord(Extensions):
                     logging.error(
                         f"Error initializing Discord extension auth: {str(e)}"
                     )
-        else:
-            logging.warning(
-                "Discord Client ID or Secret not configured. Discord commands disabled."
-            )
 
     def _get_headers(self):
         """Returns the authorization headers for Discord API requests."""

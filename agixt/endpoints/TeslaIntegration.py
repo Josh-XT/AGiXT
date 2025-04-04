@@ -30,7 +30,6 @@ def ensure_keys_exist():
 
         # Check if keys already exist
         if os.path.exists(PRIVATE_KEY_PATH) and os.path.exists(PUBLIC_KEY_PATH):
-            logging.info("Tesla API keys already exist")
             return
 
         # Generate new keys using OpenSSL
@@ -59,8 +58,6 @@ def ensure_keys_exist():
         # Set proper permissions
         os.chmod(PRIVATE_KEY_PATH, 0o600)  # Read/write for owner only
         os.chmod(PUBLIC_KEY_PATH, 0o644)  # Read for everyone, write for owner
-
-        logging.info(f"Tesla API key pair generated successfully in {TESLA_DIR}")
 
     except Exception as e:
         logging.error(f"Error generating Tesla API keys: {str(e)}")
