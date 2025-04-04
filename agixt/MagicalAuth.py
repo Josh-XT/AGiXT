@@ -1096,16 +1096,11 @@ class MagicalAuth:
 
     def update_user_role(self, company_id: str, user_id: str, role_id: int):
         session = get_session()
-        user_companies = (
-            session.query(UserCompany)
-            .filter(UserCompany.user_id == self.user_id)
-            .filter(UserCompany.company_id == company_id)
-            .first()
-        )
-        if not user_companies:
+        user_role = self.get_user_role(company_id)
+        if user_role is None:
             session.close()
             raise HTTPException(status_code=404, detail="User not found in company")
-        if user_companies.role_id >= 3:
+        if user_role >= 3:
             session.close()
             raise HTTPException(
                 status_code=403, detail="User does not have permission to update roles"
@@ -1122,25 +1117,20 @@ class MagicalAuth:
             role_id = 3
         if role_id > 3:
             role_id = 3
-        if role_id > user_companies.role_id:
+        if role_id > user_role:
             session.close()
             raise HTTPException(
                 status_code=403,
                 detail="User does not have permission to assign this role",
             )
-        if not user_company:
-            # Invite them with the role
-            user = session.query(User).filter(User.id == user_id).first()
-            self.create_invitation(
-                invitation=InvitationCreate(
-                    email=user.email,
-                    company_id=company_id,
-                    role_id=role_id,
-                )
-            )
-        else:
+        if user_company:
             user_company.role_id = role_id
             session.commit()
+        else:
+            session.close()
+            raise HTTPException(
+                status_code=404, detail="User not found in the specified company"
+            )
         session.close()
         return "User role updated successfully."
 
