@@ -920,37 +920,6 @@ def setup_default_roles():
         db.commit()
 
 
-def add_agent_name_column():
-    """Add agent_name column to the Company table in the existing SQLite database."""
-    try:
-        # Connect to the database
-        connection = engine.connect()
-
-        # Execute the ALTER TABLE statement to add the column
-        # The default value will be taken from the environment variable AGENT_NAME
-        default_agent_name = getenv("AGENT_NAME", "XT")
-
-        # SQLite doesn't support adding a column with a default value directly
-        # So we'll add the column first, then update existing rows
-        connection.execute(text("ALTER TABLE Company ADD COLUMN agent_name TEXT"))
-
-        # Update existing rows with the default value
-        connection.execute(
-            text(f"UPDATE Company SET agent_name = '{default_agent_name}'")
-        )
-
-        connection.commit()
-        print(
-            f"Successfully added agent_name column to Company table with default value: {default_agent_name}"
-        )
-
-    except Exception as e:
-        print(f"Error adding agent_name column: {e}")
-    finally:
-        if connection:
-            connection.close()
-
-
 if __name__ == "__main__":
     import uvicorn
 
@@ -964,7 +933,6 @@ if __name__ == "__main__":
             except Exception as e:
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
-    add_agent_name_column()
     Base.metadata.create_all(engine)
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
