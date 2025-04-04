@@ -1117,7 +1117,7 @@ class MagicalAuth:
             role_id = 3
         if role_id > 3:
             role_id = 3
-        if role_id > user_role:
+        if role_id < user_role:
             session.close()
             raise HTTPException(
                 status_code=403,
