@@ -922,15 +922,13 @@ def setup_default_roles():
 
 def add_agent_name_column():
     """Add agent_name column to the Company table in the existing SQLite database."""
-    from DB import engine
-
     try:
         # Connect to the database
         connection = engine.connect()
 
         # Execute the ALTER TABLE statement to add the column
         # The default value will be taken from the environment variable AGENT_NAME
-        default_agent_name = getenv("AGENT_NAME", "")
+        default_agent_name = getenv("AGENT_NAME", "XT")
 
         # SQLite doesn't support adding a column with a default value directly
         # So we'll add the column first, then update existing rows
