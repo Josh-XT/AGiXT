@@ -1095,6 +1095,10 @@ class MagicalAuth:
             return []
 
     def update_user_role(self, company_id: str, user_id: str, role_id: int):
+        if user_id == self.user_id:
+            raise HTTPException(
+                status_code=403, detail="You cannot change your own role."
+            )
         session = get_session()
         user_role = self.get_user_role(company_id)
         if user_role is None:
