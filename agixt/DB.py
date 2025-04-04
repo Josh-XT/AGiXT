@@ -964,6 +964,7 @@ if __name__ == "__main__":
             except Exception as e:
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
+    add_agent_name_column()
     Base.metadata.create_all(engine)
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
@@ -972,7 +973,6 @@ if __name__ == "__main__":
         from SeedImports import import_all_data
 
         import_all_data()
-    add_agent_name_column()
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
