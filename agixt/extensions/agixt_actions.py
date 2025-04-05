@@ -178,6 +178,7 @@ class agixt_actions(Extensions):
             "Replace init in File": self.replace_init_in_file,
             "Explain Chain": self.chain_to_mermaid,
             "Get Datetime": self.get_datetime,
+            "Use MCP Server": self.mcp_client,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -1336,3 +1337,54 @@ class agixt_actions(Extensions):
         str: The current date and time in the format "YYYY-MM-DD HH:MM:SS"
         """
         return "Current date and time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    async def mcp_client(
+        self, endpoint_url, api_key, user_input, context=None, tools=None
+    ):
+        """
+        Model Context Protocol client for interacting with MCP servers.
+
+        Args:
+            endpoint_url (str): The URL of the MCP-compatible API endpoint
+            api_key (str): Your API key for authentication
+            user_input (str): The user's message as a simple string
+            context (str, optional): Additional context information as a string
+            tools (str, optional): Comma-separated list of tools
+
+        Returns:
+            str: The response from the MCP server
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+
+        messages = [
+            {"role": "user", "content": user_input},
+        ]
+
+        payload = {
+            "messages": messages,
+        }
+
+        # Add context if provided
+        if context:
+            payload["context"] = {"document": context}
+
+        # Convert comma-separated tools to a list
+        if tools:
+            tool_list = [tool.strip() for tool in tools.split(",")]
+            payload["tools"] = tool_list
+
+        try:
+            response = requests.post(
+                endpoint_url, headers=headers, data=json.dumps(payload)
+            )
+            response.raise_for_status()  # Raise exception for HTTP errors
+
+            response_json = response.json()
+            return f"MCP Server Response: ```json\n{json.dumps(response_json, indent=2)}\n```"
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error making MCP request: {e}")
+            return f"Error making MCP request: {e}"
