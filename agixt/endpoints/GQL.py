@@ -889,6 +889,7 @@ class ChainConfig:
 
     id: str
     chain_name: str
+    description: Optional[str]
     steps: List[ChainStep]
 
 
@@ -2275,7 +2276,8 @@ class Query:
         # Build ChainConfig from the converted DetailedChain
         return ChainConfig(
             id=detailed_chain.id,
-            chain_name=detailed_chain.chain_name,  # Should be correct now
+            chain_name=detailed_chain.chain_name,
+            description=detailed_chain.description,
             steps=detailed_chain.steps,
         )
 
