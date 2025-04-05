@@ -14,7 +14,7 @@ app = APIRouter()
     dependencies=[Depends(verify_api_key)],
     response_model=ExtensionSettings,
     summary="Get Extension Settings",
-    description="Retrieves all extension settings for the authenticated user. This includes settings for all available extensions and AGiXT Chains.",
+    description="Retrieves all extension settings for the authenticated user. This includes settings for all available extensions and chains.",
 )
 async def get_extension_settings(user=Depends(verify_api_key)):
     # try:

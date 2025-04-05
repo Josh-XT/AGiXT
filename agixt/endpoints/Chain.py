@@ -212,10 +212,10 @@ async def importchain(
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
-    summary="Rename chain",
-    description="Renames an existing chain to a new name.",
+    summary="Update chain",
+    description="Updates the name and/or description of an existing chain.",
 )
-async def rename_chain(
+async def update_chain(
     chain_name: str,
     new_name: ChainNewName,
     user=Depends(verify_api_key),
@@ -225,9 +225,23 @@ async def rename_chain(
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    Chain(user=user).rename_chain(chain_name=chain_name, new_name=new_name.new_name)
+    chain = Chain(user=user)
+    if new_name.new_name:
+        chain.rename_chain(chain_name=chain_name, new_name=new_name.new_name)
+        if not new_name.description:
+            return ResponseMessage(
+                message=f"Chain '{chain_name}' renamed to '{new_name.new_name}'."
+            )
+    if new_name.description:
+        chain.update_description(
+            chain_name=chain_name, description=new_name.description
+        )
+        if not new_name.new_name:
+            return ResponseMessage(
+                message=f"Description for chain '{chain_name}' updated to '{new_name.description}'."
+            )
     return ResponseMessage(
-        message=f"Chain '{chain_name}' renamed to '{new_name.new_name}'."
+        message=f"Chain '{chain_name}' updated with new name '{new_name.new_name}' and description '{new_name.description}'."
     )
 
 
