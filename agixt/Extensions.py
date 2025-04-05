@@ -470,7 +470,7 @@ class Extensions:
                 chain_commands.append(
                     {
                         "friendly_name": chain["chain_name"],
-                        "description": f"Execute custom automation: `{chain['chain_name']}`.  {chain['description']}\nThe assistant can use the 'user_input' field as a place to summarize what the user needs when running the command.",
+                        "description": f"Execute custom automation: `{chain['chain_name']}`. The assistant can use the 'user_input' field as a place to summarize what the user needs when running the command.\nDescription: {chain['description']}",
                         "command_name": "run_chain",
                         "command_args": {
                             "chain_name": chain["chain_name"],
