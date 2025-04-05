@@ -182,7 +182,9 @@ async def add_chain(
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    Chain(user=user).add_chain(chain_name=chain_name.chain_name)
+    Chain(user=user).add_chain(
+        chain_name=chain_name.chain_name, description=chain_name.description
+    )
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 

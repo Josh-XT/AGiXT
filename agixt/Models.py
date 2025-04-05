@@ -354,6 +354,7 @@ class ChainNewName(BaseModel):
 
 class ChainName(BaseModel):
     chain_name: str
+    description: Optional[str] = None
 
 
 class StepInfo(BaseModel):
