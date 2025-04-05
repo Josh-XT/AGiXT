@@ -466,6 +466,7 @@ class Extensions:
         if hasattr(self, "chains_with_args") and self.chains_with_args:
             chain_commands = []
             for chain in self.chains_with_args:
+                logging.info(f"{chain}")
                 chain_commands.append(
                     {
                         "friendly_name": chain["chain_name"],
