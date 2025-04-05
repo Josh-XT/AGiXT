@@ -101,7 +101,7 @@ class Chain:
         chain_data = {
             "id": chain_db.id,
             "chain_name": chain_db.name,
-            "description": chain_db.description,
+            "description": chain_db.description if chain_db.description else "",
             "steps": steps,
         }
         session.close()
