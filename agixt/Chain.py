@@ -210,9 +210,9 @@ class Chain:
         session.close()
         return chain_list
 
-    def add_chain(self, chain_name):
+    def add_chain(self, chain_name, description=""):
         session = get_session()
-        chain = ChainDB(name=chain_name, user_id=self.user_id)
+        chain = ChainDB(name=chain_name, user_id=self.user_id, description=description)
         session.add(chain)
         session.commit()
         session.close()
