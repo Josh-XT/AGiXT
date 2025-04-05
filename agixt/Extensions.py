@@ -191,6 +191,7 @@ class Extensions:
             "id": chain_db.id,
             "chain_name": chain_db.name,
             "steps": steps,
+            "description": chain_db.description if chain_db.description else "",
         }
         session.close()
         return chain_data
@@ -209,6 +210,7 @@ class Extensions:
         chains = []
         for chain_name in self.chains:
             chain_data = self.get_chain(chain_name=chain_name)
+            description = chain_data["description"]
             steps = chain_data["steps"]
             prompt_args = []
             for step in steps:
@@ -239,7 +241,13 @@ class Extensions:
                             prompt_args.append(arg)
                 except Exception as e:
                     logging.error(f"Error getting chain args for {chain_name}: {e}")
-            chains.append({"chain_name": chain_name, "args": prompt_args})
+            chains.append(
+                {
+                    "chain_name": chain_name,
+                    "description": description,
+                    "args": prompt_args,
+                }
+            )
         return chains
 
     def load_commands(self):
@@ -322,12 +330,12 @@ class Extensions:
 
         # Use self.chains_with_args instead of iterating over self.chains
         if self.chains_with_args:
-            settings["AGiXT Chains"] = {}
+            settings["Custom Automation"] = {}
             for chain in self.chains_with_args:
                 chain_name = chain["chain_name"]
                 chain_args = chain["args"]
                 if chain_args:
-                    settings["AGiXT Chains"][chain_name] = {
+                    settings["Custom Automation"][chain_name] = {
                         "user_input": "",
                         **{arg: "" for arg in chain_args},
                     }
@@ -454,14 +462,15 @@ class Extensions:
                 }
             )
 
-        # Add AGiXT Chains as an extension only if chains_with_args is initialized
+        # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
             chain_commands = []
             for chain in self.chains_with_args:
+                logging.info(f"{chain}")
                 chain_commands.append(
                     {
                         "friendly_name": chain["chain_name"],
-                        "description": f"Execute AGiXT Chain: `{chain['chain_name']}`.  The assistant can use the 'user_input' field as a place to summarize what the user needs when running the command.",
+                        "description": f"Execute custom automation: `{chain['chain_name']}`. The assistant can use the 'user_input' field as a place to summarize what the user needs when running the command.\nDescription: {chain['description']}",
                         "command_name": "run_chain",
                         "command_args": {
                             "chain_name": chain["chain_name"],
@@ -473,8 +482,8 @@ class Extensions:
 
             commands.append(
                 {
-                    "extension_name": "AGiXT Chains",
-                    "description": "Execute predefined chains of commands",
+                    "extension_name": "Custom Automation",
+                    "description": "Execute a custom automation workflow.",
                     "settings": [],
                     "commands": chain_commands,
                 }
