@@ -1338,9 +1338,7 @@ class agixt_actions(Extensions):
         """
         return "Current date and time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    async def mcp_client(
-        self, endpoint_url, api_key, user_input, context=None, tools=None
-    ):
+    async def mcp_tool(self, endpoint_url, api_key, user_input, tools=None):
         """
         Model Context Protocol client for interacting with MCP servers.
 
@@ -1348,7 +1346,6 @@ class agixt_actions(Extensions):
             endpoint_url (str): The URL of the MCP-compatible API endpoint
             api_key (str): Your API key for authentication
             user_input (str): The user's message as a simple string
-            context (str, optional): Additional context information as a string
             tools (str, optional): Comma-separated list of tools
 
         Returns:
@@ -1367,9 +1364,13 @@ class agixt_actions(Extensions):
             "messages": messages,
         }
 
-        # Add context if provided
+        context = self.ApiClient.get_agent_memories(
+            agent_name=self.agent_name,
+            collection_number=self.conversation_id,
+            limit=100,
+        )
         if context:
-            payload["context"] = {"document": context}
+            payload["context"] = {"document": json.dumps(context)}
 
         # Convert comma-separated tools to a list
         if tools:
