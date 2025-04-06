@@ -101,6 +101,7 @@ class Chain:
         chain_data = {
             "id": chain_db.id,
             "chain_name": chain_db.name,
+            "description": chain_db.description if chain_db.description else "",
             "steps": steps,
         }
         session.close()
@@ -209,9 +210,9 @@ class Chain:
         session.close()
         return chain_list
 
-    def add_chain(self, chain_name):
+    def add_chain(self, chain_name, description=""):
         session = get_session()
-        chain = ChainDB(name=chain_name, user_id=self.user_id)
+        chain = ChainDB(name=chain_name, user_id=self.user_id, description=description)
         session.add(chain)
         session.commit()
         session.close()
@@ -834,6 +835,19 @@ class Chain:
             responses[str(step.step_number)] = step_responses
         session.close()
         return responses
+
+    def update_description(self, chain_name, description):
+        session = get_session()
+        chain = (
+            session.query(ChainDB)
+            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
+            .first()
+        )
+        if chain:
+            chain.description = description
+            session.commit()
+        session.close()
+        return chain
 
     def import_chain(self, chain_name: str, steps: dict):
         session = get_session()

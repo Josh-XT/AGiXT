@@ -77,6 +77,8 @@ def import_extensions():
     # Delete "AGiXT Chains"
     if "AGiXT Chains" in extensions_data:
         del extensions_data["AGiXT Chains"]
+    if "Custom Automation" in extensions_data:
+        del extensions_data["Custom Automation"]
     extension_settings_data = Extensions().get_extension_settings()
     session = get_session()
 

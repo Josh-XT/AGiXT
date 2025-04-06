@@ -348,11 +348,13 @@ class CustomPromptModel(BaseModel):
 
 
 class ChainNewName(BaseModel):
-    new_name: str
+    new_name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class ChainName(BaseModel):
     chain_name: str
+    description: Optional[str] = None
 
 
 class StepInfo(BaseModel):

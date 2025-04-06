@@ -846,14 +846,14 @@ class Agent:
                     # Check if this is a chain command
                     chain = session.query(ChainDB).filter_by(name=command_name).first()
                     if chain:
-                        # Find or create the AGiXT Chains extension
+                        # Find or create the Custom Automation extension
                         extension = (
                             session.query(Extension)
-                            .filter_by(name="AGiXT Chains")
+                            .filter_by(name="Custom Automation")
                             .first()
                         )
                         if not extension:
-                            extension = Extension(name="AGiXT Chains")
+                            extension = Extension(name="Custom Automation")
                             session.add(extension)
                             session.commit()
 
