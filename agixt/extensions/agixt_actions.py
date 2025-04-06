@@ -1338,7 +1338,7 @@ class agixt_actions(Extensions):
         """
         return "Current date and time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    async def mcp_tool(self, endpoint_url, api_key, user_input, tools=None):
+    async def mcp_client(self, endpoint_url, api_key, user_input, tools=None):
         """
         Model Context Protocol client for interacting with MCP servers.
 
