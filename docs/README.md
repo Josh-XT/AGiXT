@@ -180,12 +180,10 @@ The script supports setting any of the environment variables via command-line ar
 31. `--tz`: Set the timezone (default: system timezone)
 
 #### Authentication Configuration
-32. `--auth-web`: Set the authentication web URI (default: `http://localhost:3437/user`)
-33. `--auth-provider`: Set the authentication provider (options: `none`, `magicalauth`)
-34. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
-35. `--registration-disabled`: Disable user registration (default: `false`)
-36. `--create-agent-on-register`: Create an agent named from your `AGIXT_AGENT` environment variable if it is different than `AGiXT` using settings from `default_agent.json` if defined (default: `true`)
-37. `--create-agixt-agent`: Create an agent called `AGiXT` and trains it on the AGiXT documentation upon user registration (default: `true`)
+32. `--registration-disabled`: Disable user registration (default: `false`)
+33. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
+34. `--create-agent-on-register`: Create an agent named from your `AGIXT_AGENT` environment variable if it is different than `AGiXT` using settings from `default_agent.json` if defined (default: `true`)
+35. `--create-agixt-agent`: Create an agent called `AGiXT` and trains it on the AGiXT documentation upon user registration (default: `true`)
 
 #### OAuth Provider Configuration
 38. `--github-client-id`: Set GitHub client ID for authentication
