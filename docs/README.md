@@ -37,6 +37,13 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
   - [Installation](#installation)
   - [Usage](#usage)
     - [Command-line Options](#command-line-options)
+      - [Core Configuration](#core-configuration)
+      - [UI Configuration](#ui-configuration)
+      - [Application Configuration](#application-configuration)
+      - [Authentication Configuration](#authentication-configuration)
+      - [OAuth Provider Configuration](#oauth-provider-configuration)
+      - [Logging Configuration](#logging-configuration)
+      - [ezLocalai Integration](#ezlocalai-integration)
   - [Docker Deployment](#docker-deployment)
   - [Troubleshooting](#troubleshooting)
   - [Security Considerations](#security-considerations)
@@ -134,61 +141,95 @@ python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai tru
 
 The script supports setting any of the environment variables via command-line arguments. Here's a detailed list of available options:
 
+#### Core Configuration
 1. `--agixt-api-key`: Set the AGiXT API key (automatically generated if not provided)
 2. `--agixt-uri`: Set the AGiXT URI (default: `http://localhost:7437`)
-3. `--agixt-agent`: Set the default AGiXT agent (default: `AGiXT`)
-4. `--agixt-branch`: Choose between `stable` and `dev` branches
-5. `--agixt-file-upload-enabled`: Enable or disable file uploads (default: `true`)
-6. `--agixt-voice-input-enabled`: Enable or disable voice input (default: `true`)
-7. `--agixt-footer-message`: Set the footer message (default: `Powered by AGiXT`)
+3. `--agixt-port`: Set the AGiXT API port (default: `7437`)
+4. `--agixt-interactive-port`: Set the AGiXT Interactive UI port (default: `3437`)
+5. `--agixt-agent`: Set the default AGiXT agent (default: `AGiXT`)
+6. `--agixt-branch`: Choose between `stable` and `dev` branches
+7. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
 8. `--agixt-require-api-key`: Require API key for access (default: `false`)
 9. `--agixt-rlhf`: Enable or disable reinforcement learning from human feedback (default: `true`)
-10. `--agixt-show-selection`: Set which selectors to show in the UI (default: `conversation,agent`)
-11. `--agixt-show-agent-bar`: Show or hide the agent bar in the UI (default: `true`)
-12. `--agixt-show-app-bar`: Show or hide the app bar in the UI (default: `true`)
-13. `--agixt-conversation-mode`: Set the conversation mode (default: `select`)
-14. `--allowed-domains`: Set allowed domains for API access (default: `*`)
-15. `--app-description`: Set the application description
-16. `--app-name`: Set the application name (default: `AGiXT Chat`)
-17. `--app-uri`: Set the application URI (default: `http://localhost:3437`)
-18. `--auth-web`: Set the authentication web URI (default: `http://localhost:3437/user`)
-19. `--auth-provider`: Set the authentication provider (options: `none`, `magicalauth`)
-20. `--create-agent-on-register`: Create an agent named from your `AGIXT_AGENT` environment variable if it is different than `AGiXT` using settings from `default_agent.json` if defined (default: `true`)
-21. `--create-agixt-agent`: Create an agent called `AGiXT` and trains it on the AGiXT documentation upon user registration (default: `true`)
-22. `--disabled-providers`: Set disabled providers (comma-separated list)
-23. `--disabled-extensions`: Set disabled extensions (comma-separated list)
-24. `--working-directory`: Set the working directory (default: `./WORKSPACE`)
-25. `--github-client-id`: Set GitHub client ID for authentication
-26. `--github-client-secret`: Set GitHub client secret for authentication
-27. `--google-client-id`: Set Google client ID for authentication
-28. `--google-client-secret`: Set Google client secret for authentication
-29. `--microsoft-client-id`: Set Microsoft client ID for authentication
-30. `--microsoft-client-secret`: Set Microsoft client secret for authentication
+10. `--working-directory`: Set the working directory (default: `./WORKSPACE`)
+11. `--database-type`: Set the database type (options: `sqlite`, `postgres`)
+12. `--database-name`: Set the database name (default: `models/agixt`)
+
+#### UI Configuration
+12. `--agixt-file-upload-enabled`: Enable or disable file uploads (default: `true`)
+13. `--agixt-voice-input-enabled`: Enable or disable voice input (default: `true`)
+14. `--agixt-footer-message`: Set the footer message (default: `Powered by AGiXT`)
+15. `--agixt-show-selection`: Set which selectors to show in the UI (default: `conversation,agent`)
+16. `--agixt-show-agent-bar`: Show or hide the agent bar in the UI (default: `true`)
+17. `--agixt-show-app-bar`: Show or hide the app bar in the UI (default: `true`)
+18. `--agixt-conversation-mode`: Set the conversation mode (default: `select`)
+19. `--agixt-show-override-switches`: Set which override switches to show (default: `tts,websearch,analyze-user-input`)
+20. `--agixt-allow-message-editing`: Allow editing messages in chat (default: `true`)
+21. `--agixt-allow-message-deletion`: Allow deleting messages in chat (default: `true`)
+22. `--agixt-show-chat-theme-toggles`: Show theme toggle options in chat UI (default: empty)
+23. `--interactive-mode`: Set the interactive mode (default: `chat`)
+24. `--theme-name`: Set the UI theme (options: `default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
+
+#### Application Configuration
+25. `--app-description`: Set the application description
+26. `--app-name`: Set the application name (default: `AGiXT Chat`)
+27. `--app-uri`: Set the application URI (default: `http://localhost:3437`)
+28. `--allowed-domains`: Set allowed domains for API access (default: `*`)
+29. `--disabled-providers`: Set disabled providers (comma-separated list)
+30. `--disabled-extensions`: Set disabled extensions (comma-separated list)
 31. `--tz`: Set the timezone (default: system timezone)
-32. `--interactive-mode`: Set the interactive mode (default: `chat`)
-33. `--theme-name`: Set the UI theme (options: `default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
+
+#### Authentication Configuration
+32. `--auth-web`: Set the authentication web URI (default: `http://localhost:3437/user`)
+33. `--auth-provider`: Set the authentication provider (options: `none`, `magicalauth`)
 34. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
-35. `--database-type`: Set the database type (options: `sqlite`, `postgres`)
-36. `--database-name`: Set the database name (default: `models/agixt`)
-37. `--log-level`: Set the logging level (default: `INFO`)
-38. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
-40. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
-41. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
+35. `--registration-disabled`: Disable user registration (default: `false`)
+36. `--create-agent-on-register`: Create an agent named from your `AGIXT_AGENT` environment variable if it is different than `AGiXT` using settings from `default_agent.json` if defined (default: `true`)
+37. `--create-agixt-agent`: Create an agent called `AGiXT` and trains it on the AGiXT documentation upon user registration (default: `true`)
 
-Options specific to ezLocalai:
+#### OAuth Provider Configuration
+38. `--github-client-id`: Set GitHub client ID for authentication
+39. `--github-client-secret`: Set GitHub client secret for authentication
+40. `--google-client-id`: Set Google client ID for authentication
+41. `--google-client-secret`: Set Google client secret for authentication
+42. `--microsoft-client-id`: Set Microsoft client ID for authentication
+43. `--microsoft-client-secret`: Set Microsoft client secret for authentication
+44. `--aol-client-id`: Set AOL client ID for authentication
+45. `--aol-client-secret`: Set AOL client secret for authentication
+46. `--apple-client-id`: Set Apple client ID for authentication
+47. `--apple-client-secret`: Set Apple client secret for authentication
+48. `--autodesk-client-id`: Set Autodesk client ID for authentication
+49. `--autodesk-client-secret`: Set Autodesk client secret for authentication
+50. `--aws-client-id`: Set AWS client ID for authentication
+51. `--aws-client-secret`: Set AWS client secret for authentication
+52. `--aws-region`: Set AWS region for authentication
+53. `--aws-user-pool-id`: Set AWS user pool ID for authentication
 
-1. `--with-ezlocalai`: Start AGiXT with ezLocalai integration.
-2. `--ezlocalai-uri`: Set the ezLocalai URI (default: `http://{local_ip}:8091`)
-3. `--default-model`: Set the default language model for ezLocalai (default: `QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF`)
-4. `--vision-model`: Set the vision model for ezLocalai (default: `deepseek-ai/deepseek-vl-1.3b-chat`)
-5. `--llm-max-tokens`: Set the maximum number of tokens for language models (default: `32768`)
-6. `--whisper-model`: Set the Whisper model for speech recognition (default: `base.en`)
-7. `--gpu-layers`: Set the number of GPU layers to use (automatically determined based on available VRAM but can be modified.) (default: `-1` for all)
+#### Logging Configuration
+54. `--log-level`: Set the logging level (default: `INFO`)
+55. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
+56. `--log-verbosity-server`: Set server log verbosity level (default: `3`)
+57. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
+
+#### ezLocalai Integration
+58. `--with-ezlocalai`: Start AGiXT with ezLocalai integration (default: `false`)
+59. `--ezlocalai-uri`: Set the ezLocalai URI (default: `http://{local_ip}:8091/v1/`)
+60. `--default-model`: Set the default language model for ezLocalai (default: `QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF`)
+61. `--vision-model`: Set the vision model for ezLocalai (default: `deepseek-ai/deepseek-vl-1.3b-chat`)
+62. `--llm-max-tokens`: Set the maximum number of tokens for language models (default: `32768`)
+63. `--whisper-model`: Set the Whisper model for speech recognition (default: `base.en`)
+64. `--gpu-layers`: Set the number of GPU layers to use (default: `0`, set to `-1` for all available layers)
 
 For a full list of options with their current values, run:
 
 ```bash
 python start.py --help
+```
+
+Example usage with multiple options:
+
+```bash
+python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai true --theme-name halloween
 ```
 
 ## Docker Deployment
