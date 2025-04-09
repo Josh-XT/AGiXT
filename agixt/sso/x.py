@@ -16,7 +16,7 @@ SCOPES = [
     "tweet.read",
     "tweet.write",
     "users.read",
-    "users.email",    
+    "users.email",
     "offline.access",
     "like.read",
     "like.write",
