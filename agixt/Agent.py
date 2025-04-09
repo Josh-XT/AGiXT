@@ -35,6 +35,8 @@ import os
 import re
 from solders.keypair import Keypair
 from typing import Tuple
+import string  # Import string for hex check
+from mnemonic import Mnemonic
 import binascii
 
 logging.basicConfig(
@@ -47,17 +49,33 @@ logging.basicConfig(
 def create_solana_wallet() -> Tuple[str, str, str]:
     """
     Creates a new Solana wallet keypair and generates a secure passphrase.
+    Uses BIP-39 mnemonic standard for passphrase generation and key derivation.
 
     Returns:
-        Tuple[str, str, str]: A tuple containing the private key (hex string),
-                              a generated passphrase (hex string), and the public key (string).
+        Tuple[str, str, str]: A tuple containing the full 64-byte seed (hex string),
+                              the generated mnemonic passphrase (string), and the public key (string).
     """
-    new_keypair = Keypair()
-    private_key_hex = new_keypair.secret().hex()
-    public_key_str = str(new_keypair.pubkey())
-    # Generate a secure random passphrase (e.g., 16 bytes hex encoded)
-    passphrase_hex = binascii.hexlify(os.urandom(16)).decode("utf-8")
-    return private_key_hex, passphrase_hex, public_key_str
+    # 1. Generate a 12-word mnemonic phrase
+    mnemo = Mnemonic("english")
+    mnemonic_phrase = mnemo.generate(strength=128)  # 128 bits = 12 words
+
+    # 2. Derive the seed from the mnemonic
+    # No passphrase is used for the seed derivation itself in this standard flow
+    seed = mnemo.to_seed(mnemonic_phrase, passphrase="")
+
+    # 3. Derive the Solana Keypair from the seed (first derivation path)
+    # Using standard Solana derivation path m/44'/501'/0'/0'
+    # Keypair.from_seed expects a 32-byte seed for ed25519 keys.
+    # The BIP-39 seed is 64 bytes, so we take the first 32 bytes as is common.
+    derived_keypair = Keypair.from_seed(seed[:32])
+
+    # 4. Get the full 64-byte seed (hex) and public key (string)
+    # The "private key" for storage/migration purposes here will be the full seed.
+    private_key_hex = seed.hex() # Return the full 64-byte seed, hex encoded
+    public_key_str = str(derived_keypair.pubkey())
+
+    # 5. Return private key, mnemonic phrase, and public key
+    return private_key_hex, mnemonic_phrase, public_key_str
 
 
 def impersonate_user(user_id: str):
@@ -298,6 +316,11 @@ class Agent:
         self.company_id = None
         self.agent_id = str(self.get_agent_id())
         self.AGENT_CONFIG = self.get_agent_config()
+        # Reload config after potential migration in get_agent_config
+        if self.AGENT_CONFIG.get("migrated_wallet"):
+            logging.info(f"Wallet migrated for agent {self.agent_name}. Reloading config.")
+            self.AGENT_CONFIG = self.get_agent_config(skip_migration=True)
+
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
@@ -397,6 +420,19 @@ class Agent:
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
+
+        # Check if Solana wallet migration requires config update
+        try:
+            solana_ext = self.extensions.extensions.get("solana_wallet")
+            if solana_ext and getattr(solana_ext, "requires_config_update", False):
+                logging.info(f"Agent {self.agent_name}: Solana wallet migration check requires config update. Saving status.")
+                self.update_agent_config({"SOLANA_MIGRATION_COMPLETED": "true"}, "settings")
+                # Reload config after update to reflect the change immediately
+                self.AGENT_CONFIG = self.get_agent_config(skip_migration=True)
+                self.load_config_keys() # Reload keys based on potentially updated config
+        except Exception as ext_update_err:
+            logging.error(f"Agent {self.agent_name}: Error checking/updating Solana migration status: {ext_update_err}")
+
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
         if "company_id" in self.AGENT_CONFIG["settings"]:
@@ -485,7 +521,7 @@ class Agent:
         session.close()
         return agent_settings
 
-    def get_agent_config(self):
+    def get_agent_config(self, skip_migration=False):
         session = get_session()
         agent = (
             session.query(AgentModel)
@@ -515,52 +551,58 @@ class Agent:
         self.agent_id = str(agent.id) if agent else None
         config = {"settings": {}, "commands": {}}
 
-        # Wallet Creation Logic - Runs only if agent exists
-        if agent:
-            # Check for existing wallet address setting
-            existing_wallet_address = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
-                )
-                .first()
+        # Wallet Creation/Migration Logic - Runs only if agent exists
+        if agent and not skip_migration:
+            # Force override/creation of wallet settings, bypassing migration check
+            logging.info(
+                f"Overriding/Creating Solana wallet settings for agent {agent.name} ({agent.id})..."
             )
+            try:
+                # Generate new credentials
+                new_private_key, new_mnemonic, new_address = create_solana_wallet()
 
-            if not existing_wallet_address:
-                # Wallet doesn't exist, create and save it
-                logging.info(
-                    f"Solana wallet not found for agent {agent.name} ({agent.id}). Creating one..."
-                )
-                try:
-                    private_key, passphrase, address = create_solana_wallet()
-                    settings_to_add = [
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_API_KEY",
-                            value=private_key,
-                        ),
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_PASSPHRASE_API_KEY",
-                            value=passphrase,
-                        ),
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_ADDRESS",
-                            value=address,
-                        ),
-                    ]
+                 # Define setting names
+                setting_names = {
+                   "SOLANA_WALLET_API_KEY": new_private_key,
+                    "SOLANA_WALLET_PASSPHRASE_API_KEY": new_mnemonic,
+                    "SOLANA_WALLET_ADDRESS": new_address,
+                }
+
+                # Find existing settings or create new ones
+                settings_to_update = []
+                settings_to_add = []
+                for name, value in setting_names.items():
+                    existing_setting = (
+                        session.query(AgentSettingModel)
+                        .filter(
+                            AgentSettingModel.agent_id == agent.id,
+                            AgentSettingModel.name == name,
+                        )
+                        .first()
+                    )
+                    if existing_setting:
+                        existing_setting.value = value
+                        settings_to_update.append(existing_setting)
+                    else:
+                        settings_to_add.append(
+                            AgentSettingModel(
+                                agent_id=agent.id, name=name, value=value
+                            )
+                        )
+
+                # Add new settings and commit changes
+                if settings_to_add:
                     session.add_all(settings_to_add)
-                    session.commit()
-                    logging.info(
-                        f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
-                    )
-                except Exception as e:
-                    logging.error(
-                        f"Error creating/saving Solana wallet for agent {agent.name} ({agent.id}): {e}"
-                    )
-                    session.rollback()  # Rollback DB changes on error
+                session.commit()
+                logging.info(
+                    f"Successfully overrode/created Solana wallet for agent {agent.name} ({agent.id}). New Address: {new_address}"
+                )
+
+            except Exception as e:
+                logging.error(
+                    f"Error overriding/creating Solana wallet for agent {agent.name} ({agent.id}): {e}"
+                )
+                session.rollback()  # Rollback DB changes on error
 
         if agent:
             all_commands = session.query(Command).all()

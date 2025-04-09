@@ -5,3 +5,7 @@ solana
 base58
 solders
 pypandoc
+mnemonic
+bip32utils
+bip32
+pynacl

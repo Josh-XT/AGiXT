@@ -9,6 +9,8 @@ from solders.instruction import Instruction
 from solders.message import Message, MessageV0
 import base58
 import requests
+import asyncio
+import nest_asyncio
 import struct
 from dataclasses import dataclass
 from decimal import Decimal
@@ -16,8 +18,17 @@ from typing import Dict, Any, Optional
 from solders.transaction import VersionedTransaction, Transaction
 from solders.system_program import TransferParams, transfer
 from solders.pubkey import Pubkey
-
+from mnemonic import Mnemonic
+from hashlib import pbkdf2_hmac
+from bip32 import BIP32
 # Define TOKEN_PROGRAM_ID (this is a well-known address in Solana)
+try:
+    import nacl.signing
+    from nacl.exceptions import BadSignatureError
+    PYNACL_INSTALLED = True
+except ImportError:
+    PYNACL_INSTALLED = False
+
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 
 
@@ -138,8 +149,18 @@ class solana_wallet(Extensions):
 
     def __init__(
         self,
+        agent=None,
         **kwargs,
     ):
+        nest_asyncio.apply() # Apply nest_asyncio to allow running async in sync context
+        # Status attributes for agent loading logic
+        self.init_success = False
+        self.migration_performed = False
+        self.requires_config_update = False # Flag if settings might need updating
+        self.final_pubkey = None
+        self.error_message = None
+        self.agent = agent  # Store agent reference for configuration updates
+
         RAYDIUM_API_URI = "https://api.raydium.io"
         SOLANA_API_URI = "https://api.mainnet-beta.solana.com"
         self.RAYDIUM_API_URI = RAYDIUM_API_URI
@@ -147,22 +168,143 @@ class solana_wallet(Extensions):
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = AsyncClient(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
+        WALLET_PASSPHRASE = kwargs.get("SOLANA_WALLET_PASSPHRASE", None)
+        self.wallet_keypair = None # Initialize to None
+        self.wallet_address = None # Initialize to None
 
-        if WALLET_PRIVATE_KEY:
+        # Check if migration has already been completed for this agent config
+        # Convert potential string "true"/"false" to boolean
+        migration_completed_input = kwargs.get("SOLANA_MIGRATION_COMPLETED", "false")
+        migration_completed = str(migration_completed_input).lower() == 'true'
+
+
+        # Local variable for the keypair derived/reconstructed from old logic, used only for migration
+        old_keypair_for_migration = None
+
+        if WALLET_PRIVATE_KEY or WALLET_PASSPHRASE:
             try:
-                # Try hex decoding first
-                try:
-                    secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
-                except ValueError:
-                    # If that fails, try base58 decoding
-                    secret_bytes = base58.b58decode(WALLET_PRIVATE_KEY)
+                if WALLET_PASSPHRASE:
+                    # BIP39 passphrase derivation
+                    mnemo = Mnemonic("english")
+                    if not mnemo.check(WALLET_PASSPHRASE):
+                        raise ValueError("Invalid BIP39 mnemonic phrase")
+                    seed = mnemo.to_seed(WALLET_PASSPHRASE)
+                    derivation_path = "m/44'/501'/0'/0'"
+                    self.wallet_keypair = Keypair.from_seed_and_derivation_path(seed, derivation_path)
+                    # If passphrase was provided and valid, no migration needed, config is likely correct
+                    self.requires_config_update = False # Explicitly set false here
 
-                self.wallet_keypair = Keypair.from_seed(secret_bytes)
-                self.wallet_address = str(self.wallet_keypair.pubkey())
+                else: # WALLET_PRIVATE_KEY
+                    # Existing private key handling
+                    try:
+                        secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
+                    except ValueError:
+                        secret_bytes = base58.b58decode(WALLET_PRIVATE_KEY)
+
+                    if len(secret_bytes) == 32:
+                        print("[Wallet Init] Detected 32-byte private key.")
+
+                        # 1. Generate the NEW (correct) keypair
+                        # This happens regardless of migration status, as it's the correct way to init
+                        new_keypair = Keypair.from_seed(secret_bytes)
+                        self.wallet_keypair = new_keypair # Set the correct keypair for the instance first
+                        print(f"[Wallet Init] New (correct) address: {new_keypair.pubkey()}")
+
+                        # 2. Attempt automatic migration only if not already completed
+                        if not migration_completed:
+                            print("[Migration Check] Migration not marked as completed. Proceeding with check...")
+                            # Signal that config needs update to store SOLANA_MIGRATION_COMPLETED=True after this check runs
+                            self.requires_config_update = True
+                            if PYNACL_INSTALLED:
+                                try:
+                                    # Derive the old public key using nacl
+                                    old_signing_key = nacl.signing.SigningKey(secret_bytes)
+                                    old_verify_key_bytes = bytes(old_signing_key.verify_key)
+                                    old_pubkey = Pubkey(old_verify_key_bytes)
+                                    print(f"[Migration Check] Old (potentially incorrect) address: {old_pubkey}")
+
+                                    # Try to create a signable Keypair for the old derivation using from_bytes
+                                    old_keypair_bytes = secret_bytes + old_verify_key_bytes
+                                    if len(old_keypair_bytes) == 64:
+                                        old_keypair_for_migration = Keypair.from_bytes(old_keypair_bytes)
+                                        # Verify the reconstructed keypair's pubkey matches the nacl-derived one
+                                        if old_keypair_for_migration.pubkey() != old_pubkey:
+                                            print("[Migration Warning] Reconstructed old keypair public key mismatch. Skipping automatic migration.")
+                                            old_keypair_for_migration = None
+                                        else:
+                                            print(f"[Migration Check] Successfully reconstructed old keypair for address: {str(old_pubkey)}")
+                                    else:
+                                        print("[Migration Warning] Could not form 64-byte keypair for old address. Skipping automatic migration.")
+
+                                except Exception as recon_err:
+                                    print(f"[Migration Warning] Failed to reconstruct old keypair for migration check: {recon_err}. Skipping automatic migration.")
+                                    old_keypair_for_migration = None
+
+                                # 3. If old keypair reconstruction succeeded, run the migration check
+                                if old_keypair_for_migration:
+                                    try:
+                                        print("[Migration Check] Running migration check asynchronously...")
+                                        # Use asyncio.run() which works with nest_asyncio
+                                        asyncio.run(self._attempt_migration(old_keypair_for_migration, new_keypair.pubkey()))
+                                        print("[Migration Check] Migration check/attempt complete.")
+                                        self.migration_performed = True # Mark that migration logic was executed
+                                    except RuntimeError as ru_err:
+                                        # Handle cases where event loop might already be running
+                                        if "cannot run loop while another loop is running" in str(ru_err):
+                                            print("[Migration Warning] Event loop already running. Cannot run migration check synchronously. Please check manually.")
+                                        else:
+                                            print(f"[Migration Error] Error running migration task: {ru_err}")
+                                    except Exception as migration_run_err:
+                                        print(f"[Migration Error] Error running migration task: {migration_run_err}")
+                            else: # PyNaCl not installed
+                                print("[Migration Warning] PyNaCl library not found. Cannot perform automatic migration check.")
+                                print("[Migration Warning] Please manually check the balance of the potentially incorrect old address derived from your 32-byte key and transfer funds if necessary.")
+                                # Still requires config update to mark migration as "checked" (even though skipped)
+                        else: # Migration already completed
+                            print("[Migration Check] Migration already marked as completed. Skipping check.")
+                            # If migration was already done, the current config is assumed correct/stable for the 32-byte key case
+                            self.requires_config_update = False
+
+                    elif len(secret_bytes) == 64:
+                        # Handle 64-byte input as the SEED derived from a mnemonic
+                        print("[Wallet Init] Detected 64-byte private key (assumed BIP39 seed).")
+                        seed = secret_bytes
+                        derivation_path = "m/44'/501'/0'/0'"
+                        self.wallet_keypair = Keypair.from_seed_and_derivation_path(seed, derivation_path)
+                        print(f"[Wallet Init] Derived address from 64-byte seed: {self.wallet_keypair.pubkey()}")
+                        # If 64-byte seed provided, assume it's the intended format, no migration needed.
+                        self.requires_config_update = False # Explicitly set false here
+                    else:
+                         raise ValueError(f"Invalid key length: {len(secret_bytes)}. Expected 32 or 64 bytes.")
+
+                # Set wallet_address and success status based on the final self.wallet_keypair
+                if self.wallet_keypair:
+                    self.wallet_address = str(self.wallet_keypair.pubkey())
+                    self.final_pubkey = self.wallet_address
+                    self.init_success = True # Mark success if we have a keypair
+                else:
+                    # This case should ideally not be reached if logic above is correct, but as a safeguard:
+                    self.init_success = False
+                    if not self.error_message: # Set error if not already set by exception
+                        self.error_message = "Failed to initialize keypair for unknown reason."
+                    self.requires_config_update = True # Config led to failure
+
             except Exception as e:
                 print(f"Error initializing wallet: {e}")
+                self.error_message = str(e)
+                self.init_success = False # Explicitly mark as failed
+                # Ensure these are reset on error
                 self.wallet_keypair = None
                 self.wallet_address = None
+                self.final_pubkey = None
+                # If init failed, config might be bad, flag for review
+                self.requires_config_update = True
+        else:
+            # Case where no key or passphrase was provided
+            self.error_message = "No SOLANA_WALLET_API_KEY or SOLANA_WALLET_PASSPHRASE provided."
+            self.init_success = False
+            # No credentials provided, might need generation, flag for update review
+            self.requires_config_update = True
 
         self.commands = {
             "Get Solana Wallet Balance": self.get_wallet_balance,
@@ -180,6 +322,86 @@ class solana_wallet(Extensions):
             # "Get Route Quote": self.get_route_quote,
             # "Execute Trade": self.execute_trade,
         }
+
+
+    async def _attempt_migration(self, old_keypair: Keypair, new_pubkey: Pubkey):
+        """Checks balance of old address and attempts to transfer funds to new address."""
+        FEE_LAMPORTS = 5000 # Standard fee
+        old_pubkey = old_keypair.pubkey()
+        old_pubkey_str = str(old_pubkey)
+        # Mark migration as completed and update settings right away since we're using the new address
+        self.migration_performed = True
+        self.requires_config_update = True
+        self.final_pubkey = str(new_pubkey)
+
+        try:
+            print(f"[Migration Check] Checking balance for old address: {old_pubkey_str}")
+            # Add initial delay to help avoid rate limiting
+            await asyncio.sleep(2)
+            
+            # Retry balance check up to 3 times with increasing delays
+            max_retries = 3
+            retry_delay = 3
+            for retry in range(max_retries):
+                try:
+                    balance_response = await self.client.get_balance(old_pubkey, commitment=Confirmed)
+                    balance_lamports = balance_response.value
+                    break
+                except Exception as e:
+                    if retry < max_retries - 1:
+                        print(f"[Migration] Rate limited or error checking balance, retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise e
+
+            print(f"[Migration] Old address balance: {balance_lamports / 1e9:.9f} SOL")
+            
+            if balance_lamports <= FEE_LAMPORTS:
+                print(f"[Migration] Balance is zero or insufficient for transfer (less than fee). Marking migration as complete and using new wallet.")
+                return
+
+            await asyncio.sleep(5) # Add delay before transfer attempt
+
+            # Calculate amount to send after deducting fee
+            amount_to_send = balance_lamports - FEE_LAMPORTS
+            print(f"[Migration] Attempting to transfer {amount_to_send / 1e9:.9f} SOL to new address: {str(new_pubkey)}")
+
+            # Create transfer instruction
+            transfer_ix = transfer(
+                TransferParams(
+                    from_pubkey=old_pubkey,
+                    to_pubkey=new_pubkey,
+                    lamports=amount_to_send, # Will be 0 if balance <= fee
+                )
+            )
+
+            # Get blockhash
+            blockhash_response = await self.client.get_latest_blockhash(commitment=Confirmed)
+            recent_blockhash = blockhash_response.value.blockhash
+
+            await asyncio.sleep(1) # Add delay to avoid rate limiting
+
+            # Create message and transaction (signing with OLD keypair)
+            msg = MessageV0.try_compile(
+                payer=old_pubkey,
+                instructions=[transfer_ix],
+                address_lookup_table_accounts=[],
+                recent_blockhash=recent_blockhash,
+            )
+            tx = VersionedTransaction(msg, [old_keypair]) # Sign with the reconstructed old keypair
+
+            # Send transaction
+            opts = TxOpts(skip_preflight=False, preflight_commitment=Confirmed)
+            response = await self.client.send_transaction(tx, opts=opts)
+            tx_signature = response.value
+            print(f"[Migration] Transfer attempt successful! Signature: {tx_signature}")
+            print(f"[Migration] Note: Success here means the transaction was submitted. It might still fail on-chain if funds were insufficient.")
+
+        except Exception as e:
+            print(f"[Migration Error] Failed to check balance or transfer funds from old address {old_pubkey_str}: {e}")
+            print(f"[Migration Error] Please manually check the balance of the old address ({old_pubkey_str}) and transfer funds to the new address ({str(new_pubkey)}) if necessary.")
+
 
     async def get_wallet_balance(self, wallet_address: str = None):
         """
