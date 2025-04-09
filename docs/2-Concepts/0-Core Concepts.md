@@ -3,7 +3,7 @@ AGiXT supports different interaction modes with the agent. These features are li
 ## Instruction
 Think of an instruction as giving a simple, specific command to your pet. For instance, you might tell your dog to "fetch the ball". The dog knows what each of these words means, and it can perform this single task for you. In the world of AI, an instruction could be something like "Translate this sentence into Spanish". It's a single, straightforward command that the AI can execute immediately.
 
-Instruction uses commands. To know more about the commands refer to [Extension Commands](https://josh-xt.github.io/AGiXT/2-Concepts/4-Extension%20Commands.html).
+Instruction uses commands. To know more about the commands refer to [Extension Commands](https://josh-xt.github.io/AGiXT/2-Concepts/05-Extension%20Commands.html).
 
 ## Smart Instruct
 "Smart Instruct" is an advanced feature of the AGiXT software that integrates artificial intelligence designed to comprehend, plan, and execute tasks efficiently. It starts with an instruction from the user, which the system breaks down and analyzes. Leveraging the power of web search, the system seeks out relevant information to understand the task at hand thoroughly. It then formulates multiple strategies, evaluates them for any potential issues, and fine-tunes the best possible solution. This solution is then executed via a series of commands, with each output monitored for accuracy. The process concludes with a detailed report on the task's execution, providing a comprehensive overview of the journey from instruction to completion. "Smart Instruct" truly embodies the synergy of artificial intelligence and the internet, offering an intelligent, adaptive, and reliable approach to task completion.
