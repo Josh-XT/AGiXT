@@ -16,6 +16,7 @@ SCOPES = [
     "tweet.read",
     "tweet.write",
     "users.read",
+    "users.email",
     "offline.access",
     "like.read",
     "like.write",
@@ -56,7 +57,7 @@ class XSSO:
         return response.json()["access_token"]
 
     def get_user_info(self):
-        uri = "https://api.x.com/2/users/me?user.fields=name,username,profile_image_url"
+        uri = "https://api.x.com/2/users/me?user.fields=name,username,profile_image_url,confirmed_email"
         response = requests.get(
             uri,
             headers={"Authorization": f"Bearer {self.access_token}"},
@@ -74,9 +75,9 @@ class XSSO:
             name_parts = full_name.split(" ", 1)
             first_name = name_parts[0]
             last_name = name_parts[1] if len(name_parts) > 1 else ""
-            username = user_data["username"]
+            email = user_data["confirmed_email"]
             return {
-                "email": username,
+                "email": email,
                 "first_name": first_name,
                 "last_name": last_name,
             }
