@@ -1043,55 +1043,126 @@ class MagicalAuth:
     def get_subscribed_products(self, stripe_api_key, user_email):
         import stripe
 
+        # Ensure stripe library is available
+        if not stripe:
+            logging.error("Stripe library is not installed or imported correctly.")
+            return []
+
         stripe.api_key = stripe_api_key
-        logging.info(f"Checking subscriptions for user {user_email}...")
+        logging.info(f"Checking subscriptions for user email: {user_email}")
+        relevant_subscriptions = []
+
         try:
-            # First, find all customer records with this email
-            customers = stripe.Customer.list(email=user_email)
+            customers = stripe.Customer.list(email=user_email, limit=100)
 
-            relevant_subscriptions = []
+            if not customers.data:
+                logging.info(f"No Stripe customers found for email: {user_email}.")
+                return []
 
-            # Check subscriptions for each customer record
+            logging.info(
+                f"Found {len(customers.data)} customer record(s) for email: {user_email}."
+            )
+
+            # Step 2 & 3: Check active subscriptions for each customer record.
             for customer in customers.data:
-                logging.info(f"Found customer: {customer.id} for email {user_email}")
-                all_subscriptions = stripe.Subscription.list(
-                    customer=customer.id,
-                    expand=["data.items.data.price"],
-                )
+                logging.debug(f"Checking subscriptions for customer ID: {customer.id}")
+                try:
+                    # List only *active* subscriptions for this specific customer.
+                    # Expand product data directly in the request for efficiency.
+                    subscriptions_list = stripe.Subscription.list(
+                        customer=customer.id,
+                        status="active",
+                        expand=["data.items.data.price.product"],  # Crucial expansion
+                        limit=100,  # Safeguard limit
+                    )
 
-                logging.info(
-                    f"Found {len(all_subscriptions)} subscriptions for customer {customer.id}."
-                )
+                    logging.debug(
+                        f"Found {len(subscriptions_list.data)} active subscriptions for customer {customer.id}."
+                    )
 
-                # Add all active subscriptions for this app
-                for subscription in all_subscriptions:
-                    if subscription.status != "active":
-                        continue
+                    # Step 4 & 5: Check product metadata for relevance.
+                    for subscription in subscriptions_list.data:
+                        is_relevant_subscription = False
+                        if not subscription.get("items"):
+                            logging.warning(
+                                f"Subscription {subscription.id} has no items. Skipping."
+                            )
+                            continue
 
-                    app_relevant = False
-                    for item in subscription["items"]["data"]:
-                        try:
-                            product_id = item["price"]["product"]
-                            product = stripe.Product.retrieve(product_id)
+                        for item in subscription.items.data:
+                            try:
+                                # Access the expanded product object
+                                price = item.get("price")
+                                if not price:
+                                    logging.warning(
+                                        f"Subscription item {item.id} has no price. Skipping item."
+                                    )
+                                    continue
 
-                            if product.get("metadata", {}).get("APP_NAME") == getenv(
-                                "APP_NAME"
-                            ):
-                                app_relevant = True
-                                break
-                        except Exception as e:
-                            logging.error(f"Error checking product: {e}")
+                                product = price.get("product")
+                                if not product or not isinstance(
+                                    product, stripe.Product
+                                ):
+                                    logging.warning(
+                                        f"Could not retrieve valid product object for price {price.id} in item {item.id}. Skipping item."
+                                    )
+                                    continue
 
-                    if app_relevant:
-                        relevant_subscriptions.append(subscription)
-                        logging.info(
-                            f"Found relevant subscription {subscription['id']}"
-                        )
+                                # Check if the product's metadata identifies it as belonging to this app.
+                                product_metadata = product.get("metadata", {})
+                                if product_metadata.get("APP_NAME") == getenv(
+                                    "APP_NAME"
+                                ):
+                                    logging.info(
+                                        f"Subscription {subscription.id} (Item {item.id}, Product {product.id} '{product.name}') matches APP_NAME '{getenv('APP_NAME')}'."
+                                    )
+                                    is_relevant_subscription = True
+                                    break  # Found a relevant item, no need to check others in this subscription
 
+                            except Exception as item_error:
+                                logging.error(
+                                    f"Error processing item {item.id} in subscription {subscription.id}: {item_error}"
+                                )
+
+                        if is_relevant_subscription:
+                            # Avoid adding duplicates if checking multiple customers with same subscription
+                            if subscription.id not in [
+                                sub.id for sub in relevant_subscriptions
+                            ]:
+                                relevant_subscriptions.append(subscription)
+                                logging.info(
+                                    f"Adding relevant active subscription {subscription.id} to results."
+                                )
+                            else:
+                                logging.debug(
+                                    f"Subscription {subscription.id} already found via another customer record."
+                                )
+
+                except stripe.error.StripeError as se_sub:
+                    logging.error(
+                        f"Stripe API error listing subscriptions for customer {customer.id}: {se_sub}"
+                    )
+                except Exception as e_sub:
+                    logging.error(
+                        f"Unexpected error listing subscriptions for customer {customer.id}: {e_sub}"
+                    )
+
+            logging.info(
+                f"Finished checking. Found {len(relevant_subscriptions)} total relevant active subscriptions for email {user_email}."
+            )
             return relevant_subscriptions
 
-        except Exception as e:
-            logging.error(f"Error checking subscriptions: {e}")
+        except stripe.error.StripeError as se_cust:
+            logging.error(
+                f"Stripe API error finding customers for email {user_email}: {se_cust}"
+            )
+            return []
+        except Exception as e_cust:
+            # Catch potential errors during customer lookup or general processing
+            logging.error(
+                f"General error during subscription check for email {user_email}: {e_cust}"
+            )
+            logging.error(traceback.format_exc())  # Log full traceback for debugging
             return []
 
     def update_user_role(self, company_id: str, user_id: str, role_id: int):
