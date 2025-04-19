@@ -1042,8 +1042,8 @@ class MagicalAuth:
 
     def get_subscribed_products(self, stripe_api_key, user_email):
         import stripe
+        import traceback  # Ensure traceback is imported if not already
 
-        # Ensure stripe library is available
         if not stripe:
             logging.error("Stripe library is not installed or imported correctly.")
             return []
@@ -1051,6 +1051,7 @@ class MagicalAuth:
         stripe.api_key = stripe_api_key
         logging.info(f"Checking subscriptions for user email: {user_email}")
         relevant_subscriptions = []
+        product_cache = {}  # Cache for product details {product_id: product_object}
 
         try:
             customers = stripe.Customer.list(email=user_email, limit=100)
@@ -1063,24 +1064,22 @@ class MagicalAuth:
                 f"Found {len(customers.data)} customer record(s) for email: {user_email}."
             )
 
-            # Step 2 & 3: Check active subscriptions for each customer record.
             for customer in customers.data:
                 logging.debug(f"Checking subscriptions for customer ID: {customer.id}")
                 try:
-                    # List only *active* subscriptions for this specific customer.
-                    # Expand product data directly in the request for efficiency.
+                    # Step 1: List active subscriptions, expand only to price level (4 levels deep)
                     subscriptions_list = stripe.Subscription.list(
                         customer=customer.id,
                         status="active",
-                        expand=["data.items.data.price.product"],  # Crucial expansion
-                        limit=100,  # Safeguard limit
+                        expand=["data.items.data.price"],  # Expand only to price
+                        limit=100,
                     )
 
                     logging.debug(
                         f"Found {len(subscriptions_list.data)} active subscriptions for customer {customer.id}."
                     )
 
-                    # Step 4 & 5: Check product metadata for relevance.
+                    # Step 2 & 3: Iterate and retrieve/check product details
                     for subscription in subscriptions_list.data:
                         is_relevant_subscription = False
                         if not subscription.get("items"):
@@ -1090,8 +1089,8 @@ class MagicalAuth:
                             continue
 
                         for item in subscription.items.data:
+                            product = None  # Reset product for each item
                             try:
-                                # Access the expanded product object
                                 price = item.get("price")
                                 if not price:
                                     logging.warning(
@@ -1099,33 +1098,60 @@ class MagicalAuth:
                                     )
                                     continue
 
-                                product = price.get("product")
-                                if not product or not isinstance(
-                                    product, stripe.Product
-                                ):
+                                product_id = price.get(
+                                    "product"
+                                )  # This is just the ID string
+                                if not product_id or not isinstance(product_id, str):
                                     logging.warning(
-                                        f"Could not retrieve valid product object for price {price.id} in item {item.id}. Skipping item."
+                                        f"Could not get valid product ID from price {price.id} in item {item.id}. Skipping item."
                                     )
                                     continue
 
-                                # Check if the product's metadata identifies it as belonging to this app.
-                                product_metadata = product.get("metadata", {})
-                                if product_metadata.get("APP_NAME") == getenv(
-                                    "APP_NAME"
-                                ):
-                                    logging.info(
-                                        f"Subscription {subscription.id} (Item {item.id}, Product {product.id} '{product.name}') matches APP_NAME '{getenv('APP_NAME')}'."
+                                # Step 4: Use cache or retrieve product
+                                if product_id in product_cache:
+                                    product = product_cache[product_id]
+                                    logging.debug(
+                                        f"Using cached product details for {product_id}"
                                     )
-                                    is_relevant_subscription = True
-                                    break  # Found a relevant item, no need to check others in this subscription
+                                else:
+                                    try:
+                                        logging.debug(
+                                            f"Retrieving product details for {product_id}"
+                                        )
+                                        product = stripe.Product.retrieve(product_id)
+                                        product_cache[product_id] = (
+                                            product  # Store in cache
+                                        )
+                                    except stripe.error.StripeError as se_prod:
+                                        logging.error(
+                                            f"Stripe API error retrieving product {product_id}: {se_prod}"
+                                        )
+                                        continue  # Skip item if product retrieval fails
+                                    except Exception as e_prod:
+                                        logging.error(
+                                            f"Unexpected error retrieving product {product_id}: {e_prod}"
+                                        )
+                                        continue  # Skip item
+
+                                # Step 5: Check product metadata
+                                if product:
+                                    product_metadata = product.get("metadata", {})
+                                    if product_metadata.get("APP_NAME") == getenv(
+                                        "APP_NAME"
+                                    ):
+                                        logging.info(
+                                            f"Subscription {subscription.id} (Item {item.id}, Product {product.id} '{product.name}') matches APP_NAME '{getenv('APP_NAME')}'."
+                                        )
+                                        is_relevant_subscription = True
+                                        break  # Found a relevant item, no need to check others in this subscription
 
                             except Exception as item_error:
                                 logging.error(
                                     f"Error processing item {item.id} in subscription {subscription.id}: {item_error}"
                                 )
+                                logging.error(traceback.format_exc())
 
                         if is_relevant_subscription:
-                            # Avoid adding duplicates if checking multiple customers with same subscription
                             if subscription.id not in [
                                 sub.id for sub in relevant_subscriptions
                             ]:
@@ -1139,13 +1165,20 @@ class MagicalAuth:
                                 )
 
                 except stripe.error.StripeError as se_sub:
+                    # Log the specific error from Stripe
                     logging.error(
                         f"Stripe API error listing subscriptions for customer {customer.id}: {se_sub}"
                     )
+                    # Optionally include details if available in the error object
+                    if hasattr(se_sub, "error") and se_sub.error:
+                        logging.error(
+                            f"Stripe error details: code={se_sub.error.code}, param={se_sub.error.param}, type={se_sub.error.type}"
+                        )
                 except Exception as e_sub:
                     logging.error(
                         f"Unexpected error listing subscriptions for customer {customer.id}: {e_sub}"
                     )
+                    logging.error(traceback.format_exc())
 
             logging.info(
                 f"Finished checking. Found {len(relevant_subscriptions)} total relevant active subscriptions for email {user_email}."
@@ -1158,11 +1191,10 @@ class MagicalAuth:
             )
             return []
         except Exception as e_cust:
-            # Catch potential errors during customer lookup or general processing
             logging.error(
                 f"General error during subscription check for email {user_email}: {e_cust}"
             )
-            logging.error(traceback.format_exc())  # Log full traceback for debugging
+            logging.error(traceback.format_exc())
             return []
 
     def update_user_role(self, company_id: str, user_id: str, role_id: int):
