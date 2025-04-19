@@ -1067,7 +1067,6 @@ class MagicalAuth:
             for customer in customers.data:
                 logging.debug(f"Checking subscriptions for customer ID: {customer.id}")
                 try:
-                    # Step 1: List active subscriptions, expand only to price level (4 levels deep)
                     subscriptions_list = stripe.Subscription.list(
                         customer=customer.id,
                         status="active",
@@ -1079,35 +1078,56 @@ class MagicalAuth:
                         f"Found {len(subscriptions_list.data)} active subscriptions for customer {customer.id}."
                     )
 
-                    # Step 2 & 3: Iterate and retrieve/check product details
+                    # Iterate through the list of actual Subscription objects
                     for subscription in subscriptions_list.data:
                         is_relevant_subscription = False
-                        if not subscription.get("items"):
+
+                        items_list_object = subscription.get("items")
+
+                        if not items_list_object:
                             logging.warning(
-                                f"Subscription {subscription.id} has no items. Skipping."
+                                f"Subscription {subscription.id} has no 'items' attribute/key or it is None/empty. Skipping."
                             )
                             continue
 
-                        for item in subscription.items.data:
+                        # Check if it's a ListObject-like structure with a 'data' list attribute
+                        # Stripe ListObjects usually have an 'object' key == 'list'
+                        if (
+                            not isinstance(items_list_object, stripe.ListObject)
+                            or not hasattr(items_list_object, "data")
+                            or not isinstance(items_list_object.data, list)
+                        ):
+                            logging.error(
+                                f"Subscription {subscription.id}: 'items' (type: {type(items_list_object)}) is not a valid ListObject with a 'data' list."
+                            )
+                            # logging.error(f"Items object content: {items_list_object}")
+                            continue
+                        for item in items_list_object.data:
                             product = None  # Reset product for each item
                             try:
                                 price = item.get("price")
                                 if not price:
                                     logging.warning(
-                                        f"Subscription item {item.id} has no price. Skipping item."
+                                        f"Subscription item {item.id} has no price object. Skipping item."
+                                    )
+                                    continue
+                                # Ensure price is an object, not just an ID (it should be due to expand)
+                                if not isinstance(price, stripe.Price):
+                                    logging.warning(
+                                        f"Subscription item {item.id}: Price attribute is not an expanded Price object (type: {type(price)}). Skipping item."
                                     )
                                     continue
 
                                 product_id = price.get(
                                     "product"
-                                )  # This is just the ID string
+                                )  # This should be the ID string
                                 if not product_id or not isinstance(product_id, str):
                                     logging.warning(
-                                        f"Could not get valid product ID from price {price.id} in item {item.id}. Skipping item."
+                                        f"Could not get valid product ID string from price {price.id} in item {item.id}. Skipping item."
                                     )
                                     continue
 
-                                # Step 4: Use cache or retrieve product
+                                # Use cache or retrieve product
                                 if product_id in product_cache:
                                     product = product_cache[product_id]
                                     logging.debug(
@@ -1133,7 +1153,7 @@ class MagicalAuth:
                                         )
                                         continue  # Skip item
 
-                                # Step 5: Check product metadata
+                                # Check product metadata
                                 if product:
                                     product_metadata = product.get("metadata", {})
                                     if product_metadata.get("APP_NAME") == getenv(
@@ -1143,7 +1163,7 @@ class MagicalAuth:
                                             f"Subscription {subscription.id} (Item {item.id}, Product {product.id} '{product.name}') matches APP_NAME '{getenv('APP_NAME')}'."
                                         )
                                         is_relevant_subscription = True
-                                        break  # Found a relevant item, no need to check others in this subscription
+                                        break  # Found a relevant item
 
                             except Exception as item_error:
                                 logging.error(
@@ -1161,22 +1181,20 @@ class MagicalAuth:
                                 )
                             else:
                                 logging.debug(
-                                    f"Subscription {subscription.id} already found via another customer record."
+                                    f"Subscription {subscription.id} already found."
                                 )
 
                 except stripe.error.StripeError as se_sub:
-                    # Log the specific error from Stripe
                     logging.error(
                         f"Stripe API error listing subscriptions for customer {customer.id}: {se_sub}"
                     )
-                    # Optionally include details if available in the error object
                     if hasattr(se_sub, "error") and se_sub.error:
                         logging.error(
                             f"Stripe error details: code={se_sub.error.code}, param={se_sub.error.param}, type={se_sub.error.type}"
                         )
                 except Exception as e_sub:
                     logging.error(
-                        f"Unexpected error listing subscriptions for customer {customer.id}: {e_sub}"
+                        f"Unexpected error processing subscriptions for customer {customer.id}: {e_sub}"
                     )
                     logging.error(traceback.format_exc())
 
