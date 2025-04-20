@@ -27,6 +27,7 @@ import asyncio
 import logging
 import base64
 import json
+import time
 import uuid
 import os
 
@@ -2314,6 +2315,9 @@ class Query:
         preferences = convert_preferences_to_type(preferences_dict)
         companies = auth_manager.get_user_companies_with_roles()
         agents = get_agents(user=user)
+        if not agents:
+            time.sleep(1)
+            agents = get_agents(user=user)
         default_agent_id = None
         for agent in agents:
             if agent["default"]:
