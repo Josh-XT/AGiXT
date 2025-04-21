@@ -1041,57 +1041,110 @@ class MagicalAuth:
         return requirements
 
     def get_subscribed_products(self, stripe_api_key, user_email):
+        """
+        Finds ANY active Stripe subscriptions for a given user email.
+
+        This function works by:
+        1. Finding all Stripe Customer objects associated with the provided email.
+        2. Listing all subscriptions for each found customer.
+        3. Filtering for subscriptions that are 'active'.
+        4. Returning a list of all active subscriptions found across all matching customers.
+
+        Args:
+            stripe_api_key (str): The Stripe API key.
+            user_email (str): The email address of the user to check subscriptions for.
+
+        Returns:
+            List[stripe.Subscription]: A list of active Stripe Subscription objects.
+                                       Returns an empty list if no active subscriptions
+                                       are found or if an error occurs.
+        """
         import stripe
+        import traceback
+
+        if not stripe:
+            logging.error("Stripe library is not installed or imported correctly.")
+            return []
 
         stripe.api_key = stripe_api_key
-        logging.info(f"Checking subscriptions for user {user_email}...")
+        logging.info(
+            f"Checking for ANY active subscriptions for user email: {user_email}"
+        )  # Updated log message
+        all_active_subscriptions = []
+
         try:
-            # First, find all customer records with this email
-            customers = stripe.Customer.list(email=user_email)
+            # Step 1: Find customer(s) by email
+            customers = stripe.Customer.list(email=user_email, limit=100)
 
-            relevant_subscriptions = []
+            if not customers.data:
+                logging.info(f"No Stripe customers found for email: {user_email}.")
+                return []
 
-            # Check subscriptions for each customer record
+            logging.info(
+                f"Found {len(customers.data)} customer record(s) for email: {user_email}."
+            )
+
+            # Step 2 & 3: Check active subscriptions for each customer
             for customer in customers.data:
-                logging.info(f"Found customer: {customer.id} for email {user_email}")
-                all_subscriptions = stripe.Subscription.list(
-                    customer=customer.id,
-                    expand=["data.items.data.price"],
-                )
+                logging.debug(f"Checking subscriptions for customer ID: {customer.id}")
+                try:
+                    # List only *active* subscriptions for this specific customer.
+                    # No need to expand anything further if we aren't checking product details.
+                    subscriptions_list = stripe.Subscription.list(
+                        customer=customer.id,
+                        status="active",
+                        limit=100,  # Safeguard limit
+                    )
 
-                logging.info(
-                    f"Found {len(all_subscriptions)} subscriptions for customer {customer.id}."
-                )
+                    logging.debug(
+                        f"Found {len(subscriptions_list.data)} active subscriptions for customer {customer.id}."
+                    )
 
-                # Add all active subscriptions for this app
-                for subscription in all_subscriptions:
-                    if subscription.status != "active":
-                        continue
+                    # Step 4: Add all found active subscriptions to our main list
+                    for subscription in subscriptions_list.data:
+                        # Avoid adding duplicates if checking multiple customers with same subscription
+                        if subscription.id not in [
+                            sub.id for sub in all_active_subscriptions
+                        ]:
+                            all_active_subscriptions.append(subscription)
+                            logging.info(
+                                f"Found active subscription {subscription.id} for customer {customer.id}. Adding to results."
+                            )
+                        else:
+                            logging.debug(
+                                f"Subscription {subscription.id} already found via another customer record."
+                            )
 
-                    app_relevant = False
-                    for item in subscription["items"]["data"]:
-                        try:
-                            product_id = item["price"]["product"]
-                            product = stripe.Product.retrieve(product_id)
-
-                            if product.get("metadata", {}).get("APP_NAME") == getenv(
-                                "APP_NAME"
-                            ):
-                                app_relevant = True
-                                break
-                        except Exception as e:
-                            logging.error(f"Error checking product: {e}")
-
-                    if app_relevant:
-                        relevant_subscriptions.append(subscription)
-                        logging.info(
-                            f"Found relevant subscription {subscription['id']}"
+                except stripe.error.StripeError as se_sub:
+                    logging.error(
+                        f"Stripe API error listing subscriptions for customer {customer.id}: {se_sub}"
+                    )
+                    if hasattr(se_sub, "error") and se_sub.error:
+                        logging.error(
+                            f"Stripe error details: code={se_sub.error.code}, param={se_sub.error.param}, type={se_sub.error.type}"
                         )
+                except Exception as e_sub:
+                    logging.error(
+                        f"Unexpected error processing subscriptions for customer {customer.id}: {e_sub}"
+                    )
+                    logging.error(traceback.format_exc())
 
-            return relevant_subscriptions
+            # Step 5: Return the combined list
+            logging.info(
+                f"Finished checking all customers. Found {len(all_active_subscriptions)} total active subscriptions for email {user_email}."
+            )
+            return all_active_subscriptions
 
-        except Exception as e:
-            logging.error(f"Error checking subscriptions: {e}")
+        except stripe.error.StripeError as se_cust:
+            logging.error(
+                f"Stripe API error finding customers for email {user_email}: {se_cust}"
+            )
+            return []
+        except Exception as e_cust:
+            logging.error(
+                f"General error during subscription check for email {user_email}: {e_cust}"
+            )
+            logging.error(traceback.format_exc())
             return []
 
     def update_user_role(self, company_id: str, user_id: str, role_id: int):
