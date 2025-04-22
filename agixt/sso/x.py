@@ -91,7 +91,8 @@ class XSSO:
 
 def sso(code, redirect_uri=None, code_verifier=None) -> XSSO:
     if not redirect_uri:
-        redirect_uri = getenv("APP_URI")
+        app_uri = getenv("APP_URI")
+        redirect_uri = f"{app_uri}/user/close/x"
     code = (
         str(code)
         .replace("%2F", "/")
