@@ -2669,12 +2669,16 @@ class MagicalAuth:
             mfa_token = None
 
             # Check for existing OAuth connection
-            existing_oauth = (
-                session.query(UserOAuth)
-                .filter(UserOAuth.provider_id == provider_record.id)
-                .filter(UserOAuth.account_name == account_name)
-                .first()
-            )
+            if self.user_id:
+                existing_oauth = (
+                    session.query(UserOAuth)
+                    .filter(UserOAuth.provider_id == provider_record.id)
+                    .filter(UserOAuth.account_name == account_name)
+                    .filter(UserOAuth.user_id == self.user_id)
+                    .first()
+                )
+            else:
+                existing_oauth = None
 
             if existing_oauth:
                 # Get the user associated with this OAuth connection
