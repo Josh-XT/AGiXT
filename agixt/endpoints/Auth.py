@@ -353,6 +353,7 @@ async def oauth_login(
 ):
     data = await request.json()
     logging.info(f"OAuth2 login request received for {provider}: {data}")
+    logging.info(f"Authorization header: {authorization}")
     auth = MagicalAuth(token=authorization)
     email = auth.email
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
