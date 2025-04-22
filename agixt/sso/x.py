@@ -25,7 +25,7 @@ SCOPES = [
     "dm.read",
     "dm.write",
 ]
-AUTHORIZE = "https://x.com/i/oauth2/authorize"
+AUTHORIZE = "https://twitter.com/i/oauth2/authorize"
 PKCE_REQUIRED = True
 
 
