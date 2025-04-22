@@ -2607,7 +2607,8 @@ class MagicalAuth:
         code_verifier=None,
     ):
         if not referrer:
-            referrer = getenv("APP_URI")
+            app_uri = getenv("APP_URI")
+            referrer = f"{app_uri}/user/close/{provider}"
         # Check if one of the providers in the sso folder
         provider = str(provider).lower()
         files = os.listdir("sso")
