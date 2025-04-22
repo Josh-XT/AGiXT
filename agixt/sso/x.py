@@ -102,15 +102,17 @@ def sso(code, redirect_uri=None, code_verifier=None) -> XSSO:
     )
     client_id = getenv("X_CLIENT_ID")
     client_secret = getenv("X_CLIENT_SECRET")
+    data = {
+        "code": code,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+        "code_verifier": code_verifier,
+    }
+    logging.info(f"X SSO data: {data}")
     response = requests.post(
         "https://api.x.com/2/oauth2/token",
-        data={
-            "code": code,
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-            "code_verifier": code_verifier,
-        },
+        data=data,
         auth=(client_id, client_secret),
     )
     if response.status_code != 200:
