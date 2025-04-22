@@ -357,7 +357,7 @@ async def oauth_login(
     email = auth.email
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     code_verifier = None
-    state = data.get("state")
+    state = data.get("pkce_state")
     if state:
         try:
             code_verifier = decrypt(getenv("AGIXT_API_KEY"), state).get("verifier")
