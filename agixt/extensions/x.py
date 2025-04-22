@@ -1,6 +1,8 @@
 import os
+import re
 import logging
 import requests
+from urllib.parse import urlparse
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
@@ -56,8 +58,11 @@ class x(Extensions):
                 except Exception as e:
                     logging.error(f"Error initializing X client: {str(e)}")
 
-        self.media_dir = kwargs.get("conversation_directory", "./WORKSPACE/media")
-        os.makedirs(self.media_dir, exist_ok=True)
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
 
     def verify_user(self):
         """
@@ -241,22 +246,163 @@ class x(Extensions):
             logging.error(f"Error retrieving user timeline: {str(e)}")
             return []
 
-    async def post_tweet(self, text, media_paths=None, reply_to_id=None):
+    async def post_tweet(
+        self, text: str, media_paths: str = None, reply_to_id: str = None
+    ):
         """
-        Posts a new tweet or replies to an existing tweet.
+        Posts a new tweet or replies to an existing tweet, attaching media from URLs.
 
         Args:
-            text (str): Tweet content
-            media_paths (list): Optional list of paths to media files to attach
-            reply_to_id (str): Optional ID of tweet to reply to
+            text (str): Tweet content.
+            media_paths (str): Optional comma-separated string of URLs pointing to media files.
+                               URLs can be remote (https://...) or local served URLs
+                               (e.g., http://localhost:7437/...).
+            reply_to_id (str): Optional ID of the tweet to reply to.
 
         Returns:
-            dict: Response containing success status and tweet details
+            dict: Response containing success status and tweet details.
         """
-        try:
-            self.verify_user()
+        local_files_to_upload = []
+        processed_urls = set()  # Keep track of URLs processed to avoid duplicates
 
-            headers = {
+        if media_paths:
+            logging.info(f"Received media_paths string: '{media_paths}'")
+            # Split the string by comma and strip whitespace from each potential URL
+            url_list = [url.strip() for url in media_paths.split(",") if url.strip()]
+            logging.info(f"Parsed URLs: {url_list}")
+
+            api_uri_base = getenv("API_URI")
+            local_server_base = "http://localhost:7437/"  # Adjust if your local server uses a different port
+
+            for url in url_list:
+                if not url or url in processed_urls:
+                    continue  # Skip empty or duplicate URLs
+
+                processed_urls.add(url)
+                local_path_target = None
+                original_url = url  # Keep for logging
+
+                try:
+                    # 1. Handle special local URLs pointing to the WORKSPACE
+                    if url.startswith(local_server_base):
+                        filename = os.path.basename(urlparse(url).path)
+                        if not filename:
+                            logging.warning(
+                                f"Could not extract filename from local URL: {original_url}. Skipping."
+                            )
+                            continue
+                        local_path_target = os.path.join(
+                            self.WORKING_DIRECTORY, filename
+                        )
+                        logging.info(
+                            f"Identified local server URL {original_url}. Target path: {local_path_target}"
+                        )
+
+                    elif api_uri_base and url.startswith(api_uri_base + "/"):
+                        filename = os.path.basename(urlparse(url).path)
+                        if not filename:
+                            logging.warning(
+                                f"Could not extract filename from API URI: {original_url}. Skipping."
+                            )
+                            continue
+                        local_path_target = os.path.join(
+                            self.WORKING_DIRECTORY, filename
+                        )
+                        logging.info(
+                            f"Identified API URI {original_url}. Target path: {local_path_target}"
+                        )
+
+                    # 2. Handle remote HTTPS URLs (download them)
+                    elif url.startswith("https://"):
+                        logging.info(
+                            f"Identified remote URL: {original_url}. Attempting download."
+                        )
+                        response = requests.get(
+                            url, stream=True, timeout=30, allow_redirects=True
+                        )
+                        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+
+                        # Extract filename more carefully
+                        parsed_url = urlparse(url)
+                        filename = os.path.basename(parsed_url.path)
+                        if (
+                            not filename
+                        ):  # Handle URLs ending in '/' or without explicit filename
+                            # Attempt to get name from Content-Disposition or generate one
+                            cd = response.headers.get("content-disposition")
+                            if cd:
+                                fname = re.findall('filename="?(.+)"?', cd)
+                                if fname:
+                                    filename = fname[0]
+                            if not filename:
+                                # Generate a fallback name (consider using content-type)
+                                filename = (
+                                    f"downloaded_media_{len(local_files_to_upload) + 1}"
+                                )
+                                logging.warning(
+                                    f"Could not determine filename for {original_url}, using fallback: {filename}"
+                                )
+
+                        # Basic filename sanitization (replace potentially problematic chars)
+                        filename = re.sub(r'[\\/*?:"<>|]', "_", filename)
+
+                        downloaded_path = os.path.join(self.WORKING_DIRECTORY, filename)
+                        with open(downloaded_path, "wb") as file:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                file.write(chunk)
+                        logging.info(
+                            f"Downloaded '{original_url}' to: {downloaded_path}"
+                        )
+                        local_path_target = downloaded_path  # Use the downloaded file
+
+                    # 3. Ignore other URL types (e.g., http:// not matching local server/API URI)
+                    else:
+                        logging.warning(
+                            f"Skipping unsupported or non-HTTPS remote URL: {original_url}"
+                        )
+                        continue
+
+                    # 4. Verify the final local path exists
+                    if local_path_target and os.path.exists(local_path_target):
+                        # Check file size (optional, but good practice)
+                        if os.path.getsize(local_path_target) > 0:
+                            local_files_to_upload.append(local_path_target)
+                        else:
+                            logging.warning(
+                                f"File at {local_path_target} (from {original_url}) is empty. Skipping."
+                            )
+                    elif local_path_target:
+                        logging.warning(
+                            f"Expected file at {local_path_target} (from {original_url}) does not exist or wasn't created. Skipping."
+                        )
+                    else:
+                        # This case shouldn't normally be reached if logic above is correct
+                        logging.warning(
+                            f"Could not determine a valid local path for URL {original_url}. Skipping."
+                        )
+
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Failed processing URL {original_url}: {e}")
+                    continue  # Skip this URL
+                except IOError as e:
+                    logging.error(
+                        f"File I/O error for URL {original_url} (target: {local_path_target}): {e}"
+                    )
+                    continue  # Skip this URL
+                except Exception as e:  # Catch unexpected errors during processing
+                    logging.error(
+                        f"Unexpected error processing URL {original_url}: {e}"
+                    )
+                    continue
+
+        # --- Start of main tweet posting logic ---
+        try:
+            # Verify user & get token (refreshes if necessary)
+            user_id = (
+                self.verify_user()
+            )  # Now returns user_id, implicitly checks token validity
+
+            headers_v2 = {  # Headers for the v2 tweet endpoint
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
@@ -267,63 +413,171 @@ class x(Extensions):
             if reply_to_id:
                 tweet_data["reply"] = {"in_reply_to_tweet_id": reply_to_id}
 
-            # Handle media uploads
-            if media_paths:
-                media_ids = []
-                for media_path in media_paths:
-                    if os.path.exists(media_path):
-                        # Upload media
-                        media_headers = {
-                            "Authorization": f"Bearer {self.access_token}",
-                            "Content-Type": "multipart/form-data",
-                        }
-                        with open(media_path, "rb") as file:
-                            media_response = requests.post(
-                                "https://upload.x.com/1.1/media/upload.json",
-                                headers=media_headers,
-                                files={"media": file},
-                            )
-                            if media_response.status_code != 200:
-                                raise Exception(
-                                    f"Failed to upload media: {media_response.text}"
+            # Handle media uploads using the processed paths
+            media_ids = []
+            if local_files_to_upload:
+                logging.info(
+                    f"Attempting to upload {len(local_files_to_upload)} media file(s)."
+                )
+                # Use v1.1 endpoint for media upload
+                media_upload_url = "https://upload.x.com/1.1/media/upload.json"
+                # **Potential Issue:** v1.1 normally uses OAuth1.0a. Bearer *might* work depending on app permissions but could fail.
+                # We'll use the Bearer token derived from OAuth 2.0 flow as available.
+                # Twitter API v2 does NOT have a direct equivalent media upload endpoint requiring this v1.1 call.
+                headers_v1_upload = {
+                    # Use the potentially refreshed access token
+                    "Authorization": f"Bearer {self.access_token}",
+                    # Content-Type is set automatically by requests for multipart/form-data
+                }
+
+                for media_path in local_files_to_upload:
+                    logging.info(f"Uploading media file: {media_path}")
+                    retries = 1  # Allow one retry on upload failure
+                    while retries >= 0:
+                        media_response = None  # Ensure response is defined outside try
+                        try:
+                            with open(media_path, "rb") as file:
+                                files = {"media": (os.path.basename(media_path), file)}
+                                media_response = requests.post(
+                                    media_upload_url,
+                                    headers=headers_v1_upload,  # Use specific headers
+                                    files=files,
+                                    timeout=90,  # Increased timeout for potentially large uploads
                                 )
-                            media_ids.append(media_response.json()["media_id_string"])
+                                media_response.raise_for_status()  # Check for HTTP errors (4xx, 5xx)
+                                media_info = media_response.json()
+                                media_ids.append(media_info["media_id_string"])
+                                logging.info(
+                                    f"Successfully uploaded {media_path}, media ID: {media_info['media_id_string']}"
+                                )
+                                break  # Success, exit retry loop
 
+                        except requests.exceptions.RequestException as e:
+                            response_text = (
+                                media_response.text if media_response else "N/A"
+                            )
+                            logging.error(
+                                f"Failed to upload media {media_path}: {e} - Response: {response_text}"
+                            )
+                            if (
+                                retries > 0
+                                and media_response is not None
+                                and media_response.status_code in [401, 403]
+                            ):
+                                # If unauthorized/forbidden, maybe token expired mid-way? Try verifying again.
+                                logging.warning(
+                                    "Upload failed with auth error, attempting token re-verification/refresh before retry."
+                                )
+                                try:
+                                    self.verify_user()  # Re-verify, potentially refreshes token
+                                    headers_v1_upload["Authorization"] = (
+                                        f"Bearer {self.access_token}"  # Update header
+                                    )
+                                    logging.info(
+                                        "Token re-verified/refreshed. Retrying upload."
+                                    )
+                                except Exception as verify_err:
+                                    logging.error(
+                                        f"Failed to re-verify token: {verify_err}. Upload retry aborted."
+                                    )
+                                    retries = -1  # Prevent further retries
+                            elif retries == 0:
+                                logging.error(f"Final attempt failed for {media_path}.")
+                            # No break here, loop continues if retries > 0
+
+                        except KeyError:
+                            response_text = (
+                                media_response.text if media_response else "N/A"
+                            )
+                            logging.error(
+                                f"Failed to parse media upload response for {media_path}: {response_text}"
+                            )
+                            break  # Parsing error, probably no point retrying
+                        except (
+                            Exception
+                        ) as e:  # Catch other potential errors (e.g., file read)
+                            logging.error(
+                                f"An unexpected error occurred during media upload for {media_path}: {e}"
+                            )
+                            break  # Unexpected error, probably no point retrying
+                        finally:
+                            retries -= 1
+
+                # Only add media key if uploads were successful
                 if media_ids:
-                    tweet_data["media"] = {"media_ids": media_ids}
+                    tweet_data["media"] = {
+                        "media_ids": media_ids[:4]
+                    }  # Twitter allows max 4 photos, 1 GIF/Video per tweet via API v2
+                    if len(media_ids) > 4:
+                        logging.warning(
+                            f"More than 4 media items uploaded ({len(media_ids)}), but only the first 4 will be attached to the tweet."
+                        )
+                elif (
+                    local_files_to_upload
+                ):  # If paths were provided but all uploads failed
+                    logging.warning(
+                        "Media URLs were provided, but all media uploads failed. Posting tweet without media."
+                    )
+                    # Decide if you want to fail completely here or post text-only
+                    # return {"success": False, "message": "Failed to upload media files."} # Option to fail
 
+            # Post the tweet using the v2 endpoint
+            logging.info(
+                f"Posting tweet with data: { {k: v for k, v in tweet_data.items() if k != 'text'} | {'text': tweet_data['text'][:50]+'...' if len(tweet_data.get('text','')) > 50 else tweet_data.get('text','')} }"
+            )  # Log truncated text
             response = requests.post(
-                "https://api.x.com/2/tweets", headers=headers, json=tweet_data
+                "https://api.x.com/2/tweets",
+                headers=headers_v2,
+                json=tweet_data,
+                timeout=30,
             )
 
             if response.status_code == 201:
-                tweet_data = response.json()["data"]
+                tweet_response_data = response.json()["data"]
                 return {
                     "success": True,
-                    "message": "Tweet posted successfully",
-                    "tweet_id": tweet_data["id"],
-                    "text": tweet_data.get("text", ""),
+                    "message": "Tweet posted successfully"
+                    + (" with media" if tweet_data.get("media") else ""),
+                    "tweet_id": tweet_response_data["id"],
+                    "text": tweet_response_data.get("text", ""),
                 }
             else:
-                raise Exception(f"Failed to post tweet: {response.text}")
+                # Raise exception with more details from the API response
+                error_detail = ""
+                try:
+                    error_json = response.json()
+                    error_detail = f" - Detail: {error_json.get('detail', 'N/A')}"
+                    if "errors" in error_json:
+                        error_detail += f" Errors: {error_json['errors']}"
+                except requests.exceptions.JSONDecodeError:
+                    error_detail = f" - Response Body: {response.text}"
+                raise Exception(
+                    f"Failed to post tweet (Status {response.status_code}): {error_detail}"
+                )
 
         except Exception as e:
-            logging.error(f"Error posting tweet: {str(e)}")
+            logging.exception(
+                f"Error in post_tweet operation: {str(e)}"
+            )  # Use logging.exception to include traceback
             return {"success": False, "message": f"Failed to post tweet: {str(e)}"}
 
-    async def reply_to_tweet(self, tweet_id, text, media_paths=None):
+    async def reply_to_tweet(self, tweet_id: str, text: str, media_paths: str = None):
         """
         Replies to an existing tweet.
 
         Args:
-            tweet_id (str): ID of the tweet to reply to
-            text (str): Reply content
-            media_paths (list): Optional list of paths to media files to attach
+            tweet_id (str): ID of the tweet to reply to.
+            text (str): Reply content.
+            media_paths (str): Optional comma-separated string of URLs for media attachments.
 
         Returns:
-            dict: Response containing success status and tweet details
+            dict: Response containing success status and tweet details.
         """
-        return await self.post_tweet(text, media_paths, reply_to_id=tweet_id)
+        if not tweet_id:
+            return {"success": False, "message": "tweet_id is required for replying."}
+        return await self.post_tweet(
+            text=text, media_paths=media_paths, reply_to_id=tweet_id
+        )
 
     async def like_tweet(self, tweet_id):
         """
