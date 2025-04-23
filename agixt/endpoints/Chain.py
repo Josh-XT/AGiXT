@@ -70,7 +70,7 @@ async def run_chain(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     agents = get_agents(user=user)
-    agent_name = agents[0]
+    agent_name = agents[0]["name"]
     if user_input.agent_override:
         if user_input.agent_override in agents:
             agent_name = user_input.agent_override
