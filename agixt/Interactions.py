@@ -327,6 +327,8 @@ class Interactions:
             context.append(
                 f"The assistant's data analysis from the user's input and file uploads:\n{kwargs['data_analysis']}\n"
             )
+        if "command_info" in kwargs:
+            context.append(self.agent.get_all_commands_markdown())
         if context != [] and context != "":
             if isinstance(context, list):
                 context = "\n".join(context)
