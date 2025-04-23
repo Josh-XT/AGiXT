@@ -180,6 +180,7 @@ class agixt_actions(Extensions):
             "Get Datetime": self.get_datetime,
             "Use MCP Server": self.mcp_client,
             "Create Automation Chain": self.create_agixt_chain,
+            "Modify Automation Chain": self.modify_chain,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -1524,3 +1525,110 @@ class agixt_actions(Extensions):
             logging.error(f"Error creating AGiXT chain: {str(e)}")
             logging.error(traceback.format_exc())  # Log the full traceback
             return f"Error creating chain: {str(e)}"
+
+    # Add a `modify_chain` function to modify an existing chain
+    async def modify_chain(self, chain_name: str, description_of_modifications: str):
+        """
+        Modify an existing AGiXT chain based on user input.
+
+        Args:
+            chain_name (str): The name of the chain to modify.
+            description_of_modifications (str): A detailed description of the modifications to be made.
+
+        Returns:
+            str: Confirmation message with the name of the modified chain or an error message.
+        """
+        logging.info(f"Received request to modify chain: {chain_name}")
+
+        try:
+            # Fetch the existing chain data
+            existing_chain = self.ApiClient.get_chain(chain_name=chain_name)
+            if not existing_chain:
+                return f"Error: Chain '{chain_name}' does not exist."
+
+            response = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Chain Modification",
+                prompt_args={
+                    "user_input": description_of_modifications,
+                    "chain_name": chain_name,
+                    "chain_json": json.dumps(existing_chain, indent=2),
+                    "command_info": True,
+                    "prompt_info": True,
+                    "disable_commands": True,
+                    "log_user_input": False,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
+            if "```json" in response:
+                modifications_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:  # Handle plain ``` block
+                modifications_str = response.split("```")[1].split("```")[0].strip()
+            else:
+                # Attempt to extract JSON if no markdown block found
+                try:
+                    start = response.find("{")
+                    end = response.rfind("}") + 1
+                    if start != -1 and end != -1:
+                        modifications_str = response[start:end]
+                    else:
+                        raise ValueError("No JSON object found in the response.")
+                except Exception as e:
+                    logging.error(
+                        f"Failed to extract JSON from LLM response: {response}. Error: {e}"
+                    )
+                    return f"Error: The AI failed to generate the chain modifications in the expected format. Response: {response}"
+            try:
+                modifications = json.loads(modifications_str)
+            except json.JSONDecodeError as e:
+                logging.error(
+                    f"Failed to parse generated JSON: {modifications_str}. Error: {e}"
+                )
+                return f"Error: The AI generated invalid JSON for the chain modifications. Details: {e}"
+            # Validate the JSON structure
+            if not all(k in modifications for k in ["description", "steps"]):
+                logging.error(f"Generated JSON missing required keys: {modifications}")
+                return "Error: Generated chain modifications JSON is missing required 'description' or 'steps' keys."
+            if not isinstance(modifications["steps"], list):
+                logging.error(f"Generated JSON 'steps' is not a list: {modifications}")
+                return (
+                    "Error: Generated chain modifications JSON 'steps' must be a list."
+                )
+
+            from Chain import Chain
+
+            chain = Chain(user=self.user)
+            # Check if the chain exists
+            existing_chain = chain.get_chain(chain_name=chain_name)
+            if not existing_chain:
+                return f"Error: Chain '{chain_name}' does not exist."
+            # Apply modifications
+            for key, value in modifications.items():
+                if key == "description":
+                    chain.update_description(
+                        chain_name=chain_name,
+                        description=value,
+                    )
+                elif key == "steps":
+                    for step in value:
+                        step_number = step.get("step")
+                        if step_number:
+                            chain.update_step(
+                                chain_name=chain_name,
+                                step_number=step_number,
+                                prompt_type=step.get("prompt_type"),
+                                agent_name=step.get("agent_name"),
+                                prompt=step.get("prompt"),
+                            )
+
+            logging.info(f"Successfully modified chain '{chain_name}'.")
+            return f"Successfully modified chain '{chain_name}'.\n```json\n{json.dumps(modifications, indent=2)}\n```"
+
+        except Exception as e:
+            logging.error(f"Error modifying AGiXT chain: {str(e)}")
+            return f"Error modifying chain: {str(e)}"
