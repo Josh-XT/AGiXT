@@ -179,6 +179,7 @@ class agixt_actions(Extensions):
             "Explain Chain": self.chain_to_mermaid,
             "Get Datetime": self.get_datetime,
             "Use MCP Server": self.mcp_client,
+            "Create Automation Chain": self.create_agixt_chain,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -1393,7 +1394,7 @@ class agixt_actions(Extensions):
 
     async def create_agixt_chain(self, natural_language_request: str):
         """
-        Create an AGiXT chain from a natural language request. The agent will determine the steps, agents, prompt types, and arguments necessary based on the request and available commands/prompts/chains.
+        Create an AGiXT automation chain from a natural language request. The agent will determine the steps, agents, prompt types, and arguments necessary based on the request and available commands/prompts/chains.
 
         Args:
             natural_language_request (str): A detailed description of the workflow or task the chain should accomplish.
@@ -1416,6 +1417,7 @@ class agixt_actions(Extensions):
                 prompt_args={
                     "user_input": natural_language_request,
                     "command_info": True,
+                    "prompt_info": True,
                     "disable_commands": True,
                     "log_user_input": False,
                     "log_output": False,

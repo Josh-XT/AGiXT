@@ -329,6 +329,8 @@ class Interactions:
             )
         if "command_info" in kwargs:
             context.append(self.agent.get_all_commands_markdown())
+        if "prompt_info" in kwargs:
+            context.append(self.cp.get_prompts_markdown())
         if context != [] and context != "":
             if isinstance(context, list):
                 context = "\n".join(context)

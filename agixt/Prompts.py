@@ -194,6 +194,16 @@ class Prompts:
         prompts += global_prompts
         return prompts
 
+    def get_prompts_markdown(self):
+        prompt_data = self.get_user_prompts()
+        prompt_markdown = ""
+        for prompt in prompt_data:
+            prompt_markdown += f"## Prompt Name: `{prompt['name']}`\n"
+            if prompt["description"]:
+                prompt_markdown += f"**Description:** {prompt['description']}\n"
+            prompt_markdown += f"**Arguments:** {', '.join(prompt['arguments'])}\n"
+        return prompt_markdown
+
     def get_prompts(self, prompt_category="Default"):
         if not prompt_category:
             prompt_category = "Default"
