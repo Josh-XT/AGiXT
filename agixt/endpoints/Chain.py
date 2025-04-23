@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
-from ApiClient import Chain, verify_api_key, get_api_client, is_admin
+from ApiClient import Chain, verify_api_key, get_api_client, is_admin, get_agents
 from typing import List, Dict
 from uuid import UUID
 from XT import AGiXT
@@ -69,7 +69,12 @@ async def run_chain(
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    agent_name = user_input.agent_override if user_input.agent_override else "gpt4free"
+    agents = get_agents()
+    agent_name = agents[0]
+    if user_input.agent_override:
+        if user_input.agent_override in agents:
+            agent_name = user_input.agent_override
+
     conversation_name = user_input.conversation_name
     chain_response = await AGiXT(
         user=user,

@@ -504,7 +504,11 @@ class AGiXT:
                         args["prompt_name"] = prompt_name
                         args["log_user_input"] = False
                         args["voice_response"] = False
-                        args["log_output"] = False
+                        args["log_output"] = (
+                            False
+                            if "log_output" not in args
+                            else str(args["log_output"]).lower() == "true"
+                        )
                         args["user_input"] = user_input
                         result = self.ApiClient.prompt_agent(
                             agent_name=agent_name,
@@ -2282,7 +2286,15 @@ class AGiXT:
                     markdown_output += f"{'  ' * indent}* {item}\n"
             return markdown_output
 
-        return generate_markdown_structure(folder_path=self.agent_workspace)
+        return generate_markdown_structure(folder_path=self.conversation_workspace)
+
+    def get_agent_workspace_list(self):
+        files_with_paths = []
+        for root, dirs, files in os.walk(self.conversation_workspace):
+            for file in files:
+                files_with_paths.append(os.path.join(root, file))
+        files_with_paths.sort()
+        return files_with_paths
 
     async def analyze_user_input(self, user_input: str):
         code_execution = ""
@@ -2515,47 +2527,36 @@ class AGiXT:
             with open(file_path, "w") as f:
                 f.write(file_content)
         if not file_content:
-            files = os.listdir(self.conversation_workspace)
+            files = self.get_agent_workspace_list()
             logging.info(f"Files in conversation workspace: {files}")
-            # Check if any files are csv files, if not, return empty string
-            csv_files = [file for file in files if file.endswith(".csv")]
-            logging.info(f"CSV files in conversation workspace: {csv_files}")
-            if len(csv_files) == 0:
+            if len(files) == 0:
                 return await self.analyze_user_input(user_input=user_input)
-            activities = self.conversation.get_activities(limit=20)["activities"]
-            logging.info(f"Activities: {activities}")
-            if len(activities) == 0:
-                return await self.analyze_user_input(user_input=user_input)
-            likely_files = []
-            for activity in activities:
-                if ".csv" in activity["message"]:
-                    if "`" in activity["message"]:
-                        likely_files.append(activity["message"].split("`")[1])
-            if len(likely_files) == 1:
-                file_name = likely_files[0]
+            file_determination = await self.inference(
+                user_input=user_input,
+                prompt_category="Default",
+                prompt_name="Determine File",
+                directory_listing=self.get_agent_workspace_markdown()
+                + "\n\nEnsure the full path is included for each file.",
+                conversation_results=10,
+                websearch=False,
+                browse_links=False,
+                log_user_input=False,
+                log_output=False,
+                voice_response=False,
+            )
+            if "\n" in file_determination:
+                determined_files = file_determination.split("\n")
+            else:
+                determined_files = [file_determination]
+            # Iterate over files and use regex to see if the file name is in the response
+            for file in files:
+                for determined_file in determined_files:
+                    if re.search(file, determined_file):
+                        file_names.append(file)
+            if len(file_names) == 1:
+                file_name = file_names[0]
                 file_path = os.path.join(self.conversation_workspace, file_name)
                 file_content = open(file_path, "r").read()
-            else:
-                file_determination = await self.inference(
-                    user_input=user_input,
-                    prompt_category="Default",
-                    prompt_name="Determine File",
-                    directory_listing="\n".join(csv_files),
-                    conversation_results=10,
-                    websearch=False,
-                    browse_links=False,
-                    log_user_input=False,
-                    log_output=False,
-                    voice_response=False,
-                )
-                # Iterate over files and use regex to see if the file name is in the response
-                for file in files:
-                    if re.search(file, file_determination):
-                        file_names.append(file)
-                if len(file_names) == 1:
-                    file_name = file_names[0]
-                    file_path = os.path.join(self.conversation_workspace, file_name)
-                    file_content = open(file_path, "r").read()
             if file_name == "":
                 return await self.analyze_user_input(user_input=user_input)
         if len(file_names) > 1:
@@ -2569,9 +2570,7 @@ class AGiXT:
                     import_files += f", `{self.conversation_workspace}/{file}`"
                 file_path = os.path.join(self.conversation_workspace, file)
                 file_content = open(file_path, "r").read()
-                lines = file_content.split("\n")
-                lines = lines[:2]
-                file_preview = "\n".join(lines)
+                file_preview = file_content.split("\n")
                 previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
             file_preview = "\n".join(previews)
             self.conversation.log_interaction(
@@ -2579,12 +2578,7 @@ class AGiXT:
                 message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from multiple files: {import_files}.",
             )
         else:
-            lines = file_content.split("\n")
-            if len(lines) > 5:
-                lines = lines[:5]
-            else:
-                lines = lines[:2]
-            file_preview = "\n".join(lines)
+            file_preview = file_content.split("\n")
             self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from file `{file_name}`.",
