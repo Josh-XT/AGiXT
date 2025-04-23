@@ -69,7 +69,7 @@ async def run_chain(
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    agents = get_agents()
+    agents = get_agents(user=user)
     agent_name = agents[0]
     if user_input.agent_override:
         if user_input.agent_override in agents:
