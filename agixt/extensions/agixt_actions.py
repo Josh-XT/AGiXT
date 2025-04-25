@@ -90,7 +90,7 @@ def execute_python_code(
         result = container.wait()
         logs = container.logs().decode("utf-8")
         container.remove()
-        if result["StatusCode"] != 0:
+        if str(logs).startswith("Traceback"):
             logging.error(f"Error executing Python code: {logs}")
             return f"Error: {logs}"
         logging.info(f"Python code executed successfully. Logs: {logs}")
