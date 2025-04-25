@@ -900,7 +900,7 @@ class microsoft(Extensions):
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
-                "Prefer": 'outlook.timezone="{self.timezone}"',
+                "Prefer": f'outlook.timezone="{self.timezone}"',
             }
 
             response = requests.post(
