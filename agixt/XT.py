@@ -2526,39 +2526,23 @@ class AGiXT:
             file_path = os.path.join(self.conversation_workspace, file_name)
             with open(file_path, "w") as f:
                 f.write(file_content)
-        if not file_content:
-            files = self.get_agent_workspace_list()
-            logging.info(f"Files in conversation workspace: {files}")
-            if len(files) == 0:
-                return await self.analyze_user_input(user_input=user_input)
-            file_determination = await self.inference(
-                user_input=user_input,
-                prompt_category="Default",
-                prompt_name="Determine File",
-                directory_listing=self.get_agent_workspace_markdown()
-                + "\n\nEnsure the full path is included for each file.",
-                conversation_results=10,
-                websearch=False,
-                browse_links=False,
-                log_user_input=False,
-                log_output=False,
-                voice_response=False,
-            )
-            if "\n" in file_determination:
-                determined_files = file_determination.split("\n")
-            else:
-                determined_files = [file_determination]
-            # Iterate over files and use regex to see if the file name is in the response
-            for file in files:
-                for determined_file in determined_files:
-                    if re.search(file, determined_file):
-                        file_names.append(file)
-            if len(file_names) == 1:
-                file_name = file_names[0]
-                file_path = os.path.join(self.conversation_workspace, file_name)
-                file_content = open(file_path, "r").read()
-            if file_name == "":
-                return await self.analyze_user_input(user_input=user_input)
+            file_names.append(file_name)
+        files = self.get_agent_workspace_list()
+        if len(files) != 0:
+            csv_files = [file for file in files if file.endswith(".csv")]
+            if len(csv_files) != 0:
+                logging.info(f"CSV files in conversation workspace: {file_names}")
+                for file in csv_files:
+                    # Remove the current directory from the file path
+                    file_path = os.path.relpath(file, os.getcwd())
+                    file_names.append(file_path)
+        # Iterate over files and use regex to see if the file name is in the response
+        if len(file_names) == 1:
+            file_name = file_names[0]
+            file_path = os.path.join(self.conversation_workspace, file_name)
+            file_content = open(file_path, "r").read()
+        if len(file_names) == 0:
+            return await self.analyze_user_input(user_input=user_input)
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
