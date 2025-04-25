@@ -772,7 +772,7 @@ class AGiXT:
         if file_type not in ["jpg", "jpeg", "png", "gif"]:
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Reading [{file_name}]({file_url}) into memory.",
+                message=f"[SUBACTIVITY][{thinking_id}] Reading [{file_name}]({file_url}) into memory.",
             )
         if file_type in ["ppt", "pptx"]:
             # Convert it to a PDF
@@ -780,7 +780,7 @@ class AGiXT:
             file_name = str(file_name).replace(".pptx", ".pdf").replace(".ppt", ".pdf")
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
+                message=f"[SUBACTIVITY][{thinking_id}] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
             )
             try:
                 result = subprocess.run(
@@ -1013,7 +1013,7 @@ class AGiXT:
         self.conversation.log_interaction(
             role=self.agent_name,
             message=(
-                f"[ACTIVITY] {response}"
+                f"[SUBACTIVITY][{thinking_id}] {response}"
                 if "[ERROR]" not in response
                 else f"[ACTIVITY]{response}"
             ),
