@@ -2544,10 +2544,10 @@ class AGiXT:
             file_content = open(file_path, "r").read()
         if len(file_names) == 0:
             return await self.analyze_user_input(user_input=user_input)
+        import_files = ""
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
-            import_files = ""
             for file in file_names:
                 if self.conversation_workspace not in file:
                     file_path = os.path.join(self.conversation_workspace, file)
@@ -2561,16 +2561,8 @@ class AGiXT:
                 file_preview = file_content.split("\n")
                 previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
             file_preview = "\n".join(previews)
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from multiple files: {import_files}.",
-            )
         else:
             file_preview = file_content.split("\n")
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from file `{file_name}`.",
-            )
         code_interpreter = await self.inference(
             user_input=user_input,
             prompt_category="Default",
