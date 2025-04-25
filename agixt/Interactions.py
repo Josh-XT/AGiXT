@@ -327,10 +327,6 @@ class Interactions:
             context.append(
                 f"The assistant's data analysis from the user's input and file uploads:\n{kwargs['data_analysis']}\n"
             )
-        if "command_info" in kwargs:
-            context.append(self.agent.get_all_commands_markdown())
-        if "prompt_info" in kwargs:
-            context.append(self.cp.get_prompts_markdown())
         if context != [] and context != "":
             if isinstance(context, list):
                 context = "\n".join(context)
@@ -1125,34 +1121,10 @@ class Interactions:
                             logging.warning(
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
-            if "<think>" in self.response:
-                self.response.replace("<think>", "<thinking>")
-                self.response.replace("</think>", "</thinking>")
             if "<thinking>" in self.response:
-                if "<answer>" not in self.response:
-                    self.response = self.response.replace(
-                        "</thinking>", "</thinking><answer>"
-                    )
                 thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                 self.response = self.process_thinking_tags(
                     response=self.response, thinking_id=thinking_id, c=c
-                )
-                if "</answer>" not in self.response:
-                    self.response += "</answer>"
-            if "<reward>" in self.response:
-                # Remove reward tags and their content
-                self.response = re.sub(
-                    r"<reward>.*?</reward>", "", self.response, flags=re.DOTALL
-                )
-            if "<step>" in self.response:
-                # Remove step tags and their content
-                self.response = re.sub(
-                    r"<step>.*?</step>", "", self.response, flags=re.DOTALL
-                )
-            if "<count>" in self.response:
-                # Remove count tags and their content
-                self.response = re.sub(
-                    r"<count>.*?</count>", "", self.response, flags=re.DOTALL
                 )
             if log_output:
                 c.log_interaction(
