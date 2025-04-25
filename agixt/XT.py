@@ -654,11 +654,10 @@ class AGiXT:
         )
         return "I have read the information from the websites into my memory."
 
-    async def learn_spreadsheet(self, user_input, file_path):
+    async def learn_spreadsheet(self, user_input, file_path, thinking_id):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
         string_file_content = ""
-        thinking_id = self.conversation.get_thinking_id(agent_name=self.agent_name)
         try:
             if file_type.lower() == "csv":
                 df = pd.read_csv(file_path)
@@ -687,6 +686,7 @@ class AGiXT:
                             message, file_content = await self.learn_spreadsheet(
                                 user_input=user_input,
                                 file_path=csv_file_path,
+                                thinking_id=thinking_id,
                             )
                             self.conversation.log_interaction(
                                 role=self.agent_name,
@@ -724,6 +724,7 @@ class AGiXT:
         file_name: str = "",
         user_input: str = "",
         collection_id: str = "0",
+        thinking_id: str = "",
     ):
         """
         Learn from a file
@@ -868,6 +869,7 @@ class AGiXT:
                             file_name=name,
                             user_input=user_input,
                             collection_id=collection_id,
+                            thinking_id=thinking_id,
                         )
                 response = f"Extracted the content of the zip file [{file_name}]({file_url}) and read them into memory."
             else:
@@ -891,6 +893,7 @@ class AGiXT:
             response, content = await self.learn_spreadsheet(
                 user_input=user_input,
                 file_path=file_path,
+                thinking_id=thinking_id,
             )
             file_content += content
             await self.file_reader.write_text_to_memory(
@@ -1669,6 +1672,7 @@ class AGiXT:
                 file_name=file["file_name"],
                 user_input=new_prompt,
                 collection_id=self.conversation_id,
+                thinking_id=thinking_id,
             )
             file_contents.append(content)
         if file_contents:
