@@ -2547,7 +2547,12 @@ class AGiXT:
             else:
                 file_path = file_name
             file_content = open(file_path, "r").read()
-            file_preview = f"`{file_path}`\n```csv\n{file_content}\n```"
+            lines = file_content.split("\n")
+            if len(lines) < 20:
+                file_preview = f"`{file_path}`\n```csv\n{file_content}\n```"
+            else:
+                limited_content = "\n".join(lines[0:20])
+                file_preview = f"`{file_path}`\n```csv\n{limited_content}\n```"
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
@@ -2561,7 +2566,12 @@ class AGiXT:
                 else:
                     import_files += f", `{file_path}`"
                 file_content = open(file_path, "r").read()
-                previews.append(f"`{file_path}`\n```csv\n{file_content}\n```")
+                lines = file_content.split("\n")
+                if len(lines) < 20:
+                    previews.append(f"`{file_path}`\n```csv\n{file_content}\n```")
+                else:
+                    limited_content = "\n".join(lines[0:20])
+                    previews.append(f"`{file_path}`\n```csv\n{limited_content}\n```")
             file_preview = "\n".join(previews)
         code_interpreter = await self.inference(
             user_input=user_input,
