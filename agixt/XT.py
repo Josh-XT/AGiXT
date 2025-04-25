@@ -2531,6 +2531,7 @@ class AGiXT:
             file_names.append(file_name)
         files = self.get_agent_workspace_list()
         if len(files) != 0:
+            logging.info(f"Files in conversation workspace: {files}")
             csv_files = [file for file in files if file.endswith(".csv")]
             if len(csv_files) != 0:
                 logging.info(f"CSV files in conversation workspace: {file_names}")
