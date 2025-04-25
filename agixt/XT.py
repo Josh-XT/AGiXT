@@ -2531,12 +2531,14 @@ class AGiXT:
             file_names.append(file_name)
         files = self.get_agent_workspace_list()
         if len(files) != 0:
-            logging.info(f"Files in conversation workspace: {files}")
-            csv_files = [file for file in files if file.endswith(".csv")]
+            csv_files = []
+            for file in files:
+                if str(file).endswith(".csv"):
+                    csv_files.append(file)
             if len(csv_files) != 0:
-                logging.info(f"CSV files in conversation workspace: {file_names}")
                 for file in csv_files:
                     file_names.append(file)
+        logging.info(f"CSV files in conversation workspace: {file_names}")
         if len(file_names) == 0:
             return await self.analyze_user_input(user_input=user_input)
         # Iterate over files and use regex to see if the file name is in the response
