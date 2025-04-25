@@ -681,7 +681,7 @@ class AGiXT:
                             csv_file_name = os.path.basename(csv_file_path)
                             self.conversation.log_interaction(
                                 role=self.agent_name,
-                                message=f"[ACTIVITY] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
+                                message=f"[SUBACTIVITY][{thinking_id}] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
                             )
                             df.to_csv(csv_file_path, index=False)
                             message, file_content = await self.learn_spreadsheet(
@@ -689,7 +689,8 @@ class AGiXT:
                                 file_path=csv_file_path,
                             )
                             self.conversation.log_interaction(
-                                role=self.agent_name, message=f"[ACTIVITY] {message}"
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{thinking_id}] {message}",
                             )
                             string_file_content += file_content
                         return (
