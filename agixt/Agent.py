@@ -1106,6 +1106,71 @@ class Agent:
             logging.error(f"Error getting tasks by agent: {str(e)}")
             return []
 
+    def get_all_commands_markdown(self):
+        command_list = [
+            available_command["friendly_name"]
+            for available_command in self.available_commands
+            if available_command["enabled"] == True
+        ]
+        if self.company_id and self.company_agent:
+            company_command_list = [
+                available_command["friendly_name"]
+                for available_command in self.company_agent.available_commands
+                if available_command["enabled"] == True
+            ]
+            # Check if anything enabled in company commands
+            if len(company_command_list) > 0:
+                # Check if the enabled items are already enabled for the user available commands
+                for company_command in company_command_list:
+                    if company_command not in command_list:
+                        command_list.append(company_command)
+        if len(command_list) > 0:
+            try:
+                agent_extensions = self.get_company_agent_extensions()
+                if agent_extensions == "":
+                    agent_extensions = self.get_agent_extensions()
+            except Exception as e:
+                logging.error(f"Error getting agent extensions: {str(e)}")
+                agent_extensions = self.get_agent_extensions()
+            agent_commands = "## Available Commands\n\n**See command examples of commands that the assistant has access to below:**\n"
+            for extension in agent_extensions:
+                if extension["commands"] == []:
+                    continue
+                extension_name = extension["extension_name"]
+                extension_description = extension["description"]
+                agent_commands += (
+                    f"\n### {extension_name}\nDescription: {extension_description}\n"
+                )
+                for command in extension["commands"]:
+                    command_friendly_name = command["friendly_name"]
+                    command_description = command["description"]
+                    agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\n"
+                    for arg_name in command["command_args"].keys():
+                        if arg_name != "chain_name":
+                            agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
+                        else:
+                            agent_commands += (
+                                f"<chain_name>{command_friendly_name}</chain_name>\n"
+                            )
+                    agent_commands += "</execute>\n"
+            agent_commands += f"""## Command Usage Guidelines
+- **The assistant has commands available to use if they would be useful to provide a better user experience.**
+- Reference examples for correct syntax and usage of commands.
+- All inputs are strings and must be appropriately filled in with the correct values.
+- The assistant can execute a command anywhere in the response, and the commands will be executed in the order they appear.
+- The assistant will receive the command output before the user does and will be able to reference the output in the response.
+- The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
+- Once the assistant executes a command, it should stop at </execute> and wait for the command output before continuing.
+- The assistant should never generate a <output> tag in the response. The assistant will receive the command output and will be able to reference the output in the response.
+- If there is an <output> tag in the assistants previous responses in context, it refers to the command execution output. Use this output to determine if the command was successful, and to course correct if needed.
+- Any time the assistant executes a command, the text generation should end with </execute>. The assistant will be informed of the command output before the user receives the response to give the assistant the opportunity to evaluate the output and ensure it is correct, exploring different options if needed.
+- After command execution, increase step budget by 5, continue thinking, executing more commands if necessary for self-error correct unless user intervention is required, and then respond to the user.
+- Command executions should all take place BEFORE the <answer> block! Never inside the <answer> block. Only the response to the user goes inside the <answer> block.
+- Ensure that command names are EXACTLY as written in the command execution examples. A natural language friendly name is used.
+- **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
+            return agent_commands
+        return ""
+
     def get_commands_prompt(self, conversation_id):
         command_list = [
             available_command["friendly_name"]

@@ -70,7 +70,6 @@ class Extensions:
 
     async def execute_chain(self, chain_name, user_input="", **kwargs):
         return self.ApiClient.run_chain(
-            agent_name=self.agent_name,
             chain_name=chain_name,
             user_input=user_input,
             chain_args=kwargs,

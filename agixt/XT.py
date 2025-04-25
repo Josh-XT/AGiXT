@@ -504,7 +504,11 @@ class AGiXT:
                         args["prompt_name"] = prompt_name
                         args["log_user_input"] = False
                         args["voice_response"] = False
-                        args["log_output"] = False
+                        args["log_output"] = (
+                            False
+                            if "log_output" not in args
+                            else str(args["log_output"]).lower() == "true"
+                        )
                         args["user_input"] = user_input
                         result = self.ApiClient.prompt_agent(
                             agent_name=agent_name,
@@ -677,7 +681,7 @@ class AGiXT:
                             csv_file_name = os.path.basename(csv_file_path)
                             self.conversation.log_interaction(
                                 role=self.agent_name,
-                                message=f"[ACTIVITY] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
+                                message=f"[SUBACTIVITY][{thinking_id}] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
                             )
                             df.to_csv(csv_file_path, index=False)
                             message, file_content = await self.learn_spreadsheet(
@@ -685,7 +689,8 @@ class AGiXT:
                                 file_path=csv_file_path,
                             )
                             self.conversation.log_interaction(
-                                role=self.agent_name, message=f"[ACTIVITY] {message}"
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{thinking_id}] {message}",
                             )
                             string_file_content += file_content
                         return (
@@ -2282,7 +2287,15 @@ class AGiXT:
                     markdown_output += f"{'  ' * indent}* {item}\n"
             return markdown_output
 
-        return generate_markdown_structure(folder_path=self.agent_workspace)
+        return generate_markdown_structure(folder_path=self.conversation_workspace)
+
+    def get_agent_workspace_list(self):
+        files_with_paths = []
+        for root, dirs, files in os.walk(self.conversation_workspace):
+            for file in files:
+                files_with_paths.append(os.path.join(root, file))
+        files_with_paths.sort()
+        return files_with_paths
 
     async def analyze_user_input(self, user_input: str):
         code_execution = ""
@@ -2502,6 +2515,8 @@ class AGiXT:
         max_failures: int = 5,
     ):
         file_names = []
+        import_files = ""
+        file_preview = ""
         file_path = self.conversation_workspace
         thinking_id = self.conversation.get_thinking_id(agent_name=self.agent_name)
         if "```csv" in user_input and file_name == "":
@@ -2514,81 +2529,53 @@ class AGiXT:
             file_path = os.path.join(self.conversation_workspace, file_name)
             with open(file_path, "w") as f:
                 f.write(file_content)
-        if not file_content:
-            files = os.listdir(self.conversation_workspace)
-            logging.info(f"Files in conversation workspace: {files}")
-            # Check if any files are csv files, if not, return empty string
-            csv_files = [file for file in files if file.endswith(".csv")]
-            logging.info(f"CSV files in conversation workspace: {csv_files}")
-            if len(csv_files) == 0:
-                return await self.analyze_user_input(user_input=user_input)
-            activities = self.conversation.get_activities(limit=20)["activities"]
-            logging.info(f"Activities: {activities}")
-            if len(activities) == 0:
-                return await self.analyze_user_input(user_input=user_input)
-            likely_files = []
-            for activity in activities:
-                if ".csv" in activity["message"]:
-                    if "`" in activity["message"]:
-                        likely_files.append(activity["message"].split("`")[1])
-            if len(likely_files) == 1:
-                file_name = likely_files[0]
+            file_names.append(file_name)
+        files = self.get_agent_workspace_list()
+        if len(files) != 0:
+            csv_files = []
+            for file in files:
+                if str(file).endswith(".csv"):
+                    csv_files.append(file)
+            if len(csv_files) != 0:
+                for file in csv_files:
+                    file_names.append(file)
+        logging.info(f"CSV files in conversation workspace: {file_names}")
+        if len(file_names) == 0:
+            return await self.analyze_user_input(user_input=user_input)
+        # Iterate over files and use regex to see if the file name is in the response
+        if len(file_names) == 1:
+            file_name = file_names[0]
+            if self.conversation_workspace not in file_name:
                 file_path = os.path.join(self.conversation_workspace, file_name)
-                file_content = open(file_path, "r").read()
             else:
-                file_determination = await self.inference(
-                    user_input=user_input,
-                    prompt_category="Default",
-                    prompt_name="Determine File",
-                    directory_listing="\n".join(csv_files),
-                    conversation_results=10,
-                    websearch=False,
-                    browse_links=False,
-                    log_user_input=False,
-                    log_output=False,
-                    voice_response=False,
-                )
-                # Iterate over files and use regex to see if the file name is in the response
-                for file in files:
-                    if re.search(file, file_determination):
-                        file_names.append(file)
-                if len(file_names) == 1:
-                    file_name = file_names[0]
-                    file_path = os.path.join(self.conversation_workspace, file_name)
-                    file_content = open(file_path, "r").read()
-            if file_name == "":
-                return await self.analyze_user_input(user_input=user_input)
+                file_path = file_name
+            file_content = open(file_path, "r").read()
+            lines = file_content.split("\n")
+            if len(lines) < 20:
+                file_preview = f"`{file_path}`\n```csv\n{file_content}\n```"
+            else:
+                limited_content = "\n".join(lines[0:20])
+                file_preview = f"`{file_path}`\n```csv\n{limited_content}\n```"
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
-            import_files = ""
             for file in file_names:
-                if import_files == "":
-                    import_files = f"`{self.conversation_workspace}/{file}`"
+                if self.conversation_workspace not in file:
+                    file_path = os.path.join(self.conversation_workspace, file)
                 else:
-                    import_files += f", `{self.conversation_workspace}/{file}`"
-                file_path = os.path.join(self.conversation_workspace, file)
+                    file_path = file
+                if import_files == "":
+                    import_files = f"`{file_path}`"
+                else:
+                    import_files += f", `{file_path}`"
                 file_content = open(file_path, "r").read()
                 lines = file_content.split("\n")
-                lines = lines[:2]
-                file_preview = "\n".join(lines)
-                previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
+                if len(lines) < 20:
+                    previews.append(f"`{file_path}`\n```csv\n{file_content}\n```")
+                else:
+                    limited_content = "\n".join(lines[0:20])
+                    previews.append(f"`{file_path}`\n```csv\n{limited_content}\n```")
             file_preview = "\n".join(previews)
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from multiple files: {import_files}.",
-            )
-        else:
-            lines = file_content.split("\n")
-            if len(lines) > 5:
-                lines = lines[:5]
-            else:
-                lines = lines[:2]
-            file_preview = "\n".join(lines)
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from file `{file_name}`.",
-            )
         code_interpreter = await self.inference(
             user_input=user_input,
             prompt_category="Default",
@@ -2644,8 +2631,11 @@ class AGiXT:
             )
         except Exception as e:
             code_failed = True
-        if code_execution.startswith("Error"):
+        if not code_execution:
             code_failed = True
+        else:
+            if code_execution.startswith("Error"):
+                code_failed = True
         # Step 7 - If the code failed to run without error, attempt fix the code and try again {max_failures} times
         if code_failed:
             code_execution = await self.fix_and_execute_code(

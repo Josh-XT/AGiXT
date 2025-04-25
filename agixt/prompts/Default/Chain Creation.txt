@@ -1,0 +1,86 @@
+{context}
+
+The assistant is an expert AGiXT chain architect. Your task is to convert the following natural language request into a valid AGiXT chain JSON structure. Available commands, prompts, and chains are provided in the {context} for your reference.
+
+Natural Language Request:
+```
+{user_input}
+```
+
+**Chain Building Process:**
+
+1.  **Understand the Goal:** Analyze the natural language request to determine the overall objective of the chain.
+2.  **Break Down into Steps:** Divide the objective into logical, sequential steps. Each step should represent a distinct action or processing stage.
+3.  **Select `prompt_type`:** For each step, decide if it requires running a "Prompt", executing a "Command", or running another "Chain".
+4.  **Choose Specific Action:**
+    *   If "Prompt", select the most appropriate `prompt_name` from the available prompts in the {context}. For general reasoning, text generation, or processing previous step outputs where no specific prompt fits, use the default `"Think About It"` prompt.
+    *   If "Command", select the correct `command_name` from the available commands in the {context}.
+    *   If "Chain", select the appropriate `chain_name` from the available chains in the {context}.
+5.  **Determine Arguments:** Based on the chosen prompt/command/chain definition (found in {context}) and the requirements of the step, determine the necessary arguments for the `prompt` dictionary.
+6.  **Link Steps:** Use `{{STEPx}}` (where `x` is the previous step number) to pass the output of one step as an argument to the next. Use `{{user_input}}` if the step needs the initial input provided when the chain is run.
+7.  **Define Chain Metadata:** Create a descriptive `chain_name` that reflects the workflow's purpose. Write a clear `description` explaining what the chain does, which helps the agent understand when to use it autonomously.
+
+**Chain JSON Structure Requirements:**
+
+*   Top level keys must be `"chain_name"`, `"description"`, and `"steps"`.
+*   `"chain_name"`: A descriptive, unique name (e.g., "Summarize Website and Email").
+*   `"description"`: A clear explanation of the chain's purpose and function for autonomous agent use.
+*   `"steps"`: A list of step dictionaries.
+*   Each step dictionary must contain:
+    *   `"step"`: Integer step number (starting from 1).
+    *   `"agent_name"`: Agent name (use `"{self.agent_name}"` unless specified otherwise in the request).
+    *   `"prompt_type"`: "Prompt", "Command", or "Chain".
+    *   `"prompt"`: A dictionary containing the specific action details.
+
+**Structure of the "prompt" Dictionary:**
+
+*   **If `prompt_type` is "Prompt":**
+    *   Must include `"prompt_name"` (e.g., `"Think About It"`).
+    *   Include required arguments based on the prompt definition. Use `{{user_input}}` for initial input or `{{STEPx}}` for previous step output.
+    *   *Example:* `{{"prompt_name": "Summarize Text", "text": "{{STEP1}}", "max_length": "500"}}`
+*   **If `prompt_type` is "Command":**
+    *   Must include `"command_name"` (e.g., `"Write to File"`).
+    *   Include required arguments based on the command definition. Use `{{user_input}}` or `{{STEPx}}`.
+    *   *Example:* `{{"command_name": "Write to File", "filename": "summary.txt", "text": "{{STEP2}}"}}`
+*   **If `prompt_type` is "Chain":**
+    *   Must include `"chain_name"` (e.g., `"Sub-Task Chain"`).
+    *   Include required arguments based on the chain definition. Use `{{user_input}}` or `{{STEPx}}`.
+    *   *Example:* `{{"chain_name": "Data Processing Sub Chain", "user_input": "{{STEP1}}"}}`
+
+**Important Notes:**
+
+*   Refer *strictly* to the available commands, prompts, and chains provided in the {context}. Do not invent new ones.
+*   Ensure all required arguments for each prompt/command/chain are included in the respective `prompt` dictionary.
+*   The first step often uses `{{user_input}}` if the chain requires initial input.
+
+Your response MUST be ONLY the JSON object enclosed in a markdown code block like this:
+```json
+{{
+  "chain_name": "Your Generated Chain Name",
+  "description": "Your generated description explaining the chain's purpose.",
+  "steps": [
+    {{
+      "step": 1,
+      "agent_name": "{self.agent_name}",
+      "prompt_type": "Prompt", // Or Command/Chain
+      "prompt": {{
+        "prompt_name": "Think About It", // Or command_name/chain_name
+        "user_input": "{{user_input}}" // Example argument using initial input
+        // ... other arguments ...
+      }}
+    }},
+    {{
+      "step": 2,
+      "agent_name": "{self.agent_name}",
+      "prompt_type": "Command", // Or Prompt/Chain
+      "prompt": {{
+        "command_name": "Write to File", // Or prompt_name/chain_name
+        "filename": "output.txt",
+        "text": "{{STEP1}}" // Example argument using previous step output
+        // ... other arguments ...
+      }}
+    }}
+    // ... more steps ...
+  ]
+}}
+```
