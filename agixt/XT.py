@@ -2534,12 +2534,17 @@ class AGiXT:
                 logging.info(f"CSV files in conversation workspace: {file_names}")
                 for file in csv_files:
                     # Remove the current directory from the file path
-                    file_path = os.path.relpath(file, os.getcwd())
+                    if self.conversation_workspace in file:
+                        file_path = file.replace(self.conversation_workspace, "")
                     file_names.append(file_path)
         # Iterate over files and use regex to see if the file name is in the response
+        # agixt-1  | FileNotFoundError: [Errno 2] No such file or directory: '/agixt/WORKSPACE/e99b1c21-c088-498a-aa02-144ec10d52b3/6a9b77d9-bd7e-4e38-8427-37fe3cbfcc34/WORKSPACE/e99b1c21-c088-498a-aa02-144ec10d52b3/6a9b77d9-bd7e-4e38-8427-37fe3cbfcc34/extracted_1f3c7f4e7573445e9ee72af4c083e47b_zip/ContMFA_Perfusion_TimeSeg_Exp_v1_1.csv'
         if len(file_names) == 1:
             file_name = file_names[0]
-            file_path = os.path.join(self.conversation_workspace, file_name)
+            if self.conversation_workspace not in file_name:
+                file_path = os.path.join(self.conversation_workspace, file_name)
+            else:
+                file_path = file_name
             file_content = open(file_path, "r").read()
         if len(file_names) == 0:
             return await self.analyze_user_input(user_input=user_input)
