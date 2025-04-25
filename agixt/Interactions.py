@@ -1125,11 +1125,20 @@ class Interactions:
                             logging.warning(
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
+            if "<think>" in self.response:
+                self.response.replace("<think>", "<thinking>")
+                self.response.replace("</think>", "</thinking>")
             if "<thinking>" in self.response:
+                if "<answer>" not in self.response:
+                    self.response = self.response.replace(
+                        "</thinking>", "</thinking><answer>"
+                    )
                 thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                 self.response = self.process_thinking_tags(
                     response=self.response, thinking_id=thinking_id, c=c
                 )
+                if "</answer>" not in self.response:
+                    self.response += "</answer>"
             if log_output:
                 c.log_interaction(
                     role=self.agent_name,
