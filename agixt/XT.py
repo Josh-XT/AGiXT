@@ -2535,7 +2535,7 @@ class AGiXT:
             if len(csv_files) != 0:
                 logging.info(f"CSV files in conversation workspace: {file_names}")
                 for file in csv_files:
-                    file_names.append(file_path)
+                    file_names.append(file)
         if len(file_names) == 0:
             return await self.analyze_user_input(user_input=user_input)
         # Iterate over files and use regex to see if the file name is in the response
