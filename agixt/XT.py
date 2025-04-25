@@ -2535,7 +2535,6 @@ class AGiXT:
                 for file in csv_files:
                     file_names.append(file_path)
         # Iterate over files and use regex to see if the file name is in the response
-        # agixt-1  | FileNotFoundError: [Errno 2] No such file or directory: '/agixt/WORKSPACE/e99b1c21-c088-498a-aa02-144ec10d52b3/6a9b77d9-bd7e-4e38-8427-37fe3cbfcc34/WORKSPACE/e99b1c21-c088-498a-aa02-144ec10d52b3/6a9b77d9-bd7e-4e38-8427-37fe3cbfcc34/extracted_1f3c7f4e7573445e9ee72af4c083e47b_zip/ContMFA_Perfusion_TimeSeg_Exp_v1_1.csv'
         if len(file_names) == 1:
             file_name = file_names[0]
             if self.conversation_workspace not in file_name:
@@ -2550,11 +2549,14 @@ class AGiXT:
             previews = []
             import_files = ""
             for file in file_names:
-                if import_files == "":
-                    import_files = f"`{self.conversation_workspace}/{file}`"
+                if self.conversation_workspace not in file:
+                    file_path = os.path.join(self.conversation_workspace, file)
                 else:
-                    import_files += f", `{self.conversation_workspace}/{file}`"
-                file_path = os.path.join(self.conversation_workspace, file)
+                    file_path = file
+                if import_files == "":
+                    import_files = f"`{file_path}`"
+                else:
+                    import_files += f", `{file_path}`"
                 file_content = open(file_path, "r").read()
                 file_preview = file_content.split("\n")
                 previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
