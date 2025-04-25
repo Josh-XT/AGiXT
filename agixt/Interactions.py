@@ -1139,6 +1139,21 @@ class Interactions:
                 )
                 if "</answer>" not in self.response:
                     self.response += "</answer>"
+            if "<reward>" in self.response:
+                # Remove reward tags and their content
+                self.response = re.sub(
+                    r"<reward>.*?</reward>", "", self.response, flags=re.DOTALL
+                )
+            if "<step>" in self.response:
+                # Remove step tags and their content
+                self.response = re.sub(
+                    r"<step>.*?</step>", "", self.response, flags=re.DOTALL
+                )
+            if "<count>" in self.response:
+                # Remove count tags and their content
+                self.response = re.sub(
+                    r"<count>.*?</count>", "", self.response, flags=re.DOTALL
+                )
             if log_output:
                 c.log_interaction(
                     role=self.agent_name,
