@@ -2514,6 +2514,8 @@ class AGiXT:
         max_failures: int = 5,
     ):
         file_names = []
+        import_files = ""
+        file_preview = ""
         file_path = self.conversation_workspace
         thinking_id = self.conversation.get_thinking_id(agent_name=self.agent_name)
         if "```csv" in user_input and file_name == "":
@@ -2534,6 +2536,8 @@ class AGiXT:
                 logging.info(f"CSV files in conversation workspace: {file_names}")
                 for file in csv_files:
                     file_names.append(file_path)
+        if len(file_names) == 0:
+            return await self.analyze_user_input(user_input=user_input)
         # Iterate over files and use regex to see if the file name is in the response
         if len(file_names) == 1:
             file_name = file_names[0]
@@ -2542,9 +2546,7 @@ class AGiXT:
             else:
                 file_path = file_name
             file_content = open(file_path, "r").read()
-        if len(file_names) == 0:
-            return await self.analyze_user_input(user_input=user_input)
-        import_files = ""
+            file_preview = f"`{file_path}`\n```csv\n{file_content}\n```"
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
@@ -2558,11 +2560,8 @@ class AGiXT:
                 else:
                     import_files += f", `{file_path}`"
                 file_content = open(file_path, "r").read()
-                file_preview = file_content.split("\n")
-                previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
+                previews.append(f"`{file_path}`\n```csv\n{file_content}\n```")
             file_preview = "\n".join(previews)
-        else:
-            file_preview = file_content.split("\n")
         code_interpreter = await self.inference(
             user_input=user_input,
             prompt_category="Default",
