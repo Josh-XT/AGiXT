@@ -94,10 +94,7 @@ def execute_python_code(
             logging.error(f"Error executing Python code: {logs}")
             return f"Error: {logs}"
         logging.info(f"Python code executed successfully. Logs: {logs}")
-        logs = str(logs)
-        if logs.endswith("\n"):
-            logs = logs[:-1]
-        return logs
+        return str(logs)
     except Exception as e:
         logging.error(f"Error executing Python code: {str(e)}")
         return f"Error: {str(e)}"

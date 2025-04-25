@@ -2630,8 +2630,11 @@ class AGiXT:
             )
         except Exception as e:
             code_failed = True
-        if code_execution.startswith("Error"):
+        if not code_execution:
             code_failed = True
+        else:
+            if code_execution.startswith("Error"):
+                code_failed = True
         # Step 7 - If the code failed to run without error, attempt fix the code and try again {max_failures} times
         if code_failed:
             code_execution = await self.fix_and_execute_code(
