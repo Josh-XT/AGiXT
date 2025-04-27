@@ -3151,15 +3151,16 @@ Rewrite the modifications to fix the issue."""
                     message=f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nErrors: Invalid response syntax, the assistant should try again ensuring that the answer block and modification blocks are used properly when formatting responses.",
                     conversation_name=self.conversation_name,
                 )
-
-            # Combine all results into a single message
-            combined_results = "\n\n".join(results)
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nResults:\n{combined_results}",
-                conversation_name=self.conversation_name,
-            )
-            return f"Modifications applied successfully:\n{combined_results}"
+                return "Error applying modifications: Invalid response syntax, the assistant should try again ensuring that the answer block and modification blocks are used properly when formatting responses."
+            else:
+                # Combine all results into a single message
+                combined_results = "\n\n".join(results)
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nResults:\n{combined_results}",
+                    conversation_name=self.conversation_name,
+                )
+                return f"Modifications applied successfully:\n{combined_results}"
 
     async def fix_github_issue(
         self,
