@@ -3372,7 +3372,8 @@ Example modifications:
                 if "```xml" not in pr_body:
                     pr_body = pr_body.replace(
                         "<modification>", "```xml\n<modification>"
-                    ).replace("</modification>", "</modification>\n```", -1)
+                    )
+                    pr_body += "\n```"
             new_pr = repo.create_pull(
                 title=f"Fix #{issue_number}: {issue_title}",
                 body=pr_body,
