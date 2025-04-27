@@ -3297,6 +3297,7 @@ Example modifications:
                 "use_smartest": True,
             },
         )
+        modifications_xml = modifications_xml.replace("&lt;", "<").replace("&gt;", ">")
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications to fix [#{issue_number}]({repo_url}/issues/{issue_number}).\n{modifications_xml}",
