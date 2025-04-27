@@ -3369,10 +3369,10 @@ Example modifications:
             pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
             if "<modification>" in pr_body:
                 # Check if the characters before it are "```xml\n", if it isn't, add it.
-                if pr_body.find("```xml\n<modification>") == -1:
+                if "```xml" not in pr_body:
                     pr_body = pr_body.replace(
                         "<modification>", "```xml\n<modification>"
-                    ).replace("</modification>", "</modification>\n```")
+                    ).replace("</modification>", "</modification>\n```", -1)
             new_pr = repo.create_pull(
                 title=f"Fix #{issue_number}: {issue_title}",
                 body=pr_body,
