@@ -3144,6 +3144,14 @@ Rewrite the modifications to fix the issue."""
             )
             return f"Error applying modifications:\n{error_message}"
         else:
+            if len(results) < 5:
+                # Failure to apply modifications
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nErrors: Invalid response syntax, the assistant should try again ensuring that the answer block and modification blocks are used properly when formatting responses.",
+                    conversation_name=self.conversation_name,
+                )
+
             # Combine all results into a single message
             combined_results = "\n\n".join(results)
             self.ApiClient.new_conversation_message(
@@ -3288,7 +3296,6 @@ Example modifications:
                 "use_smartest": True,
             },
         )
-        modifications_xml = modifications_xml.replace("&lt;", "<").replace("&gt;", ">")
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications to fix [#{issue_number}]({repo_url}/issues/{issue_number}).\n{modifications_xml}",
