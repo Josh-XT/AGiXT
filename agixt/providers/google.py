@@ -34,7 +34,7 @@ class GoogleProvider:
     def __init__(
         self,
         GOOGLE_API_KEY: str = "",
-        GOOGLE_MODEL: str = "gemini-2.0-flash-exp",
+        GOOGLE_MODEL: str = "gemini-2.5-flash-preview-04-17",
         GOOGLE_MAX_TOKENS: int = 1000000,
         GOOGLE_TEMPERATURE: float = 0.7,
         **kwargs,
