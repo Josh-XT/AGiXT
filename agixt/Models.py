@@ -185,7 +185,7 @@ class ToggleCommandPayload(BaseModel):
 
 # AI Service Models
 class ChatCompletions(BaseModel):
-    model: str = "gpt-3.5-turbo"  # This is the agent name
+    model: Optional[str] = None  # This is the agent name
     messages: List[dict] = None
     temperature: Optional[float] = 0.9
     top_p: Optional[float] = 1.0
