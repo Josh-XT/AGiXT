@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Header
 from Globals import get_tokens
 from MagicalAuth import get_user_id
-from ApiClient import Agent, verify_api_key, get_api_client
+from ApiClient import Agent, verify_api_key, get_api_client, get_agents
 from Conversations import get_conversation_name_by_id
 from providers.default import DefaultProvider
 from Memories import embed
@@ -55,6 +55,13 @@ async def chat_completion(
             conversation_name = get_conversation_name_by_id(
                 conversation_id=conversation_id, user_id=user_id
             )
+    if not prompt.model:
+        agents = get_agents(user=user)
+        try:
+            prompt.model = agents[0].name
+        except Exception as e:
+            print(f"Error getting agent name: {e}")
+            prompt.model = "AGiXT"
     agixt = AGiXT(
         user=user,
         agent_name=prompt.model,
