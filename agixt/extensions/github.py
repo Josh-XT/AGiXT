@@ -3164,6 +3164,18 @@ Example modifications:
             issue_branch=issue_branch,
             additional_context=additional_context,
         )
+        while modifications == "Unable to process request.":
+            time.sleep(1)
+            modifications = await self.handle_modifications(
+                prompt=prompt,
+                modifications_xml=modifications_xml,
+                repo_url=repo_url,
+                repo_content=repo_content,
+                issue_number=issue_number,
+                repo_name=repo_name,
+                issue_branch=issue_branch,
+                additional_context=additional_context,
+            )
         if modifications.startswith("Error"):
             # Retry modifications with additional context
             self.ApiClient.new_conversation_message(
