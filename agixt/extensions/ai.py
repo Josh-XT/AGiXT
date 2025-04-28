@@ -5,7 +5,7 @@ from Globals import getenv
 import os
 
 
-class agixt_actions(Extensions):
+class ai(Extensions):
     """
     The AI extension for AGiXT. This extension provides a set of actions that can be performed by the AI agent.
     """
