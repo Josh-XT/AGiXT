@@ -106,12 +106,56 @@ class web_browsing(Extensions):
         # Command mapping - Add new user-facing commands here
         self.commands = {
             "Interact with Webpage": self.interact_with_webpage,
+            "Web Search": self.websearch,
         }
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
         self.popup = None
+
+    async def websearch(
+        self,
+        query: str,
+        websearch_depth: int = 3,
+        websearch_timeout: int = 0,
+    ):
+        """
+        Perform a web search using the provided query and return the results.
+
+        Args:
+            query (str): The search query.
+            websearch_depth (int): The depth of the web search.
+            websearch_timeout (int): The timeout for the web search.
+
+        Returns:
+            str: The results of the web search.
+        """
+        try:
+            int(websearch_depth)
+        except:
+            websearch_depth = 3
+        try:
+            int(websearch_timeout)
+        except:
+            websearch_timeout = 0
+        return self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": query,
+                "websearch": True,
+                "websearch_depth": websearch_depth,
+                "websearch_timeout": websearch_timeout,
+                "conversation_name": self.conversation_name,
+                "disable_commands": True,
+                "log_user_input": False,
+                "log_output": False,
+                "tts": False,
+                "analyze_user_input": False,
+                "browse_links": True,
+            },
+        )
 
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
