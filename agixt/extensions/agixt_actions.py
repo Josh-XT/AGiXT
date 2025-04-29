@@ -100,54 +100,6 @@ def execute_python_code(
         return f"Error: {str(e)}"
 
 
-def extract_markdown_from_message(message):
-    match = re.search(r"```(.*)```", message, re.DOTALL)
-    return match.group(1).strip() if match else ""
-
-
-def parse_mindmap(mindmap):
-    markdown_text = extract_markdown_from_message(mindmap)
-    if not markdown_text:
-        markdown_text = mindmap
-    markdown_text = markdown_text.strip()
-    lines = markdown_text.split("\n")
-
-    root = {}
-    current_path = [root]
-
-    for line in lines:
-        node = line.strip().lstrip("- ").replace("**", "")
-        indent_level = (len(line) - len(line.lstrip())) // 4
-
-        if indent_level < len(current_path) - 1:
-            current_path = current_path[: indent_level + 1]
-
-        current_dict = current_path[-1]
-        if isinstance(current_dict, list):
-            current_dict = current_path[-2][
-                current_dict[0]
-            ]  # go one level up if current dict is a list
-
-        if node not in current_dict:
-            current_dict[node] = {}
-
-        current_path.append(current_dict[node])
-
-    # Function to convert dictionary leaf nodes into lists
-    def convert_to_lists(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if isinstance(value, dict):
-                    if all(isinstance(val, dict) and not val for val in value.values()):
-                        # filter out any empty keys
-                        node[key] = [k for k in value.keys() if k]
-                    else:
-                        convert_to_lists(value)
-
-    convert_to_lists(root)
-    return root
-
-
 class agixt_actions(Extensions):
     """
     The AGiXT Actions extension contains commands that allow the AGiXT Agents to work with other agents and use pre-built chains to complete tasks.
@@ -1110,25 +1062,35 @@ class agixt_actions(Extensions):
         )
         return execution_response
 
-    async def get_mindmap(self, task: str):
+    async def get_mindmap(self, task: str, additional_context: str = ""):
         """
         Get a mindmap for a task
 
         Args:
         task (str): The task
+        additional_context (str): Additional context for the task
 
         Returns:
         dict: The mindmap
         """
         mindmap = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
-            prompt_name="Mindmap",
+            prompt_name="Think About It",
             prompt_args={
-                "user_input": task,
+                "user_input": f"Create a mindmap using a mermaid diagram for the users input:\n{task}",
+                "context": f"Additional context for creating the mindmap:\n{additional_context}",
+                "websearch": False,
+                "websearch_depth": 0,
+                "analyze_user_input": False,
+                "disable_commands": True,
+                "log_user_input": False,
+                "log_output": False,
+                "browse_links": False,
+                "tts": False,
                 "conversation_name": self.conversation_name,
             },
         )
-        return parse_mindmap(mindmap=mindmap)
+        return mindmap
 
     async def make_csv_code_block(self, data: str) -> str:
         """
