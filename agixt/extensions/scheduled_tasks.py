@@ -13,7 +13,7 @@ class scheduled_tasks(Extensions):
 
     def __init__(self, **kwargs):
         self.commands = {
-            "Schedule Follow Up with User": self.schedule_follow_up,
+            "Schedule Task": self.schedule_task,
             "Schedule Reoccurring Task": self.schedule_reoccurring_task,
             "Get Scheduled Tasks": self.get_scheduled_tasks,
             "Modify Scheduled Task": self.modify_task,
@@ -47,21 +47,22 @@ class scheduled_tasks(Extensions):
         self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
         self.failures = 0
 
-    async def schedule_follow_up(
+    async def schedule_task(
         self,
         title: str,
-        follow_up_notes: str,
+        task_description: str,
         days: str = 0,
         hours: str = 0,
         minutes: str = 0,
     ) -> str:
         """
-        Schedule a follow-up interaction with the user. This can also be used to schedule a task like running a command later as long as the follow_up_notes are descriptive about what the assistant should do.
+        Schedule a task or a follow-up interaction with the user.
+        This can also be used to schedule a task like running a command later as long as the task_description is descriptive about what the assistant should do at the scheduled time.
         The assistant can autonomously use this to schedule to continue the conversation in a follow up at a scheduled time.
 
         Args:
             title (str): The title of the follow-up task
-            follow_up_notes (str): AI's notes about what to follow up on, including key context and purpose
+            task_description (str): AI's notes about what to follow up on, including key context and purpose
             days (int): Number of days to delay
             hours (int): Number of hours to delay
             minutes (int): Number of minutes to delay
@@ -94,7 +95,7 @@ class scheduled_tasks(Extensions):
         # Create the follow-up task
         task_id = await task_manager.create_task(
             title=title_preview,
-            description=follow_up_notes,
+            description=task_description,
             category_name="Follow-ups",
             agent_name=self.agent_name,
             due_date=due_date,
@@ -107,18 +108,19 @@ class scheduled_tasks(Extensions):
     async def schedule_reoccurring_task(
         self,
         title: str,
-        follow_up_notes: str,
+        task_description: str,
         start_date: str,
         end_date: str,
         frequency: str = "daily",
     ) -> str:
         """
         Schedule a reoccurring task with the user.
+        This can also be used to schedule a task like running a command later as long as the task_description is descriptive about what the assistant should do at the scheduled time.
         The assistant can autonomously use this to schedule to continue the conversation in a follow up at a scheduled time. The assistant can choose to do this at any point for any reason, especially if it might interest the user later when they follow up.
 
         Args:
             title (str): The title of the follow-up task
-            follow_up_notes (str): AI's notes about what to follow up on, including key context and purpose
+            task_description (str): AI's notes about what to follow up on, including key context and purpose
             start_date (datetime.datetime): The start date of the reoccurring task
             end_date (datetime.datetime): The end date of the reoccurring task
             frequency (str): The frequency of the reoccurring task (daily, weekly, monthly)
@@ -134,7 +136,7 @@ class scheduled_tasks(Extensions):
         # Create the follow-up task
         task_ids = await task_manager.create_reoccurring_task(
             title=title_preview,
-            description=follow_up_notes,
+            description=task_description,
             category_name="Follow-ups",
             agent_name=self.agent_name,
             start_date=start_date,
