@@ -1631,7 +1631,9 @@ class agixt_actions(Extensions):
             logging.error(f"Error modifying AGiXT chain: {str(e)}")
             return f"Error modifying chain: {str(e)}"
 
-    async def custom_api(self, endpoint_url: str, payload, headers):
+    async def custom_api_endpoint(
+        self, endpoint_url: str, payload, headers, method: str = "POST"
+    ):
         """
         Make a custom API call.
 
@@ -1639,6 +1641,7 @@ class agixt_actions(Extensions):
             endpoint_url (str): The URL of the API endpoint.
             payload (dict): The payload to send in the request.
             headers (dict): The headers to include in the request.
+            method (str): The HTTP method to use (GET, POST, PUT, DELETE). Defaults to POST.
 
         Returns:
             str: The response from the API.
@@ -1649,12 +1652,44 @@ class agixt_actions(Extensions):
             headers = json.loads(headers)
         if not endpoint_url.startswith("https"):
             endpoint_url = "https://" + endpoint_url
-        try:
-            response = requests.post(
-                endpoint_url, headers=headers, data=json.dumps(payload)
-            )
-            response.raise_for_status()  # Raise exception for HTTP errors
-            return response.json()
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
-            return f"Unexpected error: {e}"
+        method = method.upper()
+        if method not in ["GET", "POST", "PUT", "DELETE"]:
+            return f"Invalid HTTP method: {method}. Supported methods are GET, POST, PUT, DELETE."
+        if method == "GET":
+            try:
+                response = requests.get(endpoint_url, headers=headers, params=payload)
+                response.raise_for_status()  # Raise exception for HTTP errors
+                return response.json()
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
+                return f"Unexpected error: {e}"
+        elif method == "PUT":
+            try:
+                response = requests.put(
+                    endpoint_url, headers=headers, data=json.dumps(payload)
+                )
+                response.raise_for_status()  # Raise exception for HTTP errors
+                return response.json()
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
+                return f"Unexpected error: {e}"
+        elif method == "DELETE":
+            try:
+                response = requests.delete(
+                    endpoint_url, headers=headers, data=json.dumps(payload)
+                )
+                response.raise_for_status()  # Raise exception for HTTP errors
+                return response.json()
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
+                return f"Unexpected error: {e}"
+        else:  # Default to POST
+            try:
+                response = requests.post(
+                    endpoint_url, headers=headers, data=json.dumps(payload)
+                )
+                response.raise_for_status()  # Raise exception for HTTP errors
+                return response.json()
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
+                return f"Unexpected error: {e}"
