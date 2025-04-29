@@ -100,6 +100,101 @@ class Task:
         session.close()
         return task_id
 
+    async def create_reoccurring_task(
+        self,
+        title: str,
+        description: str,
+        category_name: str = "Default",
+        agent_name: str = None,
+        start_date: datetime.datetime = None,
+        end_date: datetime.datetime = None,
+        frequency: str = "daily",  # e.g., daily, weekly, monthly
+        estimated_hours: int = None,
+        priority: int = 2,
+        memory_collection: str = "0",
+    ) -> str:
+        """Create a new reoccurring task"""
+        session = get_session()
+
+        # Get or create category
+        category = await self.get_category(category_name)
+        if not category:
+            category_id = await self.create_category(category_name)
+            category = session.query(TaskCategory).get(category_id)
+
+        # Get agent ID if agent_name provided
+        agent_id = None
+        if agent_name:
+            agent = (
+                session.query(Agent)
+                .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
+                .first()
+            )
+            if agent:
+                agent_id = agent.id
+        task_ids = []
+        # If daily, create a new task for each date with create_task
+        if frequency == "daily":
+            current_date = start_date
+            while current_date <= end_date:
+                task = TaskItem(
+                    user_id=self.user_id,
+                    category_id=category.id,
+                    title=title,
+                    description=description,
+                    agent_id=agent_id,
+                    due_date=current_date,
+                    estimated_hours=estimated_hours,
+                    priority=priority,
+                    scheduled=True,
+                    memory_collection=memory_collection,
+                )
+                session.add(task)
+                task_ids.append(str(task.id))
+                current_date += datetime.timedelta(days=1)
+        elif frequency == "weekly":
+            current_date = start_date
+            while current_date <= end_date:
+                task = TaskItem(
+                    user_id=self.user_id,
+                    category_id=category.id,
+                    title=title,
+                    description=description,
+                    agent_id=agent_id,
+                    due_date=current_date,
+                    estimated_hours=estimated_hours,
+                    priority=priority,
+                    scheduled=True,
+                    memory_collection=memory_collection,
+                )
+                session.add(task)
+                task_ids.append(str(task.id))
+                current_date += datetime.timedelta(weeks=1)
+        elif frequency == "monthly":
+            current_date = start_date
+            while current_date <= end_date:
+                task = TaskItem(
+                    user_id=self.user_id,
+                    category_id=category.id,
+                    title=title,
+                    description=description,
+                    agent_id=agent_id,
+                    due_date=current_date,
+                    estimated_hours=estimated_hours,
+                    priority=priority,
+                    scheduled=True,
+                    memory_collection=memory_collection,
+                )
+                session.add(task)
+                task_ids.append(str(task.id))
+                current_date += datetime.timedelta(days=30)
+        else:
+            session.close()
+            return "Invalid frequency. Use daily, weekly, or monthly."
+        session.commit()
+        session.close()
+        return task_ids
+
     async def get_pending_tasks(self) -> list:
         """Get all pending tasks that are due"""
         session = get_session()
