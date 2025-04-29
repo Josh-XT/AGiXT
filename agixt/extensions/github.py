@@ -2521,7 +2521,7 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     if self.activity_id:
                         self.ApiClient.new_conversation_message(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying [{file_path}]({repo_url}/blob/{branch}/{file_path}) on branch [{branch}]({repo_url}/tree/{branch}).\n```xml\n{modification_commands}\n```",
+                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying [{file_path}]({repo_url}/blob/{branch or 'default'}/{file_path}) on branch [{branch or 'default'}]({repo_url}/tree/{branch or 'default'}).\n```xml\n{modification_commands}\n```",  # Added default branch display
                             conversation_name=self.conversation_name,
                         )
 
@@ -2533,23 +2533,35 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     )
 
                     if not modifications:
-                        raise ValueError("No modification blocks found")
-
-                    # Parse each modification into structured data
-                    parsed_mods = []
-                    for i, mod in enumerate(modifications, 1):
-                        try:
-                            mod_xml = f"<modification>{mod}</modification>"
-                            parsed_mod = self._parse_modification_block(mod_xml)
-                            parsed_mods.append(parsed_mod)
-                            logging.debug(
-                                f"Successfully parsed modification {i}: {parsed_mod['operation']} operation"
+                        # Check if the input might be missing the outer <modification> tags
+                        if modification_commands.strip().startswith("<operation>"):
+                            mod_xml = f"<modification>{modification_commands.strip()}</modification>"
+                            parsed_mods = [self._parse_modification_block(mod_xml)]
+                            logging.warning(
+                                "Input seemed to be missing outer <modification> tags, attempting to parse anyway."
                             )
-                        except ValueError as e:
-                            logging.error(f"Failed to parse modification {i}: {str(e)}")
+                        else:
                             raise ValueError(
-                                f"Error in modification block {i}: {str(e)}"
+                                "No modification blocks found in the provided XML."
                             )
+                    else:
+                        # Parse each modification into structured data
+                        parsed_mods = []
+                        for i, mod in enumerate(modifications, 1):
+                            try:
+                                mod_xml = f"<modification>{mod}</modification>"
+                                parsed_mod = self._parse_modification_block(mod_xml)
+                                parsed_mods.append(parsed_mod)
+                                logging.debug(
+                                    f"Successfully parsed modification {i}: {parsed_mod['operation']} operation"
+                                )
+                            except ValueError as e:
+                                logging.error(
+                                    f"Failed to parse modification {i}: {str(e)}"
+                                )
+                                raise ValueError(
+                                    f"Error in modification block {i}: {str(e)}"
+                                )
 
                     # Get repository
                     repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
@@ -2564,168 +2576,295 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     # Initialize file content and object
                     file_content = ""
                     file_content_obj = None
+                    is_new_file = False
 
                     if best_match and match_score >= 0.8:
-                        file_path = best_match
+                        file_path = best_match  # Use the matched file path
+                        logging.info(
+                            f"Found existing file matching '{file_path}' with score {match_score:.2f}"
+                        )
                         try:
                             file_content_obj = repo.get_contents(file_path, ref=branch)
                             file_content = file_content_obj.decoded_content.decode(
                                 "utf-8"
                             )
-                        except Exception:
-                            # File might have been deleted or moved
-                            pass
+                        except Exception as e:
+                            # File might exist in path search but fail to load (permissions, etc.)
+                            logging.warning(
+                                f"Could not get contents for existing file '{file_path}': {e}. Treating as new file creation."
+                            )
+                            is_new_file = True
+                            file_content = ""  # Ensure content is empty
+                            file_content_obj = None  # Ensure obj is None
+                    else:
+                        logging.info(
+                            f"No close match found for '{file_path}' (best score {match_score:.2f}). Creating new file."
+                        )
+                        is_new_file = True
+                        # Keep the user-provided file_path for creation
+                        file_content = ""
+                        file_content_obj = None
 
                     # Process modifications
                     original_content = file_content
                     modified_content = file_content
                     has_changes = False
 
-                    for mod in parsed_mods:
+                    for mod_index, mod in enumerate(parsed_mods):
+                        logging.debug(f"Applying modification {mod_index + 1}: {mod}")
                         operation = mod["operation"]
-                        target = mod["target"]
-                        content = mod.get("content")
-                        fuzzy_match = True
+                        target = mod[
+                            "target"
+                        ]  # Can be code block or line number string
+                        content = mod.get("content")  # Content to replace/insert
+                        fuzzy_match = mod.get(
+                            "fuzzy_match", True
+                        )  # Default to True if missing
 
-                        if (operation in ["replace", "insert"]) and not content:
+                        if (operation in ["replace", "insert"]) and content is None:
                             raise ValueError(
-                                f"Content is required for {operation} operation"
+                                f"Content is required for {operation} operation (Modification {mod_index + 1})"
                             )
 
-                        # For empty files or new files, handle differently
-                        if not modified_content and operation == "insert":
-                            modified_content = content
-                            has_changes = True
-                            continue
-
-                        # Split content into lines while preserving empty lines
+                        # Split current content into lines
+                        # Use splitlines(keepends=True) to preserve line endings for joining later
                         modified_lines = modified_content.splitlines(keepends=True)
 
-                        if not modified_lines and operation != "insert":
-                            # Can't perform replace or delete on empty file
-                            raise ValueError(
-                                f"Cannot perform {operation} on empty file"
-                            )
-
-                        # Find target location
-                        try:
-                            start_line, end_line, indent_level = (
-                                self._find_pattern_boundaries(
-                                    [line.rstrip("\n") for line in modified_lines],
-                                    target,
-                                    fuzzy_match=fuzzy_match,
-                                    operation=operation,
-                                )
-                            )
-                        except ValueError as e:
-                            if operation == "insert" and not modified_lines:
-                                # New file, just use the content
-                                modified_content = content
+                        # Handle operations on potentially empty/new files
+                        if not modified_lines:
+                            if operation == "insert":
+                                # If file is empty, insert just becomes the content
+                                modified_content = content if content else ""
                                 has_changes = True
-                                continue
-                            raise e
+                                continue  # Move to next modification if any
+                            elif operation in ["replace", "delete"]:
+                                raise ValueError(
+                                    f"Cannot perform '{operation}' on an empty or new file (Modification {mod_index + 1})"
+                                )
 
-                        # Apply modification
+                        # --- Find target location ---
+                        start_line, end_line, _ = self._find_pattern_boundaries(
+                            [
+                                line.rstrip("\r\n") for line in modified_lines
+                            ],  # Pass lines without endings for matching
+                            target,
+                            fuzzy_match=fuzzy_match,
+                            operation=operation,
+                        )
+                        logging.debug(
+                            f"Target found for '{operation}': start={start_line}, end={end_line}"
+                        )
+
+                        # --- Apply modification ---
                         if content:
+                            # Clean the provided content (normalize line endings, strip trailing space)
                             content = self.clean_content(content)
 
-                        new_lines = modified_lines[:]
-                        if operation == "replace" and content:
-                            indent_level = _get_correct_indent_level(
-                                modified_lines, start_line
-                            )
-                            new_content = self._indent_code_block(content, indent_level)
-                            new_lines[start_line:end_line] = new_content
-                            has_changes = True
-                        elif operation == "insert" and content:
-                            indent_level = _get_correct_indent_level(
-                                modified_lines, start_line
-                            )
-                            new_content = self._indent_code_block(content, indent_level)
-                            # Handle spacing around insertion
-                            if (
-                                start_line > 0
-                                and modified_lines[start_line - 1].strip()
-                            ):
-                                new_content.insert(0, "\n")
-                            if (
-                                start_line < len(modified_lines)
-                                and modified_lines[start_line].strip()
-                            ):
-                                new_content.append("\n")
+                        # Create a mutable copy for manipulation
+                        new_lines = list(modified_lines)
 
-                            new_lines[start_line:start_line] = new_content
+                        if operation == "replace":
+                            if content is None:
+                                content = ""  # Allow replacing with empty string
+                            # Determine indentation from the first line of the block being replaced
+                            replace_indent_str = modified_lines[start_line][
+                                : len(modified_lines[start_line])
+                                - len(modified_lines[start_line].lstrip())
+                            ]
+                            new_content_lines = self._indent_code_block(
+                                content, replace_indent_str
+                            )
+                            logging.debug(
+                                f"Replacing lines {start_line}-{end_line} with {len(new_content_lines)} lines."
+                            )
+                            del new_lines[start_line:end_line]
+                            # Insert the new content lines at the start position
+                            for i, line in enumerate(reversed(new_content_lines)):
+                                new_lines.insert(start_line, line)
                             has_changes = True
+
+                        elif operation == "insert":
+                            if content is None:
+                                continue  # Cannot insert None
+                            # Determine insertion index:
+                            # For line number targets, start_line == end_line, insert *at* that index (before original line)
+                            # For block targets, end_line is the index *after* the block, insert there.
+                            insertion_index = end_line
+
+                            # Determine indentation based on context around insertion point
+                            # Use the insertion index itself for context checking
+                            insert_indent_str = _get_correct_indent_level(
+                                modified_lines, insertion_index
+                            )
+                            new_content_lines = self._indent_code_block(
+                                content, insert_indent_str
+                            )
+                            logging.debug(
+                                f"Inserting {len(new_content_lines)} lines at index {insertion_index} with indent '{insert_indent_str}'."
+                            )
+
+                            # Insert the new lines at the calculated index
+                            # Iterate reversed to maintain order when inserting one by one
+                            for i, line in enumerate(reversed(new_content_lines)):
+                                new_lines.insert(insertion_index, line)
+                            has_changes = True
+
                         elif operation == "delete":
+                            logging.debug(f"Deleting lines {start_line}-{end_line}.")
                             del new_lines[start_line:end_line]
                             has_changes = True
 
+                        # Update modified_content for the next iteration
                         modified_content = "".join(new_lines)
 
+                    # --- Post-modification processing ---
                     if not has_changes:
-                        return "No changes needed"
+                        logging.info(f"No changes applied to {file_path}.")
+                        # Break the retry loop if no changes were made
+                        # (This assumes if one mod didn't change, others won't either, might need refinement)
+                        # Or return "No changes needed" if only one mod block existed?
+                        # For simplicity, let's just break if no changes occurred across all mods.
+                        if (
+                            len(parsed_mods) > 0
+                        ):  # Only say no changes if mods were attempted
+                            return "No changes needed based on provided modifications."
+                        else:  # Should have been caught earlier, but safeguard
+                            return "No modifications provided."
 
-                    # Generate diff
+                    # Generate diff (only if changes were made)
                     diff = list(
                         difflib.unified_diff(
-                            original_content.splitlines(),
-                            modified_content.splitlines(),
-                            fromfile=file_path,
-                            tofile=file_path,
+                            original_content.splitlines(),  # Use original content here
+                            modified_content.splitlines(),  # Use final modified content
+                            fromfile=f"a/{file_path}",  # Standard diff prefixes
+                            tofile=f"b/{file_path}",
                             lineterm="",
-                            n=3,
+                            n=3,  # Context lines
                         )
                     )
 
-                    # Format Python files
+                    # Format specific file types
+                    formatted_content = modified_content
                     if self._is_python_file(file_path):
-                        modified_content = self._format_python_code(modified_content)
+                        logging.debug(f"Formatting {file_path} as Python.")
+                        formatted_content = self._format_python_code(modified_content)
                     elif self._is_js_or_ts_file(file_path):
-                        modified_content = self._format_js_ts_code(modified_content)
+                        logging.debug(f"Formatting {file_path} as JS/TS.")
+                        formatted_content = self._format_js_ts_code(modified_content)
 
                     # Ensure final newline
-                    if not modified_content.endswith("\n"):
-                        modified_content += "\n"
+                    if not formatted_content.endswith("\n"):
+                        formatted_content += "\n"
 
-                    commit_message = f"Modified {file_path}"
+                    # Check if formatting changed the content significantly (more than just whitespace)
+                    # This helps decide if we need to show the diff *after* formatting
+                    post_format_diff = list(
+                        difflib.unified_diff(
+                            modified_content.splitlines(),
+                            formatted_content.splitlines(),
+                            fromfile=f"b/{file_path}",
+                            tofile=f"b/{file_path} (formatted)",
+                            lineterm="",
+                            n=0,  # Show only changes
+                        )
+                    )
+                    # Filter out whitespace-only changes from post_format_diff
+                    significant_format_changes = [
+                        line
+                        for line in post_format_diff
+                        if line.strip() and line[0] in ("+", "-")
+                    ]
+
+                    # Commit changes to GitHub
+                    commit_message = f"Applied modifications to {file_path}"  # Consider a more dynamic message?
 
                     if file_content_obj:
                         # Update existing file
+                        logging.info(
+                            f"Updating existing file: {file_path} on branch {branch}"
+                        )
                         repo.update_file(
                             file_path,
                             commit_message,
-                            modified_content,
+                            formatted_content,  # Commit the formatted content
                             file_content_obj.sha,
                             branch=branch,
                         )
                     else:
                         # Create new file
+                        logging.info(
+                            f"Creating new file: {file_path} on branch {branch}"
+                        )
                         repo.create_file(
                             file_path,
                             commit_message,
-                            modified_content,
+                            formatted_content,  # Commit the formatted content
                             branch=branch,
                         )
 
-                    return "\n".join(diff)
-
-                except Exception as e:
-                    error_msg = str(e)
-                    errors.append(f"Attempt #{retry_count + 1}: {error_msg}")
-
-                    if retry_count >= max_retries - 1:
-                        error_history = "\n\nError history:\n" + "\n".join(errors)
-                        raise ValueError(
-                            f"Failed to apply modifications after {max_retries} attempts. {error_history}"
+                    # Return the primary diff
+                    diff_output = "\n".join(diff)
+                    if significant_format_changes:
+                        diff_output += (
+                            "\n\n--- Formatting Changes Applied ---\n"
+                            + "\n".join(post_format_diff)
                         )
 
-                    retry_count += 1
-                    logging.warning(
-                        f"Modification attempt #{retry_count} failed: {error_msg}"
+                    return diff_output  # Success, exit retry loop
+
+                except ValueError as ve:
+                    # Specific known errors (like target not found) are ValueErrors
+                    error_msg = str(ve)
+                    logging.error(
+                        f"ValueError during modification attempt #{retry_count + 1}: {error_msg}"
                     )
+                    errors.append(
+                        f"Attempt #{retry_count + 1} (ValueError): {error_msg}"
+                    )
+                    # If it's a target not found error, retrying might not help unless the file content changed externally
+                    # Let's retry anyway for now
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        error_history = "\n".join(errors)
+                        raise ValueError(
+                            f"Failed to apply modifications after {max_retries} attempts.\n{error_history}"
+                        )
+                    time.sleep(2)  # Brief pause before retry
+
+                except Exception as e:
+                    # Catch other unexpected errors
+                    error_msg = str(e)
+                    logging.error(
+                        f"Unexpected exception during modification attempt #{retry_count + 1}: {error_msg}",
+                        exc_info=True,
+                    )  # Log traceback
+                    errors.append(
+                        f"Attempt #{retry_count + 1} (Exception): {error_msg}"
+                    )
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        error_history = "\n".join(errors)
+                        # Raise the last exception encountered for clarity
+                        raise e.__class__(
+                            f"Failed to apply modifications after {max_retries} attempts.\n{error_history}"
+                        ) from e
+                    time.sleep(2)  # Brief pause before retry
+
+        # This part should ideally not be reached if success returns or retries fail with exception
         except Exception as e:
-            logging.error(f"Modification failed: {str(e)}", exc_info=True)
-            return f"Error: {str(e)}"
+            logging.error(
+                f"GitHub file modification failed for '{file_path}': {str(e)}",
+                exc_info=True,
+            )
+            # Construct meaningful error message including retry history if available
+            error_message = f"Error modifying file '{file_path}'"
+            if errors:
+                error_message += f" after {len(errors)} attempt(s):\n" + "\n".join(
+                    errors
+                )
+            else:
+                error_message += f": {str(e)}"
+            return error_message
 
     # Helper command methods for individual operations
     async def replace_in_file(
@@ -3005,14 +3144,23 @@ Rewrite the modifications to fix the issue."""
             )
             return f"Error applying modifications:\n{error_message}"
         else:
-            # Combine all results into a single message
-            combined_results = "\n\n".join(results)
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nResults:\n{combined_results}",
-                conversation_name=self.conversation_name,
-            )
-            return f"Modifications applied successfully:\n{combined_results}"
+            if len(results) < 5:
+                # Failure to apply modifications
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nErrors: Invalid response syntax, the assistant should try again ensuring that the answer block and modification blocks are used properly when formatting responses.",
+                    conversation_name=self.conversation_name,
+                )
+                return "Error applying modifications: Invalid response syntax, the assistant should try again ensuring that the answer block and modification blocks are used properly when formatting responses."
+            else:
+                # Combine all results into a single message
+                combined_results = "\n\n".join(results)
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nResults:\n{combined_results}",
+                    conversation_name=self.conversation_name,
+                )
+                return f"Modifications applied successfully:\n{combined_results}"
 
     async def fix_github_issue(
         self,
@@ -3149,6 +3297,7 @@ Example modifications:
                 "use_smartest": True,
             },
         )
+        modifications_xml = modifications_xml.replace("&lt;", "<").replace("&gt;", ">")
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications to fix [#{issue_number}]({repo_url}/issues/{issue_number}).\n{modifications_xml}",
@@ -3230,10 +3379,11 @@ Example modifications:
             pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
             if "<modification>" in pr_body:
                 # Check if the characters before it are "```xml\n", if it isn't, add it.
-                if pr_body.find("```xml\n<modification>") == -1:
+                if "```xml" not in pr_body:
                     pr_body = pr_body.replace(
-                        "<modification>", "```xml\n<modification>"
-                    ).replace("</modification>", "</modification>\n```")
+                        "<modification>", "```xml\n<modification>", 1
+                    )
+                    pr_body += "\n```"
             new_pr = repo.create_pull(
                 title=f"Fix #{issue_number}: {issue_title}",
                 body=pr_body,
