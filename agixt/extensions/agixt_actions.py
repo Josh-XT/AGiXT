@@ -1631,7 +1631,7 @@ class agixt_actions(Extensions):
             logging.error(f"Error modifying AGiXT chain: {str(e)}")
             return f"Error modifying chain: {str(e)}"
 
-    async def custom_api_endpoint(
+    async def custom_api(
         self, endpoint_url: str, payload, headers, method: str = "POST"
     ):
         """
