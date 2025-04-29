@@ -109,8 +109,6 @@ class agixt_actions(Extensions):
         self.commands = {
             "Think Deeply": self.think_deeply,
             "Run Data Analysis": self.run_data_analysis,
-            "Schedule Follow Up with User": self.schedule_follow_up,
-            "Update Scheduled Task": self.modify_task,
             "Store information in my long term memory": self.store_long_term_memory,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
             "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
@@ -256,103 +254,6 @@ class agixt_actions(Extensions):
                 "tts": False,
                 "conversation_name": self.conversation_name,
             },
-        )
-
-    async def schedule_follow_up(
-        self,
-        title: str,
-        follow_up_notes: str,
-        days: str = 0,
-        hours: str = 0,
-        minutes: str = 0,
-    ) -> str:
-        """
-        Schedule a follow-up interaction with the user.
-        The assistant can autonomously use this to schedule to continue the conversation in a follow up at a scheduled time. The assistant can choose to do this at any point for any reason, especially if it might interest the user later when they follow up.
-        It is acceptable to use this without the user expecting it, as long as the follow-up is relevant and useful to the user.
-
-        Args:
-        title (str): The title of the follow-up task
-        follow_up_notes (str): AI's notes about what to follow up on, including key context and purpose
-        days (int): Number of days to delay
-        hours (int): Number of hours to delay
-        minutes (int): Number of minutes to delay
-
-        Returns:
-        str: Response confirming the scheduled follow-up. The assistant can choose to tell the user about the scheduled follow-up or choose to surprise them later.
-        """
-        try:
-            days = int(days)
-        except:
-            days = 0
-        try:
-            hours = int(hours)
-        except:
-            hours = 0
-        try:
-            minutes = int(minutes)
-        except:
-            minutes = 0
-        # Calculate the due date
-        due_date = datetime.datetime.now() + datetime.timedelta(
-            days=days, hours=hours, minutes=minutes
-        )
-
-        # Initialize task manager with the current token
-        task_manager = Task(token=self.api_key)
-        # Create a descriptive title from the purpose of the follow-up
-        title_preview = title.split("\n")[0][:50] + ("..." if len(title) > 50 else "")
-
-        # Create the follow-up task
-        task_id = await task_manager.create_task(
-            title=title_preview,
-            description=follow_up_notes,
-            category_name="Follow-ups",
-            agent_name=self.agent_name,
-            due_date=due_date,
-            priority=1,  # High priority for follow-ups
-            memory_collection=self.conversation_id,  # This ensures context preservation
-        )
-
-        return f"Scheduled follow-up task {task_id} for {due_date.strftime('%Y-%m-%d %H:%M:%S')}"
-
-    async def modify_task(
-        self,
-        task_id: str,
-        title: str = None,
-        description: str = None,
-        due_date: str = None,
-        estimated_hours: str = None,
-        priority: str = None,
-        cancel_task: str = "false",
-    ):
-        """
-        Modify an existing task with new information.
-
-        Args:
-        task_id (str): The ID of the task to modify
-        title (str): The new title of the task
-        description (str): The new description of the task
-        due_date (datetime.datetime): The new due date of the task
-        estimated_hours (int): The new estimated hours to complete the task
-        priority (int): The new priority of the task
-        cancel_task (bool): Whether to cancel the task
-
-        Returns:
-        str: Success message
-        """
-        # Initialize task manager with the current token
-        task_manager = Task(token=self.api_key)
-        if str(cancel_task).lower() == "true":
-            return await task_manager.delete_task(task_id)
-        # Update the task
-        return await task_manager.update_task(
-            task_id=task_id,
-            title=title,
-            description=description,
-            due_date=due_date,
-            estimated_hours=estimated_hours,
-            priority=priority,
         )
 
     async def read_file_content(self, file_path: str):
