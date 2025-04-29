@@ -178,6 +178,7 @@ class agixt_actions(Extensions):
             "Use MCP Server": self.mcp_client,
             "Create Automation Chain": self.create_agixt_chain,
             "Modify Automation Chain": self.modify_chain,
+            "Custom API Endpoint": self.custom_api,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -1629,3 +1630,31 @@ class agixt_actions(Extensions):
         except Exception as e:
             logging.error(f"Error modifying AGiXT chain: {str(e)}")
             return f"Error modifying chain: {str(e)}"
+
+    async def custom_api(self, endpoint_url: str, payload, headers):
+        """
+        Make a custom API call.
+
+        Args:
+            endpoint_url (str): The URL of the API endpoint.
+            payload (dict): The payload to send in the request.
+            headers (dict): The headers to include in the request.
+
+        Returns:
+            str: The response from the API.
+        """
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if isinstance(headers, str):
+            headers = json.loads(headers)
+        if not endpoint_url.startswith("https"):
+            endpoint_url = "https://" + endpoint_url
+        try:
+            response = requests.post(
+                endpoint_url, headers=headers, data=json.dumps(payload)
+            )
+            response.raise_for_status()  # Raise exception for HTTP errors
+            return response.json()
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
+            return f"Unexpected error: {e}"
