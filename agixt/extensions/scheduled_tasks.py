@@ -56,19 +56,18 @@ class scheduled_tasks(Extensions):
         minutes: str = 0,
     ) -> str:
         """
-        Schedule a follow-up interaction with the user.
-        The assistant can autonomously use this to schedule to continue the conversation in a follow up at a scheduled time. The assistant can choose to do this at any point for any reason, especially if it might interest the user later when they follow up.
-        It is acceptable to use this without the user expecting it, as long as the follow-up is relevant and useful to the user.
+        Schedule a follow-up interaction with the user. This can also be used to schedule a task like running a command later as long as the follow_up_notes are descriptive about what the assistant should do.
+        The assistant can autonomously use this to schedule to continue the conversation in a follow up at a scheduled time.
 
         Args:
-        title (str): The title of the follow-up task
-        follow_up_notes (str): AI's notes about what to follow up on, including key context and purpose
-        days (int): Number of days to delay
-        hours (int): Number of hours to delay
-        minutes (int): Number of minutes to delay
+            title (str): The title of the follow-up task
+            follow_up_notes (str): AI's notes about what to follow up on, including key context and purpose
+            days (int): Number of days to delay
+            hours (int): Number of hours to delay
+            minutes (int): Number of minutes to delay
 
         Returns:
-        str: Response confirming the scheduled follow-up. The assistant can choose to tell the user about the scheduled follow-up or choose to surprise them later.
+            str: Response confirming the scheduled follow-up. The assistant can choose to tell the user about the scheduled follow-up or choose to surprise them later.
         """
         try:
             days = int(days)
@@ -160,16 +159,16 @@ class scheduled_tasks(Extensions):
         Modify an existing task with new information, or cancel it.
 
         Args:
-        task_id (str): The ID of the task to modify
-        title (str): The new title of the task
-        description (str): The new description of the task
-        due_date (datetime.datetime): The new due date of the task
-        estimated_hours (int): The new estimated hours to complete the task
-        priority (int): The new priority of the task
-        cancel_task (bool): Whether to cancel the task
+            task_id (str): The ID of the task to modify
+            title (str): The new title of the task
+            description (str): The new description of the task
+            due_date (datetime.datetime): The new due date of the task
+            estimated_hours (int): The new estimated hours to complete the task
+            priority (int): The new priority of the task
+            cancel_task (bool): Whether to cancel the task
 
         Returns:
-        str: Success message
+            str: Success message
         """
         # Initialize task manager with the current token
         task_manager = Task(token=self.api_key)
@@ -190,7 +189,7 @@ class scheduled_tasks(Extensions):
         Get all scheduled tasks for the current agent.
 
         Returns:
-        list: List of scheduled tasks
+            list: List of scheduled tasks
         """
         # Initialize task manager with the current token
         task_manager = Task(token=self.api_key)
