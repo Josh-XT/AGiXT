@@ -25,6 +25,7 @@ from Models import (
 from typing import List, Optional
 from fastapi import Header, HTTPException
 from Globals import getenv, get_default_agent
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from agixtsdk import AGiXTSDK
@@ -527,9 +528,50 @@ class MagicalAuth:
             raise HTTPException(
                 status_code=401, detail="Invalid MFA token. Please try again."
             )
-        expiration = datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ) + timedelta(days=1)
+
+        # --- Start Calculation ---
+
+        # 1. Get the timezone name from the environment variable
+        tz_name = getenv("TZ")
+        if not tz_name:
+            print("Warning: TZ environment variable not set. Defaulting to UTC.")
+            tz_name = "UTC"  # Default to UTC if not set
+
+        # 2. Get the timezone object
+        try:
+            server_tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            print(f"Warning: Timezone '{tz_name}' not found. Defaulting to UTC.")
+            server_tz = ZoneInfo("UTC")  # Default to UTC if invalid
+
+        # 3. Get the current time *in the server's timezone*
+        now = datetime.now(server_tz)
+
+        # 4. Calculate the next month and year based on the current aware time
+        current_year = now.year
+        current_month = now.month
+
+        next_month = current_month + 1
+        next_year = current_year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+
+        # 5. Create the expiration datetime for the first day of the next month
+        #    at midnight *in the server's timezone*.
+        #    Crucially, associate the timezone directly during creation.
+        expiration = datetime(
+            year=next_year,
+            month=next_month,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+            tzinfo=server_tz,  # Associate the server's timezone
+        )
+        # --- End Calculation ---
+
         self.token = jwt.encode(
             {
                 "sub": str(user.id),
