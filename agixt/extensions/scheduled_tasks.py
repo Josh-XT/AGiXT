@@ -103,7 +103,7 @@ class scheduled_tasks(Extensions):
             memory_collection=self.conversation_id,  # This ensures context preservation
         )
 
-        return f"Scheduled follow-up task {task_id} for {due_date.strftime('%Y-%m-%d %H:%M:%S')}"
+        return f"Scheduled task {task_id} for {due_date.strftime('%Y-%m-%d %H:%M:%S')}"
 
     async def schedule_reoccurring_task(
         self,
