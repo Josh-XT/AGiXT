@@ -18,6 +18,7 @@ from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
 from endpoints.Auth import app as auth_endpoints
 from endpoints.Health import app as health_endpoints
+from endpoints.Tasks import app as tasks_endpoints
 from endpoints.TeslaIntegration import register_tesla_routes
 from Globals import getenv
 from contextlib import asynccontextmanager
@@ -86,6 +87,7 @@ app.add_middleware(
 
 
 app.include_router(agent_endpoints)
+app.include_router(tasks_endpoints)
 app.include_router(chain_endpoints)
 app.include_router(completions_endpoints)
 app.include_router(conversation_endpoints)
