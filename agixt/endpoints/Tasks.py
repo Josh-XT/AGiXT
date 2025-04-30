@@ -4,6 +4,7 @@ from Models import ResponseMessage
 from pydantic import BaseModel
 from Globals import getenv
 import logging
+import json
 
 
 app = APIRouter()
@@ -138,15 +139,13 @@ async def modify_task(
 @app.get(
     "/v1/tasks",
     tags=["Tasks"],
-    response_model=ResponseMessage,
     summary="Get all scheduled tasks",
     description="Get all scheduled tasks for the current agent.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_scheduled_tasks(
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
+    user=Depends(verify_api_key), authorization: str = Header(None)
+):
     agixt = get_api_client(authorization=authorization)
     response = agixt.execute_command(
         agent_name="",
@@ -154,4 +153,4 @@ async def get_scheduled_tasks(
         command_args={},
         conversation_name="",
     )
-    return ResponseMessage(message=response)
+    return json.loads(response)
