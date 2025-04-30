@@ -1,9 +1,6 @@
-import os
 from Extensions import Extensions
 from Task import Task
 import datetime
-from agixtsdk import AGiXTSDK
-from Globals import getenv
 
 
 class scheduled_tasks(Extensions):
@@ -21,31 +18,11 @@ class scheduled_tasks(Extensions):
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
         )
-        self.user = kwargs["user"] if "user" in kwargs else ""
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
-        self.conversation_name = (
-            kwargs["conversation_name"] if "conversation_name" in kwargs else ""
-        )
-        self.WORKING_DIRECTORY = (
-            kwargs["conversation_directory"]
-            if "conversation_directory" in kwargs
-            else os.path.join(os.getcwd(), "WORKSPACE")
-        )
-        os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
         self.conversation_id = (
             kwargs["conversation_id"] if "conversation_id" in kwargs else ""
         )
-
-        self.ApiClient = (
-            kwargs["ApiClient"]
-            if "ApiClient" in kwargs
-            else AGiXTSDK(
-                base_uri=getenv("AGIXT_URI"),
-                api_key=kwargs["api_key"] if "api_key" in kwargs else "",
-            )
-        )
         self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
-        self.failures = 0
 
     async def schedule_task(
         self,
