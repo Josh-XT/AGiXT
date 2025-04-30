@@ -810,83 +810,25 @@ class agixt_actions(Extensions):
         )
         return chain_name
 
-    async def generate_helper_chain(self, user_agent, helper_agent, task_in_question):
-        """
-        Generate a helper chain for an agent
-
-        Args:
-        user_agent (str): The user agent
-        helper_agent (str): The helper agent
-        task_in_question (str): The task in question
-
-        Returns:
-        str: The name of the created chain
-        """
-        chain_name = f"Help Chain - {user_agent} to {helper_agent}"
-        self.ApiClient.add_chain(chain_name=chain_name)
-        i = 1
-        self.ApiClient.add_step(
-            chain_name=chain_name,
-            agent_name=user_agent,
-            step_number=i,
-            prompt_type="Prompt",
-            prompt={
-                "prompt_name": "Get Clarification",
-                "task_in_question": task_in_question,
-            },
-        )
-        i += 1
-        self.ApiClient.add_step(
-            chain_name=chain_name,
-            agent_name=helper_agent,
-            step_number=i,
-            prompt_type="Prompt",
-            prompt={
-                "prompt_name": "Ask for Help",
-                "task_in_question": task_in_question,
-                "question": "{STEP" + str(i - 1) + "}",
-            },
-        )
-        # run the chain and return the result
-        return chain_name
-
-    async def ask_for_help(self, your_agent_name, your_task):
+    async def ask_for_help(self, query: str):
         """
         Ask for help from a helper agent
 
         Args:
-        your_agent_name (str): Your agent name
-        your_task (str): Your task
+        query (str): The task to ask for help with
 
         Returns:
         str: The response from the helper agent
         """
-        return self.ApiClient.run_chain(
-            chain_name="Ask Helper Agent for Help",
-            user_input=your_task,
-            agent_name=your_agent_name,
-            all_responses=False,
-            from_step=1,
-            chain_args={
-                "conversation_name": self.conversation_name,
-            },
-        )
-
-    async def ask(self, user_input: str) -> str:
-        """
-        Ask a question
-
-        Args:
-        user_input (str): The user input
-
-        Returns:
-        str: The response to the question
-        """
-        response = self.ApiClient.prompt_agent(
+        return self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
-                "user_input": user_input,
+                "user_input": f"Please help me with the following task:\n{query}",
+                "websearch": False,
+                "websearch_depth": 0,
+                "analyze_user_input": False,
+                "disable_commands": True,
                 "log_user_input": False,
                 "log_output": False,
                 "browse_links": False,
@@ -894,29 +836,6 @@ class agixt_actions(Extensions):
                 "conversation_name": self.conversation_name,
             },
         )
-        return response
-
-    async def instruct(self, user_input: str) -> str:
-        """
-        Instruct the agent
-
-        Args:
-        user_input (str): The user input
-
-        Returns:
-        str: The response to the instruction
-        """
-        response = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="instruct",
-            prompt_args={
-                "user_input": user_input,
-                "websearch": True,
-                "websearch_depth": 3,
-                "conversation_name": self.conversation_name,
-            },
-        )
-        return response
 
     async def get_python_code_from_response(self, response: str):
         """
