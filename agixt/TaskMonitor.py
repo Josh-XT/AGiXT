@@ -119,19 +119,21 @@ class TaskMonitor:
                         try:
                             session = get_session()
                             try:
-                                if not pending_task.user_id:
+                                if not pending_task["user_id"]:
                                     logging.error(
-                                        f"Task {pending_task.id} has no associated user"
+                                        f"Task {pending_task['id']} has no associated user"
                                     )
                                     session.delete(pending_task)
                                     session.commit()
                                     continue
 
                                 logging.info(
-                                    f"Worker {self.worker_id} processing task {pending_task.id}"
+                                    f"Worker {self.worker_id} processing task {pending_task['id']}"
                                 )
                                 task_manager = Task(
-                                    token=impersonate_user(user_id=pending_task.user_id)
+                                    token=impersonate_user(
+                                        user_id=pending_task["user_id"]
+                                    )
                                 )
 
                                 try:
@@ -140,14 +142,16 @@ class TaskMonitor:
                                         timeout=300,
                                     )
                                 except asyncio.TimeoutError:
-                                    logging.error(f"Task {pending_task.id} timed out")
+                                    logging.error(
+                                        f"Task {pending_task['id']} timed out"
+                                    )
                                     continue
                             finally:
                                 session.close()
 
                         except Exception as e:
                             logging.error(
-                                f"Error processing task {pending_task.id}: {str(e)}"
+                                f"Error processing task {pending_task['id']}: {str(e)}"
                             )
                             continue
 
