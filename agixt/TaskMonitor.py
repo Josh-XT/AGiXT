@@ -6,6 +6,7 @@ from Task import Task
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from hashlib import sha256
+from zoneinfo import ZoneInfo
 import jwt
 import random
 import socket
@@ -77,7 +78,11 @@ class TaskMonitor:
 
         session = get_session()
         try:
+            tz_info = ZoneInfo(getenv("TZ"))
+            now = datetime.now(tz_info)
+        except:
             now = datetime.now()
+        try:
             all_tasks = (
                 session.query(TaskItem)
                 .filter(

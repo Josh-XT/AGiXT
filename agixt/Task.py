@@ -198,7 +198,11 @@ class Task:
     async def get_pending_tasks(self) -> list:
         """Get all pending tasks that are due"""
         session = get_session()
-        now = datetime.datetime.now()
+        try:
+            tz_info = ZoneInfo(getenv("TZ"))
+            now = datetime.datetime.now(tz_info)
+        except:
+            now = datetime.datetime.now()
         tasks = (
             session.query(TaskItem)
             .options(joinedload(TaskItem.category))  # Eager load the category
@@ -245,24 +249,8 @@ class Task:
     async def execute_pending_tasks(self):
         """Check and execute all pending tasks"""
         session = get_session()
-        tz = getenv("TZ")
-        try:
-            tz_info = ZoneInfo(tz)
-            now = datetime.datetime.now(tz_info)
-        except Exception as e:
-            logging.error(f"Error getting current time: {str(e)}")
-            now = datetime.datetime.now()
-        tasks = (
-            session.query(TaskItem)
-            .options(joinedload(TaskItem.category))  # Eager load the category
-            .filter(
-                TaskItem.user_id == self.user_id,
-                TaskItem.completed == False,
-                TaskItem.scheduled == True,
-                TaskItem.due_date >= now,
-            )
-            .all()
-        )
+        tasks = await self.get_pending_tasks()
+
         for task in tasks:
             try:
                 if task.agent_id:
