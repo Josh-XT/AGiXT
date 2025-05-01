@@ -245,7 +245,12 @@ class Task:
     async def execute_pending_tasks(self):
         """Check and execute all pending tasks"""
         session = get_session()
-        now = datetime.datetime.now()
+        tz = getenv("TZ")
+        try:
+            now = datetime.datetime.now(tz)
+        except Exception as e:
+            logging.error(f"Error getting current time: {str(e)}")
+            now = datetime.datetime.now()
         tasks = (
             session.query(TaskItem)
             .options(joinedload(TaskItem.category))  # Eager load the category
