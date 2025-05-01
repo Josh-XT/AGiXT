@@ -253,7 +253,7 @@ class Task:
                 TaskItem.user_id == self.user_id,
                 TaskItem.completed == False,
                 TaskItem.scheduled == True,
-                TaskItem.due_date <= now,
+                TaskItem.due_date >= now,
             )
             .all()
         )
