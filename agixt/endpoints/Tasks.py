@@ -225,29 +225,10 @@ async def modify_task(
     summary="Get all scheduled tasks",
     description="Get all scheduled tasks for the current agent.",
     dependencies=[Depends(verify_api_key)],
-    response_model=TasksModel,
 )
 async def get_scheduled_tasks(
     user=Depends(verify_api_key), authorization: str = Header(None)
 ):
     task_manager = Task(token=authorization)
     tasks = await task_manager.get_pending_tasks()
-    return_tasks = []
-    for task in tasks:
-        task_data = {
-            "id": task.id,
-            "description": task.description,
-            "agent_id": task.agent_id,
-            "scheduled": task.scheduled,
-            "due_date": task.due_date,
-            "updated_at": task.updated_at,
-            "priority": task.priority,
-            "title": task.title,
-            "memory_collection": task.memory_collection,
-            "estimated_hours": task.estimated_hours,
-            "completed": task.completed,
-            "created_at": task.created_at,
-            "completed_at": task.completed_at,
-        }
-        return_tasks.append(TaskItemModel(**task_data))
-    return TasksModel(tasks=return_tasks)
+    return tasks
