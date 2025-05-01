@@ -193,7 +193,7 @@ class Conversations:
             # Get the last message for each conversation to update the updated_at field
             last_message = (
                 session.query(Message)
-                .filter(Message.conversation_id == conversation["id"])
+                .filter(Message.conversation_id == conversation.id)
                 .order_by(Message.timestamp.desc())
                 .first()
             )
