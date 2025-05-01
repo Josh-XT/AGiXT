@@ -829,15 +829,6 @@ class Conversations:
                     parsed_time = parser.parse(timestamp)
                     new_message.timestamp = parsed_time
                     new_message.updated_at = parsed_time
-                    c = (
-                        session.query(Conversation)
-                        .filter(
-                            Conversation.name == self.conversation_name,
-                            Conversation.user_id == user_id,
-                        )
-                        .first()
-                    )
-                    c.updated_at = parsed_time
                 except:
                     # If parsing fails, just log it and continue with auto timestamps
                     logging.warning(f"Could not parse timestamp: {timestamp}")
