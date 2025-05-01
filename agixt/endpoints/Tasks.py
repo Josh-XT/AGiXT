@@ -201,10 +201,11 @@ async def modify_task(
     summary="Get all scheduled tasks",
     description="Get all scheduled tasks for the current agent.",
     dependencies=[Depends(verify_api_key)],
+    response_model=TasksModel,
 )
 async def get_scheduled_tasks(
     user=Depends(verify_api_key), authorization: str = Header(None)
 ):
     task_manager = Task(token=authorization)
     tasks = await task_manager.get_pending_tasks()
-    return {"tasks": tasks}
+    return TasksModel(tasks=tasks)
