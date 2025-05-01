@@ -1,4 +1,5 @@
 from DB import get_session, TaskCategory, TaskItem, Agent
+from MagicalAuth import convert_time
 from Globals import getenv
 from agixtsdk import AGiXTSDK
 from MagicalAuth import MagicalAuth
@@ -221,7 +222,7 @@ class Task:
                 "description": task.description,
                 "agent_id": task.agent_id,
                 "scheduled": task.scheduled,
-                "due_date": task.due_date,
+                "due_date": convert_time(task.due_date, user_id=self.user_id),
                 "updated_at": task.updated_at,
                 "priority": task.priority,
                 "title": task.title,
