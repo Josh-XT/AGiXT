@@ -118,14 +118,6 @@ async def new_task(
         "..." if len(task.title) > 50 else ""
     )
     conversation_name = f"Task: {title_preview}"
-    try:
-        import uuid
-
-        uuid(task.conversation_id)
-    except:
-        conversation_name = task.conversation_id
-        task.conversation_id = None
-
     if not task.conversation_id:
         # Create a new conversation
 

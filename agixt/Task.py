@@ -210,8 +210,27 @@ class Task:
             )
             .all()
         )
+        new_tasks = []
+        for task in tasks:
+            task_dict = {
+                "id": str(task.id),
+                "description": task.description,
+                "agent_id": task.agent_id,
+                "scheduled": task.scheduled,
+                "due_date": task.due_date,
+                "updated_at": task.updated_at,
+                "priority": task.priority,
+                "title": task.title,
+                "conversation_id": task.memory_collection,
+                "estimated_hours": task.estimated_hours,
+                "completed": task.completed,
+                "created_at": task.created_at,
+                "completed_at": task.completed_at,
+                "category_name": task.category.name if task.category else "Follow-ups",
+            }
+            new_tasks.append(task_dict)
         session.close()
-        return tasks
+        return new_tasks
 
     async def mark_task_completed(self, task_id: str):
         """Mark a task as completed"""
@@ -225,18 +244,25 @@ class Task:
 
     async def execute_pending_tasks(self):
         """Check and execute all pending tasks"""
-        tasks = await self.get_pending_tasks()
+        session = get_session()
+        now = datetime.datetime.now()
+        tasks = (
+            session.query(TaskItem)
+            .options(joinedload(TaskItem.category))  # Eager load the category
+            .filter(
+                TaskItem.user_id == self.user_id,
+                TaskItem.completed == False,
+                TaskItem.scheduled == True,
+                TaskItem.due_date <= now,
+            )
+            .all()
+        )
         for task in tasks:
             try:
-                session = get_session()
-                if task.category.name == "Follow-ups" and task.agent_id:
+                if task.agent_id:
                     agent = session.query(Agent).get(task.agent_id)
                     if agent:
-                        conversation_name = get_conversation_name_by_id(
-                            conversation_id=task.memory_collection,
-                            user_id=self.user_id,
-                        )
-                        prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user."
+                        prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
 
                         def execute_prompt():
                             return self.ApiClient.prompt_agent(
@@ -244,7 +270,7 @@ class Task:
                                 prompt_name="Think About It",
                                 prompt_args={
                                     "user_input": prompt,
-                                    "conversation_name": conversation_name,
+                                    "conversation_name": task.memory_collection,
                                     "websearch": False,
                                     "analyze_user_input": False,
                                     "log_user_input": False,
