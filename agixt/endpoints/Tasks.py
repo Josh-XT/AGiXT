@@ -95,15 +95,15 @@ async def new_task(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     try:
-        days = int(days)
+        days = int(task.days)
     except:
         days = 0
     try:
-        hours = int(hours)
+        hours = int(task.hours)
     except:
         hours = 0
     try:
-        minutes = int(minutes)
+        minutes = int(task.minutes)
     except:
         minutes = 0
     # Calculate the due date
