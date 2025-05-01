@@ -249,7 +249,22 @@ class Task:
     async def execute_pending_tasks(self):
         """Check and execute all pending tasks"""
         session = get_session()
-        tasks = await self.get_pending_tasks()
+        try:
+            tz_info = ZoneInfo(getenv("TZ"))
+            now = datetime.datetime.now(tz_info)
+        except:
+            now = datetime.datetime.now()
+        tasks = (
+            session.query(TaskItem)
+            .options(joinedload(TaskItem.category))  # Eager load the category
+            .filter(
+                TaskItem.user_id == self.user_id,
+                TaskItem.completed == False,
+                TaskItem.scheduled == True,
+                TaskItem.due_date <= now,
+            )
+            .all()
+        )
 
         for task in tasks:
             try:
