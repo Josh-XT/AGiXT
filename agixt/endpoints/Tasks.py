@@ -60,7 +60,7 @@ class CategoryModel(BaseModel):
     category_id: Optional[str]
 
 
-class TaskModel(BaseModel):
+class TaskItemModel(BaseModel):
     category_id: str
     user_id: str
     description: str
@@ -80,7 +80,7 @@ class TaskModel(BaseModel):
 
 
 class TasksModel(BaseModel):
-    tasks: list[TaskModel]
+    tasks: list[TaskItemModel]
 
 
 @app.post(
