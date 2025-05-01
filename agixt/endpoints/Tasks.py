@@ -61,15 +61,13 @@ class CategoryModel(BaseModel):
 
 
 class TaskItemModel(BaseModel):
-    category_id: str
-    user_id: str
+    id: str
     description: str
     agent_id: str
     scheduled: bool
     due_date: Optional[str]
     updated_at: str
     priority: int
-    id: str
     title: str
     memory_collection: str
     estimated_hours: Optional[str]
@@ -237,15 +235,13 @@ async def get_scheduled_tasks(
     return_tasks = []
     for task in tasks:
         task_data = {
-            "category_id": task.category_id,
-            "user_id": task.user_id,
+            "id": task.id,
             "description": task.description,
             "agent_id": task.agent_id,
             "scheduled": task.scheduled,
             "due_date": task.due_date,
             "updated_at": task.updated_at,
             "priority": task.priority,
-            "id": task.id,
             "title": task.title,
             "memory_collection": task.memory_collection,
             "estimated_hours": task.estimated_hours,
