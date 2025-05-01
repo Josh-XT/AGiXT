@@ -231,4 +231,4 @@ async def get_scheduled_tasks(
 ):
     task_manager = Task(token=authorization)
     tasks = await task_manager.get_pending_tasks()
-    return tasks
+    return {"tasks": tasks}
