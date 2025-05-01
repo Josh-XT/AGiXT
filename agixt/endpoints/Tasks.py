@@ -119,6 +119,29 @@ async def new_task(
     title_preview = task.title.split("\n")[0][:50] + (
         "..." if len(task.title) > 50 else ""
     )
+    conversation_name = f"Task: {title_preview}"
+    try:
+        import uuid
+
+        uuid(task.conversation_id)
+    except:
+        conversation_name = task.conversation_id
+        task.conversation_id = None
+
+    if not task.conversation_id:
+        # Create a new conversation
+
+        task_manager.ApiClient.new_conversation_message(
+            role="user",
+            message=f"Create a task for me to {task.task_description}",
+            conversation_name=conversation_name,
+        )
+        conversations = task_manager.ApiClient.get_conversations_with_ids()
+        # Get the conversation ID
+        conversation_id = [
+            k for k, v in conversations.items() if v == conversation_name
+        ][0]
+        task.conversation_id = conversation_id
 
     # Create the follow-up task
     task_id = await task_manager.create_task(
