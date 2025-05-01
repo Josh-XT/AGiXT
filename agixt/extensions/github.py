@@ -2578,7 +2578,7 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     file_content_obj = None
                     is_new_file = False
 
-                    if best_match and match_score >= 0.8:
+                    if best_match and match_score >= 0.98:
                         file_path = best_match  # Use the matched file path
                         logging.info(
                             f"Found existing file matching '{file_path}' with score {match_score:.2f}"
@@ -3144,7 +3144,7 @@ Rewrite the modifications to fix the issue."""
             )
             return f"Error applying modifications:\n{error_message}"
         else:
-            if len(results) < 5:
+            if len(results) < 1:
                 # Failure to apply modifications
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
