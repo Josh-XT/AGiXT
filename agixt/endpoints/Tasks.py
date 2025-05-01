@@ -4,6 +4,7 @@ from Models import ResponseMessage
 from pydantic import BaseModel
 from Globals import getenv
 from Task import Task
+from typing import Optional
 import datetime
 import logging
 
@@ -46,6 +47,40 @@ class ModifyTaskModel(BaseModel):
     cancel_task: str = "false"
     agent_name: str = None
     conversation_id: str = None
+
+
+class CategoryModel(BaseModel):
+    name: str
+    user_id: str
+    memory_collection: str
+    updated_at: str
+    id: str
+    description: str
+    created_at: str
+    category_id: Optional[str]
+
+
+class TaskModel(BaseModel):
+    category_id: str
+    user_id: str
+    description: str
+    agent_id: str
+    scheduled: bool
+    due_date: Optional[str]
+    updated_at: str
+    priority: int
+    id: str
+    title: str
+    memory_collection: str
+    estimated_hours: Optional[str]
+    completed: bool
+    created_at: str
+    completed_at: Optional[str]
+    category: CategoryModel
+
+
+class TasksModel(BaseModel):
+    tasks: list[TaskModel]
 
 
 @app.post(
