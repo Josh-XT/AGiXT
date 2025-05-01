@@ -189,11 +189,11 @@ class Conversations:
             }
             for conversation, notification_count in conversations
         }
-        for conversation in result.values():
+        for id, conversation in result.items():
             # Get the last message for each conversation to update the updated_at field
             last_message = (
                 session.query(Message)
-                .filter(Message.conversation_id == conversation.id)
+                .filter(Message.conversation_id == id)
                 .order_by(Message.timestamp.desc())
                 .first()
             )
