@@ -137,10 +137,13 @@ async def new_task(
             conversation_name=conversation_name,
         )
         conversations = task_manager.ApiClient.get_conversations_with_ids()
+        logging.info(f"Conversations: {conversations}")
         # Get the conversation ID
-        conversation_id = [
-            k for k, v in conversations.items() if v == conversation_name
-        ][0]
+        conversation_id = None
+        for conversation in conversations:
+            if conversation_name in conversations[conversation]:
+                conversation_id = conversation
+                break
         task.conversation_id = conversation_id
 
     # Create the follow-up task
