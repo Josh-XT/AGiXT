@@ -172,8 +172,15 @@ class Conversations:
             .filter(Conversation.user_id == user_id)
             .filter(Message.id != None)
             .group_by(Conversation)
-            .order_by(Conversation.updated_at.desc())
+            .order_by(Message.updated_at.desc())
             .all()
+        )
+        # Updated_at should be the latest message's updated_at
+        updated_at = (
+            session.query(func.max(Message.updated_at))
+            .filter(Message.conversation_id == Conversation.id)
+            .filter(Message.notify == True)
+            .first()
         )
         # If the agent's company_id does not match
         result = {
@@ -181,7 +188,7 @@ class Conversations:
                 "name": conversation.name,
                 "agent_id": self.get_agent_id(user_id),
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
-                "updated_at": convert_time(conversation.updated_at, user_id=user_id),
+                "updated_at": convert_time(updated_at, user_id=user_id),
                 "has_notifications": notification_count > 0,
                 "summary": (
                     conversation.summary if Conversation.summary else "None available"
