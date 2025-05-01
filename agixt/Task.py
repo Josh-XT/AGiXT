@@ -2,7 +2,7 @@ from DB import get_session, TaskCategory, TaskItem, Agent
 from Globals import getenv
 from agixtsdk import AGiXTSDK
 from MagicalAuth import MagicalAuth
-from Conversations import get_conversation_name_by_id
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import joinedload
 from concurrent.futures import ThreadPoolExecutor
 import datetime
@@ -247,7 +247,8 @@ class Task:
         session = get_session()
         tz = getenv("TZ")
         try:
-            now = datetime.datetime.now(tz)
+            tz_info = ZoneInfo(tz)
+            now = datetime.datetime.now(tz_info)
         except Exception as e:
             logging.error(f"Error getting current time: {str(e)}")
             now = datetime.datetime.now()
