@@ -234,4 +234,24 @@ async def get_scheduled_tasks(
 ):
     task_manager = Task(token=authorization)
     tasks = await task_manager.get_pending_tasks()
-    return TasksModel(tasks=tasks)
+    return_tasks = []
+    for task in tasks:
+        task_data = {
+            "category_id": task.category_id,
+            "user_id": task.user_id,
+            "description": task.description,
+            "agent_id": task.agent_id,
+            "scheduled": task.scheduled,
+            "due_date": task.due_date,
+            "updated_at": task.updated_at,
+            "priority": task.priority,
+            "id": task.id,
+            "title": task.title,
+            "memory_collection": task.memory_collection,
+            "estimated_hours": task.estimated_hours,
+            "completed": task.completed,
+            "created_at": task.created_at,
+            "completed_at": task.completed_at,
+        }
+        return_tasks.append(TaskItemModel(**task_data))
+    return TasksModel(tasks=return_tasks)
