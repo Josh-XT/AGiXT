@@ -174,20 +174,13 @@ class Conversations:
             .group_by(Conversation)
             .all()
         )
-        # Updated_at should be the latest message's updated_at
-        updated_at = (
-            session.query(func.max(Message.updated_at))
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.notify == True)
-            .first()
-        )
         # If the agent's company_id does not match
         result = {
             str(conversation.id): {
                 "name": conversation.name,
                 "agent_id": self.get_agent_id(user_id),
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
-                "updated_at": convert_time(updated_at, user_id=user_id),
+                "updated_at": convert_time(conversation.updated_at, user_id=user_id),
                 "has_notifications": notification_count > 0,
                 "summary": (
                     conversation.summary if Conversation.summary else "None available"
@@ -196,6 +189,18 @@ class Conversations:
             }
             for conversation, notification_count in conversations
         }
+        for conversation in result.values():
+            # Get the last message for each conversation to update the updated_at field
+            last_message = (
+                session.query(Message)
+                .filter(Message.conversation_id == conversation["id"])
+                .order_by(Message.timestamp.desc())
+                .first()
+            )
+            if last_message:
+                conversation["updated_at"] = convert_time(
+                    last_message.timestamp, user_id=user_id
+                )
         # Reorder the result by updated_at with latest first
         result = dict(
             sorted(
