@@ -172,7 +172,6 @@ class Conversations:
             .filter(Conversation.user_id == user_id)
             .filter(Message.id != None)
             .group_by(Conversation)
-            .order_by(Message.updated_at.desc())
             .all()
         )
         # Updated_at should be the latest message's updated_at
@@ -197,6 +196,15 @@ class Conversations:
             }
             for conversation, notification_count in conversations
         }
+        # Reorder the result by updated_at with latest first
+        result = dict(
+            sorted(
+                result.items(),
+                key=lambda item: item[1]["updated_at"],
+                reverse=True,
+            )
+        )
+
         session.close()
         return result
 
