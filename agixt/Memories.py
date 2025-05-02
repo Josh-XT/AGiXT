@@ -823,12 +823,22 @@ class Memories:
     async def get_external_data_sources(self):
         session = get_session()
         try:
-            sources = (
-                session.query(Memory.external_source)
-                .filter_by(agent_id=self.agent_id)
-                .distinct()
-                .all()
-            )
+            if self.collection_number == "0":
+                sources = (
+                    session.query(Memory.external_source)
+                    .filter_by(agent_id=self.agent_id, conversation_id=None)
+                    .distinct()
+                    .all()
+                )
+            else:
+                sources = (
+                    session.query(Memory.external_source)
+                    .filter_by(
+                        agent_id=self.agent_id, conversation_id=self.collection_number
+                    )
+                    .distinct()
+                    .all()
+                )
             return [source[0] for source in sources if source[0]]
         finally:
             session.close()
