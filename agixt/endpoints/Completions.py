@@ -55,7 +55,7 @@ async def chat_completion(
             conversation_name = get_conversation_name_by_id(
                 conversation_id=conversation_id, user_id=user_id
             )
-    if not prompt.model:
+    if not prompt.model or prompt.model == "EVEN_REALITIES_GLASSES":
         agents = get_agents(user=user)
         try:
             prompt.model = agents[0].name
