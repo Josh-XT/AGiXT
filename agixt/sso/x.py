@@ -116,6 +116,7 @@ def sso(code, redirect_uri=None, code_verifier=None) -> XSSO:
         data=data,
         auth=(client_id, client_secret),
     )
+    logging.info(f"X SSO response: {response.text}")
     if response.status_code != 200:
         logging.error(f"Error getting X access token: {response.text}")
         return None
