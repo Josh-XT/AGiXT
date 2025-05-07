@@ -1,10 +1,11 @@
 import time
 import uuid
 from fastapi import APIRouter, Depends, Header
+from fastapi.responses import StreamingResponse
 from Globals import get_tokens
 from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
-from Conversations import get_conversation_name_by_id
+from Conversations import get_conversation_name_by_id, Conversations
 from providers.default import DefaultProvider
 from Memories import embed
 from fastapi import UploadFile, File, Form
@@ -14,14 +15,16 @@ from Models import (
     EmbeddingModel,
     TextToSpeech,
     ImageCreation,
-    ChatCompletionResponse,
-    EmbeddingResponse,
     AudioTranscriptionResponse,
     AudioTranslationResponse,
     TextToSpeechResponse,
     ImageGenerationResponse,
 )
 from XT import AGiXT
+
+import logging
+import json
+
 
 app = APIRouter()
 
@@ -33,42 +36,127 @@ app = APIRouter()
     tags=["Completions"],
     dependencies=[Depends(verify_api_key)],
     summary="Create Chat Completion",
-    description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format.",
-    response_model=ChatCompletionResponse,
+    description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format. Supports streaming.",
+    # response_model=ChatCompletionResponse, # Remove this for streaming
 )
 async def chat_completion(
     prompt: ChatCompletions,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    # prompt.model is the agent name
-    # prompt.user is the conversation name
-    # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
     conversation_name = prompt.user
-    if conversation_name != "-":
+    if conversation_name and conversation_name != "-":
         try:
             conversation_id = str(uuid.UUID(conversation_name))
-        except:
-            conversation_id = None
-        if conversation_id:
-            user_id = get_user_id(user)
+            user_id = get_user_id(user)  # Assuming get_user_id exists
             conversation_name = get_conversation_name_by_id(
                 conversation_id=conversation_id, user_id=user_id
             )
+            prompt.user = conversation_name  # Update prompt object if name resolved
+        except ValueError:
+            # It's not a UUID, treat it as a name
+            pass
+        except Exception as e:
+            logging.error(f"Error resolving conversation ID/Name: {e}")
+            # Proceed with the name as given, or handle error appropriately
+            pass
+
     if not prompt.model or prompt.model == "EVEN_REALITIES_GLASSES":
         agents = get_agents(user=user)
         try:
-            prompt.model = agents[0].name
+            prompt.model = agents[0]["name"]  # Corrected agent access
         except Exception as e:
-            print(f"Error getting agent name: {e}")
+            logging.warning(
+                f"Error getting default agent name: {e}, defaulting to AGiXT"
+            )
             prompt.model = "AGiXT"
+
     agixt = AGiXT(
         user=user,
         agent_name=prompt.model,
         api_key=authorization,
         conversation_name=conversation_name,
     )
-    return await agixt.chat_completions(prompt=prompt)
+
+    streaming = prompt.stream
+
+    if streaming:
+        # Return a StreamingResponse using the async generator from AGiXT
+        return StreamingResponse(
+            agixt.chat_completions(prompt=prompt), media_type="text/event-stream"
+        )
+    else:
+        # Non-streaming: Collect all chunks and return the final JSON
+        # This requires AGiXT.chat_completions to be an async generator even for non-streaming
+        final_response_content = ""
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        finish_reason = "stop"
+        completion_id = ""
+        model_name = prompt.model
+        created_time = int(time.time())
+
+        async for chunk_str in agixt.chat_completions(prompt=prompt):
+            if chunk_str.startswith("event: message\ndata: "):
+                data_json = chunk_str.split("data: ", 1)[1].strip()
+                if data_json == "[DONE]":
+                    break
+                try:
+                    data = json.loads(data_json)
+                    completion_id = data.get(
+                        "id", completion_id
+                    )  # Get ID from first chunk
+                    model_name = data.get(
+                        "model", model_name
+                    )  # Get model from first chunk
+                    created_time = data.get(
+                        "created", created_time
+                    )  # Get time from first chunk
+
+                    choice = data.get("choices", [{}])[0]
+                    delta = choice.get("delta", {})
+                    content_part = delta.get("content", "")
+                    if content_part:
+                        final_response_content += content_part
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+                except json.JSONDecodeError:
+                    logging.error(f"Failed to decode stream chunk: {data_json}")
+                except Exception as e:
+                    logging.error(f"Error processing stream chunk: {e}")
+            elif chunk_str.strip() == "data: [DONE]":  # Handle simple DONE marker
+                break
+
+        # Calculate usage (approximated if not provided by LLM)
+        # Note: A more accurate way would be to get token counts from the LLM provider if possible
+        prompt_tokens = get_tokens(json.dumps(prompt.messages))  # Approx prompt tokens
+        completion_tokens = get_tokens(final_response_content)
+        total_tokens = prompt_tokens + completion_tokens
+        usage = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+
+        # Construct the final OpenAI-compatible response object
+        final_json_response = {
+            "id": completion_id if completion_id else f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": created_time,
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": final_response_content,
+                    },
+                    "finish_reason": finish_reason,
+                    "logprobs": None,  # Not supported currently
+                }
+            ],
+            "usage": usage,
+        }
+        return final_json_response
 
 
 # Embedding endpoint
