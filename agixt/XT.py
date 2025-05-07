@@ -1310,48 +1310,98 @@ class AGiXT:
     ) -> AsyncGenerator[str, None]:
         """
         Asynchronous generator for chat completions, yielding intermediate logs and final response.
-
-        Args:
-            prompt (ChatCompletions): Chat completions prompt object.
-
-        Yields:
-            str: Server-Sent Event formatted data chunks.
+        # ... (rest of the docstring)
         """
         conversation_name = prompt.user if prompt.user else self.conversation_name
-        c = self.conversation  # Use the instance's conversation object
+        c = self.conversation
         conversation_id = self.conversation_id
 
-        # Generate a unique ID for this completion request
         completion_id = f"chatcmpl-{uuid.uuid4()}"
         model_name = prompt.model if prompt.model else self.agent_name
         created_time = int(time.time())
 
-        # --- Start of workflow logic (adapted from your existing non-streaming version) ---
         urls = []
         files = []
-        new_prompt = ""
-        browse_links = True  # Default, will be overridden by message or agent settings
+        new_prompt_str = (
+            ""  # Renamed from new_prompt to avoid conflict with the 'prompt' parameter
+        )
+        browse_links = True
         tts = False
         websearch = False
         log_output = True
         log_user_input = True
-        language = "en"  # Default
+        language = "en"
         analyze_user_input = False
         include_sources = False
-        mode = "prompt"  # Default
-        prompt_name = "Think About It"
-        prompt_category = "Default"
+        mode = "prompt"
+        prompt_name_to_use = "Think About It"  # Renamed from prompt_name
+        prompt_category_to_use = "Default"  # Renamed from prompt_category
         command_name = ""
-        command_args = {}
+        command_args_local = {}  # Renamed from command_args
         command_variable = "text"
-        chain_name = ""
-        chain_args = {}
+        chain_name_local = ""  # Renamed from chain_name
+        chain_args_local = {}  # Renamed from chain_args
         context_results = 5
-        conversation_results = 10  # Default conversation results
+        conversation_results_local = 10  # Renamed from conversation_results
 
-        # Extract settings and content from messages
+        # Initialize prompt_args at the beginning
+        current_prompt_args = {}  # This is the crucial addition/change
+        if "prompt_args" in self.agent_settings:
+            current_prompt_args = (
+                json.loads(self.agent_settings["prompt_args"])
+                if isinstance(self.agent_settings["prompt_args"], str)
+                else self.agent_settings.get("prompt_args", {})  # Use .get for safety
+            )
+        # Apply agent settings as defaults
+        if "websearch" in self.agent_settings:
+            websearch = str(self.agent_settings["websearch"]).lower() == "true"
+        if "mode" in self.agent_settings:
+            mode = self.agent_settings["mode"]
+        if "prompt_name" in self.agent_settings:
+            prompt_name_to_use = self.agent_settings["prompt_name"]
+        if "prompt_category" in self.agent_settings:
+            prompt_category_to_use = self.agent_settings["prompt_category"]
+        # ... (initialize other local vars from self.agent_settings similarly) ...
+        if "context_results" in self.agent_settings:
+            context_results = int(self.agent_settings["context_results"])
+        if "injected_memories" in self.agent_settings:
+            context_results = int(self.agent_settings["injected_memories"])
+        if "conversation_results" in self.agent_settings:
+            conversation_results_local = int(
+                self.agent_settings["conversation_results"]
+            )
+        if "command_name" in self.agent_settings:
+            command_name = self.agent_settings["command_name"]
+        if "command_args" in self.agent_settings:
+            command_args_local = (
+                json.loads(self.agent_settings["command_args"])
+                if isinstance(self.agent_settings["command_args"], str)
+                else self.agent_settings.get("command_args", {})
+            )
+        if "command_variable" in self.agent_settings:
+            command_variable = self.agent_settings["command_variable"]
+        if "chain_name" in self.agent_settings:
+            chain_name_local = self.agent_settings["chain_name"]
+        if "chain_args" in self.agent_settings:
+            chain_args_local = (
+                json.loads(self.agent_settings["chain_args"])
+                if isinstance(self.agent_settings["chain_args"], str)
+                else self.agent_settings.get("chain_args", {})
+            )
+        if "tts" in self.agent_settings:
+            tts = str(self.agent_settings["tts"]).lower() == "true"
+        if "LANGUAGE" in self.agent_settings:
+            language = str(self.agent_settings["LANGUAGE"]).lower()
+        if "analyze_user_input" in self.agent_settings:
+            analyze_user_input = (
+                str(self.agent_settings["analyze_user_input"]).lower() == "true"
+            )
+        if "include_sources" in self.agent_settings:
+            include_sources = (
+                str(self.agent_settings["include_sources"]).lower() == "true"
+            )
+
         for message_index, message in enumerate(prompt.messages):
-            # Override defaults from message content if present
             if "mode" in message and message["mode"] in ["prompt", "command", "chain"]:
                 mode = message["mode"]
             if "log_output" in message:
@@ -1361,38 +1411,38 @@ class AGiXT:
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
             if "context_results" in message:
-                context_results = int(message["context_results"])  # Allow alias
+                context_results = int(message["context_results"])
             if "language" in message:
                 language = message["language"]
             if "conversation_results" in message:
-                conversation_results = int(message["conversation_results"])
+                conversation_results_local = int(message["conversation_results"])
             if "prompt_category" in message:
-                prompt_category = message["prompt_category"]
+                prompt_category_to_use = message["prompt_category"]
             if "prompt_name" in message:
-                prompt_name = message["prompt_name"]
-            if "prompt_args" in message:
-                prompt_args = (
+                prompt_name_to_use = message["prompt_name"]
+            if "prompt_args" in message:  # This will update current_prompt_args
+                current_prompt_args = (
                     json.loads(message["prompt_args"])
                     if isinstance(message["prompt_args"], str)
-                    else message["prompt_args"]
+                    else message.get("prompt_args", {})
                 )
             if "command_name" in message:
                 command_name = message["command_name"]
             if "command_args" in message:
-                command_args = (
+                command_args_local = (
                     json.loads(message["command_args"])
                     if isinstance(message["command_args"], str)
-                    else message["command_args"]
+                    else message.get("command_args", {})
                 )
             if "command_variable" in message:
                 command_variable = message["command_variable"]
             if "chain_name" in message:
-                chain_name = message["chain_name"]
+                chain_name_local = message["chain_name"]
             if "chain_args" in message:
-                chain_args = (
+                chain_args_local = (
                     json.loads(message["chain_args"])
                     if isinstance(message["chain_args"], str)
-                    else message["chain_args"]
+                    else message.get("chain_args", {})
                 )
             if "browse_links" in message:
                 browse_links = str(message["browse_links"]).lower() == "true"
@@ -1411,23 +1461,21 @@ class AGiXT:
                 download_headers = (
                     json.loads(message["download_headers"])
                     if isinstance(message["download_headers"], str)
-                    else message["download_headers"]
+                    else message.get("download_headers", {})
                 )
 
             if "content" not in message:
                 continue
 
-            # Process content (text, files, images, audio)
             if isinstance(message["content"], str):
                 if message["role"].lower() == "user":
-                    new_prompt += f"{message['content']}\n\n"
-                # Handle system messages if needed
+                    new_prompt_str += f"{message['content']}\n\n"
             elif isinstance(message["content"], list):
                 for item_index, item in enumerate(message["content"]):
                     item_type = item.get("type")
                     if item_type == "text":
                         if message["role"].lower() == "user":
-                            new_prompt += f"{item['text']}\n\n"
+                            new_prompt_str += f"{item['text']}\n\n"
                     elif item_type in [
                         "image_url",
                         "file_url",
@@ -1446,7 +1494,6 @@ class AGiXT:
                             continue
 
                         if item_type == "audio_url":
-                            # Log activity and yield chunk
                             activity_msg = f"[ACTIVITY] Processing submitted audio..."
                             msg_id = c.log_interaction(
                                 role=self.agent_name, message=activity_msg
@@ -1469,7 +1516,6 @@ class AGiXT:
                                     ],
                                 }
                             )
-                            # Transcribe audio
                             audio_file_info = await self.download_file_to_workspace(
                                 url=url
                             )
@@ -1479,24 +1525,28 @@ class AGiXT:
                                     audio_file_info["file_name"],
                                 )
                             )
-                            if full_path.startswith(
-                                self.conversation_workspace
-                            ):  # Security check
+                            if full_path.startswith(self.conversation_workspace):
                                 wav_file = os.path.join(
                                     self.conversation_workspace,
                                     f"{uuid.uuid4().hex}.wav",
                                 )
-                                AudioSegment.from_file(full_path).set_frame_rate(
-                                    16000
-                                ).export(wav_file, format="wav")
+                                audio_segment = await asyncio.to_thread(
+                                    AudioSegment.from_file, full_path
+                                )
+                                await asyncio.to_thread(
+                                    audio_segment.set_frame_rate(16000).export,
+                                    wav_file,
+                                    format="wav",
+                                )
                                 transcribed_audio = await self.audio_to_text(
                                     audio_path=wav_file
                                 )
-                                new_prompt += f"{transcribed_audio}\n\n"  # Add transcription to user input
-                                os.remove(full_path)  # Clean up original
-                                os.remove(wav_file)  # Clean up wav
+                                new_prompt_str += f"{transcribed_audio}\n\n"
+                                if os.path.exists(full_path):
+                                    os.remove(full_path)
+                                if os.path.exists(wav_file):
+                                    os.remove(wav_file)
                         else:
-                            # Download file/image
                             downloaded_file = await self.download_file_to_workspace(
                                 url=url,
                                 file_name=file_name,
@@ -1504,7 +1554,6 @@ class AGiXT:
                             )
                             if downloaded_file:
                                 files.append(downloaded_file)
-                                # Log activity and yield chunk
                                 activity_msg = f"[ACTIVITY] Processing uploaded file: `{downloaded_file['file_name']}`..."
                                 msg_id = c.log_interaction(
                                     role=self.agent_name, message=activity_msg
@@ -1528,7 +1577,6 @@ class AGiXT:
                                     }
                                 )
                             else:
-                                # Log error and yield chunk
                                 error_msg = f"[ACTIVITY][ERROR] Failed to download/process URL: {url}"
                                 msg_id = c.log_interaction(
                                     role=self.agent_name, message=error_msg
@@ -1551,24 +1599,19 @@ class AGiXT:
                                         ],
                                     }
                                 )
-                    elif item_type == "url":  # Allow simple "url" key for scraping
+                    elif item_type == "url":
                         urls.append(item.get("url"))
 
-        # Clean up prompt
-        new_prompt = new_prompt.strip()
+        new_prompt_str = new_prompt_str.strip()
 
-        # Log user input if required and yield chunk
-        if log_user_input and new_prompt:
-            user_message_to_log = new_prompt
+        if log_user_input and new_prompt_str:
+            user_message_to_log = new_prompt_str
             if files:
                 user_message_to_log += "\n" + "\n".join(
                     [f"Uploaded file: `{f['file_name']}`." for f in files]
                 )
             msg_id = c.log_interaction(role="USER", message=user_message_to_log)
-            # Yield user message? Typically streams only yield assistant messages.
-            # Let's skip yielding user input for now to align closer with OpenAI.
 
-        # Get Thinking ID (logs "[ACTIVITY] Thinking.")
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
         yield format_sse_chunk(
             {
@@ -1589,8 +1632,10 @@ class AGiXT:
             }
         )
 
-        # Process uploaded files
         file_contents = []
+        current_input_tokens = get_tokens(
+            new_prompt_str
+        )  # Initialize with text prompt tokens
         if files:
             for file in files:
                 activity_msg = f"[SUBACTIVITY][{thinking_id}] Learning from file: `{file['file_name']}`..."
@@ -1613,14 +1658,17 @@ class AGiXT:
                 content = await self.learn_from_file(
                     file_url=file["file_url"],
                     file_name=file["file_name"],
-                    user_input=new_prompt,
+                    user_input=new_prompt_str,
                     collection_id=self.conversation_id,
-                    thinking_id=thinking_id,  # Pass thinking_id for subactivity logging
+                    thinking_id=thinking_id,
                 )
                 file_contents.append(content)
+                if content:
+                    current_input_tokens += get_tokens(content)
 
-        # Scrape URLs
-        if urls:
+        if (
+            urls
+        ):  # Assuming learn_from_websites doesn't directly return content to add to tokens here
             activity_msg = (
                 f"[SUBACTIVITY][{thinking_id}] Browsing {len(urls)} URL(s)..."
             )
@@ -1642,7 +1690,6 @@ class AGiXT:
             )
             await self.learn_from_websites(urls=urls, summarize_content=False)
 
-        # Data Analysis (if enabled)
         data_analysis_results = ""
         if analyze_user_input:
             activity_msg = f"[SUBACTIVITY][{thinking_id}] Analyzing data..."
@@ -1662,11 +1709,57 @@ class AGiXT:
                     ],
                 }
             )
-            data_analysis_results = await self.analyze_data(user_input=new_prompt)
+            data_analysis_results = await self.analyze_data(user_input=new_prompt_str)
+            if data_analysis_results:
+                current_input_tokens += get_tokens(data_analysis_results)
 
-        # --- Execute based on mode ---
+        # Extract specific settings from current_prompt_args if they exist, otherwise keep local defaults
+        if "prompt_name" in current_prompt_args:
+            prompt_name_to_use = current_prompt_args.pop("prompt_name")
+        if "prompt_category" in current_prompt_args:
+            prompt_category_to_use = current_prompt_args.pop("prompt_category")
+        if "websearch" in current_prompt_args:
+            websearch = str(current_prompt_args.pop("websearch")).lower() == "true"
+        if "browse_links" in current_prompt_args:
+            browse_links = (
+                str(current_prompt_args.pop("browse_links")).lower() == "true"
+            )
+        if "tts" in current_prompt_args:
+            tts = str(current_prompt_args.pop("tts")).lower() == "true"
+        if "voice_response" in current_prompt_args:  # Alias for tts
+            tts = str(current_prompt_args.pop("voice_response")).lower() == "true"
+        if "context_results" in current_prompt_args:
+            context_results = int(current_prompt_args.pop("context_results"))
+        if "injected_memories" in current_prompt_args:  # Alias for context_results
+            context_results = int(current_prompt_args.pop("injected_memories"))
+        if "conversation_results" in current_prompt_args:
+            conversation_results_local = int(
+                current_prompt_args.pop("conversation_results")
+            )
+        if "analyze_user_input" in current_prompt_args:
+            analyze_user_input = (
+                str(current_prompt_args.pop("analyze_user_input")).lower() == "true"
+            )
+        if "include_sources" in current_prompt_args:
+            include_sources = (
+                str(current_prompt_args.pop("include_sources")).lower() == "true"
+            )
+
+        # Remove keys that are handled by `self.inference` or specific logic, not for `**prompt_args`
+        keys_to_remove_from_prompt_args = [
+            "user_input",
+            "shots",
+            "data_analysis",
+            "log_output",
+            "log_user_input",
+            "voice_response",
+        ]
+        for key_to_remove in keys_to_remove_from_prompt_args:
+            if key_to_remove in current_prompt_args:
+                del current_prompt_args[key_to_remove]
+
         response = ""
-        final_reason = "stop"  # Default finish reason
+        final_reason = "stop"
 
         try:
             if mode == "command" and command_name:
@@ -1687,17 +1780,16 @@ class AGiXT:
                         ],
                     }
                 )
-                # Inject user input into command args based on command_variable
-                command_args[command_variable] = new_prompt
+                command_args_local[command_variable] = new_prompt_str
                 response = await self.execute_command(
                     command_name=command_name,
-                    command_args=command_args,
-                    log_output=False,  # Don't log here, we'll yield/log below
-                    log_activities=False,  # Already logged the start
+                    command_args=command_args_local,  # Use the local copy
+                    log_output=False,
+                    log_activities=False,
                 )
 
-            elif mode == "chain" and chain_name:
-                activity_msg = f"[ACTIVITY] Running chain `{chain_name}`..."
+            elif mode == "chain" and chain_name_local:  # Use local copy
+                activity_msg = f"[ACTIVITY] Running chain `{chain_name_local}`..."
                 msg_id = c.log_interaction(role=self.agent_name, message=activity_msg)
                 yield format_sse_chunk(
                     {
@@ -1715,116 +1807,68 @@ class AGiXT:
                     }
                 )
                 response = await self.execute_chain(
-                    chain_name=chain_name,
-                    user_input=new_prompt,
-                    agent_override=self.agent_name,  # Use current agent unless overridden
-                    chain_args=chain_args,
-                    log_user_input=False,  # Don't log user input twice
+                    chain_name=chain_name_local,
+                    user_input=new_prompt_str,
+                    agent_override=self.agent_name,
+                    chain_args=chain_args_local,  # Use the local copy
+                    log_user_input=False,
                 )
 
             elif mode == "prompt":
-                # Standard inference - this is where the main LLM call happens
-                # Pass file content and data analysis results if they exist
-                prompt_args_copy = prompt_args.copy()
-                if file_contents:
-                    prompt_args_copy["uploaded_file_data"] = "\n".join(file_contents)
-                if data_analysis_results:
-                    prompt_args_copy["data_analysis"] = data_analysis_results
+                if current_input_tokens < self.agent.max_input_tokens:
+                    if file_contents:
+                        current_prompt_args["uploaded_file_data"] = "\n".join(
+                            file_contents
+                        )
+                if len(language) > 2:
+                    language = language[:2]
 
-                # The `self.inference` call itself needs to be adapted if we want
-                # internal thoughts/commands from *it* to stream.
-                # For now, let's assume `self.inference` returns the final text
-                # after its internal processing (which might call log_interaction).
-                # We need to capture those internal logs.
-
-                # --- Modified Inference Flow ---
-                # Use the `self.run` method as it handles the command execution loop
-                # and logging internally. We need to adapt it to yield.
-
-                # Let's try a simpler approach first: run the standard inference,
-                # then retrieve the *final* logged interactions since the "Thinking" message.
-
-                # Final Inference Call (Non-streaming internally for now)
                 response = await self.inference(
-                    user_input=new_prompt,
-                    prompt_name=prompt_name,
-                    prompt_category=prompt_category,
+                    user_input=new_prompt_str,
+                    prompt_name=prompt_name_to_use,
+                    prompt_category=prompt_category_to_use,
                     injected_memories=context_results,
-                    conversation_results=conversation_results,
+                    conversation_results=conversation_results_local,
                     shots=prompt.n if hasattr(prompt, "n") else 1,
                     websearch=websearch,
                     browse_links=browse_links,
-                    voice_response=tts,
-                    log_user_input=False,  # We logged above
-                    log_output=False,  # We will log below
+                    voice_response=tts,  # This will be handled post-response for streaming
+                    log_user_input=False,
+                    log_output=False,
                     data_analysis=data_analysis_results,
                     language=language,
                     include_sources=include_sources,
-                    **prompt_args_copy,
+                    **current_prompt_args,  # Pass the remaining processed prompt_args
                 )
+            # ... (rest of the mode handling, and the final response processing)
+            # ... (the rest of your method, including the final yield and [DONE] marker)
 
-                # Post-inference: Retrieve intermediate logs that might have occurred
-                # Get all messages since the thinking_id
-                all_history = c.get_conversation(limit=50, page=1)  # Get recent history
-                new_logs = []
-                found_thinking = False
-                for msg in reversed(all_history["interactions"]):
-                    if msg["id"] == thinking_id:
-                        found_thinking = True
-                        break
-                    if (
-                        not found_thinking
-                    ):  # Collect messages logged *after* thinking started
-                        new_logs.append(msg)
-
-                # Yield new logs that haven't been streamed yet
-                for log_msg in reversed(new_logs):  # Yield in chronological order
-                    if (
-                        log_msg["message"] != "[ACTIVITY] Thinking..."
-                    ):  # Don't re-yield thinking
-                        yield format_sse_chunk(
-                            {
-                                "id": completion_id,
-                                "model": model_name,
-                                "created": created_time,
-                                "object": "chat.completion.chunk",
-                                "choices": [
-                                    {
-                                        "index": 0,
-                                        "delta": {
-                                            "role": "assistant",
-                                            "content": log_msg["message"],
-                                        },
-                                        "finish_reason": None,
-                                    }
-                                ],
-                            }
-                        )
-
-            else:  # Default to prompt mode if mode is invalid
-                response = await self.inference(
-                    user_input=new_prompt,
-                    prompt_name="Think About It",  # Default prompt
-                    # ... other default/extracted inference args ...
-                    log_user_input=False,
-                    log_output=False,
-                )
-
-            # Clean up response (remove agent prefix if necessary)
+            # Clean up response
             if response.startswith(f"{self.agent_name}:"):
                 response = response[len(f"{self.agent_name}:") :].strip()
             if response.startswith(f"{self.agent_name} :"):
                 response = response[len(f"{self.agent_name} :") :].strip()
 
-            # Remove tags like <execute>, <output> if present in the final response
-            response = self.remove_tagged_content(response, "execute")
-            response = self.remove_tagged_content(response, "output")
-            response = self.remove_tagged_content(response, "thinking")
-            response = self.remove_tagged_content(response, "reflection")
+            # Tag removal for the final response content
+            cleaned_response = response
+            cleaned_response = self.remove_tagged_content(cleaned_response, "execute")
+            cleaned_response = self.remove_tagged_content(cleaned_response, "output")
+            cleaned_response = self.remove_tagged_content(cleaned_response, "thinking")
+            cleaned_response = self.remove_tagged_content(
+                cleaned_response, "reflection"
+            )
+            if "<answer>" in cleaned_response:
+                if "</answer>" not in cleaned_response:
+                    cleaned_response += "</answer>"
+                cleaned_response = cleaned_response.split("</answer>")[0].split(
+                    "<answer>"
+                )[-1]
 
             # --- Log final output and yield ---
-            if log_output and response:
-                msg_id = c.log_interaction(role=self.agent_name, message=response)
+            if log_output and cleaned_response:
+                msg_id = c.log_interaction(
+                    role=self.agent_name, message=cleaned_response
+                )  # Log the cleaned final response
                 # Yield the final response chunk
                 yield format_sse_chunk(
                     {
@@ -1835,12 +1879,57 @@ class AGiXT:
                         "choices": [
                             {
                                 "index": 0,
-                                "delta": {"role": "assistant", "content": response},
+                                "delta": {
+                                    "role": "assistant",
+                                    "content": cleaned_response,
+                                },
                                 "finish_reason": final_reason,
                             }
                         ],
                     }
                 )
+                if tts:  # If TTS was requested for the final response
+                    tts_activity_msg = f"[SUBACTIVITY][{thinking_id}] Generating audio for final response..."
+                    c.log_interaction(role=self.agent_name, message=tts_activity_msg)
+                    yield format_sse_chunk(
+                        {
+                            "id": completion_id,
+                            "model": model_name,
+                            "created": created_time,
+                            "object": "chat.completion.chunk",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "content": tts_activity_msg,
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    )
+                    tts_url = await self.text_to_speech(
+                        text=cleaned_response, log_output=True
+                    )  # This will log the <audio> tag
+                    yield format_sse_chunk(
+                        {  # Yield the audio tag as well if log_output was true in text_to_speech
+                            "id": completion_id,
+                            "model": model_name,
+                            "created": created_time,
+                            "object": "chat.completion.chunk",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "content": f'\n<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],  # Assuming wav, adjust if mp3
+                        }
+                    )
 
         except Exception as e:
             logging.error(f"Error during chat completion execution: {str(e)}")
@@ -1862,17 +1951,24 @@ class AGiXT:
                     ],
                 }
             )
-            final_reason = "error"  # Set finish reason to error
+            final_reason = "error"
 
-        # --- Finalization ---
-        # Mark thinking as complete if it wasn't an error
         if final_reason != "error":
             c.update_message_by_id(
                 message_id=thinking_id, new_message="[ACTIVITY] Completed activities."
             )
-            # Yield completion confirmation? Maybe not needed if final content chunk has finish_reason.
 
-        # Send the final [DONE] marker for SSE
+        yield format_sse_chunk(
+            {
+                "id": completion_id,
+                "model": model_name,
+                "created": created_time,
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": final_reason}
+                ],  # Send final chunk with only finish_reason
+            }
+        )
         yield format_sse_chunk("[DONE]")
 
     async def batch_inference(
