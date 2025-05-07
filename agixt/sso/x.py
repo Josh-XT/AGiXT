@@ -43,7 +43,7 @@ class XSSO:
 
     def get_new_token(self):
         response = requests.post(
-            "https://api.x.com/2/oauth2/token",
+            "https://api.twitter.com/2/oauth2/token",
             data={
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
@@ -57,7 +57,7 @@ class XSSO:
         return response.json()["access_token"]
 
     def get_user_info(self):
-        uri = "https://api.x.com/2/users/me?user.fields=name,username,profile_image_url,confirmed_email"
+        uri = "https://api.twitter.com/2/users/me?user.fields=name,username,profile_image_url,confirmed_email"
         response = requests.get(
             uri,
             headers={"Authorization": f"Bearer {self.access_token}"},
@@ -112,7 +112,7 @@ def sso(code, redirect_uri=None, code_verifier=None) -> XSSO:
     }
     logging.info(f"X SSO data: {data}")
     response = requests.post(
-        "https://api.x.com/2/oauth2/token",
+        "https://api.twitter.com/2/oauth2/token",
         data=data,
         auth=(client_id, client_secret),
     )
