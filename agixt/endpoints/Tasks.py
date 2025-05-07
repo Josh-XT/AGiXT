@@ -24,6 +24,8 @@ class TaskModel(BaseModel):
     days: int = 0
     hours: int = 0
     minutes: int = 0
+    priority: Optional[int] = 1
+    estimated_hours: Optional[str] = None
     conversation_id: str = None
 
 
@@ -33,8 +35,10 @@ class ReoccurringTaskModel(BaseModel):
     task_description: str
     start_date: str
     end_date: str
-    frequency: str = "daily"
-    conversation_id: str = None
+    frequency: Optional[str] = "daily"
+    priority: Optional[int] = 1
+    estimated_hours: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 class ModifyTaskModel(BaseModel):
@@ -143,7 +147,8 @@ async def new_task(
         category_name="Follow-ups",
         agent_name=task.agent_name,
         due_date=due_date,
-        priority=1,  # High priority for follow-ups
+        priority=task.priority if task.priority else 1,
+        estimated_hours=task.estimated_hours,
         memory_collection=task.conversation_id,  # This ensures context preservation
     )
     return ResponseMessage(message=f"Task created for agent '{task.agent_name}'.")
@@ -174,7 +179,8 @@ async def new_reoccurring_task(
         start_date=task.start_date,
         end_date=task.end_date,
         frequency=task.frequency,
-        priority=1,  # High priority for follow-ups
+        priority=task.priority if task.priority else 1,
+        estimated_hours=task.estimated_hours,
         memory_collection=task.conversation_id,  # This ensures context preservation
     )
     return ResponseMessage(
