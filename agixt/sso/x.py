@@ -82,6 +82,7 @@ class XSSO:
                 "last_name": last_name,
             }
         except Exception as e:
+            logging.info(f"{data}")
             logging.error(f"Error parsing X user info: {str(e)}")
             raise HTTPException(
                 status_code=400,
