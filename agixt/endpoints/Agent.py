@@ -1,4 +1,5 @@
 import json
+import uuid
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from XT import AGiXT
@@ -39,10 +40,11 @@ from Models import (
 import logging
 import base64
 import uuid
+import time
 import os
 from providers.default import DefaultProvider
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
-from MagicalAuth import MagicalAuth
+from MagicalAuth import MagicalAuth, get_user_id
 import traceback
 
 app = APIRouter()
@@ -390,105 +392,128 @@ async def prompt_agent(
     authorization: str = Header(None),
 ):
     try:
-        if "conversation_name" not in agent_prompt.prompt_args:
-            conversation_name = None
-            agent_prompt.prompt_args["log_user_input"] = False
-            agent_prompt.prompt_args["log_output"] = False
-        else:
-            conversation_name = agent_prompt.prompt_args["conversation_name"]
-            del agent_prompt.prompt_args["conversation_name"]
-        if "user_input" not in agent_prompt.prompt_args:
-            agent_prompt.prompt_args["user_input"] = ""
-        if conversation_name != "-":
+        conversation_name = agent_prompt.prompt_args.get("conversation_name")
+        if conversation_name and conversation_name != "-":
             try:
                 conversation_id = str(uuid.UUID(conversation_name))
-            except:
-                conversation_id = None
-            if conversation_id:
-                auth = MagicalAuth(token=authorization)
+                user_id_for_conv = get_user_id(user)
                 conversation_name = get_conversation_name_by_id(
-                    conversation_id=conversation_id, user_id=auth.user_id
+                    conversation_id=conversation_id, user_id=user_id_for_conv
                 )
-        agent = AGiXT(
+            except ValueError:
+                pass  # It's already a name
+            except Exception as e:
+                logging.error(
+                    f"Error resolving conversation name for /api/agent/prompt: {e}"
+                )
+
+        # Construct the ChatCompletions compatible messages list
+        messages_for_chat_completions = []
+        prompt_args_for_message = agent_prompt.prompt_args.copy()
+
+        # Remove specific keys that are part of the ChatCompletions model or handled separately
+        user_input_content = prompt_args_for_message.pop("user_input", "")
+        # Add other keys that are part of the ChatCompletions message structure if needed
+        # For example, if AgentPrompt has a 'role' field, use it. Defaulting to 'user'.
+        # Ensure all relevant prompt_args are passed to the message, not just user_input.
+
+        content_list = [{"type": "text", "text": user_input_content}]
+        if "file_urls" in prompt_args_for_message:
+            for file_url in prompt_args_for_message["file_urls"]:
+                content_list.append({"type": "file_url", "file_url": {"url": file_url}})
+            del prompt_args_for_message["file_urls"]  # Remove it after processing
+
+        messages_for_chat_completions.append(
+            {
+                "role": "user",  # Assuming 'user' role for this endpoint's primary input
+                "content": content_list,
+                **prompt_args_for_message,  # Add remaining prompt_args to the message
+            }
+        )
+
+        # Instantiate AGiXT
+        agixt_instance = AGiXT(
             user=user,
             agent_name=agent_name,
             api_key=authorization,
             conversation_name=conversation_name,
         )
-        agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_name
-        if "prompt_category" not in agent_prompt.prompt_args:
-            agent_prompt.prompt_args["prompt_category"] = "Default"
-        logging.info(f"Initialized with conversation ID: {agent.conversation_id}")
-        if "tts" in agent_prompt.prompt_args:
-            agent_prompt.prompt_args["voice_response"] = (
-                str(agent_prompt.prompt_args["tts"]).lower() == "true"
-            )
-            del agent_prompt.prompt_args["tts"]
-        if "context_results" in agent_prompt.prompt_args:
-            agent_prompt.prompt_args["injected_memories"] = int(
-                agent_prompt.prompt_args["context_results"]
-            )
-            del agent_prompt.prompt_args["context_results"]
-        if "conversation_results" not in agent_prompt.prompt_args:
-            agent_prompt.prompt_args["conversation_results"] = 10
-        prompt_args = agent_prompt.prompt_args.copy()
-        if "user_input" in prompt_args:
-            del prompt_args["user_input"]
-        messages = []
-        if "file_urls" in agent_prompt.prompt_args:
-            file_list = agent_prompt.prompt_args["file_urls"]
-            del agent_prompt.prompt_args["file_urls"]
-            messages.append(
-                {
-                    "role": "user",
-                    **prompt_args,
-                    "prompt_args": prompt_args,
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                agent_prompt.prompt_args["user_input"]
-                                if "user_input" in agent_prompt.prompt_args
-                                else ""
-                            ),
-                        },
-                    ],
-                }
-            )
-            for file_url in file_list:
-                messages[0]["content"] += [
-                    {
-                        "type": "file_url",
-                        "file_url": {"url": file_url},
-                    }
-                ]
-        else:
-            messages = [
-                {
-                    "role": "user",
-                    **prompt_args,
-                    "prompt_args": prompt_args,
-                    "content": (
-                        agent_prompt.prompt_args["user_input"]
-                        if "user_input" in agent_prompt.prompt_args
-                        else ""
-                    ),
-                }
-            ]
-        logging.info(f"Prompting agent '{agent_name}' with messages: {messages}")
-        response = await agent.chat_completions(
-            prompt=ChatCompletions(
-                model=agent_name,
-                user=conversation_name,
-                messages=messages,
-            )
+
+        # Create the ChatCompletions model instance
+        chat_completions_prompt = ChatCompletions(
+            model=agent_name,
+            user=conversation_name,  # This is the conversation_name for AGiXT
+            messages=messages_for_chat_completions,
+            stream=False,  # Explicitly set stream to False for this endpoint
+            # Add other ChatCompletions fields if agent_prompt.prompt_args contains them
+            # e.g., temperature=agent_prompt.prompt_args.get('temperature', 0.7)
         )
-        response = response["choices"][0]["message"]["content"]
-        return {"response": str(response)}
+
+        logging.info(
+            f"Prompting agent '{agent_name}' via /api/agent/prompt with: {chat_completions_prompt.messages}"
+        )
+
+        # Iterate through the async generator and collect the response
+        final_response_content = ""
+        # Default values for reconstructing a ChatCompletionResponse-like structure
+        completion_id = f"chatcmpl-{uuid.uuid4()}"
+        model_name_used = agent_name
+        created_time = int(time.time())
+        finish_reason = "stop"
+
+        async for chunk_str in agixt_instance.chat_completions(
+            prompt=chat_completions_prompt
+        ):
+            if chunk_str.startswith("event: message\ndata: "):
+                data_json = chunk_str.split("data: ", 1)[1].strip()
+                if data_json == "[DONE]":
+                    break
+                try:
+                    data = json.loads(data_json)
+                    choice = data.get("choices", [{}])[0]
+                    delta = choice.get("delta", {})
+                    content_part = delta.get("content", "")
+                    if content_part:
+                        final_response_content += content_part
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+                    # Capture id, model, created from the first relevant chunk
+                    if (
+                        not completion_id.startswith("chatcmpl-")
+                        or completion_id == f"chatcmpl-{uuid.uuid4()}"
+                    ):  # Heuristic to check if it's default
+                        completion_id = data.get("id", completion_id)
+                    model_name_used = data.get("model", model_name_used)
+                    created_time = data.get("created", created_time)
+
+                except json.JSONDecodeError:
+                    logging.error(
+                        f"Failed to decode stream chunk in /api/agent/prompt: {data_json}"
+                    )
+                except Exception as e:
+                    logging.error(
+                        f"Error processing stream chunk in /api/agent/prompt: {e}"
+                    )
+            elif chunk_str.strip() == "data: [DONE]":
+                break
+
+        if finish_reason == "error":
+            raise HTTPException(
+                status_code=500,
+                detail=final_response_content or "Agent processing failed.",
+            )
+
+        # Simulate token usage calculation if needed, or ideally get it from a more structured response
+        # For now, just returning the content as per AgentPromptResponse model
+        return AgentPromptResponse(response=str(final_response_content))
+
+    except HTTPException as http_exc:
+        logging.error(f"HTTP Exception in /api/agent/prompt: {http_exc.detail}")
+        raise http_exc
     except Exception as e:
-        logging.error(f"Error prompting agent: {e}")
+        logging.error(f"Error in /api/agent/prompt: {e}")
         logging.error(traceback.format_exc())
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get(
