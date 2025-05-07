@@ -55,13 +55,14 @@ async def chat_completion(
             conversation_name = get_conversation_name_by_id(
                 conversation_id=conversation_id, user_id=user_id
             )
-    if not prompt.model or prompt.model == "EVEN_REALITIES_GLASSES":
+    if not prompt.model:
         agents = get_agents(user=user)
         try:
             prompt.model = agents[0].name
         except Exception as e:
             print(f"Error getting agent name: {e}")
             prompt.model = "AGiXT"
+    prompt.model = prompt.model.replace('"', "")
     agixt = AGiXT(
         user=user,
         agent_name=prompt.model,
