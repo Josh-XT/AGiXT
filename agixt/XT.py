@@ -10,7 +10,6 @@ from typing import (
     List,
     Type,
     Union,
-    AsyncGenerator,
     get_args,
     get_origin,
     get_type_hints,
@@ -23,7 +22,6 @@ import docx2txt
 import zipfile
 import pandas as pd
 import subprocess
-import traceback
 import logging
 import asyncio
 import requests
@@ -34,12 +32,6 @@ import json
 import time
 import os
 import re
-
-
-def format_sse_chunk(data: dict, event: str = "message") -> str:
-    """Formats data as a Server-Sent Event chunk."""
-    json_data = json.dumps(data)
-    return f"event: {event}\ndata: {json_data}\n\n"
 
 
 class AGiXT:
@@ -1305,144 +1297,148 @@ class AGiXT:
             text = text[:start] + text[end + len(end_tag) :]
         return text
 
-    async def chat_completions(
-        self, prompt: ChatCompletions
-    ) -> AsyncGenerator[str, None]:
+    async def chat_completions(self, prompt: ChatCompletions):
         """
-        Asynchronous generator for chat completions, yielding intermediate logs and final response.
-        # ... (rest of the docstring)
+        Generate an OpenAI style chat completion response with a ChatCompletion prompt
+
+        Args:
+            prompt (ChatCompletions): Chat completions prompt
+
+        Returns:
+            dict: Chat completion response
         """
-        conversation_name = prompt.user if prompt.user else self.conversation_name
+        # conversation_name = prompt.user
         c = self.conversation
         conversation_id = self.conversation_id
-
-        completion_id = f"chatcmpl-{uuid.uuid4()}"
-        model_name = prompt.model if prompt.model else self.agent_name
-        created_time = int(time.time())
-
         urls = []
         files = []
-        new_prompt_str = (
-            ""  # Renamed from new_prompt to avoid conflict with the 'prompt' parameter
-        )
+        new_prompt = ""
         browse_links = True
         tts = False
         websearch = False
+        language = "en"
         log_output = True
         log_user_input = True
-        language = "en"
-        analyze_user_input = False
-        include_sources = False
-        mode = "prompt"
-        prompt_name_to_use = "Think About It"  # Renamed from prompt_name
-        prompt_category_to_use = "Default"  # Renamed from prompt_category
-        command_name = ""
-        command_args_local = {}  # Renamed from command_args
-        command_variable = "text"
-        chain_name_local = ""  # Renamed from chain_name
-        chain_args_local = {}  # Renamed from chain_args
-        context_results = 5
-        conversation_results_local = 10  # Renamed from conversation_results
-
-        # Initialize prompt_args at the beginning
-        current_prompt_args = {}  # This is the crucial addition/change
-        if "prompt_args" in self.agent_settings:
-            current_prompt_args = (
-                json.loads(self.agent_settings["prompt_args"])
-                if isinstance(self.agent_settings["prompt_args"], str)
-                else self.agent_settings.get("prompt_args", {})  # Use .get for safety
-            )
-        # Apply agent settings as defaults
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
+        else:
+            mode = "prompt"
         if "prompt_name" in self.agent_settings:
-            prompt_name_to_use = self.agent_settings["prompt_name"]
+            prompt_name = self.agent_settings["prompt_name"]
+        else:
+            prompt_name = "Think About It"
         if "prompt_category" in self.agent_settings:
-            prompt_category_to_use = self.agent_settings["prompt_category"]
-        # ... (initialize other local vars from self.agent_settings similarly) ...
+            prompt_category = self.agent_settings["prompt_category"]
+        else:
+            prompt_category = "Default"
+        if "LANGUAGE" in self.agent_settings:
+            language = str(self.agent_settings["LANGUAGE"]).lower()
+        prompt_args = {}
+        if "prompt_args" in self.agent_settings:
+            prompt_args = (
+                json.loads(self.agent_settings["prompt_args"])
+                if isinstance(self.agent_settings["prompt_args"], str)
+                else self.agent_settings["prompt_args"]
+            )
         if "context_results" in self.agent_settings:
             context_results = int(self.agent_settings["context_results"])
+        else:
+            context_results = 5
         if "injected_memories" in self.agent_settings:
             context_results = int(self.agent_settings["injected_memories"])
         if "conversation_results" in self.agent_settings:
-            conversation_results_local = int(
-                self.agent_settings["conversation_results"]
-            )
+            conversation_results = int(self.agent_settings["conversation_results"])
+        else:
+            conversation_results = 6
         if "command_name" in self.agent_settings:
             command_name = self.agent_settings["command_name"]
+        else:
+            command_name = ""
         if "command_args" in self.agent_settings:
-            command_args_local = (
-                json.loads(self.agent_settings["command_args"])
-                if isinstance(self.agent_settings["command_args"], str)
-                else self.agent_settings.get("command_args", {})
-            )
+            try:
+                command_args = (
+                    json.loads(self.agent_settings["command_args"])
+                    if isinstance(self.agent_settings["command_args"], str)
+                    else self.agent_settings["command_args"]
+                )
+            except Exception as e:
+                command_args = {}
+        else:
+            command_args = {}
         if "command_variable" in self.agent_settings:
             command_variable = self.agent_settings["command_variable"]
+        else:
+            command_variable = "text"
         if "chain_name" in self.agent_settings:
-            chain_name_local = self.agent_settings["chain_name"]
+            chain_name = self.agent_settings["chain_name"]
+        else:
+            chain_name = ""
         if "chain_args" in self.agent_settings:
-            chain_args_local = (
+            chain_args = (
                 json.loads(self.agent_settings["chain_args"])
                 if isinstance(self.agent_settings["chain_args"], str)
-                else self.agent_settings.get("chain_args", {})
+                else self.agent_settings["chain_args"]
             )
-        if "tts" in self.agent_settings:
-            tts = str(self.agent_settings["tts"]).lower() == "true"
-        if "LANGUAGE" in self.agent_settings:
-            language = str(self.agent_settings["LANGUAGE"]).lower()
+        else:
+            chain_args = {}
+        if "tts_provider" in self.agent_settings:
+            tts_provider = str(self.agent_settings["tts_provider"]).lower()
+            if tts_provider != "none" and tts_provider != "":
+                if "tts" in self.agent_settings:
+                    tts = str(self.agent_settings["tts"]).lower() == "true"
+        analyze_user_input = False
         if "analyze_user_input" in self.agent_settings:
             analyze_user_input = (
                 str(self.agent_settings["analyze_user_input"]).lower() == "true"
             )
+        include_sources = False
         if "include_sources" in self.agent_settings:
             include_sources = (
                 str(self.agent_settings["include_sources"]).lower() == "true"
             )
-
-        for message_index, message in enumerate(prompt.messages):
-            if "mode" in message and message["mode"] in ["prompt", "command", "chain"]:
-                mode = message["mode"]
+        for message in prompt.messages:
+            if "mode" in message:
+                if message["mode"] in ["prompt", "command", "chain"]:
+                    mode = message["mode"]
             if "log_output" in message:
                 log_output = str(message["log_output"]).lower() == "true"
             if "log_user_input" in message:
                 log_user_input = str(message["log_user_input"]).lower() == "true"
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
-            if "context_results" in message:
-                context_results = int(message["context_results"])
             if "language" in message:
                 language = message["language"]
             if "conversation_results" in message:
-                conversation_results_local = int(message["conversation_results"])
+                conversation_results = int(message["conversation_results"])
             if "prompt_category" in message:
-                prompt_category_to_use = message["prompt_category"]
+                prompt_category = message["prompt_category"]
             if "prompt_name" in message:
-                prompt_name_to_use = message["prompt_name"]
-            if "prompt_args" in message:  # This will update current_prompt_args
-                current_prompt_args = (
+                prompt_name = message["prompt_name"]
+            if "prompt_args" in message:
+                prompt_args = (
                     json.loads(message["prompt_args"])
                     if isinstance(message["prompt_args"], str)
-                    else message.get("prompt_args", {})
+                    else message["prompt_args"]
                 )
             if "command_name" in message:
                 command_name = message["command_name"]
             if "command_args" in message:
-                command_args_local = (
+                command_args = (
                     json.loads(message["command_args"])
                     if isinstance(message["command_args"], str)
-                    else message.get("command_args", {})
+                    else message["command_args"]
                 )
             if "command_variable" in message:
                 command_variable = message["command_variable"]
             if "chain_name" in message:
-                chain_name_local = message["chain_name"]
+                chain_name = message["chain_name"]
             if "chain_args" in message:
-                chain_args_local = (
+                chain_args = (
                     json.loads(message["chain_args"])
                     if isinstance(message["chain_args"], str)
-                    else message.get("chain_args", {})
+                    else message["chain_args"]
                 )
             if "browse_links" in message:
                 browse_links = str(message["browse_links"]).lower() == "true"
@@ -1461,515 +1457,544 @@ class AGiXT:
                 download_headers = (
                     json.loads(message["download_headers"])
                     if isinstance(message["download_headers"], str)
-                    else message.get("download_headers", {})
+                    else message["download_headers"]
                 )
-
             if "content" not in message:
                 continue
-
             if isinstance(message["content"], str):
-                if message["role"].lower() == "user":
-                    new_prompt_str += f"{message['content']}\n\n"
-            elif isinstance(message["content"], list):
-                for item_index, item in enumerate(message["content"]):
-                    item_type = item.get("type")
-                    if item_type == "text":
-                        if message["role"].lower() == "user":
-                            new_prompt_str += f"{item['text']}\n\n"
-                    elif item_type in [
-                        "image_url",
-                        "file_url",
-                        "application_url",
-                        "text_url",
-                        "audio_url",
-                    ]:
-                        url_key = (
-                            f"{item_type}_url"
-                            if item_type != "text_url"
-                            else "text_url"
-                        )
-                        url = item.get(url_key, {}).get("url")
-                        file_name = item.get("file_name", "")
-                        if not url:
-                            continue
+                role = message["role"] if "role" in message else "User"
+                if role.lower() == "system":
+                    if "/" in message["content"]:
+                        new_prompt += f"{message['content']}\n\n"
+                if role.lower() == "user":
+                    new_prompt += f"{message['content']}\n\n"
+            if isinstance(message["content"], list):
+                for msg in message["content"]:
+                    if "text" in msg:
+                        role = message["role"] if "role" in message else "User"
+                        if role.lower() == "user":
+                            new_prompt += f"{msg['text']}\n\n"
+                    # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
+                    if isinstance(msg, dict):
+                        for key, value in msg.items():
+                            if "_url" in key:
+                                url = str(value["url"] if "url" in value else value)
+                                if url.startswith("https://github.com/"):
+                                    do_not_pull_repo = [
+                                        "/pull/",
+                                        "/issues",
+                                        "/discussions",
+                                        "/actions/",
+                                        "/projects",
+                                        "/security",
+                                        "/releases",
+                                        "/commits",
+                                        "/branches",
+                                        "/tags",
+                                        "/stargazers",
+                                        "/watchers",
+                                        "/network",
+                                        "/settings",
+                                        "/compare",
+                                        "/archive",
+                                    ]
+                                    if any(x in url for x in do_not_pull_repo):
+                                        # If the URL is not a repository, don't pull it
+                                        urls.append(url)
+                                    else:
+                                        # Download the zip for the repo
+                                        github_user = (
+                                            self.agent_settings["GITHUB_USERNAME"]
+                                            if "GITHUB_USERNAME" in self.agent_settings
+                                            else None
+                                        )
+                                        github_token = (
+                                            self.agent_settings["GITHUB_TOKEN"]
+                                            if "GITHUB_TOKEN" in self.agent_settings
+                                            else None
+                                        )
+                                        github_repo = url.replace(
+                                            "https://github.com/", ""
+                                        )
+                                        github_repo = github_repo.replace(
+                                            "https://www.github.com/", ""
+                                        )
+                                        if not github_branch:
+                                            github_branch = "main"
+                                        user = github_repo.split("/")[0]
+                                        repo = github_repo.split("/")[1]
+                                        if " " in repo:
+                                            repo = repo.split(" ")[0]
+                                        if "\n" in repo:
+                                            repo = repo.split("\n")[0]
+                                        # Remove any symbols that would not be in the user, repo, or branch
+                                        for symbol in [
+                                            " ",
+                                            "\n",
+                                            "\t",
+                                            "\r",
+                                            "\\",
+                                            "/",
+                                            ":",
+                                            "*",
+                                            "?",
+                                            '"',
+                                            "<",
+                                            ">",
+                                        ]:
+                                            repo = repo.replace(symbol, "")
+                                            user = user.replace(symbol, "")
+                                            github_branch = github_branch.replace(
+                                                symbol, ""
+                                            )
+                                        repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
+                                        try:
+                                            if github_user and github_token:
+                                                response = requests.get(
+                                                    repo_url,
+                                                    auth=(github_user, github_token),
+                                                )
+                                            else:
+                                                response = requests.get(repo_url)
+                                        except:
+                                            github_branch = "master"
+                                            repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
+                                            try:
+                                                if github_user and github_token:
+                                                    response = requests.get(
+                                                        repo_url,
+                                                        auth=(
+                                                            github_user,
+                                                            github_token,
+                                                        ),
+                                                    )
+                                                else:
+                                                    response = requests.get(repo_url)
+                                            except:
+                                                pass
+                                        if response.status_code == 200:
+                                            file_name = (
+                                                f"{user}_{repo}_{github_branch}.zip"
+                                            )
+                                            file_data = response.content
+                                            file_path = os.path.normpath(
+                                                os.path.join(
+                                                    self.agent_workspace,
+                                                    conversation_id,
+                                                    file_name,
+                                                )
+                                            )
+                                            if file_path.startswith(
+                                                self.agent_workspace
+                                            ):
+                                                with open(file_path, "wb") as f:
+                                                    f.write(file_data)
+                                                files.append(
+                                                    {
+                                                        "file_name": file_name,
+                                                        "file_url": f"{self.outputs}/{conversation_id}/{file_name}",
+                                                    }
+                                                )
+                                        else:
+                                            urls.append(url)
+                                if "file_name" in msg:
+                                    file_name = str(msg["file_name"])
+                                else:
+                                    file_name = ""
+                                if key != "audio_url":
+                                    downloaded_file = (
+                                        await self.download_file_to_workspace(
+                                            url=url,
+                                            file_name=file_name,
+                                            download_headers=download_headers,
+                                        )
+                                    )
+                                    if downloaded_file != {}:
+                                        files.append(downloaded_file)
+                                    else:
+                                        c.log_interaction(
+                                            role=self.agent_name,
+                                            message=f"[SUBACTIVITY][{thinking_id}][ERROR] I was unable to read from the URL specified.",
+                                        )
+                                else:
+                                    # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
+                                    audio_file_info = (
+                                        await self.download_file_to_workspace(url=url)
+                                    )
+                                    full_path = os.path.normpath(
+                                        os.path.join(
+                                            self.agent_workspace,
+                                            conversation_id,
+                                            audio_file_info["file_name"],
+                                        )
+                                    )
+                                    if not full_path.startswith(self.agent_workspace):
+                                        raise Exception("Path given not allowed")
+                                    audio_file_path = os.path.join(
+                                        self.agent_workspace,
+                                        conversation_id,
+                                        audio_file_info["file_name"],
+                                    )
+                                    if os.path.normpath(audio_file_path).startswith(
+                                        self.agent_workspace
+                                    ):
+                                        wav_file = os.path.join(
+                                            self.agent_workspace,
+                                            conversation_id,
+                                            f"{uuid.uuid4().hex}.wav",
+                                        )
+                                        AudioSegment.from_file(
+                                            audio_file_path
+                                        ).set_frame_rate(16000).export(
+                                            wav_file, format="wav"
+                                        )
+                                        transcribed_audio = await self.audio_to_text(
+                                            audio_path=wav_file,
+                                        )
+                                        new_prompt += transcribed_audio
+        # Add user input to conversation
+        for file in files:
+            new_prompt += f"\nUploaded file: `{file['file_name']}`."
+        if "log_output" in prompt_args:
+            log_output = str(prompt_args["log_output"]).lower() == "true"
+            del prompt_args["log_output"]
+        if "log_user_input" in prompt_args:
+            log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
+            del prompt_args["log_user_input"]
+        if log_user_input:
+            c.log_interaction(role="USER", message=new_prompt)
+        if log_output:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        file_contents = []
+        current_input_tokens = get_tokens(new_prompt)
+        for file in files:
+            content = await self.learn_from_file(
+                file_url=file["file_url"],
+                file_name=file["file_name"],
+                user_input=new_prompt,
+                collection_id=self.conversation_id,
+                thinking_id=thinking_id,
+            )
+            file_contents.append(content)
+        if file_contents:
+            file_content = "\n".join(file_contents)
+            file_tokens = get_tokens(file_content)
+            current_input_tokens = file_tokens + current_input_tokens
+        else:
+            file_content = ""
+            current_input_tokens = self.input_tokens
+        if "user_input" in prompt_args:
+            del prompt_args["user_input"]
+        if "prompt_name" in prompt_args:
+            prompt_name = prompt_args["prompt_name"]
+            del prompt_args["prompt_name"]
+        if "prompt_category" in prompt_args:
+            prompt_category = prompt_args["prompt_category"]
+            del prompt_args["prompt_category"]
+        if "websearch" in prompt_args:
+            websearch = prompt_args["websearch"]
+            del prompt_args["websearch"]
+        if "browse_links" in prompt_args:
+            browse_links = prompt_args["browse_links"]
+            del prompt_args["browse_links"]
+        if "tts" in prompt_args:
+            tts = prompt_args["voice_response"]
+            del prompt_args["tts"]
+        if "context_results" in prompt_args:
+            context_results = prompt_args["context_results"]
+            del prompt_args["context_results"]
+        if "conversation_results" in prompt_args:
+            conversation_results = prompt_args["conversation_results"]
+            del prompt_args["conversation_results"]
+        if "analyze_user_input" in prompt_args:
+            analyze_user_input = prompt_args["analyze_user_input"]
+            del prompt_args["analyze_user_input"]
+        if "voice_response" in prompt_args:
+            tts = prompt_args["voice_response"]
+            del prompt_args["voice_response"]
+        if "injected_memories" in prompt_args:
+            context_results = prompt_args["injected_memories"]
+            del prompt_args["injected_memories"]
+        if "shots" in prompt_args:
+            del prompt_args["shots"]
+        if "data_analysis" in prompt_args:
+            del prompt_args["data_analysis"]
 
-                        if item_type == "audio_url":
-                            activity_msg = f"[ACTIVITY] Processing submitted audio..."
-                            msg_id = c.log_interaction(
-                                role=self.agent_name, message=activity_msg
+        await self.learn_from_websites(
+            urls=urls,
+            summarize_content=False,
+        )
+        data_analysis = ""
+        if analyze_user_input:
+            data_analysis = await self.analyze_data(user_input=new_prompt)
+        if mode == "command" and command_name and command_variable:
+            try:
+                command_args = (
+                    json.loads(self.agent_settings["command_args"])
+                    if isinstance(self.agent_settings["command_args"], str)
+                    else self.agent_settings["command_args"]
+                )
+            except Exception as e:
+                command_args = {}
+            command_args[self.agent_settings["command_variable"]] = new_prompt
+            response = await self.execute_command(
+                command_name=self.agent_settings["command_name"],
+                command_args=command_args,
+                voice_response=tts,
+            )
+        elif mode == "chain" and chain_name:
+            chain_name = self.agent_settings["chain_name"]
+            try:
+                chain_args = (
+                    json.loads(self.agent_settings["chain_args"])
+                    if isinstance(self.agent_settings["chain_args"], str)
+                    else self.agent_settings["chain_args"]
+                )
+            except Exception as e:
+                chain_args = {}
+            response = await self.execute_chain(
+                chain_name=chain_name,
+                user_input=new_prompt,
+                agent_override=self.agent_name,
+                chain_args=chain_args,
+                log_user_input=False,
+                voice_response=tts,
+            )
+        elif mode == "prompt":
+            if current_input_tokens < self.agent.max_input_tokens:
+                if file_content:
+                    prompt_args["uploaded_file_data"] = file_content
+            if len(language) > 2:
+                language = language[:2]
+            response = await self.inference(
+                user_input=new_prompt,
+                prompt_name=prompt_name,
+                prompt_category=prompt_category,
+                injected_memories=context_results,
+                conversation_results=conversation_results,
+                shots=prompt.n,
+                websearch=websearch,
+                browse_links=browse_links,
+                voice_response=tts,
+                log_user_input=False,
+                log_output=False,
+                data_analysis=data_analysis,
+                language=language,
+                include_sources=include_sources,
+                **prompt_args,
+            )
+            if response.startswith(f"{self.agent_name}:"):
+                response = response[len(f"{self.agent_name}:") :]
+            if response.startswith(f"{self.agent_name} :"):
+                response = response[len(f"{self.agent_name} :") :]
+            thoughts_and_reflections = ""
+            if "<answer>" in response:
+                if "</answer>" not in response:
+                    response += "</answer>"
+                try:
+                    thoughts_and_reflections = response.split("<answer>")[0]
+                except:
+                    thoughts_and_reflections = ""
+                try:
+                    after_thoughts = response.split("</answer>")[1]
+                    if len(after_thoughts) > 10:
+                        thoughts_and_reflections += after_thoughts
+                except:
+                    pass
+                answer = response.split("<answer>")[-1]
+                answer = answer.split("</answer>")[0]
+                response = answer
+            if log_output:
+                if thoughts_and_reflections:
+                    # Before logging the response, lets get all activities matching the `thinking_id` mermaid diagram
+                    enable_mermaid = False
+                    if "enable_mermaid" in self.agent_settings:
+                        enable_mermaid = (
+                            str(self.agent_settings["enable_mermaid"]).lower() == "true"
+                        )
+                    if enable_mermaid:
+                        activities = c.get_subactivities(thinking_id)
+                        if activities:
+                            activity_prompt = f"{new_prompt}\n\n{activities}\n\nReview the detailed activities list and create a mermaid diagram that describes the paths taken during the detailed activities that were performed based on the user input. This mermaid diagram should start with ```mermaid\nContent of the diagram\n```\ninside of the <answer> block as the final response. The activities describe the thoughts in steps that ultimately led to the response from the assistant to the user based on the user input. Be as detailed as possible with the diagram. Ensure each item in the diagram is in quotes."
+                            mermaid_diagram = await self.inference(
+                                user_input=activity_prompt,
+                                prompt_category="Default",
+                                prompt_name="Think About It",
+                                log_output=False,
+                                log_user_input=False,
+                                voice_response=False,
+                                analyze_user_input=False,
+                                browse_links=False,
+                                websearch=False,
+                                disable_commands=True,
+                                conversation_name=self.conversation_name,
                             )
-                            yield format_sse_chunk(
-                                {
-                                    "id": completion_id,
-                                    "model": model_name,
-                                    "created": created_time,
-                                    "object": "chat.completion.chunk",
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "delta": {
-                                                "role": "assistant",
-                                                "content": activity_msg,
-                                            },
-                                            "finish_reason": None,
-                                        }
-                                    ],
-                                }
+                            if mermaid_diagram:
+                                mermaid_diagram = mermaid_diagram.split("<answer>")[
+                                    -1
+                                ].split("</answer>")[0]
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[SUBACTIVITY][{thinking_id}][DIAGRAM] Generated diagram describing thoughts.\n{mermaid_diagram}",
+                                )
+                    c.update_message_by_id(
+                        message_id=thinking_id,
+                        new_message=f"[ACTIVITY] Completed activities.",
+                    )
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=response,
+                )
+                if self.conversation_name == "-":
+                    # Rename the conversation
+                    new_name = datetime.now().strftime(
+                        "Conversation Created %Y-%m-%d %I:%M %p"
+                    )
+                    conversation_list = c.get_conversations()
+                    new_convo = await self.inference(
+                        user_input=f"Rename conversation",
+                        prompt_name="Name Conversation",
+                        conversation_list="\n".join(conversation_list),
+                        conversation_results=10,
+                        websearch=False,
+                        browse_links=False,
+                        voice_response=False,
+                        log_user_input=False,
+                        log_output=False,
+                        conversation_name=self.conversation_name,
+                    )
+
+                    logging.info(f"New conversation name: {new_convo}")
+
+                    # Extract JSON from the response
+                    try:
+                        # Check if the response contains a code block with JSON
+                        if "```json" in new_convo:
+                            json_text = (
+                                new_convo.split("```json")[1].split("```")[0].strip()
                             )
-                            audio_file_info = await self.download_file_to_workspace(
-                                url=url
+                        elif "```" in new_convo:
+                            # Check for plain code block that might contain JSON
+                            json_text = (
+                                new_convo.split("```")[1].split("```")[0].strip()
                             )
-                            full_path = os.path.normpath(
-                                os.path.join(
-                                    self.conversation_workspace,
-                                    audio_file_info["file_name"],
-                                )
-                            )
-                            if full_path.startswith(self.conversation_workspace):
-                                wav_file = os.path.join(
-                                    self.conversation_workspace,
-                                    f"{uuid.uuid4().hex}.wav",
-                                )
-                                audio_segment = await asyncio.to_thread(
-                                    AudioSegment.from_file, full_path
-                                )
-                                await asyncio.to_thread(
-                                    audio_segment.set_frame_rate(16000).export,
-                                    wav_file,
-                                    format="wav",
-                                )
-                                transcribed_audio = await self.audio_to_text(
-                                    audio_path=wav_file
-                                )
-                                new_prompt_str += f"{transcribed_audio}\n\n"
-                                if os.path.exists(full_path):
-                                    os.remove(full_path)
-                                if os.path.exists(wav_file):
-                                    os.remove(wav_file)
                         else:
-                            downloaded_file = await self.download_file_to_workspace(
-                                url=url,
-                                file_name=file_name,
-                                download_headers=download_headers,
+                            # If no code block, try to extract anything that looks like JSON
+                            json_start = new_convo.find("{")
+                            json_end = new_convo.rfind("}")
+                            if (
+                                json_start != -1
+                                and json_end != -1
+                                and json_end > json_start
+                            ):
+                                json_text = new_convo[json_start : json_end + 1]
+                            else:
+                                raise ValueError("No valid JSON found in response")
+
+                        # Parse the JSON
+                        parsed_json = json.loads(json_text)
+                        new_name = parsed_json.get(
+                            "suggested_conversation_name", new_name
+                        )
+                        if new_name in conversation_list:
+                            # Do not use the same name
+                            new_convo = await self.inference(
+                                user_input=f"**Do not use {new_name}!**",
+                                prompt_name="Name Conversation",
+                                conversation_list="\n".join(conversation_list),
+                                conversation_results=10,
+                                websearch=False,
+                                browse_links=False,
+                                voice_response=False,
+                                log_user_input=False,
+                                log_output=False,
                             )
-                            if downloaded_file:
-                                files.append(downloaded_file)
-                                activity_msg = f"[ACTIVITY] Processing uploaded file: `{downloaded_file['file_name']}`..."
-                                msg_id = c.log_interaction(
-                                    role=self.agent_name, message=activity_msg
+
+                            logging.info(f"New conversation name #2: {new_convo}")
+
+                            # Extract JSON again with same robust method
+                            if "```json" in new_convo:
+                                json_text = (
+                                    new_convo.split("```json")[1]
+                                    .split("```")[0]
+                                    .strip()
                                 )
-                                yield format_sse_chunk(
-                                    {
-                                        "id": completion_id,
-                                        "model": model_name,
-                                        "created": created_time,
-                                        "object": "chat.completion.chunk",
-                                        "choices": [
-                                            {
-                                                "index": 0,
-                                                "delta": {
-                                                    "role": "assistant",
-                                                    "content": activity_msg,
-                                                },
-                                                "finish_reason": None,
-                                            }
-                                        ],
-                                    }
+                            elif "```" in new_convo:
+                                json_text = (
+                                    new_convo.split("```")[1].split("```")[0].strip()
                                 )
                             else:
-                                error_msg = f"[ACTIVITY][ERROR] Failed to download/process URL: {url}"
-                                msg_id = c.log_interaction(
-                                    role=self.agent_name, message=error_msg
+                                json_start = new_convo.find("{")
+                                json_end = new_convo.rfind("}")
+                                if (
+                                    json_start != -1
+                                    and json_end != -1
+                                    and json_end > json_start
+                                ):
+                                    json_text = new_convo[json_start : json_end + 1]
+                                else:
+                                    raise ValueError(
+                                        "No valid JSON found in second response"
+                                    )
+
+                            parsed_json = json.loads(json_text)
+                            new_name = parsed_json.get(
+                                "suggested_conversation_name", new_name
+                            )
+
+                            if new_name in conversation_list:
+                                new_name = datetime.now().strftime(
+                                    "Conversation Created %Y-%m-%d %I:%M %p"
                                 )
-                                yield format_sse_chunk(
-                                    {
-                                        "id": completion_id,
-                                        "model": model_name,
-                                        "created": created_time,
-                                        "object": "chat.completion.chunk",
-                                        "choices": [
-                                            {
-                                                "index": 0,
-                                                "delta": {
-                                                    "role": "assistant",
-                                                    "content": error_msg,
-                                                },
-                                                "finish_reason": None,
-                                            }
-                                        ],
-                                    }
-                                )
-                    elif item_type == "url":
-                        urls.append(item.get("url"))
+                    except Exception as e:
+                        import traceback
 
-        new_prompt_str = new_prompt_str.strip()
-
-        if log_user_input and new_prompt_str:
-            user_message_to_log = new_prompt_str
-            if files:
-                user_message_to_log += "\n" + "\n".join(
-                    [f"Uploaded file: `{f['file_name']}`." for f in files]
-                )
-            msg_id = c.log_interaction(role="USER", message=user_message_to_log)
-
-        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-        yield format_sse_chunk(
-            {
-                "id": completion_id,
-                "model": model_name,
-                "created": created_time,
-                "object": "chat.completion.chunk",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {
-                            "role": "assistant",
-                            "content": "[ACTIVITY] Thinking...",
-                        },
-                        "finish_reason": None,
-                    }
-                ],
-            }
-        )
-
-        file_contents = []
-        current_input_tokens = get_tokens(
-            new_prompt_str
-        )  # Initialize with text prompt tokens
-        if files:
-            for file in files:
-                activity_msg = f"[SUBACTIVITY][{thinking_id}] Learning from file: `{file['file_name']}`..."
-                msg_id = c.log_interaction(role=self.agent_name, message=activity_msg)
-                yield format_sse_chunk(
-                    {
-                        "id": completion_id,
-                        "model": model_name,
-                        "created": created_time,
-                        "object": "chat.completion.chunk",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"role": "assistant", "content": activity_msg},
-                                "finish_reason": None,
-                            }
-                        ],
-                    }
-                )
-                content = await self.learn_from_file(
-                    file_url=file["file_url"],
-                    file_name=file["file_name"],
-                    user_input=new_prompt_str,
-                    collection_id=self.conversation_id,
-                    thinking_id=thinking_id,
-                )
-                file_contents.append(content)
-                if content:
-                    current_input_tokens += get_tokens(content)
-
-        if (
-            urls
-        ):  # Assuming learn_from_websites doesn't directly return content to add to tokens here
-            activity_msg = (
-                f"[SUBACTIVITY][{thinking_id}] Browsing {len(urls)} URL(s)..."
-            )
-            msg_id = c.log_interaction(role=self.agent_name, message=activity_msg)
-            yield format_sse_chunk(
-                {
-                    "id": completion_id,
-                    "model": model_name,
-                    "created": created_time,
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": activity_msg},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-            )
-            await self.learn_from_websites(urls=urls, summarize_content=False)
-
-        data_analysis_results = ""
-        if analyze_user_input:
-            activity_msg = f"[SUBACTIVITY][{thinking_id}] Analyzing data..."
-            msg_id = c.log_interaction(role=self.agent_name, message=activity_msg)
-            yield format_sse_chunk(
-                {
-                    "id": completion_id,
-                    "model": model_name,
-                    "created": created_time,
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": activity_msg},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-            )
-            data_analysis_results = await self.analyze_data(user_input=new_prompt_str)
-            if data_analysis_results:
-                current_input_tokens += get_tokens(data_analysis_results)
-
-        # Extract specific settings from current_prompt_args if they exist, otherwise keep local defaults
-        if "prompt_name" in current_prompt_args:
-            prompt_name_to_use = current_prompt_args.pop("prompt_name")
-        if "prompt_category" in current_prompt_args:
-            prompt_category_to_use = current_prompt_args.pop("prompt_category")
-        if "websearch" in current_prompt_args:
-            websearch = str(current_prompt_args.pop("websearch")).lower() == "true"
-        if "browse_links" in current_prompt_args:
-            browse_links = (
-                str(current_prompt_args.pop("browse_links")).lower() == "true"
-            )
-        if "tts" in current_prompt_args:
-            tts = str(current_prompt_args.pop("tts")).lower() == "true"
-        if "voice_response" in current_prompt_args:  # Alias for tts
-            tts = str(current_prompt_args.pop("voice_response")).lower() == "true"
-        if "context_results" in current_prompt_args:
-            context_results = int(current_prompt_args.pop("context_results"))
-        if "injected_memories" in current_prompt_args:  # Alias for context_results
-            context_results = int(current_prompt_args.pop("injected_memories"))
-        if "conversation_results" in current_prompt_args:
-            conversation_results_local = int(
-                current_prompt_args.pop("conversation_results")
-            )
-        if "analyze_user_input" in current_prompt_args:
-            analyze_user_input = (
-                str(current_prompt_args.pop("analyze_user_input")).lower() == "true"
-            )
-        if "include_sources" in current_prompt_args:
-            include_sources = (
-                str(current_prompt_args.pop("include_sources")).lower() == "true"
-            )
-
-        # Remove keys that are handled by `self.inference` or specific logic, not for `**prompt_args`
-        keys_to_remove_from_prompt_args = [
-            "user_input",
-            "shots",
-            "data_analysis",
-            "log_output",
-            "log_user_input",
-            "voice_response",
-        ]
-        for key_to_remove in keys_to_remove_from_prompt_args:
-            if key_to_remove in current_prompt_args:
-                del current_prompt_args[key_to_remove]
-
-        response = ""
-        final_reason = "stop"
-
+                        traceback.print_exc()
+                        logging.error(f"Error renaming conversation: {e}")
+                        if new_convo:
+                            new_name = str(new_convo)
+                    c.set_conversation_summary(summary=new_name)
+                    self.conversation_name = c.rename_conversation(new_name=new_name)
+        if isinstance(response, dict):
+            response = json.dumps(response, indent=2)
+        if not isinstance(response, str):
+            response = str(response)
         try:
-            if mode == "command" and command_name:
-                activity_msg = f"[ACTIVITY] Executing command `{command_name}`..."
-                msg_id = c.log_interaction(role=self.agent_name, message=activity_msg)
-                yield format_sse_chunk(
-                    {
-                        "id": completion_id,
-                        "model": model_name,
-                        "created": created_time,
-                        "object": "chat.completion.chunk",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"role": "assistant", "content": activity_msg},
-                                "finish_reason": None,
-                            }
-                        ],
-                    }
-                )
-                command_args_local[command_variable] = new_prompt_str
-                response = await self.execute_command(
-                    command_name=command_name,
-                    command_args=command_args_local,  # Use the local copy
-                    log_output=False,
-                    log_activities=False,
-                )
-
-            elif mode == "chain" and chain_name_local:  # Use local copy
-                activity_msg = f"[ACTIVITY] Running chain `{chain_name_local}`..."
-                msg_id = c.log_interaction(role=self.agent_name, message=activity_msg)
-                yield format_sse_chunk(
-                    {
-                        "id": completion_id,
-                        "model": model_name,
-                        "created": created_time,
-                        "object": "chat.completion.chunk",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"role": "assistant", "content": activity_msg},
-                                "finish_reason": None,
-                            }
-                        ],
-                    }
-                )
-                response = await self.execute_chain(
-                    chain_name=chain_name_local,
-                    user_input=new_prompt_str,
-                    agent_override=self.agent_name,
-                    chain_args=chain_args_local,  # Use the local copy
-                    log_user_input=False,
-                )
-
-            elif mode == "prompt":
-                if current_input_tokens < self.agent.max_input_tokens:
-                    if file_contents:
-                        current_prompt_args["uploaded_file_data"] = "\n".join(
-                            file_contents
-                        )
-                if len(language) > 2:
-                    language = language[:2]
-
-                response = await self.inference(
-                    user_input=new_prompt_str,
-                    prompt_name=prompt_name_to_use,
-                    prompt_category=prompt_category_to_use,
-                    injected_memories=context_results,
-                    conversation_results=conversation_results_local,
-                    shots=prompt.n if hasattr(prompt, "n") else 1,
-                    websearch=websearch,
-                    browse_links=browse_links,
-                    voice_response=tts,  # This will be handled post-response for streaming
-                    log_user_input=False,
-                    log_output=False,
-                    data_analysis=data_analysis_results,
-                    language=language,
-                    include_sources=include_sources,
-                    **current_prompt_args,  # Pass the remaining processed prompt_args
-                )
-            # ... (rest of the mode handling, and the final response processing)
-            # ... (the rest of your method, including the final yield and [DONE] marker)
-
-            # Clean up response
-            if response.startswith(f"{self.agent_name}:"):
-                response = response[len(f"{self.agent_name}:") :].strip()
-            if response.startswith(f"{self.agent_name} :"):
-                response = response[len(f"{self.agent_name} :") :].strip()
-
-            # Tag removal for the final response content
-            cleaned_response = response
-            cleaned_response = self.remove_tagged_content(cleaned_response, "execute")
-            cleaned_response = self.remove_tagged_content(cleaned_response, "output")
-            cleaned_response = self.remove_tagged_content(cleaned_response, "thinking")
-            cleaned_response = self.remove_tagged_content(
-                cleaned_response, "reflection"
-            )
-            if "<answer>" in cleaned_response:
-                if "</answer>" not in cleaned_response:
-                    cleaned_response += "</answer>"
-                cleaned_response = cleaned_response.split("</answer>")[0].split(
-                    "<answer>"
-                )[-1]
-
-            # --- Log final output and yield ---
-            if log_output and cleaned_response:
-                msg_id = c.log_interaction(
-                    role=self.agent_name, message=cleaned_response
-                )  # Log the cleaned final response
-                # Yield the final response chunk
-                yield format_sse_chunk(
-                    {
-                        "id": completion_id,
-                        "model": model_name,
-                        "created": created_time,
-                        "object": "chat.completion.chunk",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {
-                                    "role": "assistant",
-                                    "content": cleaned_response,
-                                },
-                                "finish_reason": final_reason,
-                            }
-                        ],
-                    }
-                )
-                if tts:  # If TTS was requested for the final response
-                    tts_activity_msg = f"[SUBACTIVITY][{thinking_id}] Generating audio for final response..."
-                    c.log_interaction(role=self.agent_name, message=tts_activity_msg)
-                    yield format_sse_chunk(
-                        {
-                            "id": completion_id,
-                            "model": model_name,
-                            "created": created_time,
-                            "object": "chat.completion.chunk",
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "delta": {
-                                        "role": "assistant",
-                                        "content": tts_activity_msg,
-                                    },
-                                    "finish_reason": None,
-                                }
-                            ],
-                        }
-                    )
-                    tts_url = await self.text_to_speech(
-                        text=cleaned_response, log_output=True
-                    )  # This will log the <audio> tag
-                    yield format_sse_chunk(
-                        {  # Yield the audio tag as well if log_output was true in text_to_speech
-                            "id": completion_id,
-                            "model": model_name,
-                            "created": created_time,
-                            "object": "chat.completion.chunk",
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "delta": {
-                                        "role": "assistant",
-                                        "content": f'\n<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
-                                    },
-                                    "finish_reason": None,
-                                }
-                            ],  # Assuming wav, adjust if mp3
-                        }
-                    )
-
-        except Exception as e:
-            logging.error(f"Error during chat completion execution: {str(e)}")
-            logging.error(traceback.format_exc())
-            error_msg = f"[ACTIVITY][ERROR] An error occurred: {str(e)}"
-            msg_id = c.log_interaction(role=self.agent_name, message=error_msg)
-            yield format_sse_chunk(
+            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
+            completion_tokens = get_tokens(response)
+            total_tokens = int(prompt_tokens) + int(completion_tokens)
+            logging.info(f"Input tokens: {prompt_tokens}")
+            logging.info(f"Completion tokens: {completion_tokens}")
+            logging.info(f"Total tokens: {total_tokens}")
+        except:
+            if not response:
+                response = "Unable to retrieve response."
+                logging.error(f"Error getting response: {response}")
+        response = self.remove_tagged_content(response, "execute")
+        response = self.remove_tagged_content(response, "output")
+        res_model = {
+            "id": self.conversation_id,
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": self.agent_name,
+            "choices": [
                 {
-                    "id": completion_id,
-                    "model": model_name,
-                    "created": created_time,
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": error_msg},
-                            "finish_reason": "error",
-                        }
-                    ],
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": str(response),
+                    },
+                    "finish_reason": "stop",
+                    "logprobs": None,
                 }
-            )
-            final_reason = "error"
-
-        if final_reason != "error":
-            c.update_message_by_id(
-                message_id=thinking_id, new_message="[ACTIVITY] Completed activities."
-            )
-
-        yield format_sse_chunk(
-            {
-                "id": completion_id,
-                "model": model_name,
-                "created": created_time,
-                "object": "chat.completion.chunk",
-                "choices": [
-                    {"index": 0, "delta": {}, "finish_reason": final_reason}
-                ],  # Send final chunk with only finish_reason
-            }
-        )
-        yield format_sse_chunk("[DONE]")
+            ],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            },
+        }
+        return res_model
 
     async def batch_inference(
         self,
