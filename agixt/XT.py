@@ -361,7 +361,6 @@ class AGiXT:
         elapsed_time = end - start
         elapsed_time = "{:.2f}".format(elapsed_time)
         self.conversation.update_message(
-            role=self.agent_name,
             message="[ACTIVITY] Transcribing recorded audio.",
             new_message=f"[ACTIVITY] Transcribed audio in {elapsed_time} seconds.",
         )
