@@ -8,6 +8,7 @@ from DB import (
     Company,
     UserCompany,
     Invitation,
+    default_roles,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -2335,6 +2336,13 @@ class MagicalAuth:
                         continue
                     if role_id < 3:
                         for user_company in company.users:
+                            role_name = None
+                            for role in default_roles:
+                                if role["id"] == user_company.role_id:
+                                    role_name = role["name"]
+                                    break
+                            if role_name is None:
+                                role_name = "user"
                             user = user_company.user
                             user_id = str(user.id)
                             if user_id not in unique_users:
@@ -2343,7 +2351,7 @@ class MagicalAuth:
                                     email=user.email,
                                     first_name=user.first_name,
                                     last_name=user.last_name,
-                                    role=user_company.role.name,
+                                    role=role_name,
                                     role_id=user_company.role_id,
                                 )
 
@@ -2373,6 +2381,13 @@ class MagicalAuth:
                             # Deduplicate users for child company
                             child_unique_users = {}
                             for user_company in child.users:
+                                role_name = None
+                                for role in default_roles:
+                                    if role["id"] == user_company.role_id:
+                                        role_name = role["name"]
+                                        break
+                                if role_name is None:
+                                    role_name = "user"
                                 user = user_company.user
                                 user_id = str(user.id)
                                 if user_id not in child_unique_users:
@@ -2381,7 +2396,7 @@ class MagicalAuth:
                                         email=user.email,
                                         first_name=user.first_name,
                                         last_name=user.last_name,
-                                        role=user_company.role.name,
+                                        role=role_name,
                                         role_id=user_company.role_id,
                                     )
 
@@ -2550,6 +2565,13 @@ class MagicalAuth:
 
                 company.name = name
                 db.commit()
+                role_name = None
+                for role in default_roles:
+                    if role["id"] == user_role:
+                        role_name = role["name"]
+                        break
+                if role_name is None:
+                    role_name = "user"
 
                 return CompanyResponse(
                     id=str(company.id),
@@ -2561,7 +2583,7 @@ class MagicalAuth:
                             email=uc.user.email,
                             first_name=uc.user.first_name,
                             last_name=uc.user.last_name,
-                            role=uc.role.name,
+                            role=role_name,
                             role_id=uc.role_id,
                         )
                         for uc in company.users
@@ -2962,6 +2984,13 @@ class MagicalAuth:
                 )
             company.name = name
             db.commit()
+            role_name = None
+            for role in default_roles:
+                if role["id"] == user_role:
+                    role_name = role["name"]
+                    break
+            if role_name is None:
+                role_name = "user"
             return CompanyResponse(
                 id=str(company.id),
                 name=company.name,
@@ -2972,7 +3001,7 @@ class MagicalAuth:
                         email=uc.user.email,
                         first_name=uc.user.first_name,
                         last_name=uc.user.last_name,
-                        role=uc.role.name,
+                        role=role_name,
                         role_id=uc.role_id,
                     )
                     for uc in company.users

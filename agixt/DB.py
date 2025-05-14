@@ -905,13 +905,15 @@ def get_similar_memories(
         return []
 
 
+default_roles = [
+    {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
+    {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
+    {"id": 3, "name": "user", "friendly_name": "User"},
+]
+
+
 def setup_default_roles():
     with get_session() as db:
-        default_roles = [
-            {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
-            {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
-            {"id": 3, "name": "user", "friendly_name": "User"},
-        ]
         for role in default_roles:
             existing_role = db.query(UserRole).filter_by(id=role["id"]).first()
             if not existing_role:
