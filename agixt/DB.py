@@ -909,6 +909,7 @@ default_roles = [
     {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
     {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
     {"id": 3, "name": "user", "friendly_name": "User"},
+    {"id": 4, "name": "child", "friendly_name": "Child"},
 ]
 
 
