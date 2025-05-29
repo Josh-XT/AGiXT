@@ -40,7 +40,7 @@ class AlexaSSO:
         )
         self.token_url = "https://api.amazon.com/auth/o2/token"
         self.api_base_url = "https://api.amazonalexa.com"
-        
+
         # Get user info
         self.user_info = self.get_user_info()
 
@@ -78,7 +78,9 @@ class AlexaSSO:
         headers = {"Authorization": f"Bearer {self.access_token}"}
         try:
             # Try with current token
-            user_url = f"{self.api_base_url}/v2/accounts/~current/settings/Profile.email"
+            user_url = (
+                f"{self.api_base_url}/v2/accounts/~current/settings/Profile.email"
+            )
             response = requests.get(user_url, headers=headers)
 
             # If token expired, try refreshing
@@ -90,9 +92,11 @@ class AlexaSSO:
 
             if response.status_code != 200:
                 # Try alternative endpoint for user profile
-                user_url = f"{self.api_base_url}/v2/accounts/~current/settings/Profile.name"
+                user_url = (
+                    f"{self.api_base_url}/v2/accounts/~current/settings/Profile.name"
+                )
                 response = requests.get(user_url, headers=headers)
-                
+
                 if response.status_code != 200:
                     raise HTTPException(
                         status_code=response.status_code,
@@ -101,11 +105,11 @@ class AlexaSSO:
 
             email_response = requests.get(
                 f"{self.api_base_url}/v2/accounts/~current/settings/Profile.email",
-                headers=headers
+                headers=headers,
             )
             name_response = requests.get(
                 f"{self.api_base_url}/v2/accounts/~current/settings/Profile.name",
-                headers=headers
+                headers=headers,
             )
 
             email = email_response.text if email_response.status_code == 200 else None
