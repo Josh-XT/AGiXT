@@ -10,4 +10,4 @@ blinkpy>=0.23.0
 ring_doorbell>=0.9.13
 aiohttp
 hikvisionapi>=0.3.2
-axis>=64
+axis>=48
