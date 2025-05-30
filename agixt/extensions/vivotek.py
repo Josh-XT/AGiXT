@@ -5,9 +5,15 @@ This extension provides comprehensive control over Vivotek IP cameras
 using direct HTTP API calls since no dedicated Python library exists.
 It supports async operations for AGiXT compatibility.
 
-Required environment variables:
-- VIVOTEK_HOST: Camera IP address or hostname (e.g., 192.168.1.100)
-- VIVOTEK_USERNAME: Username for authentication (usually 'root')
+Required parameters (can be passed as arguments or environment variables):
+- host: Camera IP address or hostname (e.g., 192.168.1.100)
+- username: Username for authentication (usually 'root')
+- password: Password for authentication
+- port: Port number (optional, default: 80)
+
+Environment variables (used as fallback):
+- VIVOTEK_HOST: Camera IP address or hostname
+- VIVOTEK_USERNAME: Username for authentication
 - VIVOTEK_PASSWORD: Password for authentication
 - VIVOTEK_PORT: Port number (optional, default: 80)
 
@@ -56,8 +62,23 @@ class vivotek:
     - System configuration
     """
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        VIVOTEK_HOST: str,
+        VIVOTEK_USERNAME: str,
+        VIVOTEK_PASSWORD: str,
+        VIVOTEK_PORT: int = 80,
+        **kwargs,
+    ):
         """Initialize the Vivotek extension"""
+        self.host = VIVOTEK_HOST
+        self.username = VIVOTEK_USERNAME
+        self.password = VIVOTEK_PASSWORD
+        self.port = VIVOTEK_PORT
+
+        # Build base URL
+        self.base_url = f"http://{self.host}:{self.port}"
+
         self.commands = {
             "Get Device Info": self.get_device_info,
             "Get Live Stream URL": self.get_live_stream_url,
@@ -72,32 +93,7 @@ class vivotek:
             "Get Audio Settings": self.get_audio_settings,
             "Reboot Camera": self.reboot_camera,
         }
-
         self.session = None
-        self.host = os.getenv("VIVOTEK_HOST")
-        self.username = os.getenv(
-            "VIVOTEK_USERNAME", "root"
-        )  # Default username for Vivotek
-        self.password = os.getenv("VIVOTEK_PASSWORD")
-        self.port = int(os.getenv("VIVOTEK_PORT", "80"))
-
-        # Build base URL
-        if self.host:
-            self.base_url = f"http://{self.host}:{self.port}"
-        else:
-            self.base_url = None
-
-        # Validate required environment variables
-        if not all([self.host, self.password]):
-            missing_vars = []
-            if not self.host:
-                missing_vars.append("VIVOTEK_HOST")
-            if not self.password:
-                missing_vars.append("VIVOTEK_PASSWORD")
-
-            logging.error(
-                f"Missing required environment variables: {', '.join(missing_vars)}"
-            )
 
     async def _get_session(self) -> Optional[aiohttp.ClientSession]:
         """
@@ -111,6 +107,9 @@ class vivotek:
                 return None
 
             if not all([self.host, self.password]):
+                logging.error(
+                    "Missing required connection parameters for Vivotek camera"
+                )
                 return None
 
             if self.session is None or self.session.closed:

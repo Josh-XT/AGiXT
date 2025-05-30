@@ -4,8 +4,13 @@ Hikvision Camera Extension for AGiXT
 This extension provides comprehensive control over Hikvision cameras and DVRs
 using the hikvisionapi library. It supports async operations for AGiXT compatibility.
 
-Required environment variables:
-- HIKVISION_HOST: Camera/DVR IP address or hostname (e.g., http://192.168.1.100)
+Required parameters (can be passed as arguments or environment variables):
+- host: Camera/DVR IP address or hostname (e.g., http://192.168.1.100)
+- username: Username for authentication
+- password: Password for authentication
+
+Environment variables (used as fallback):
+- HIKVISION_HOST: Camera/DVR IP address or hostname
 - HIKVISION_USERNAME: Username for authentication
 - HIKVISION_PASSWORD: Password for authentication
 
@@ -55,8 +60,18 @@ class hikvision:
     - System configuration
     """
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        HIKVISION_HOST: str,
+        HIKVISION_USERNAME: str,
+        HIKVISION_PASSWORD: str,
+        **kwargs,
+    ):
         """Initialize the Hikvision extension"""
+        self.host = HIKVISION_HOST
+        self.username = HIKVISION_USERNAME
+        self.password = HIKVISION_PASSWORD
+
         self.commands = {
             "Get Device Info": self.get_device_info,
             "Capture Image": self.capture_image,
@@ -71,25 +86,7 @@ class hikvision:
             "Get Storage Info": self.get_storage_info,
             "Reboot System": self.reboot_system,
         }
-
         self.client = None
-        self.host = os.getenv("HIKVISION_HOST")
-        self.username = os.getenv("HIKVISION_USERNAME")
-        self.password = os.getenv("HIKVISION_PASSWORD")
-
-        # Validate required environment variables
-        if not all([self.host, self.username, self.password]):
-            missing_vars = []
-            if not self.host:
-                missing_vars.append("HIKVISION_HOST")
-            if not self.username:
-                missing_vars.append("HIKVISION_USERNAME")
-            if not self.password:
-                missing_vars.append("HIKVISION_PASSWORD")
-
-            logging.error(
-                f"Missing required environment variables: {', '.join(missing_vars)}"
-            )
 
     async def _initialize_client(self) -> bool:
         """
@@ -103,6 +100,9 @@ class hikvision:
                 return False
 
             if not all([self.host, self.username, self.password]):
+                logging.error(
+                    "Missing required connection parameters for Hikvision device"
+                )
                 return False
 
             if self.client is None:

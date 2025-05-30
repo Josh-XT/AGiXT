@@ -32,34 +32,34 @@ class ring(Extensions):
     Note: Ring uses token caching to minimize login frequency
     """
 
-    def __init__(self, **kwargs):
-        self.username = kwargs.get("username", getenv("RING_USERNAME"))
-        self.password = kwargs.get("password", getenv("RING_PASSWORD"))
-        self.user_agent = kwargs.get(
-            "user_agent", getenv("RING_USER_AGENT", "AGiXT-Ring-1.0")
-        )
+    def __init__(
+        self,
+        RING_USERNAME: str,
+        RING_PASSWORD: str,
+        RING_USER_AGENT: str = "AGiXT-Ring-1.0",
+        **kwargs,
+    ):
+        self.username = RING_USERNAME
+        self.password = RING_PASSWORD
+        self.user_agent = RING_USER_AGENT
 
-        if self.username and self.password:
-            self.commands = {
-                "View Live Stream": self.view_live_stream,
-                "Access Recorded Video": self.access_recorded_video,
-                "Adjust Device Settings": self.adjust_device_settings,
-                "Check Motion Alerts": self.check_motion_alerts,
-                "Enable Motion Alerts": self.enable_motion_alerts,
-                "Disable Motion Alerts": self.disable_motion_alerts,
-                "Get Device List": self.get_device_list,
-                "Download Recent Videos": self.download_recent_videos,
-                "Get Device Health": self.get_device_health,
-                "Set Device Lights": self.set_device_lights,
-                "Test Device Sound": self.test_device_sound,
-            }
-            self.ring = None
-            self.auth = None
-            self._initialized = False
-            self.cache_file = Path(f"{self.user_agent}.token.cache")
-        else:
-            self.commands = {}
-            logging.warning("Ring credentials not found. Extension disabled.")
+        self.commands = {
+            "View Live Stream": self.view_live_stream,
+            "Access Recorded Video": self.access_recorded_video,
+            "Adjust Device Settings": self.adjust_device_settings,
+            "Check Motion Alerts": self.check_motion_alerts,
+            "Enable Motion Alerts": self.enable_motion_alerts,
+            "Disable Motion Alerts": self.disable_motion_alerts,
+            "Get Device List": self.get_device_list,
+            "Download Recent Videos": self.download_recent_videos,
+            "Get Device Health": self.get_device_health,
+            "Set Device Lights": self.set_device_lights,
+            "Test Device Sound": self.test_device_sound,
+        }
+        self.ring = None
+        self.auth = None
+        self._initialized = False
+        self.cache_file = Path(f"{self.user_agent}.token.cache")
 
     def _token_updated(self, token):
         """Callback function to save updated tokens"""

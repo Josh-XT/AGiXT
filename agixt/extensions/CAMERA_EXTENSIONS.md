@@ -26,20 +26,44 @@ pip install blinkpy>=0.23.0 ring_doorbell>=0.9.13 hikvisionapi>=0.3.2 axis>=64 a
 
 These dependencies have been added to `requirements.txt` and will be installed automatically.
 
-### Environment Variables Setup
+### Configuration Options
 
-#### Blink Extension Configuration
+All camera extensions support two configuration methods:
 
-Set the following environment variables:
+1. **Arguments** (Recommended): Pass credentials directly when initializing the extension
+2. **Environment Variables**: Use as fallback when arguments are not provided
+
+#### Configuration via Arguments
+
+```python
+# Example: Initialize Axis camera with arguments
+axis_camera = axis_camera(
+    host="192.168.1.101",
+    username="root", 
+    password="your_password",
+    port=80  # optional
+)
+
+# Example: Initialize Hikvision camera with arguments
+hikvision = hikvision(
+    host="http://192.168.1.100",
+    username="admin",
+    password="your_password"
+)
+```
+
+#### Configuration via Environment Variables (Fallback)
+
+If arguments are not provided, the extensions will use environment variables:
+
+##### Blink Extension
 
 ```bash
 BLINK_USERNAME=your_blink_email@example.com
 BLINK_PASSWORD=your_blink_password
 ```
 
-#### Ring Extension Configuration
-
-Set the following environment variables:
+##### Ring Extension
 
 ```bash
 RING_USERNAME=your_ring_email@example.com
@@ -47,9 +71,7 @@ RING_PASSWORD=your_ring_password
 RING_USER_AGENT=AGiXT-Ring-1.0  # Optional, defaults to "AGiXT-Ring-1.0"
 ```
 
-#### Hikvision Extension Configuration
-
-Set the following environment variables:
+##### Hikvision Extension
 
 ```bash
 HIKVISION_HOST=http://192.168.1.100  # Camera/DVR IP address with protocol
@@ -57,9 +79,7 @@ HIKVISION_USERNAME=admin             # Username for authentication
 HIKVISION_PASSWORD=your_password     # Password for authentication
 ```
 
-#### Axis Extension Configuration
-
-Set the following environment variables:
+##### Axis Extension
 
 ```bash
 AXIS_HOST=192.168.1.101        # Camera IP address (no protocol)
@@ -68,9 +88,7 @@ AXIS_PASSWORD=your_password    # Password for authentication
 AXIS_PORT=80                   # Port number (optional, default: 80)
 ```
 
-#### Vivotek Extension Configuration
-
-Set the following environment variables:
+##### Vivotek Extension
 
 ```bash
 VIVOTEK_HOST=192.168.1.102     # Camera IP address (no protocol)

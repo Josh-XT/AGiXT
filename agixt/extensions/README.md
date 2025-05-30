@@ -6,12 +6,13 @@ Extensions are the way to extend AGiXT's functionality with external APIs, servi
 
 1. [Extension Types](#extension-types)
 2. [Basic Extension Structure](#basic-extension-structure)
-3. [Authentication Patterns](#authentication-patterns)
-4. [OAuth Integration](#oauth-integration)
-5. [Command Implementation](#command-implementation)
-6. [Error Handling](#error-handling)
-7. [Best Practices](#best-practices)
-8. [Examples](#examples)
+3. [Function Signature Requirements](#function-signature-requirements)
+4. [Authentication Patterns](#authentication-patterns)
+5. [OAuth Integration](#oauth-integration)
+6. [Command Implementation](#command-implementation)
+7. [Error Handling](#error-handling)
+8. [Best Practices](#best-practices)
+9. [Examples](#examples)
 
 ## Extension Types
 
@@ -62,19 +63,35 @@ class your_service(Extensions):
     Extension description with comprehensive docstring explaining:
     - What the extension does
     - Available commands
-    - Required environment variables
+    - Required parameters (passed as arguments)
     - Authentication method used
     """
 
-    def __init__(self, **kwargs):
-        # Get API credentials from environment or kwargs
-        self.client_id = getenv("YOUR_SERVICE_CLIENT_ID")
-        self.client_secret = getenv("YOUR_SERVICE_CLIENT_SECRET")
-        self.api_key = kwargs.get("api_key")
+    def __init__(self, REQUIRED_PARAM1: str, REQUIRED_PARAM2: str, OPTIONAL_PARAM: str = "default", **kwargs):
+        """
+        Initialize the extension with required parameters as arguments
         
-        # Initialize authentication (see patterns below)
-        # Set up commands dictionary
+        IMPORTANT: Use explicit required parameters instead of environment variables or kwargs
+        
+        Args:
+            REQUIRED_PARAM1 (str): Description of first required parameter
+            REQUIRED_PARAM2 (str): Description of second required parameter  
+            OPTIONAL_PARAM (str): Description of optional parameter with default
+            **kwargs: Additional optional parameters
+        """
+        # Assign required parameters directly (no conditional checks)
+        self.param1 = REQUIRED_PARAM1
+        self.param2 = REQUIRED_PARAM2
+        self.optional_param = OPTIONAL_PARAM
+        
+        # Always initialize commands dictionary (no conditional logic)
+        self.commands = {
+            "Command Name": self.command_method,
+            # ... other commands
+        }
+        
         # Initialize session/client objects
+        # Set up authentication using the provided parameters
         
     def verify_user(self):
         """Verify user authentication - required for OAuth extensions"""
@@ -93,57 +110,130 @@ class your_service(Extensions):
         # Command implementation
 ```
 
+## Function Signature Requirements
+
+**CRITICAL REQUIREMENT**: All AGiXT extensions must use explicit required parameters in their `__init__` method instead of environment variables or kwargs-based parameter extraction.
+
+### ✅ Correct Pattern
+
+```python
+class my_extension(Extensions):
+    def __init__(self, API_KEY: str, HOST: str, USERNAME: str, PASSWORD: str, PORT: int = 80, **kwargs):
+        """Initialize with explicit required parameters"""
+        # Direct assignment - no conditional checks
+        self.api_key = API_KEY
+        self.host = HOST
+        self.username = USERNAME
+        self.password = PASSWORD
+        self.port = PORT
+        
+        # Always initialize commands - no conditional logic
+        self.commands = {
+            "Get Data": self.get_data,
+            "Send Message": self.send_message,
+        }
+        
+        # Initialize session/client with provided parameters
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        })
+```
+
+### ❌ Incorrect Patterns
+
+```python
+# DON'T DO THIS - Environment variable dependencies
+def __init__(self, **kwargs):
+    self.api_key = kwargs.get("api_key", getenv("API_KEY"))
+    self.host = getenv("HOST")
+    
+    # Don't do conditional initialization
+    if self.api_key and self.host:
+        self.commands = {"Get Data": self.get_data}
+    else:
+        self.commands = {}
+        logging.warning("Extension disabled - missing credentials")
+
+# DON'T DO THIS - kwargs-based parameter extraction  
+def __init__(self, **kwargs):
+    self.username = kwargs.get("username")
+    self.password = kwargs.get("password")
+    
+    if self.username and self.password:
+        self.commands = {"Login": self.login}
+    else:
+        self.commands = {}
+```
+
+### Why This Pattern is Required
+
+1. **Explicit Dependencies**: Makes required parameters immediately visible
+2. **Type Safety**: Enables proper type hints and IDE support
+3. **Predictable Behavior**: Extensions always initialize consistently
+4. **No Runtime Failures**: Eliminates failures due to missing environment variables
+5. **Better Testing**: Easier to test with known parameter values
+6. **Clear Documentation**: Parameters are self-documenting in the function signature
+
+### Parameter Guidelines
+
+- Use descriptive, service-specific parameter names (e.g., `GITHUB_TOKEN`, `SLACK_WEBHOOK_URL`)
+- Use type hints for all parameters
+- Provide default values for optional parameters
+- Keep `**kwargs` for backward compatibility and additional options
+- Document all parameters in the docstring
+
 ## Authentication Patterns
 
 ### Pattern 1: API Key Only
 
 ```python
 class simple_api(Extensions):
-    def __init__(self, **kwargs):
-        self.api_key = kwargs.get("api_key", getenv("SERVICE_API_KEY"))
+    def __init__(self, SERVICE_API_KEY: str, **kwargs):
+        """Initialize with required API key parameter"""
+        self.api_key = SERVICE_API_KEY
         self.base_url = "https://api.service.com"
         
-        if self.api_key:
-            self.commands = {
-                "Get Data": self.get_data,
-            }
-            self.session = requests.Session()
-            self.session.headers.update({
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            })
-        else:
-            self.commands = {}
+        # Always initialize commands (no conditional logic)
+        self.commands = {
+            "Get Data": self.get_data,
+        }
+        
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        })
 ```
 
 ### Pattern 2: OAuth 2.0 with MagicalAuth
 
 ```python
 class oauth_service(Extensions):
-    def __init__(self, **kwargs):
-        self.api_key = kwargs.get("api_key")
-        self.access_token = kwargs.get("SERVICE_ACCESS_TOKEN", None)
-        self.client_id = getenv("SERVICE_CLIENT_ID")
-        self.client_secret = getenv("SERVICE_CLIENT_SECRET")
+    def __init__(self, SERVICE_CLIENT_ID: str, SERVICE_CLIENT_SECRET: str, api_key: str = None, access_token: str = None, **kwargs):
+        """Initialize with required OAuth credentials"""
+        self.client_id = SERVICE_CLIENT_ID
+        self.client_secret = SERVICE_CLIENT_SECRET
+        self.api_key = api_key
+        self.access_token = access_token
         self.base_url = "https://api.service.com"
         
-        if self.client_id and self.client_secret:
-            self.commands = {
-                "Get User Data": self.get_user_data,
-            }
-            
-            # Initialize MagicalAuth for OAuth token management
-            if self.api_key:
-                self.auth = MagicalAuth(token=self.api_key)
-            
-            self.session = requests.Session()
-            if self.access_token:
-                self.session.headers.update({
-                    "Authorization": f"Bearer {self.access_token}",
-                    "Content-Type": "application/json"
-                })
-        else:
-            self.commands = {}
+        # Always initialize commands (no conditional logic)
+        self.commands = {
+            "Get User Data": self.get_user_data,
+        }
+        
+        # Initialize MagicalAuth for OAuth token management
+        if self.api_key:
+            self.auth = MagicalAuth(token=self.api_key)
+        
+        self.session = requests.Session()
+        if self.access_token:
+            self.session.headers.update({
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            })
 
     def verify_user(self):
         """Verify and refresh OAuth token using MagicalAuth"""
@@ -412,26 +502,73 @@ async def api_call_with_retry(self, url: str, max_retries: int = 3) -> dict:
     raise Exception("Max retries exceeded")
 ```
 
-### Graceful Degradation
+### Parameter Validation and Error Handling
+
+Instead of conditional initialization, handle missing or invalid parameters with clear error messages:
 
 ```python
-def __init__(self, **kwargs):
-    # ...existing code...
+def __init__(self, REQUIRED_PARAM: str, **kwargs):
+    if not REQUIRED_PARAM:
+        raise ValueError("REQUIRED_PARAM cannot be empty")
+        
+    self.param = REQUIRED_PARAM
     
-    # Only enable commands if credentials are available
-    if self.client_id and self.client_secret:
-        self.commands = {
-            "Get Data": self.get_data,
-            "Send Message": self.send_message,
-        }
-    else:
-        self.commands = {}
-        logging.warning("Service credentials not found. Extension disabled.")
+    # Always initialize commands
+    self.commands = {
+        "Get Data": self.get_data,
+        "Send Message": self.send_message,
+    }
+
+async def get_data(self) -> str:
+    """Get data with proper error handling"""
+    try:
+        if not self.param:
+            return "Error: Required parameter not configured"
+        # ... implementation
+    except Exception as e:
+        return f"Error: {str(e)}"
 ```
 
 ## Best Practices
 
-### 1. **Environment Variables**
+### 1. **Function Signature Pattern**
+
+**CRITICAL**: Always use explicit required parameters instead of environment variables or kwargs-based parameter extraction:
+
+```python
+# ✅ CORRECT: Explicit required parameters
+def __init__(self, API_KEY: str, HOST: str, USERNAME: str, PASSWORD: str, PORT: int = 80, **kwargs):
+    self.api_key = API_KEY
+    self.host = HOST
+    self.username = USERNAME 
+    self.password = PASSWORD
+    self.port = PORT
+    
+    # Always initialize commands (no conditional logic)
+    self.commands = {
+        "Command Name": self.command_method,
+    }
+
+# ❌ INCORRECT: Environment variables and conditional logic
+def __init__(self, **kwargs):
+    self.api_key = kwargs.get("api_key", getenv("API_KEY"))
+    self.host = kwargs.get("host", getenv("HOST"))
+    
+    # Don't do this - no conditional initialization
+    if self.api_key and self.host:
+        self.commands = {"Command": self.method}
+    else:
+        self.commands = {}
+```
+
+**Why this matters:**
+- Makes dependencies explicit and clear
+- Prevents runtime failures due to missing environment variables
+- Ensures consistent extension behavior
+- Improves type safety and IDE support
+- Eliminates conditional validation logic
+
+### 2. **Environment Variables**
 - Use descriptive, service-specific variable names
 - Example: `FITBIT_CLIENT_ID`, `ALEXA_CLIENT_SECRET`
 - Always provide fallbacks and check for missing credentials
@@ -469,36 +606,38 @@ def __init__(self, **kwargs):
 import logging
 import requests
 from Extensions import Extensions
-from Globals import getenv
 
 class weather_api(Extensions):
     """
     Weather API extension for getting current weather data
     
-    Required environment variables:
+    Required parameters:
     - WEATHER_API_KEY: Your weather service API key
     """
 
-    def __init__(self, **kwargs):
-        self.api_key = kwargs.get("api_key", getenv("WEATHER_API_KEY"))
+    def __init__(self, WEATHER_API_KEY: str, **kwargs):
+        """Initialize with required API key parameter"""
+        self.api_key = WEATHER_API_KEY
         self.base_url = "https://api.weatherservice.com/v1"
         
-        if self.api_key:
-            self.commands = {
-                "Get Current Weather": self.get_current_weather,
-                "Get Weather Forecast": self.get_forecast,
-            }
-            self.session = requests.Session()
-            self.session.headers.update({
-                "X-API-Key": self.api_key,
-                "Content-Type": "application/json"
-            })
-        else:
-            self.commands = {}
+        # Always initialize commands (no conditional logic)
+        self.commands = {
+            "Get Current Weather": self.get_current_weather,
+            "Get Weather Forecast": self.get_forecast,
+        }
+        
+        self.session = requests.Session()
+        self.session.headers.update({
+            "X-API-Key": self.api_key,
+            "Content-Type": "application/json"
+        })
 
     async def get_current_weather(self, location: str) -> str:
         """Get current weather for a location"""
         try:
+            if not self.api_key:
+                return "Error: API key not configured"
+                
             response = self.session.get(f"{self.base_url}/current", 
                                       params={"q": location})
             response.raise_for_status()

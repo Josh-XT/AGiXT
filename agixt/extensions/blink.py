@@ -27,26 +27,22 @@ class blink(Extensions):
     Authentication: Username/password authentication with 2FA support
     """
 
-    def __init__(self, **kwargs):
-        self.username = kwargs.get("username", getenv("BLINK_USERNAME"))
-        self.password = kwargs.get("password", getenv("BLINK_PASSWORD"))
+    def __init__(self, BLINK_USERNAME: str, BLINK_PASSWORD: str, **kwargs):
+        self.username = BLINK_USERNAME
+        self.password = BLINK_PASSWORD
 
-        if self.username and self.password:
-            self.commands = {
-                "Arm Blink System": self.arm_system,
-                "Disarm Blink System": self.disarm_system,
-                "Capture Video Clip": self.capture_video_clip,
-                "Check Camera Status": self.check_camera_status,
-                "Get Motion Alerts": self.get_motion_alerts,
-                "Get Camera List": self.get_camera_list,
-                "Download Recent Videos": self.download_recent_videos,
-                "Check System Status": self.check_system_status,
-            }
-            self.blink = None
-            self._initialized = False
-        else:
-            self.commands = {}
-            logging.warning("Blink credentials not found. Extension disabled.")
+        self.commands = {
+            "Arm Blink System": self.arm_system,
+            "Disarm Blink System": self.disarm_system,
+            "Capture Video Clip": self.capture_video_clip,
+            "Check Camera Status": self.check_camera_status,
+            "Get Motion Alerts": self.get_motion_alerts,
+            "Get Camera List": self.get_camera_list,
+            "Download Recent Videos": self.download_recent_videos,
+            "Check System Status": self.check_system_status,
+        }
+        self.blink = None
+        self._initialized = False
 
     async def _initialize_blink(self):
         """Initialize the Blink connection if not already done"""

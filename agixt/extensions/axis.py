@@ -4,8 +4,14 @@ Axis Camera Extension for AGiXT
 This extension provides comprehensive control over Axis Communications cameras
 using the axis library. It supports async operations for AGiXT compatibility.
 
-Required environment variables:
-- AXIS_HOST: Camera IP address or hostname (e.g., 192.168.1.100)
+Required parameters (can be passed as arguments or environment variables):
+- host: Camera IP address or hostname (e.g., 192.168.1.100)
+- username: Username for authentication
+- password: Password for authentication
+- port: Port number (optional, default: 80)
+
+Environment variables (used as fallback):
+- AXIS_HOST: Camera IP address or hostname
 - AXIS_USERNAME: Username for authentication
 - AXIS_PASSWORD: Password for authentication
 - AXIS_PORT: Port number (optional, default: 80)
@@ -56,8 +62,20 @@ class axis_camera:
     - System configuration
     """
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        AXIS_HOST: str,
+        AXIS_USERNAME: str,
+        AXIS_PASSWORD: str,
+        AXIS_PORT: int = 80,
+        **kwargs,
+    ):
         """Initialize the Axis extension"""
+        self.host = AXIS_HOST
+        self.username = AXIS_USERNAME
+        self.password = AXIS_PASSWORD
+        self.port = AXIS_PORT
+
         self.commands = {
             "Get Device Info": self.get_device_info,
             "Get Live Stream URL": self.get_live_stream_url,
@@ -72,26 +90,7 @@ class axis_camera:
             "Get System Status": self.get_system_status,
             "Reboot Camera": self.reboot_camera,
         }
-
         self.device = None
-        self.host = os.getenv("AXIS_HOST")
-        self.username = os.getenv("AXIS_USERNAME")
-        self.password = os.getenv("AXIS_PASSWORD")
-        self.port = int(os.getenv("AXIS_PORT", "80"))
-
-        # Validate required environment variables
-        if not all([self.host, self.username, self.password]):
-            missing_vars = []
-            if not self.host:
-                missing_vars.append("AXIS_HOST")
-            if not self.username:
-                missing_vars.append("AXIS_USERNAME")
-            if not self.password:
-                missing_vars.append("AXIS_PASSWORD")
-
-            logging.error(
-                f"Missing required environment variables: {', '.join(missing_vars)}"
-            )
 
     async def _initialize_device(self) -> bool:
         """
@@ -105,6 +104,7 @@ class axis_camera:
                 return False
 
             if not all([self.host, self.username, self.password]):
+                logging.error("Missing required connection parameters for Axis device")
                 return False
 
             if self.device is None:
