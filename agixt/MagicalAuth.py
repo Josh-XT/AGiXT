@@ -637,7 +637,7 @@ class MagicalAuth:
         :return: User object
         """
         failures = self.count_failed_logins()
-        if failures >= 50:
+        if failures >= 100:
             raise HTTPException(
                 status_code=429,
                 detail="Too many failed login attempts today. Please try again tomorrow.",
