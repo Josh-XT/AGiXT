@@ -151,7 +151,7 @@ def sso(code, redirect_uri=None) -> DiscordSSO:
 def get_authorization_url(state=None):
     """Generate Discord authorization URL"""
     from urllib.parse import urlencode
-    
+
     client_id = getenv("DISCORD_CLIENT_ID")
     redirect_uri = getenv("APP_URI")
 
