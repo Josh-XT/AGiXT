@@ -62,9 +62,9 @@ class hikvision:
 
     def __init__(
         self,
-        HIKVISION_HOST: str,
-        HIKVISION_USERNAME: str,
-        HIKVISION_PASSWORD: str,
+        HIKVISION_HOST: str = "",
+        HIKVISION_USERNAME: str = "",
+        HIKVISION_PASSWORD: str = "",
         **kwargs,
     ):
         """Initialize the Hikvision extension"""

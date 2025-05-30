@@ -64,9 +64,9 @@ class vivotek:
 
     def __init__(
         self,
-        VIVOTEK_HOST: str,
-        VIVOTEK_USERNAME: str,
-        VIVOTEK_PASSWORD: str,
+        VIVOTEK_HOST: str = "",
+        VIVOTEK_USERNAME: str = "",
+        VIVOTEK_PASSWORD: str = "",
         VIVOTEK_PORT: int = 80,
         **kwargs,
     ):

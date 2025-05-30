@@ -34,8 +34,8 @@ class ring(Extensions):
 
     def __init__(
         self,
-        RING_USERNAME: str,
-        RING_PASSWORD: str,
+        RING_USERNAME: str = "",
+        RING_PASSWORD: str = "",
         RING_USER_AGENT: str = "AGiXT-Ring-1.0",
         **kwargs,
     ):

@@ -64,9 +64,9 @@ class axis_camera:
 
     def __init__(
         self,
-        AXIS_HOST: str,
-        AXIS_USERNAME: str,
-        AXIS_PASSWORD: str,
+        AXIS_HOST: str = "",
+        AXIS_USERNAME: str = "",
+        AXIS_PASSWORD: str = "",
         AXIS_PORT: int = 80,
         **kwargs,
     ):
