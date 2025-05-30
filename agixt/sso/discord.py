@@ -146,3 +146,24 @@ def sso(code, redirect_uri=None) -> DiscordSSO:
     except requests.exceptions.RequestException as e:
         logging.error(f"Error obtaining Discord access token: {response.text}")
         return None
+
+
+def get_authorization_url(state=None):
+    """Generate Discord authorization URL"""
+    client_id = getenv("DISCORD_CLIENT_ID")
+    redirect_uri = getenv("APP_URI")
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(SCOPES),
+    }
+
+    if state:
+        params["state"] = state
+
+    # Build query string
+    query = "&".join([f"{k}={v}" for k, v in params.items()])
+
+    return f"{AUTHORIZE}?{query}"
