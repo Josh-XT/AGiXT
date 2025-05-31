@@ -32,9 +32,6 @@ def ensure_keys_exist():
         if os.path.exists(PRIVATE_KEY_PATH) and os.path.exists(PUBLIC_KEY_PATH):
             return
 
-        # Generate new keys using OpenSSL
-        logging.info("Generating new Tesla API key pair in models directory...")
-
         # Generate private key
         private_key_cmd = (
             f"openssl ecparam -name prime256v1 -genkey -noout -out {PRIVATE_KEY_PATH}"
@@ -104,8 +101,6 @@ def register_with_tesla():
         }
 
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-
-        logging.info("Requesting Tesla partner token for registration...")
         response = requests.post(auth_url, data=payload, headers=headers)
 
         if response.status_code != 200:
@@ -126,14 +121,11 @@ def register_with_tesla():
 
         register_payload = {"domain": TESLA_DOMAIN}
 
-        logging.info(f"Registering with Tesla Fleet API using domain: {TESLA_DOMAIN}")
         register_response = requests.post(
             register_url, headers=register_headers, json=register_payload
         )
 
         if register_response.status_code in [200, 201]:
-            logging.info("Tesla Fleet API registration successful!")
-
             # Mark as registered
             import datetime
 

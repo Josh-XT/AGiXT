@@ -28,7 +28,6 @@ def get_provider_options(provider_name):
     options = {}
     if provider_name in DISABLED_PROVIDERS:
         return {}
-    logging.info(f"Getting options for provider: {provider_name}")
     # This will keep transformers from being installed unless needed.
     try:
         module = importlib.import_module(f"providers.{provider_name}")
@@ -149,7 +148,7 @@ class Providers:
 
         except (ModuleNotFoundError, AttributeError) as e:
             if name != None and name != "None" and not str(name).startswith("__"):
-                logging.info(f"Error loading provider: {name}")
+                logging.error(f"Error loading provider: {name}")
 
     def __getattr__(self, attr):
         return getattr(self.instance, attr)

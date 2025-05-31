@@ -413,10 +413,6 @@ class Chain:
         session.close()
 
     def update_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
-        logging.info(f"Updating step {step_number} in chain {chain_name}")
-        logging.info(f"Agent: {agent_name}")
-        logging.info(f"Prompt Type: {prompt_type}")
-        logging.info(f"Prompt: {prompt}")
         session = get_session()
         chain = (
             session.query(ChainDB)

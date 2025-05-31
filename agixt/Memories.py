@@ -708,7 +708,6 @@ class Memories:
             if memories_to_add:
                 session.bulk_save_objects(memories_to_add)
                 session.commit()
-                logging.info(f"Successfully added {len(memories_to_add)} memories")
                 return True
             else:
                 logging.warning("No valid memories to add")

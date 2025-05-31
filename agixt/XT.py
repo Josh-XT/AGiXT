@@ -583,7 +583,6 @@ class AGiXT:
         )
         response = ""
         step_responses = []
-        logging.info(f"Chain data: {chain_data}")
         if "steps" not in chain_data:
             return f"Chain `{chain_name}` has no steps."
         if len(chain_data["steps"]) == 0:
@@ -611,7 +610,6 @@ class AGiXT:
                         chain_args=chain_args,
                     )
                     step_responses.append(task)
-        logging.info(f"Step responses: {step_responses}")
         if step_responses:
             response = step_responses[-1]
         if response == None:
@@ -747,7 +745,6 @@ class AGiXT:
                 os.path.join(self.agent_workspace, folder_path)
             )
         else:
-            logging.info(f"{file_url} does not start with {self.outputs}")
             file_data = await self.download_file_to_workspace(
                 url=file_url, file_name=file_name
             )
@@ -762,12 +759,10 @@ class AGiXT:
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, collection_id, file_name)
             )
-        logging.info(f"File path: {file_path}")
         if not file_path.startswith(self.agent_workspace):
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, collection_id, file_name)
             )
-            logging.info(f"Corrected file path: {file_path}")
         file_type = file_name.split(".")[-1]
         if file_type not in ["jpg", "jpeg", "png", "gif"]:
             self.conversation.log_interaction(
@@ -862,7 +857,6 @@ class AGiXT:
                     for name in files:
                         current_folder = root.replace(new_folder, "")
                         output_url = f"{self.outputs}/{collection_id}/{extracted_zip_folder_name}/{current_folder}/{name}"
-                        logging.info(f"Output URL: {output_url}")
                         file_content += f"Content from file uploaded named `{name}`:\n"
                         file_content += await self.learn_from_file(
                             file_url=output_url,
@@ -1033,7 +1027,6 @@ class AGiXT:
         Returns:
             str: URL of the downloaded file
         """
-        logging.info(f"Downloading file from {url}")
         if url.startswith("data:"):
             file_type = url.split(",")[0].split("/")[1].split(";")[0]
         else:
@@ -1054,7 +1047,6 @@ class AGiXT:
         full_path = os.path.normpath(
             os.path.join(self.conversation_workspace, file_name)
         )
-        logging.info(f"Full path to download file to: {full_path}")
         if not full_path.startswith(self.conversation_workspace):
             raise Exception("Path given not allowed")
         if "," in url:
@@ -1081,7 +1073,6 @@ class AGiXT:
         with open(full_path, "wb") as f:
             f.write(file_data)
         url = f"{self.outputs}/{self.conversation_id}/{file_name}"
-        logging.info(f"Downloaded file available at {url}")
         return {"file_name": file_name, "file_url": url}
 
     async def plan_task(
@@ -1863,8 +1854,6 @@ class AGiXT:
                         conversation_name=self.conversation_name,
                     )
 
-                    logging.info(f"New conversation name: {new_convo}")
-
                     # Extract JSON from the response
                     try:
                         # Check if the response contains a code block with JSON
@@ -1908,9 +1897,6 @@ class AGiXT:
                                 log_user_input=False,
                                 log_output=False,
                             )
-
-                            logging.info(f"New conversation name #2: {new_convo}")
-
                             # Extract JSON again with same robust method
                             if "```json" in new_convo:
                                 json_text = (
@@ -1962,9 +1948,6 @@ class AGiXT:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
             total_tokens = int(prompt_tokens) + int(completion_tokens)
-            logging.info(f"Input tokens: {prompt_tokens}")
-            logging.info(f"Completion tokens: {completion_tokens}")
-            logging.info(f"Total tokens: {total_tokens}")
         except:
             if not response:
                 response = "Unable to retrieve response."
@@ -2080,7 +2063,6 @@ class AGiXT:
             memories += (
                 await self.agent_interactions.agent_memory.export_collection_to_json()
             )
-        logging.info(f"There are {len(memories)} memories.")
         memories = [memory["text"] for memory in memories]
         # Get a list of questions about each memory
         question_list = self.batch_inference(
@@ -2320,7 +2302,6 @@ class AGiXT:
             voice_response=False,
         )
         analyzed_input = {}
-        logging.info(f"Analyzed Input: {analyze_input}")
         if "```json" not in analyze_input and "```" in analyze_input:
             analyze_input = analyze_input.replace("```", "```json", 1)
         if "```json" in analyze_input:
@@ -2349,7 +2330,6 @@ class AGiXT:
         )
         if "```" not in code_interpreter:
             code_interpreter = f"```python\n{code_interpreter}\n```"
-        logging.info(f"Code Interpreter: {code_interpreter}")
         if "```python" in code_interpreter:
             code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
             if "```python" in code_interpreter:
@@ -2370,7 +2350,6 @@ class AGiXT:
             )
             if "```" not in code_verification:
                 code_verification = f"```python\n{code_verification}\n```"
-            logging.info(f"Code Verification: {code_verification}")
             if "```python" in code_verification:
                 code_verification = code_verification.split("```python")[1].split(
                     "```"
@@ -2415,7 +2394,6 @@ class AGiXT:
                     )
                     if "```" not in fixed_code:
                         fixed_code = f"```python\n{fixed_code}\n```"
-                    logging.info(f"Fixed Code: {fixed_code}")
                     code_verification = fixed_code
                     if "```python" in code_verification:
                         code_verification = code_verification.split("```python")[
@@ -2543,7 +2521,6 @@ class AGiXT:
             if len(csv_files) != 0:
                 for file in csv_files:
                     file_names.append(file)
-        logging.info(f"CSV files in conversation workspace: {file_names}")
         if len(file_names) == 0:
             return await self.analyze_user_input(user_input=user_input)
         # Iterate over files and use regex to see if the file name is in the response

@@ -154,8 +154,6 @@ async def get_user(
 ):
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
-    logging.info(f"Forwarded for: {request.headers.get('X-Forwarded-For')}")
-    logging.info(f"Client IP: {request.client.host}")
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     user_data = auth.login(ip_address=client_ip)
     user_preferences = auth.get_user_preferences()
@@ -352,8 +350,6 @@ async def oauth_login(
     request: Request, provider: str = "microsoft", authorization: str = Header(None)
 ):
     data = await request.json()
-    logging.info(f"OAuth2 login request received for {provider}: {data}")
-    logging.info(f"Authorization header: {authorization}")
     auth = MagicalAuth(token=authorization)
     email = auth.email
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
@@ -403,7 +399,6 @@ async def update_oauth_token(
         access_token=data["access_token"],
         refresh_token=data["refresh_token"] if "refresh_token" in data else None,
     )
-    logging.info(f"[{provider}] {response}")
     return Detail(detail=response)
 
 

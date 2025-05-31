@@ -162,7 +162,6 @@ class WorkspaceEventHandler(FileSystemEventHandler):
                                 self.workspace_manager.container.upload_object(
                                     local_path, object_path
                                 )
-                                logging.info(f"Synced {local_path} to storage backend")
                             except Exception as e:
                                 logging.error(f"Failed to sync {local_path}: {e}")
 
@@ -175,9 +174,6 @@ class WorkspaceEventHandler(FileSystemEventHandler):
                                     object_path
                                 )
                                 obj.delete()
-                                logging.info(
-                                    f"Deleted {object_path} from storage backend"
-                                )
                             except Exception as e:
                                 logging.error(f"Failed to delete {object_path}: {e}")
 
@@ -214,9 +210,6 @@ def add_to_workspace_manager(workspace_manager_class):
                 )
                 self.observer.daemon = True  # Make sure it's a daemon thread
                 self.observer.start()
-                logging.info(
-                    f"Started watching workspace directory: {self.workspace_dir}"
-                )
 
     def stop_file_watcher(self):
         """Stop the file watcher"""
@@ -550,7 +543,6 @@ class WorkspaceManager(SecurityValidationMixin):
                         file_age = current_time - temp_file.stat().st_mtime
                         if file_age > (max_age_days * 86400):  # Convert days to seconds
                             temp_file.unlink()
-                            logging.info(f"Cleaned up stale temp file: {temp_file}")
                 except Exception as e:
                     logging.error(f"Error cleaning temp file {temp_file}: {e}")
         except Exception as e:
