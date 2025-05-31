@@ -186,7 +186,6 @@ async def learn_file(
     file_path = os.path.normpath(
         os.path.join(agent.agent_workspace, file.collection_number, file.file_name)
     )
-    logging.info(f"File path: {file_path}")
     if not file_path.startswith(agent.agent_workspace):
         raise Exception("Path given not allowed")
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -197,10 +196,6 @@ async def learn_file(
     with open(file_path, "wb") as f:
         f.write(file_content)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logging.info(f"File {file.file_name} uploaded on {timestamp}.")
-    logging.info(
-        f"URL of file: {agent.outputs}/{file.collection_number}/{file.file_name}"
-    )
     response = await agent.learn_from_file(
         file_url=f"{agent.outputs}/{file.collection_number}/{file.file_name}",
         file_name=file.file_name,
@@ -459,8 +454,6 @@ async def delete_memories_from_external_source(
         return ResponseMessage(message=response)
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    logging.info(f"External Source: {external_source.external_source}")
-    logging.info(f"Collection Number: {external_source.collection_number}")
     await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,

@@ -59,9 +59,6 @@ class TaskMonitor:
         hash_obj = sha256(unique_str.encode())
         # Use last 4 bits of hash for 0-15 worker ID range
         self.worker_id = int(hash_obj.hexdigest()[-1], 16) % self.total_workers
-        logging.info(
-            f"Initialized worker {self.worker_id} of {self.total_workers} (PID: {pid})"
-        )
 
     def _should_process_task(self, task_id: str) -> bool:
         """Determine if this worker should process the given task"""
@@ -122,10 +119,6 @@ class TaskMonitor:
                                     session.delete(pending_task)
                                     session.commit()
                                     continue
-
-                                logging.info(
-                                    f"Worker {self.worker_id} processing task {pending_task.id}"
-                                )
                                 task_manager = Task(
                                     token=impersonate_user(user_id=pending_task.user_id)
                                 )
