@@ -70,8 +70,6 @@ def send_email(email: str, subject: str, body: str):
         # SendGrid
         sendgrid_api_key = getenv("SENDGRID_API_KEY")
         sendgrid_from_email = getenv("SENDGRID_FROM_EMAIL")
-        logging.info(f"sendgrid_api_key: {sendgrid_api_key}")
-        logging.info(f"sendgrid_from_email: {sendgrid_from_email}")
         if sendgrid_api_key and sendgrid_from_email:
             message = Mail(
                 from_email=sendgrid_from_email,
@@ -81,7 +79,6 @@ def send_email(email: str, subject: str, body: str):
             )
             try:
                 response = SendGridAPIClient(sendgrid_api_key).send(message)
-                logging.info(f"Sengrid response: {response}")
             except Exception as e:
                 return False
             if response.status_code != 202:
@@ -637,7 +634,7 @@ class MagicalAuth:
         :return: User object
         """
         failures = self.count_failed_logins()
-        if failures >= 50:
+        if failures >= 100:
             raise HTTPException(
                 status_code=429,
                 detail="Too many failed login attempts today. Please try again tomorrow.",
@@ -872,7 +869,6 @@ class MagicalAuth:
             invitation = (
                 session.query(Invitation).filter(Invitation.email == self.email).first()
             )
-            logging.info(f"Fetched invitation: {invitation}")
             # Create new user
             new_user_db = User(
                 email=self.email,
@@ -1110,9 +1106,6 @@ class MagicalAuth:
             return []
 
         stripe.api_key = stripe_api_key
-        logging.info(
-            f"Checking for ANY active subscriptions for user email: {user_email}"
-        )  # Updated log message
         all_active_subscriptions = []
 
         try:
@@ -1123,13 +1116,8 @@ class MagicalAuth:
                 logging.info(f"No Stripe customers found for email: {user_email}.")
                 return []
 
-            logging.info(
-                f"Found {len(customers.data)} customer record(s) for email: {user_email}."
-            )
-
             # Step 2 & 3: Check active subscriptions for each customer
             for customer in customers.data:
-                logging.debug(f"Checking subscriptions for customer ID: {customer.id}")
                 try:
                     # List only *active* subscriptions for this specific customer.
                     # No need to expand anything further if we aren't checking product details.
@@ -1139,10 +1127,6 @@ class MagicalAuth:
                         limit=100,  # Safeguard limit
                     )
 
-                    logging.debug(
-                        f"Found {len(subscriptions_list.data)} active subscriptions for customer {customer.id}."
-                    )
-
                     # Step 4: Add all found active subscriptions to our main list
                     for subscription in subscriptions_list.data:
                         # Avoid adding duplicates if checking multiple customers with same subscription
@@ -1150,13 +1134,6 @@ class MagicalAuth:
                             sub.id for sub in all_active_subscriptions
                         ]:
                             all_active_subscriptions.append(subscription)
-                            logging.info(
-                                f"Found active subscription {subscription.id} for customer {customer.id}. Adding to results."
-                            )
-                        else:
-                            logging.debug(
-                                f"Subscription {subscription.id} already found via another customer record."
-                            )
 
                 except stripe.error.StripeError as se_sub:
                     logging.error(
@@ -1173,9 +1150,6 @@ class MagicalAuth:
                     logging.error(traceback.format_exc())
 
             # Step 5: Return the combined list
-            logging.info(
-                f"Finished checking all customers. Found {len(all_active_subscriptions)} total active subscriptions for email {user_email}."
-            )
             return all_active_subscriptions
 
         except stripe.error.StripeError as se_cust:
@@ -1317,7 +1291,6 @@ class MagicalAuth:
                                 "stripe_id" not in user_preferences
                                 or not user_preferences["stripe_id"].startswith("cus_")
                             ):
-                                logging.info("No Stripe ID found in user preferences.")
                                 customer = stripe.Customer.create(email=user.email)
                                 user_preferences["stripe_id"] = customer.id
                                 user_preference = UserPreferences(
@@ -1335,9 +1308,6 @@ class MagicalAuth:
                                     },
                                 )
                             else:
-                                logging.info(
-                                    "Stripe ID found: " + user_preferences["stripe_id"]
-                                )
                                 relevant_subscriptions = self.get_subscribed_products(
                                     api_key, user.email
                                 )
@@ -1373,10 +1343,6 @@ class MagicalAuth:
                                             ],
                                         },
                                     )
-                                else:
-                                    logging.info(
-                                        f"{len(relevant_subscriptions)} subscriptions relevant to this app detected."
-                                    )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
@@ -1402,7 +1368,6 @@ class MagicalAuth:
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         session.close()
-        # logging.info(f"User Preferences: {user_preferences}")
         return user_preferences
 
     def send_email_code(self):
@@ -1646,7 +1611,6 @@ class MagicalAuth:
             subject="Verify your email address",
             body=f"Click the link below to verify your email address: <a href='{self.link}?verify_email={encrypted_key}&email={parsed_email}'>Verify Email</a>",
         )
-        logging.info(f"Email verification link sent to {self.email}: {sent}")
         session.close()
         return sent
 
@@ -2137,7 +2101,6 @@ class MagicalAuth:
                     ),
                     "is_accepted": new_invitation.is_accepted,
                 }
-                logging.info(f"Invitation created: {response}")
                 return InvitationResponse(**response)
             except SQLAlchemyError as e:
                 db.rollback()
@@ -2548,6 +2511,14 @@ class MagicalAuth:
             ),
         )
         return company
+
+    def get_company_agent_name(self):
+        """Get the agent name associated with the company."""
+        with get_session() as db:
+            company = db.query(Company).filter(Company.id == self.company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+            return company.agent_name if company.agent_name else getenv("AGENT_NAME")
 
     def update_company(self, company_id: str, name: str) -> CompanyResponse:
         with get_session() as db:

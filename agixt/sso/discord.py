@@ -15,10 +15,10 @@ Required scopes for Discord OAuth:
 - identify: Access user's basic info (username, avatar, discriminator)
 - email: Access user's email address
 - guilds: Access list of guilds the user is in
-- guild.members.read: Access list of members in a guild
+- guilds.members.read: Access list of members in a guild (requires bot permissions)
 """
 
-SCOPES = ["identify", "email", "guilds", "guild.members.read"]
+SCOPES = ["identify", "email", "guilds"]
 AUTHORIZE = "https://discord.com/api/oauth2/authorize"
 TOKEN_URL = "https://discord.com/api/oauth2/token"
 USER_INFO_URL = "https://discord.com/api/users/@me"
@@ -155,10 +155,11 @@ def get_authorization_url(state=None):
     client_id = getenv("DISCORD_CLIENT_ID")
     redirect_uri = getenv("APP_URI")
 
+    # Discord OAuth2 parameters
     params = {
-        "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,
+        "response_type": "code",
         "scope": " ".join(SCOPES),
     }
 

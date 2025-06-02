@@ -1,7 +1,8 @@
 services:
   agixt:
-    image: joshxt/agixt:latest
+    image: joshxt/agixt:main
     init: true
+    restart: unless-stopped
     environment:
       DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}
       DATABASE_NAME: ${DATABASE_NAME:-models/agixt}
@@ -96,7 +97,7 @@ services:
       MODE: production
       NEXT_TELEMETRY_DISABLED: 1
       AGIXT_AGENT: ${AGIXT_AGENT:-XT}
-      AGIXT_FOOTER_MESSAGE: ${AGIXT_FOOTER_MESSAGE:-AGiXT 2024}
+      AGIXT_FOOTER_MESSAGE: ${AGIXT_FOOTER_MESSAGE:-AGiXT 2025}
       AGIXT_SERVER: ${AGIXT_SERVER:-http://localhost:7437}
       APP_DESCRIPTION: ${APP_DESCRIPTION-AGiXT is an advanced artificial intelligence agent orchestration agent.}
       APP_NAME: ${APP_NAME:-AGiXT}
@@ -111,12 +112,6 @@ services:
       AGIXT_CONVERSATION_MODE: ${AGIXT_CONVERSATION_MODE:-select}
       INTERACTIVE_MODE: ${INTERACTIVE_MODE:-chat}
       ALLOW_EMAIL_SIGN_IN: ${ALLOW_EMAIL_SIGN_IN:-true}
-      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
-      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID}
-      TESLA_CLIENT_ID: ${TESLA_CLIENT_ID}
-      X_CLIENT_ID: ${X_CLIENT_ID}
       TZ: ${TZ:-America/New_York}
     ports:
       - "${AGIXT_INTERACTIVE_PORT:-3437}:3437"

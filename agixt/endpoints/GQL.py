@@ -764,6 +764,7 @@ class ChainStep:
     prompt: JSONObject
 
 
+@strawberry.type
 class ChainDetails:
     """Represents a chain's full details"""
 

@@ -102,7 +102,6 @@ class Websearch:
             and link is not None
             and str(link).startswith("http")
         ):
-            logging.info(f"Browsing link: {link}")
             return True
         return False
 
@@ -306,7 +305,6 @@ class Websearch:
                                 },
                             )
                             if not str(pick_a_link).lower().startswith("none"):
-                                logging.info(f"AI has decided to click: {pick_a_link}")
                                 task = asyncio.create_task(
                                     self.recursive_browsing(
                                         user_input=user_input,
@@ -324,7 +322,6 @@ class Websearch:
                                     message=f"[SUBACTIVITY][{activity_id}] Decided not to click any links on [{url}]({url}).",
                                 )
                         except:
-                            logging.info(f"Issues reading {url}. Moving on...")
                             if (
                                 conversation_name != ""
                                 and conversation_name is not None
@@ -349,10 +346,6 @@ class Websearch:
         self.current_depth = self.current_depth + 1
         if self.current_depth > self.websearch_depth:
             return ""
-        logging.info(f"Recursive browsing: {links}")
-        logging.info(
-            f"Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
-        )
         c = Conversations(conversation_name=conversation_name, user=self.user)
         try:
             words = links.split()
@@ -370,7 +363,6 @@ class Websearch:
                         url = link
                 else:
                     url = link
-                logging.info(f"URL: {url}")
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if self.verify_link(link=url):
                     if conversation_name != "" and conversation_name is not None:
@@ -533,7 +525,6 @@ class Websearch:
             endpoint = endpoint[:-1]
         if endpoint.endswith("search"):
             endpoint = endpoint[:-6]
-        logging.info(f"Websearching for {query} on {endpoint}")
         text_content, link_list = await self.get_web_content(
             url=f"{endpoint}/search?q={query}", conversation_id=conversation_id
         )
@@ -566,9 +557,6 @@ class Websearch:
             if len(user_input) > 0:
                 c = Conversations(conversation_name=conversation_name, user=self.user)
                 conversation_id = c.get_conversation_id()
-                logging.info(
-                    f"Websearch Agent: Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
-                )
                 new_activity_id = c.log_interaction(
                     role=self.agent_name,
                     message=f"[SUBACTIVITY][{activity_id}] Searching for `{search_string}`.",
@@ -584,16 +572,11 @@ class Websearch:
                     else ""
                 )
                 links = []
-                logging.info(f"Gooogle API Key: {google_api_key}")
-                logging.info(f"Google Search Engine ID: {google_search_engine_id}")
                 if google_api_key != "" and google_search_engine_id != "":
                     links = await self.google_search(
                         query=search_string,
                         google_api_key=google_api_key,
                         google_search_engine_id=google_search_engine_id,
-                    )
-                    logging.info(
-                        f"Found {len(links)} results for {search_string} using Google."
                     )
                 if links == [] or links is None:
                     search_proxy = getenv("SEARCH_PROXY")
@@ -603,13 +586,7 @@ class Websearch:
                         )
                     else:
                         links = await self.ddg_search(query=search_string)
-                    logging.info(
-                        f"Found {len(links)} results for {search_string} using DDG."
-                    )
                 if links == [] or links is None:
-                    logging.info(
-                        f"DDG Search Failed. Trying different search providers."
-                    )
                     links = []
                     content, links = await self.web_search(
                         query=search_string, conversation_id=conversation_id
@@ -632,10 +609,4 @@ class Websearch:
                 if int(websearch_timeout) == 0:
                     await asyncio.gather(*self.tasks)
                 else:
-                    logging.info(
-                        f"Web searching for {websearch_timeout} seconds... Please wait..."
-                    )
                     await asyncio.sleep(int(websearch_timeout))
-                    logging.info("Websearch tasks completed.")
-            else:
-                logging.info("No results found.")
