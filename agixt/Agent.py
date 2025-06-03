@@ -520,7 +520,7 @@ class Agent:
 
         # Wallet Creation Logic - Runs only if agent exists
         if agent:
-            # Check for existing wallet address setting
+            # Check for existing wallet settings
             existing_wallet_address = (
                 session.query(AgentSettingModel)
                 .filter(
@@ -530,31 +530,76 @@ class Agent:
                 .first()
             )
 
-            if not existing_wallet_address:
-                # Wallet doesn't exist, create and save it
+            existing_private_key = (
+                session.query(AgentSettingModel)
+                .filter(
+                    AgentSettingModel.agent_id == agent.id,
+                    AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
+                )
+                .first()
+            )
+
+            existing_passphrase = (
+                session.query(AgentSettingModel)
+                .filter(
+                    AgentSettingModel.agent_id == agent.id,
+                    AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
+                )
+                .first()
+            )
+
+            # Check if wallet doesn't exist or any of the critical settings are empty
+            wallet_needs_creation = (
+                not existing_wallet_address
+                or not existing_private_key
+                or not existing_passphrase
+                or not (existing_wallet_address and existing_wallet_address.value)
+                or not (existing_private_key and existing_private_key.value)
+                or not (existing_passphrase and existing_passphrase.value)
+            )
+
+            if wallet_needs_creation:
+                # Wallet doesn't exist or is incomplete, create and save it
                 logging.info(
-                    f"Solana wallet not found for agent {agent.name} ({agent.id}). Creating one..."
+                    f"Solana wallet missing or incomplete for agent {agent.name} ({agent.id}). Creating new wallet..."
                 )
                 try:
                     private_key, passphrase, address = create_solana_wallet()
-                    settings_to_add = [
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_API_KEY",
-                            value=private_key,
-                        ),
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_PASSPHRASE_API_KEY",
-                            value=passphrase,
-                        ),
-                        AgentSettingModel(
-                            agent_id=agent.id,
-                            name="SOLANA_WALLET_ADDRESS",
-                            value=address,
-                        ),
-                    ]
-                    session.add_all(settings_to_add)
+
+                    # Update or create the settings
+                    if existing_private_key:
+                        existing_private_key.value = private_key
+                    else:
+                        session.add(
+                            AgentSettingModel(
+                                agent_id=agent.id,
+                                name="SOLANA_WALLET_API_KEY",
+                                value=private_key,
+                            )
+                        )
+
+                    if existing_passphrase:
+                        existing_passphrase.value = passphrase
+                    else:
+                        session.add(
+                            AgentSettingModel(
+                                agent_id=agent.id,
+                                name="SOLANA_WALLET_PASSPHRASE_API_KEY",
+                                value=passphrase,
+                            )
+                        )
+
+                    if existing_wallet_address:
+                        existing_wallet_address.value = address
+                    else:
+                        session.add(
+                            AgentSettingModel(
+                                agent_id=agent.id,
+                                name="SOLANA_WALLET_ADDRESS",
+                                value=address,
+                            )
+                        )
+
                     session.commit()
                     logging.info(
                         f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
@@ -581,7 +626,9 @@ class Agent:
                     ac.command_id == command.id and ac.state for ac in agent_commands
                 )
             for setting in agent_settings:
-                if setting.value == "":
+                # Don't skip wallet-related settings even if they're empty (they should have been created above)
+                # but skip other empty settings as before
+                if setting.value == "" and not setting.name.startswith("SOLANA_WALLET"):
                     continue
                 config["settings"][setting.name] = setting.value
             user_settings = self.get_registration_requirement_settings()
@@ -1265,7 +1312,8 @@ class Agent:
     def get_agent_wallet(self):
         """
         Retrieves the private key and passphrase for the agent's Solana wallet.
-        Strictly enforces one wallet per agent. Assumes wallet exists if agent exists.
+        If wallet doesn't exist or is empty, creates a new one.
+        Strictly enforces one wallet per agent.
         Authenticates using the provided API key.
         """
         session = get_session()
@@ -1305,19 +1353,90 @@ class Agent:
                 .first()
             )
 
-            if not private_key_setting or not passphrase_setting:
-                # This case should ideally not happen if the creation logic in Agent.py works correctly
-                logging.error(
-                    f"Wallet details incomplete or missing for agent {self.agent_name} ({agent.id})."
+            address_setting = (
+                session.query(AgentSettingModel)
+                .filter(
+                    AgentSettingModel.agent_id == agent.id,
+                    AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
                 )
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Wallet details not found for agent '{self.agent_name}'. Wallet might not have been created yet.",
+                .first()
+            )
+
+            # Check if wallet settings are missing or empty
+            wallet_incomplete = (
+                not private_key_setting
+                or not passphrase_setting
+                or not address_setting
+                or not (private_key_setting and private_key_setting.value)
+                or not (passphrase_setting and passphrase_setting.value)
+                or not (address_setting and address_setting.value)
+            )
+
+            if wallet_incomplete:
+                # Create a new wallet
+                logging.info(
+                    f"Wallet missing or incomplete for agent {self.agent_name} ({agent.id}). Creating new wallet..."
                 )
+                try:
+                    private_key, passphrase, address = create_solana_wallet()
+
+                    # Update or create the settings
+                    if private_key_setting:
+                        private_key_setting.value = private_key
+                    else:
+                        private_key_setting = AgentSettingModel(
+                            agent_id=agent.id,
+                            name="SOLANA_WALLET_API_KEY",
+                            value=private_key,
+                        )
+                        session.add(private_key_setting)
+
+                    if passphrase_setting:
+                        passphrase_setting.value = passphrase
+                    else:
+                        passphrase_setting = AgentSettingModel(
+                            agent_id=agent.id,
+                            name="SOLANA_WALLET_PASSPHRASE_API_KEY",
+                            value=passphrase,
+                        )
+                        session.add(passphrase_setting)
+
+                    if address_setting:
+                        address_setting.value = address
+                    else:
+                        address_setting = AgentSettingModel(
+                            agent_id=agent.id,
+                            name="SOLANA_WALLET_ADDRESS",
+                            value=address,
+                        )
+                        session.add(address_setting)
+
+                    session.commit()
+                    logging.info(
+                        f"Successfully created new wallet for agent {self.agent_name} ({agent.id})."
+                    )
+
+                    # Refresh the variables after successful creation
+                    private_key_value = private_key_setting.value
+                    passphrase_value = passphrase_setting.value
+
+                except Exception as wallet_creation_error:
+                    session.rollback()
+                    logging.error(
+                        f"Error creating wallet for agent {self.agent_name}: {wallet_creation_error}"
+                    )
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to create wallet for agent.",
+                    )
+            else:
+                # Wallet exists and is complete
+                private_key_value = private_key_setting.value
+                passphrase_value = passphrase_setting.value
 
             return {
-                "private_key": private_key_setting.value,
-                "passphrase": passphrase_setting.value,
+                "private_key": private_key_value,
+                "passphrase": passphrase_value,
             }
         except HTTPException as e:
             session.rollback()

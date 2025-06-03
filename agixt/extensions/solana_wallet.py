@@ -102,7 +102,9 @@ class solana_wallet(Extensions):
         self.client = AsyncClient(SOLANA_API_URI)
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
 
-        if WALLET_PRIVATE_KEY:
+        if (
+            WALLET_PRIVATE_KEY and WALLET_PRIVATE_KEY.strip()
+        ):  # Check for non-empty string
             try:
                 try:
                     secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
@@ -115,6 +117,11 @@ class solana_wallet(Extensions):
                 print(f"Error initializing wallet: {e}")
                 self.wallet_keypair = None
                 self.wallet_address = None
+        else:
+            # No private key provided or empty private key
+            print("No valid private key provided for Solana wallet initialization")
+            self.wallet_keypair = None
+            self.wallet_address = None
 
         self.commands = {
             "Get Solana Wallet Balance": self.get_wallet_balance,
