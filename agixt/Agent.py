@@ -604,6 +604,13 @@ class Agent:
                     logging.info(
                         f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
                     )
+
+                    # Refresh agent_settings to include newly created wallet settings
+                    agent_settings = (
+                        session.query(AgentSettingModel)
+                        .filter_by(agent_id=agent.id)
+                        .all()
+                    )
                 except Exception as e:
                     logging.error(
                         f"Error creating/saving Solana wallet for agent {agent.name} ({agent.id}): {e}"
@@ -612,9 +619,11 @@ class Agent:
 
         if agent:
             all_commands = session.query(Command).all()
-            agent_settings = (
-                session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
-            )
+            # Only query agent_settings if not already refreshed after wallet creation
+            if "agent_settings" not in locals():
+                agent_settings = (
+                    session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
+                )
             agent_commands = (
                 session.query(AgentCommand)
                 .filter(AgentCommand.agent_id == agent.id)
