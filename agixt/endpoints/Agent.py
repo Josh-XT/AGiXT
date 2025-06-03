@@ -769,7 +769,7 @@ async def delete_provider(
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
     summary="Get agent wallet",
-    description="Retrieves the private key and passphrase for the agent's Solana wallet. Assumes wallet exists if agent exists.",
+    description="Retrieves the private key and passphrase for the agent's Solana wallet. If wallet doesn't exist or is empty, creates a new one automatically.",
     response_model=WalletResponseModel,
 )
 async def get_agent_wallet(
