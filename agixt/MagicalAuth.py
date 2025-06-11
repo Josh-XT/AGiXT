@@ -1189,8 +1189,6 @@ class MagicalAuth:
             role_id = int(role_id)
         except:
             role_id = 3
-        if role_id > 3:
-            role_id = 3
         if role_id < user_role:
             session.close()
             raise HTTPException(
