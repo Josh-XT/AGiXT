@@ -1641,6 +1641,29 @@ class AGiXT:
                                         transcribed_audio = await self.audio_to_text(
                                             audio_path=wav_file,
                                         )
+                                        if len(transcribed_audio) < 1:
+                                            return {
+                                                "id": self.conversation_id,
+                                                "object": "chat.completion",
+                                                "created": int(time.time()),
+                                                "model": self.agent_name,
+                                                "choices": [
+                                                    {
+                                                        "index": 0,
+                                                        "message": {
+                                                            "role": "assistant",
+                                                            "content": "No input received.",
+                                                        },
+                                                        "finish_reason": "stop",
+                                                        "logprobs": None,
+                                                    }
+                                                ],
+                                                "usage": {
+                                                    "prompt_tokens": 0,
+                                                    "completion_tokens": 0,
+                                                    "total_tokens": 0,
+                                                },
+                                            }
                                         new_prompt += transcribed_audio
         # Add user input to conversation
         for file in files:
