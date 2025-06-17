@@ -10,17 +10,28 @@ import socket
 try:
     from tzlocal import get_localzone
 except ImportError:
-    subprocess.run([sys.executable, "-m", "pip", "install", "tzlocal"], check=True)
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "tzlocal", "--break-system-packages"],
+        check=True,
+    )
     from tzlocal import get_localzone
 try:
     from dotenv import load_dotenv
 except ImportError:
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "python-dotenv"], check=True
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "python-dotenv",
+            "--break-system-packages",
+        ],
+        check=True,
     )
     from dotenv import load_dotenv
 try:
-    import win32com.client as wim
+    import win32com.client as wim  # type: ignore
 except ImportError:
     wim = None
 
@@ -56,7 +67,14 @@ def is_tool_installed(tool):
 
 def install_docker():
     system = platform.system().lower()
+    unsupported_message = "Docker is required to run AGiXT. Please install Docker manually from https://www.docker.com/products/docker-desktop"
     if system == "linux":
+        install = prompt_user(
+            "Docker is not installed. Would you like to install Docker? (y/n)", "y"
+        )
+        if install.lower() != "y":
+            print("Docker is required to run AGiXT. Exiting.")
+            return False
         if is_tool_installed("apt-get"):
             commands = [
                 "sudo apt-get update",
@@ -73,20 +91,10 @@ def install_docker():
                 "sudo usermod -aG docker $USER",
             ]
         else:
-            print("Unsupported Linux distribution. Please install Docker manually.")
+            print(unsupported_message)
             return False
-    elif system == "darwin":
-        print(
-            "Please install Docker Desktop for Mac from https://www.docker.com/products/docker-desktop"
-        )
-        return False
-    elif system == "windows":
-        print(
-            "Please install Docker Desktop for Windows from https://www.docker.com/products/docker-desktop"
-        )
-        return False
     else:
-        print(f"Unsupported operating system: {system}")
+        print(unsupported_message)
         return False
 
     for command in commands:
@@ -94,46 +102,11 @@ def install_docker():
     return True
 
 
-def install_docker_compose():
-    system = platform.system().lower()
-    if system == "linux":
-        commands = [
-            'sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose',
-            "sudo chmod +x /usr/local/bin/docker-compose",
-        ]
-        for command in commands:
-            subprocess.run(command, shell=True, check=True)
-        return True
-    elif system in ["darwin", "windows"]:
-        print(
-            "Docker Compose is included in Docker Desktop. Please ensure Docker Desktop is installed."
-        )
-        return False
-    else:
-        print(f"Unsupported operating system: {system}")
-        return False
-
-
 def check_prerequisites():
     if not is_tool_installed("docker"):
-        print("Docker is not installed.")
-        install = prompt_user("Would you like to install Docker? (y/n)", "y")
-        if install.lower() != "y":
-            print("Docker is required to run AGiXT. Exiting.")
-            sys.exit(1)
         if not install_docker():
-            print("Failed to install Docker. Please install it manually and try again.")
-            sys.exit(1)
-
-    if not is_tool_installed("docker-compose"):
-        print("Docker Compose is not installed.")
-        install = prompt_user("Would you like to install Docker Compose? (y/n)", "y")
-        if install.lower() != "y":
-            print("Docker Compose is required to run AGiXT. Exiting.")
-            sys.exit(1)
-        if not install_docker_compose():
             print(
-                "Failed to install Docker Compose. Please install it manually and try again."
+                "Failed to install Docker. Please install it manually from https://www.docker.com/products/docker-desktop"
             )
             sys.exit(1)
 
@@ -170,69 +143,119 @@ def get_default_env_vars():
     workspace_folder = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
     machine_tz = get_localzone()
     return {
+        # Core AGiXT configuration
         "AGIXT_API_KEY": "",
         "AGIXT_URI": "http://localhost:7437",
         "AGIXT_PORT": "7437",
         "AGIXT_INTERACTIVE_PORT": "3437",
-        "AGIXT_AGENT": "AGiXT",
+        "APP_PORT": "3437",
+        "AGIXT_AGENT": "XT",
         "AGIXT_BRANCH": "stable",
         "AGIXT_FILE_UPLOAD_ENABLED": "true",
         "AGIXT_VOICE_INPUT_ENABLED": "true",
-        "AGIXT_FOOTER_MESSAGE": "Powered by AGiXT",
-        "AGIXT_REQUIRE_API_KEY": "false",
+        "AGIXT_FOOTER_MESSAGE": "AGiXT 2025",
+        "AGIXT_SERVER": "http://localhost:7437",
         "AGIXT_RLHF": "true",
-        "AGIXT_SHOW_SELECTION": "conversation,agent",
-        "AGIXT_SHOW_AGENT_BAR": "true",
-        "AGIXT_SHOW_APP_BAR": "true",
         "AGIXT_CONVERSATION_MODE": "select",
         "AGIXT_SHOW_OVERRIDE_SWITCHES": "tts,websearch,analyze-user-input",
-        "ALLOWED_DOMAINS": "*",
-        "APP_DESCRIPTION": "A chat powered by AGiXT.",
-        "APP_NAME": "AGiXT Chat",
+        "AGIXT_ALLOW_MESSAGE_EDITING": "true",
+        "AGIXT_ALLOW_MESSAGE_DELETION": "true",
+        "AGIXT_AUTO_UPDATE": "true",
+        # App configuration
+        "APP_DESCRIPTION": "AGiXT is an advanced artificial intelligence agent orchestration agent.",
+        "APP_NAME": "AGiXT",
         "APP_URI": "http://localhost:3437",
-        "CREATE_AGENT_ON_REGISTER": "true",
-        "CREATE_AGIXT_AGENT": "true",
-        "DISABLED_PROVIDERS": "",
-        "DISABLED_EXTENSIONS": "",
-        "WORKING_DIRECTORY": workspace_folder.replace("\\", "/"),
-        "TZ": machine_tz,
-        "INTERACTIVE_MODE": "chat",
-        "THEME_NAME": "doom",
         "ALLOW_EMAIL_SIGN_IN": "true",
+        # System configuration
         "DATABASE_TYPE": "sqlite",
         "DATABASE_NAME": "models/agixt",
         "LOG_LEVEL": "INFO",
-        "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
-        "UVICORN_WORKERS": "10",
-        "AGIXT_AUTO_UPDATE": "true",
-        "EZLOCALAI_URI": f"http://{get_local_ip()}:8091/v1/",
-        "DEFAULT_MODEL": "QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF",
-        "VISION_MODEL": "deepseek-ai/deepseek-vl-1.3b-chat",
-        "LLM_MAX_TOKENS": "32768",
-        "WHISPER_MODEL": "base.en",
-        "GPU_LAYERS": "0",
-        "WITH_EZLOCALAI": "false",
-        "REGISTRATION_DISABLED": "false",
-        "AGIXT_ALLOW_MESSAGE_EDITING": "true",
-        "AGIXT_ALLOW_MESSAGE_DELETION": "true",
-        "AGIXT_SHOW_CHAT_THEME_TOGGLES": "",
         "LOG_VERBOSITY_SERVER": "3",
-        "AOL_CLIENT_ID": "",
-        "AOL_CLIENT_SECRET": "",
-        "APPLE_CLIENT_ID": "",
-        "APPLE_CLIENT_SECRET": "",
-        "AUTODESK_CLIENT_ID": "",
-        "AUTODESK_CLIENT_SECRET": "",
+        "UVICORN_WORKERS": "10",
+        "WORKING_DIRECTORY": workspace_folder.replace("\\", "/"),
+        "TZ": str(machine_tz),
+        "DISABLED_PROVIDERS": "",
+        "DISABLED_EXTENSIONS": "",
+        "REGISTRATION_DISABLED": "false",
+        "GRAPHIQL": "true",
+        # Storage configuration
+        "STORAGE_BACKEND": "local",
+        "STORAGE_CONTAINER": "agixt-workspace",
+        "B2_KEY_ID": "",
+        "B2_APPLICATION_KEY": "",
+        "B2_REGION": "us-west-002",
+        "S3_BUCKET": "agixt-workspace",
+        "S3_ENDPOINT": "http://minio:9000",
+        "AWS_ACCESS_KEY_ID": "minioadmin",
+        "AWS_SECRET_ACCESS_KEY": "minioadmin",
+        "AWS_STORAGE_REGION": "us-east-1",
+        "AZURE_STORAGE_ACCOUNT_NAME": "",
+        "AZURE_STORAGE_KEY": "",
+        # Agent configuration
+        "SEED_DATA": "true",
+        "AGENT_NAME": "XT",
+        "AGENT_PERSONA": "",
+        "TRAINING_URLS": "",
+        "ENABLED_COMMANDS": "",
+        "ROTATION_EXCLUSIONS": "",
+        # AI Model configuration
+        "EZLOCALAI_URI": f"http://{get_local_ip()}:8091/v1/",
+        "EZLOCALAI_VOICE": "",
+        "ANTHROPIC_MODEL": "",
+        "DEEPSEEK_MODEL": "",
+        "AZURE_MODEL": "",
+        "GOOGLE_MODEL": "",
+        "OPENAI_MODEL": "",
+        "XAI_MODEL": "",
+        "EZLOCALAI_MAX_TOKENS": "",
+        "DEEPSEEK_MAX_TOKENS": "",
+        "AZURE_MAX_TOKENS": "",
+        "XAI_MAX_TOKENS": "",
+        "OPENAI_MAX_TOKENS": "",
+        "ANTHROPIC_MAX_TOKENS": "",
+        "GOOGLE_MAX_TOKENS": "",
+        # API Keys
+        "AZURE_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+        "OPENAI_API_KEY": "",
+        "ANTHROPIC_API_KEY": "",
+        "EZLOCALAI_API_KEY": "",
+        "DEEPSEEK_API_KEY": "",
+        "XAI_API_KEY": "",
+        "AZURE_OPENAI_ENDPOINT": "",
+        # OAuth Client IDs and Secrets
+        "ALEXA_CLIENT_ID": "",
+        "ALEXA_CLIENT_SECRET": "",
         "AWS_CLIENT_ID": "",
         "AWS_CLIENT_SECRET": "",
         "AWS_REGION": "",
         "AWS_USER_POOL_ID": "",
+        "DISCORD_CLIENT_ID": "",
+        "DISCORD_CLIENT_SECRET": "",
+        "FITBIT_CLIENT_ID": "",
+        "FITBIT_CLIENT_SECRET": "",
+        "GARMIN_CLIENT_ID": "",
+        "GARMIN_CLIENT_SECRET": "",
         "GITHUB_CLIENT_ID": "",
         "GITHUB_CLIENT_SECRET": "",
         "GOOGLE_CLIENT_ID": "",
         "GOOGLE_CLIENT_SECRET": "",
         "MICROSOFT_CLIENT_ID": "",
         "MICROSOFT_CLIENT_SECRET": "",
+        "TESLA_CLIENT_ID": "",
+        "TESLA_CLIENT_SECRET": "",
+        "WALMART_CLIENT_ID": "",
+        "WALMART_CLIENT_SECRET": "",
+        "WALMART_MARKETPLACE_ID": "",
+        "X_CLIENT_ID": "",
+        "X_CLIENT_SECRET": "",
+        # Local configuration (not in docker-compose but needed for local setup)
+        "DEFAULT_MODEL": "bartowski/deepseek-ai_DeepSeek-R1-0528-Qwen3-8B-GGUF",
+        "VISION_MODEL": "deepseek-ai/deepseek-vl-1.3b-chat",
+        "LLM_MAX_TOKENS": "32768",
+        "WHISPER_MODEL": "base",
+        "GPU_LAYERS": "0",
+        "WITH_EZLOCALAI": "false",
     }
 
 
