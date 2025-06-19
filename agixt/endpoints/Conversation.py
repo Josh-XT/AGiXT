@@ -599,13 +599,36 @@ async def conversation_stream(
         # Get initial conversation history
         try:
             initial_history = c.get_conversation()
-            if initial_history and "interactions" in initial_history:
-                for message in initial_history["interactions"]:
-                    await websocket.send_text(
-                        json.dumps({"type": "initial_message", "data": message})
-                    )
+            logging.info(f"Initial history type: {type(initial_history)}")
+            logging.info(f"Initial history: {initial_history}")
+            
+            messages = []
+            if initial_history is None:
+                messages = []
+            elif isinstance(initial_history, list):
+                # History is directly a list of messages
+                messages = initial_history
+            elif isinstance(initial_history, dict) and "interactions" in initial_history:
+                # History is a dict with interactions key
+                messages = initial_history["interactions"]
+            else:
+                # Try to convert to list if it's some other format
+                messages = []
+                logging.warning(f"Unexpected initial_history format: {type(initial_history)}")
+            
+            logging.info(f"Found {len(messages)} messages to send")
+            
+            for message in messages:
+                await websocket.send_text(
+                    json.dumps({"type": "initial_message", "data": message})
+                )
+                
         except Exception as e:
             logging.error(f"Error getting initial conversation history: {e}")
+            # Send error message to client for debugging
+            await websocket.send_text(
+                json.dumps({"type": "error", "message": f"Error loading conversation history: {str(e)}"})
+            )
 
         # Send initial connection confirmation
         await websocket.send_text(
@@ -619,9 +642,7 @@ async def conversation_stream(
         )
 
         # Track the last message count to detect new messages
-        last_message_count = (
-            len(initial_history.get("interactions", [])) if initial_history else 0
-        )
+        last_message_count = len(messages) if messages else 0
         last_check_time = datetime.now()
 
         # Main streaming loop
@@ -632,10 +653,19 @@ async def conversation_stream(
 
                 # Get current conversation state
                 current_history = c.get_conversation()
-                if not current_history or "interactions" not in current_history:
+                
+                # Handle different formats of conversation history
+                current_messages = []
+                if current_history is None:
+                    current_messages = []
+                elif isinstance(current_history, list):
+                    current_messages = current_history
+                elif isinstance(current_history, dict) and "interactions" in current_history:
+                    current_messages = current_history["interactions"]
+                
+                if not current_messages:
                     continue
 
-                current_messages = current_history["interactions"]
                 current_message_count = len(current_messages)
 
                 # Check for new messages
