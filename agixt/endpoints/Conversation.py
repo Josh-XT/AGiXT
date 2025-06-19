@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect
 from typing import Dict
 from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
@@ -27,10 +27,24 @@ from Models import (
 )
 import json
 import uuid
+import asyncio
+import logging
 from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
 
 app = APIRouter()
+
+
+def make_json_serializable(obj):
+    """Convert datetime objects and other non-serializable objects to JSON-serializable formats"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_serializable(item) for item in obj]
+    else:
+        return obj
 
 
 @app.get(
@@ -507,6 +521,269 @@ async def get_tts(
     )
     c.update_message_by_id(message_id=message_id, new_message=new_message)
     return {"message": new_message}
+
+
+# WebSocket endpoint for streaming conversation updates
+@app.websocket("/v1/conversation/{conversation_id}/stream")
+async def conversation_stream(
+    websocket: WebSocket, conversation_id: str, authorization: str = None
+):
+    """
+    WebSocket endpoint for streaming real-time conversation updates.
+
+    This endpoint allows clients to subscribe to conversation updates and receive
+    real-time notifications when new messages are added, updated, or deleted.
+
+    Parameters:
+    - conversation_id: The ID of the conversation to stream
+    - authorization: Bearer token for authentication (can be passed as query param)
+
+    The WebSocket will send JSON messages with the following structure:
+    {
+        "type": "message_added" | "message_updated" | "message_deleted" | "error" | "heartbeat",
+        "data": {
+            "id": "message_id",
+            "role": "user|agent_name",
+            "message": "message_content",
+            "timestamp": "ISO datetime",
+            "updated_at": "ISO datetime",
+            "updated_by": "user_id",
+            "feedback_received": boolean
+        }
+    }
+    """
+    await websocket.accept()
+
+    try:
+        # Get authorization token from query params if not in header
+        if not authorization:
+            authorization = websocket.query_params.get("authorization")
+
+        if not authorization:
+            await websocket.send_text(
+                json.dumps({"type": "error", "message": "Authorization token required"})
+            )
+            await websocket.close()
+            return
+
+        # Authenticate user using the same logic as verify_api_key
+        try:
+            # Import the verify_api_key function to reuse the same authentication logic
+            from ApiClient import verify_api_key
+
+            # Create a mock header object for verify_api_key
+            class MockHeader:
+                def __init__(self, value):
+                    self.value = value
+
+                def __str__(self):
+                    return self.value
+
+            # Use the same authentication logic as other endpoints
+            user = verify_api_key(authorization=MockHeader(authorization))
+            auth = MagicalAuth(token=authorization)
+        except Exception as e:
+            await websocket.send_text(
+                json.dumps(
+                    {"type": "error", "message": f"Authentication failed: {str(e)}"}
+                )
+            )
+            await websocket.close()
+            return
+
+        # Get conversation name from ID, handle special case of "-"
+        try:
+            if conversation_id == "-":
+                conversation_id = get_conversation_id_by_name(
+                    conversation_name="-", user_id=auth.user_id
+                )
+            conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=auth.user_id
+            )
+        except Exception as e:
+            await websocket.send_text(
+                json.dumps(
+                    {"type": "error", "message": f"Conversation not found: {str(e)}"}
+                )
+            )
+            await websocket.close()
+            return
+
+        # Initialize conversation handler
+        c = Conversations(conversation_name=conversation_name, user=user)
+
+        # Get initial conversation history
+        try:
+            initial_history = c.get_conversation()
+            logging.info(f"Initial history type: {type(initial_history)}")
+            logging.info(f"Initial history: {initial_history}")
+
+            messages = []
+            if initial_history is None:
+                messages = []
+            elif isinstance(initial_history, list):
+                # History is directly a list of messages
+                messages = initial_history
+            elif (
+                isinstance(initial_history, dict) and "interactions" in initial_history
+            ):
+                # History is a dict with interactions key
+                messages = initial_history["interactions"]
+            else:
+                # Try to convert to list if it's some other format
+                messages = []
+                logging.warning(
+                    f"Unexpected initial_history format: {type(initial_history)}"
+                )
+
+            logging.info(f"Found {len(messages)} messages to send")
+
+            for message in messages:
+                # Convert datetime objects to ISO format strings for JSON serialization
+                serializable_message = make_json_serializable(message)
+                await websocket.send_text(
+                    json.dumps(
+                        {"type": "initial_message", "data": serializable_message}
+                    )
+                )
+
+        except Exception as e:
+            logging.error(f"Error getting initial conversation history: {e}")
+            # Send error message to client for debugging
+            await websocket.send_text(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": f"Error loading conversation history: {str(e)}",
+                    }
+                )
+            )
+
+        # Send initial connection confirmation
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "connected",
+                    "conversation_id": conversation_id,
+                    "conversation_name": conversation_name,
+                }
+            )
+        )
+
+        # Track the last message count to detect new messages
+        last_message_count = len(messages) if messages else 0
+        last_check_time = datetime.now()
+
+        # Main streaming loop
+        while True:
+            try:
+                # Check for new messages every 2 seconds
+                await asyncio.sleep(2)
+
+                # Get current conversation state
+                current_history = c.get_conversation()
+
+                # Handle different formats of conversation history
+                current_messages = []
+                if current_history is None:
+                    current_messages = []
+                elif isinstance(current_history, list):
+                    current_messages = current_history
+                elif (
+                    isinstance(current_history, dict)
+                    and "interactions" in current_history
+                ):
+                    current_messages = current_history["interactions"]
+
+                if not current_messages:
+                    continue
+
+                current_message_count = len(current_messages)
+
+                # Check for new messages
+                if current_message_count > last_message_count:
+                    # Send new messages
+                    new_messages = current_messages[last_message_count:]
+                    for message in new_messages:
+                        serializable_message = make_json_serializable(message)
+                        await websocket.send_text(
+                            json.dumps(
+                                {"type": "message_added", "data": serializable_message}
+                            )
+                        )
+                    last_message_count = current_message_count
+
+                # Check for updated messages (messages modified since last check)
+                for message in current_messages:
+                    message_updated_at = message.get("updated_at")
+                    if message_updated_at:
+                        try:
+                            # Parse the timestamp - handle both string and datetime objects
+                            if isinstance(message_updated_at, str):
+                                # Try basic ISO format parsing first
+                                try:
+                                    updated_time = datetime.fromisoformat(
+                                        message_updated_at.replace("Z", "+00:00")
+                                    )
+                                except:
+                                    # Fallback to current time if parsing fails
+                                    updated_time = datetime.now()
+                            else:
+                                updated_time = message_updated_at
+
+                            # Check if message was updated since last check
+                            if updated_time > last_check_time:
+                                serializable_message = make_json_serializable(message)
+                                await websocket.send_text(
+                                    json.dumps(
+                                        {
+                                            "type": "message_updated",
+                                            "data": serializable_message,
+                                        }
+                                    )
+                                )
+                        except Exception as e:
+                            logging.warning(f"Error parsing message timestamp: {e}")
+
+                last_check_time = datetime.now()
+
+                # Send heartbeat every 30 seconds to keep connection alive
+                if datetime.now().timestamp() % 30 < 2:
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "heartbeat",
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                        )
+                    )
+
+            except WebSocketDisconnect:
+                logging.info(
+                    f"WebSocket disconnected for conversation {conversation_id}"
+                )
+                break
+            except Exception as e:
+                logging.error(f"Error in conversation stream: {e}")
+                try:
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": str(e)})
+                    )
+                except:
+                    # Connection likely closed
+                    break
+
+    except WebSocketDisconnect:
+        logging.info(f"WebSocket disconnected for conversation {conversation_id}")
+    except Exception as e:
+        logging.error(f"Unexpected error in conversation stream: {e}")
+        try:
+            await websocket.send_text(
+                json.dumps({"type": "error", "message": f"Unexpected error: {str(e)}"})
+            )
+            await websocket.close()
+        except:
+            pass
 
 
 @app.get(
