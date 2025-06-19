@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect
 from typing import Dict
 from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
@@ -27,6 +27,8 @@ from Models import (
 )
 import json
 import uuid
+import asyncio
+import logging
 from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
 
@@ -509,10 +511,194 @@ async def get_tts(
     return {"message": new_message}
 
 
+# WebSocket endpoint for streaming conversation updates
+@app.websocket("/v1/conversation/{conversation_id}/stream")
+async def conversation_stream(
+    websocket: WebSocket,
+    conversation_id: str,
+    authorization: str = None
+):
+    """
+    WebSocket endpoint for streaming real-time conversation updates.
+    
+    This endpoint allows clients to subscribe to conversation updates and receive
+    real-time notifications when new messages are added, updated, or deleted.
+    
+    Parameters:
+    - conversation_id: The ID of the conversation to stream
+    - authorization: Bearer token for authentication (can be passed as query param)
+    
+    The WebSocket will send JSON messages with the following structure:
+    {
+        "type": "message_added" | "message_updated" | "message_deleted" | "error" | "heartbeat",
+        "data": {
+            "id": "message_id",
+            "role": "user|agent_name", 
+            "message": "message_content",
+            "timestamp": "ISO datetime",
+            "updated_at": "ISO datetime",
+            "updated_by": "user_id",
+            "feedback_received": boolean
+        }
+    }
+    """
+    await websocket.accept()
+    
+    try:
+        # Get authorization token from query params if not in header
+        if not authorization:
+            authorization = websocket.query_params.get("authorization")
+        
+        if not authorization:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Authorization token required"
+            }))
+            await websocket.close()
+            return
+        
+        # Authenticate user
+        try:
+            auth = MagicalAuth(token=authorization)
+            user = auth.user
+        except Exception as e:
+            await websocket.send_text(json.dumps({
+                "type": "error", 
+                "message": f"Authentication failed: {str(e)}"
+            }))
+            await websocket.close()
+            return
+        
+        # Get conversation name from ID
+        try:
+            conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=auth.user_id
+            )
+        except Exception as e:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": f"Conversation not found: {str(e)}"
+            }))
+            await websocket.close()
+            return
+        
+        # Initialize conversation handler
+        c = Conversations(conversation_name=conversation_name, user=user)
+        
+        # Get initial conversation history
+        try:
+            initial_history = c.get_conversation()
+            if initial_history and "interactions" in initial_history:
+                for message in initial_history["interactions"]:
+                    await websocket.send_text(json.dumps({
+                        "type": "initial_message",
+                        "data": message
+                    }))
+        except Exception as e:
+            logging.error(f"Error getting initial conversation history: {e}")
+        
+        # Send initial connection confirmation
+        await websocket.send_text(json.dumps({
+            "type": "connected",
+            "conversation_id": conversation_id,
+            "conversation_name": conversation_name
+        }))
+        
+        # Track the last message count to detect new messages
+        last_message_count = len(initial_history.get("interactions", [])) if initial_history else 0
+        last_check_time = datetime.now()
+        
+        # Main streaming loop
+        while True:
+            try:
+                # Check for new messages every 2 seconds
+                await asyncio.sleep(2)
+                
+                # Get current conversation state
+                current_history = c.get_conversation()
+                if not current_history or "interactions" not in current_history:
+                    continue
+                
+                current_messages = current_history["interactions"]
+                current_message_count = len(current_messages)
+                
+                # Check for new messages
+                if current_message_count > last_message_count:
+                    # Send new messages
+                    new_messages = current_messages[last_message_count:]
+                    for message in new_messages:
+                        await websocket.send_text(json.dumps({
+                            "type": "message_added",
+                            "data": message
+                        }))
+                    last_message_count = current_message_count
+                
+                # Check for updated messages (messages modified since last check)
+                for message in current_messages:
+                    message_updated_at = message.get("updated_at")
+                    if message_updated_at:
+                        try:
+                            # Parse the timestamp - handle both string and datetime objects
+                            if isinstance(message_updated_at, str):
+                                # Try basic ISO format parsing first
+                                try:
+                                    updated_time = datetime.fromisoformat(message_updated_at.replace('Z', '+00:00'))
+                                except:
+                                    # Fallback to current time if parsing fails
+                                    updated_time = datetime.now()
+                            else:
+                                updated_time = message_updated_at
+                            
+                            # Check if message was updated since last check
+                            if updated_time > last_check_time:
+                                await websocket.send_text(json.dumps({
+                                    "type": "message_updated", 
+                                    "data": message
+                                }))
+                        except Exception as e:
+                            logging.warning(f"Error parsing message timestamp: {e}")
+                
+                last_check_time = datetime.now()
+                
+                # Send heartbeat every 30 seconds to keep connection alive
+                if datetime.now().timestamp() % 30 < 2:
+                    await websocket.send_text(json.dumps({
+                        "type": "heartbeat",
+                        "timestamp": datetime.now().isoformat()
+                    }))
+            
+            except WebSocketDisconnect:
+                logging.info(f"WebSocket disconnected for conversation {conversation_id}")
+                break
+            except Exception as e:
+                logging.error(f"Error in conversation stream: {e}")
+                try:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": str(e)
+                    }))
+                except:
+                    # Connection likely closed
+                    break
+                
+    except WebSocketDisconnect:
+        logging.info(f"WebSocket disconnected for conversation {conversation_id}")
+    except Exception as e:
+        logging.error(f"Unexpected error in conversation stream: {e}")
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": f"Unexpected error: {str(e)}"
+            }))
+            await websocket.close()
+        except:
+            pass
+
+
 @app.get(
     "/api/notifications",
     response_model=NotificationResponse,
-    summary="Get User Notifications",
+    summary="Get User Notifications", 
     description="Retrieves all notifications for the authenticated user.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
