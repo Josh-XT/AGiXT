@@ -35,6 +35,18 @@ from MagicalAuth import MagicalAuth, get_user_id
 app = APIRouter()
 
 
+def make_json_serializable(obj):
+    """Convert datetime objects and other non-serializable objects to JSON-serializable formats"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_serializable(item) for item in obj]
+    else:
+        return obj
+
+
 @app.get(
     "/api/conversations",
     response_model=ConversationListResponse,
@@ -623,8 +635,12 @@ async def conversation_stream(
             logging.info(f"Found {len(messages)} messages to send")
 
             for message in messages:
+                # Convert datetime objects to ISO format strings for JSON serialization
+                serializable_message = make_json_serializable(message)
                 await websocket.send_text(
-                    json.dumps({"type": "initial_message", "data": message})
+                    json.dumps(
+                        {"type": "initial_message", "data": serializable_message}
+                    )
                 )
 
         except Exception as e:
@@ -685,8 +701,11 @@ async def conversation_stream(
                     # Send new messages
                     new_messages = current_messages[last_message_count:]
                     for message in new_messages:
+                        serializable_message = make_json_serializable(message)
                         await websocket.send_text(
-                            json.dumps({"type": "message_added", "data": message})
+                            json.dumps(
+                                {"type": "message_added", "data": serializable_message}
+                            )
                         )
                     last_message_count = current_message_count
 
@@ -710,9 +729,13 @@ async def conversation_stream(
 
                             # Check if message was updated since last check
                             if updated_time > last_check_time:
+                                serializable_message = make_json_serializable(message)
                                 await websocket.send_text(
                                     json.dumps(
-                                        {"type": "message_updated", "data": message}
+                                        {
+                                            "type": "message_updated",
+                                            "data": serializable_message,
+                                        }
                                     )
                                 )
                         except Exception as e:
