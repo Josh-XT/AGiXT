@@ -601,33 +601,42 @@ async def conversation_stream(
             initial_history = c.get_conversation()
             logging.info(f"Initial history type: {type(initial_history)}")
             logging.info(f"Initial history: {initial_history}")
-            
+
             messages = []
             if initial_history is None:
                 messages = []
             elif isinstance(initial_history, list):
                 # History is directly a list of messages
                 messages = initial_history
-            elif isinstance(initial_history, dict) and "interactions" in initial_history:
+            elif (
+                isinstance(initial_history, dict) and "interactions" in initial_history
+            ):
                 # History is a dict with interactions key
                 messages = initial_history["interactions"]
             else:
                 # Try to convert to list if it's some other format
                 messages = []
-                logging.warning(f"Unexpected initial_history format: {type(initial_history)}")
-            
+                logging.warning(
+                    f"Unexpected initial_history format: {type(initial_history)}"
+                )
+
             logging.info(f"Found {len(messages)} messages to send")
-            
+
             for message in messages:
                 await websocket.send_text(
                     json.dumps({"type": "initial_message", "data": message})
                 )
-                
+
         except Exception as e:
             logging.error(f"Error getting initial conversation history: {e}")
             # Send error message to client for debugging
             await websocket.send_text(
-                json.dumps({"type": "error", "message": f"Error loading conversation history: {str(e)}"})
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": f"Error loading conversation history: {str(e)}",
+                    }
+                )
             )
 
         # Send initial connection confirmation
@@ -653,16 +662,19 @@ async def conversation_stream(
 
                 # Get current conversation state
                 current_history = c.get_conversation()
-                
+
                 # Handle different formats of conversation history
                 current_messages = []
                 if current_history is None:
                     current_messages = []
                 elif isinstance(current_history, list):
                     current_messages = current_history
-                elif isinstance(current_history, dict) and "interactions" in current_history:
+                elif (
+                    isinstance(current_history, dict)
+                    and "interactions" in current_history
+                ):
                     current_messages = current_history["interactions"]
-                
+
                 if not current_messages:
                     continue
 
