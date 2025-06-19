@@ -554,10 +554,22 @@ async def conversation_stream(
             await websocket.close()
             return
 
-        # Authenticate user
+        # Authenticate user using the same logic as verify_api_key
         try:
+            # Import the verify_api_key function to reuse the same authentication logic
+            from ApiClient import verify_api_key
+
+            # Create a mock header object for verify_api_key
+            class MockHeader:
+                def __init__(self, value):
+                    self.value = value
+
+                def __str__(self):
+                    return self.value
+
+            # Use the same authentication logic as other endpoints
+            user = verify_api_key(authorization=MockHeader(authorization))
             auth = MagicalAuth(token=authorization)
-            user = auth.user
         except Exception as e:
             await websocket.send_text(
                 json.dumps(
