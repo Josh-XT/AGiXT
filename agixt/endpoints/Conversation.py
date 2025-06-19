@@ -591,8 +591,12 @@ async def conversation_stream(
             await websocket.close()
             return
 
-        # Get conversation name from ID
+        # Get conversation name from ID, handle special case of "-"
         try:
+            if conversation_id == "-":
+                conversation_id = get_conversation_id_by_name(
+                    conversation_name="-", user_id=auth.user_id
+                )
             conversation_name = get_conversation_name_by_id(
                 conversation_id=conversation_id, user_id=auth.user_id
             )
