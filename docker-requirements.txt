@@ -11,3 +11,4 @@ ring_doorbell>=0.9.13
 aiohttp
 hikvisionapi>=0.3.2
 axis>=48
+azure-ai-inference

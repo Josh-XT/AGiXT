@@ -33,6 +33,7 @@ anthropic==0.34.2
 arxiv==1.4.8
 PyGithub==2.4.0
 openai==1.44.0
+azure-ai-inference
 fastapi
 uvicorn
 ngrok==1.4.0
