@@ -116,7 +116,9 @@ async def new_task(
     )
 
     # Set task description to "NA" if None
-    task_description = task.task_description if task.task_description is not None else "NA"
+    task_description = (
+        task.task_description if task.task_description is not None else "NA"
+    )
 
     # Initialize task manager with the current token
     task_manager = Task(token=authorization)
@@ -171,10 +173,12 @@ async def new_reoccurring_task(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     task_manager = Task(token=authorization)
-    
+
     # Set task description to "NA" if None
-    task_description = task.task_description if task.task_description is not None else "NA"
-    
+    task_description = (
+        task.task_description if task.task_description is not None else "NA"
+    )
+
     title_preview = task.title.split("\n")[0][:50] + (
         "..." if len(task.title) > 50 else ""
     )
