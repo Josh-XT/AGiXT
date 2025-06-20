@@ -47,56 +47,60 @@ class AzurefoundryProvider:
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         if self.AZURE_API_KEY == "" or self.AZURE_API_KEY == "YOUR_API_KEY":
             return "Please go to the Agent Management page to set your Azure AI Inference API key."
-        
+
         try:
             client = ChatCompletionsClient(
                 endpoint=self.AZURE_OPENAI_ENDPOINT,
                 credential=AzureKeyCredential(self.AZURE_API_KEY),
-                api_version="2024-05-01-preview"
+                api_version="2024-05-01-preview",
             )
         except Exception as e:
             logging.warning(f"Azure AI Inference Client Error: {e}")
             return f"Failed to initialize Azure AI Inference client: {e}"
 
         messages = []
-        
+
         if len(images) > 0:
             # Create user message with text and images
             content = [{"type": "text", "text": prompt}]
-            
+
             for image in images:
                 if image.startswith("http"):
-                    content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image,
-                        },
-                    })
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image,
+                            },
+                        }
+                    )
                 else:
                     file_type = image.split(".")[-1]
                     with open(image, "rb") as f:
                         image_data = f.read()
-                        image_base64 = base64.b64encode(image_data).decode('utf-8')
-                    content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/{file_type};base64,{image_base64}"
-                        },
-                    })
-            
+                        image_base64 = base64.b64encode(image_data).decode("utf-8")
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{file_type};base64,{image_base64}"
+                            },
+                        }
+                    )
+
             messages = [
                 SystemMessage(content="You are a helpful assistant."),
-                UserMessage(content=content)
+                UserMessage(content=content),
             ]
         else:
             messages = [
                 SystemMessage(content="You are a helpful assistant."),
-                UserMessage(content=prompt)
+                UserMessage(content=prompt),
             ]
 
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
-        
+
         try:
             response = client.complete(
                 messages=messages,
