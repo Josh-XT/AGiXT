@@ -68,8 +68,9 @@ class Extensions:
         self.commands = self.load_commands()
         self.available_commands = self.get_available_commands()
 
-    async def execute_chain(self, user_input="", **kwargs):
+    async def execute_chain(self,**kwargs):
         chain_name = kwargs.get("chain_name", "")
+        user_input = kwargs.get("user_input", "")
         if "chain_name" in kwargs:
             del kwargs["chain_name"]
         return self.ApiClient.run_chain(
