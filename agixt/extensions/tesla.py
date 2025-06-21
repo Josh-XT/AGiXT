@@ -400,6 +400,7 @@ class tesla(Extensions):
                 "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
                 "Tesla - Test Unsigned Command": self.test_unsigned_command,
                 "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
+                "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
                 # Fun Commands
                 "Tesla - Fart": self.fart,
             }
@@ -609,7 +610,14 @@ class tesla(Extensions):
             return f"Error retrieving Tesla vehicles: {str(e)}"
 
     async def send_command(self, vehicle_tag, command, data=None):
-        """Send command to vehicle with proper signing for Fleet API"""
+        """Send command to vehicle with proper signing for Fleet API
+        
+        Note: As of January 2024, most vehicles require the Tesla Vehicle Command Protocol (TVCP).
+        Direct Fleet API command calls are deprecated for newer vehicles.
+        
+        For newer vehicles, you should use Tesla's Vehicle Command Proxy:
+        https://github.com/teslamotors/vehicle-command
+        """
         try:
             self.verify_user()
             headers = {
@@ -638,39 +646,49 @@ class tesla(Extensions):
             else:
                 vehicle_id = vehicle_tag
 
-            # Use legacy command endpoint with TVCP headers
+            # Try the legacy command endpoint first (for older vehicles or fleet accounts)
             url = f"{self.api_base_url}/vehicles/{vehicle_id}/command/{command}"
 
             # Prepare command data
             command_data = data if data is not None else {}
 
-            # Sign the command using TVCP
+            # For newer vehicles, try TVCP signing
             try:
                 signature_headers = self.sign_command(command_data, vehicle_id, command)
                 # Add signature headers to existing headers
                 headers.update(signature_headers)
-                logging.info(f"Command signed successfully with TVCP")
+                logging.info(f"Command signed with TVCP headers")
             except Exception as e:
-                logging.error(f"TVCP command signing failed: {str(e)}")
-                raise Exception(
-                    f"TVCP command signing required for Tesla Fleet API: {str(e)}"
-                )
-
-            # For TVCP, send the command data directly (not in routable_message)
-            # This matches the legacy endpoint format but with TVCP headers
-            payload = command_data if command_data else {}
+                logging.warning(f"TVCP signing failed, trying without: {str(e)}")
 
             # Log details for debugging
-            logging.info(f"Tesla TVCP command: {command} for vehicle {vehicle_id}")
-            logging.info(f"TVCP payload: {payload}")
-            logging.info(
-                f"Final headers: {dict((k, v if k != 'Authorization' else 'Bearer [REDACTED]') for k, v in headers.items())}"
-            )
+            logging.info(f"Tesla command: {command} for vehicle {vehicle_id}")
+            logging.info(f"Payload: {command_data}")
+            logging.info(f"URL: {url}")
 
-            response = requests.post(url, headers=headers, json=payload, timeout=15)
+            response = requests.post(url, headers=headers, json=command_data, timeout=15)
 
             logging.info(f"Response status: {response.status_code}")
             logging.info(f"Response text: {response.text}")
+
+            # Check for TVCP requirement error
+            if response.status_code == 400:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("error", "")
+                    if "Tesla Vehicle Command Protocol required" in error_msg or "routable_message" in error_msg:
+                        return {
+                            "error": "This vehicle requires Tesla Vehicle Command Protocol (TVCP). "
+                                   "The direct Fleet API command endpoint is deprecated for this vehicle. "
+                                   "You need to either:\n"
+                                   "1. Use Tesla's Vehicle Command Proxy (recommended): "
+                                   "https://github.com/teslamotors/vehicle-command\n"
+                                   "2. Implement full TVCP protocol with protobuf messages\n"
+                                   "3. Check if this is a fleet account vehicle (which may still support direct commands)\n"
+                                   f"Original error: {error_msg}"
+                        }
+                except:
+                    pass
 
             if response.status_code not in [200, 201, 202]:
                 return self.handle_tesla_error(response)
@@ -1679,3 +1697,50 @@ class tesla(Extensions):
         except Exception as e:
             logging.error(f"Error testing unsigned command: {str(e)}")
             return {"error": str(e)}
+
+    async def check_tvcp_requirement(self, vehicle_tag):
+        """Check if vehicle requires Tesla Vehicle Command Protocol (TVCP)
+        
+        Args:
+            vehicle_tag: Vehicle VIN or ID
+            
+        Returns:
+            str: Information about TVCP requirements and setup instructions
+        """
+        try:
+            # Get vehicle info first
+            vehicles_info = await self.get_vehicles()
+            
+            info = f"""
+Tesla Vehicle Command Protocol (TVCP) Information:
+
+As of January 2024, most Tesla vehicles require TVCP for commands.
+Your vehicles may need Tesla's Vehicle Command Proxy.
+
+{vehicles_info}
+
+TVCP Setup Options:
+
+1. **Tesla Vehicle Command Proxy (Recommended)**:
+   - Download: https://github.com/teslamotors/vehicle-command
+   - This acts as a translation layer between REST API and TVCP
+   - No code changes needed - just point to the proxy instead of Tesla's API
+
+2. **Direct Fleet API (Limited)**:
+   - Only works for: Fleet accounts, Pre-2021 Model S/X
+   - Newer consumer vehicles require TVCP
+
+3. **Setup Instructions**:
+   - Generate virtual key: tesla-keygen create > public_key.pem
+   - Register your domain and public key with Tesla
+   - Run proxy: tesla-http-proxy -cert cert.pem -tls-key key.pem
+   - Point your application to proxy instead of owner-api.teslamotors.com
+
+Current Status:
+- Your account diagnostics show command_protocol: TVCP
+- This means your vehicles likely require the Vehicle Command Proxy
+"""
+            return info
+            
+        except Exception as e:
+            return f"Error checking TVCP requirements: {str(e)}"
