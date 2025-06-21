@@ -392,11 +392,13 @@ class tesla(Extensions):
             response = requests.get(url, headers=headers)
 
             if response.status_code != 200:
-                raise Exception(f"Failed to get vehicles (HTTP {response.status_code}): {response.text}")
+                raise Exception(
+                    f"Failed to get vehicles (HTTP {response.status_code}): {response.text}"
+                )
 
             data = response.json()
             vehicle_data = data.get("response", [])
-            
+
             if not vehicle_data:
                 return "No Tesla vehicles found in your account."
 
@@ -494,10 +496,14 @@ class tesla(Extensions):
                                 )
                                 odometer = f"{odometer_value:.1f} {distance_units}"
                         else:
-                            logging.warning(f"Failed to get vehicle data for {vehicle_id}: HTTP {vehicle_response.status_code}")
+                            logging.warning(
+                                f"Failed to get vehicle data for {vehicle_id}: HTTP {vehicle_response.status_code}"
+                            )
 
                     except requests.exceptions.Timeout:
-                        logging.warning(f"Timeout getting data for vehicle {vehicle.get('id_s')}")
+                        logging.warning(
+                            f"Timeout getting data for vehicle {vehicle.get('id_s')}"
+                        )
                     except Exception as e:
                         logging.error(
                             f"Error getting data for vehicle {vehicle.get('id_s')}: {str(e)}"
@@ -532,10 +538,14 @@ class tesla(Extensions):
             # Check if vehicle_tag is VIN or vehicle ID
             if len(vehicle_tag) == 17 and vehicle_tag.isalnum():
                 # It's a VIN, need to get vehicle ID first
-                vehicles_response = requests.get(f"{self.api_base_url}/vehicles", headers=headers)
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
+                )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    vehicle = next((v for v in vehicles if v.get("vin") == vehicle_tag), None)
+                    vehicle = next(
+                        (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                    )
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
                     else:
@@ -556,12 +566,12 @@ class tesla(Extensions):
                 return self.handle_tesla_error(response)
 
             result = response.json()
-            
+
             # Check if the command was successful
             if result.get("response", {}).get("result") == False:
                 reason = result.get("response", {}).get("reason", "Unknown error")
                 raise Exception(f"Command failed: {reason}")
-                
+
             return result
 
         except Exception as e:
@@ -597,10 +607,14 @@ class tesla(Extensions):
             # Check if vehicle_tag is VIN or vehicle ID
             if len(vehicle_tag) == 17 and vehicle_tag.isalnum():
                 # It's a VIN, need to get vehicle ID first
-                vehicles_response = requests.get(f"{self.api_base_url}/vehicles", headers=headers)
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
+                )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    vehicle = next((v for v in vehicles if v.get("vin") == vehicle_tag), None)
+                    vehicle = next(
+                        (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                    )
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
                     else:
@@ -663,7 +677,7 @@ class tesla(Extensions):
 
     async def set_seat_heater(self, vehicle_tag, seat_position, level):
         """Set seat heater level
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
             seat_position: Seat position (0-8: 0=driver, 1=passenger, 2=rear_left, 4=rear_center, 5=rear_right, 6=third_row_left, 7=third_row_right)
@@ -738,10 +752,10 @@ class tesla(Extensions):
     # Windows/Sunroof
     async def control_windows(self, vehicle_tag, command, lat=None, lon=None):
         """Control windows (vent/close)
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
-            command: Window command ("vent" or "close")  
+            command: Window command ("vent" or "close")
             lat: Latitude for location verification (optional)
             lon: Longitude for location verification (optional)
         """
@@ -759,11 +773,11 @@ class tesla(Extensions):
     # Navigation
     async def navigate_to(self, vehicle_tag, lat, lon, order=0):
         """Navigate to coordinates
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
             lat: Latitude coordinate
-            lon: Longitude coordinate  
+            lon: Longitude coordinate
             order: Waypoint order (default 0)
         """
         return await self.send_command(
@@ -774,7 +788,7 @@ class tesla(Extensions):
 
     async def navigate_to_supercharger(self, vehicle_tag, supercharger_id, order=0):
         """Navigate to supercharger
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
             supercharger_id: Supercharger location ID
@@ -789,10 +803,10 @@ class tesla(Extensions):
     # Fun Commands
     async def fart(self, vehicle_tag):
         """Make the vehicle emit a fart sound
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID to identify the target vehicle
-            
+
         Returns:
             dict: Response from Tesla API
         """
@@ -800,11 +814,11 @@ class tesla(Extensions):
 
     async def get_vehicle_data(self, vehicle_tag, data_type="vehicle_data"):
         """Get vehicle data from Tesla API
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
             data_type: Type of data to retrieve (vehicle_data, charge_state, climate_state, etc.)
-            
+
         Returns:
             dict: Vehicle data response
         """
@@ -818,10 +832,14 @@ class tesla(Extensions):
             # Check if vehicle_tag is VIN or vehicle ID
             if len(vehicle_tag) == 17 and vehicle_tag.isalnum():
                 # It's a VIN, need to get vehicle ID first
-                vehicles_response = requests.get(f"{self.api_base_url}/vehicles", headers=headers)
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
+                )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    vehicle = next((v for v in vehicles if v.get("vin") == vehicle_tag), None)
+                    vehicle = next(
+                        (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                    )
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
                     else:
@@ -846,10 +864,10 @@ class tesla(Extensions):
     # State Information Commands
     async def get_vehicle_state(self, vehicle_tag):
         """Get detailed vehicle state information
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
-            
+
         Returns:
             dict: Detailed vehicle state information including doors, locks, etc.
         """
@@ -857,11 +875,11 @@ class tesla(Extensions):
             result = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
             if "error" in result:
                 return result
-                
+
             vehicle_state = result.get("response", {}).get("vehicle_state", {})
             if not vehicle_state:
                 return {"error": "No vehicle state data available"}
-                
+
             # Format important state information
             state_info = {
                 "doors_locked": vehicle_state.get("locked", "Unknown"),
@@ -885,19 +903,19 @@ class tesla(Extensions):
                 "software_update": vehicle_state.get("software_update", {}),
                 "sentry_mode": vehicle_state.get("sentry_mode", "Unknown"),
             }
-            
+
             return state_info
-            
+
         except Exception as e:
             logging.error(f"Error getting vehicle state: {str(e)}")
             return {"error": str(e)}
 
     async def get_charge_state(self, vehicle_tag):
         """Get detailed charging state information
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
-            
+
         Returns:
             dict: Detailed charging state information
         """
@@ -905,11 +923,11 @@ class tesla(Extensions):
             result = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
             if "error" in result:
                 return result
-                
+
             charge_state = result.get("response", {}).get("charge_state", {})
             if not charge_state:
                 return {"error": "No charge state data available"}
-                
+
             # Format charging information
             charge_info = {
                 "battery_level": f"{charge_state.get('battery_level', 'Unknown')}%",
@@ -921,23 +939,25 @@ class tesla(Extensions):
                 "charger_power": f"{charge_state.get('charger_power', 'Unknown')} kW",
                 "charger_voltage": f"{charge_state.get('charger_voltage', 'Unknown')} V",
                 "charger_actual_current": f"{charge_state.get('charger_actual_current', 'Unknown')} A",
-                "charge_port_door_open": charge_state.get("charge_port_door_open", "Unknown"),
+                "charge_port_door_open": charge_state.get(
+                    "charge_port_door_open", "Unknown"
+                ),
                 "est_battery_range": f"{charge_state.get('est_battery_range', 'Unknown')} miles",
                 "ideal_battery_range": f"{charge_state.get('ideal_battery_range', 'Unknown')} miles",
             }
-            
+
             return charge_info
-            
+
         except Exception as e:
             logging.error(f"Error getting charge state: {str(e)}")
             return {"error": str(e)}
 
     async def get_climate_state(self, vehicle_tag):
         """Get detailed climate state information
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
-            
+
         Returns:
             dict: Detailed climate state information
         """
@@ -945,11 +965,11 @@ class tesla(Extensions):
             result = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
             if "error" in result:
                 return result
-                
+
             climate_state = result.get("response", {}).get("climate_state", {})
             if not climate_state:
                 return {"error": "No climate state data available"}
-                
+
             # Format climate information
             climate_info = {
                 "is_climate_on": climate_state.get("is_climate_on", "Unknown"),
@@ -957,19 +977,31 @@ class tesla(Extensions):
                 "outside_temp": f"{climate_state.get('outside_temp', 'Unknown')}°C",
                 "driver_temp_setting": f"{climate_state.get('driver_temp_setting', 'Unknown')}°C",
                 "passenger_temp_setting": f"{climate_state.get('passenger_temp_setting', 'Unknown')}°C",
-                "is_front_defroster_on": climate_state.get("is_front_defroster_on", "Unknown"),
-                "is_rear_defroster_on": climate_state.get("is_rear_defroster_on", "Unknown"),
+                "is_front_defroster_on": climate_state.get(
+                    "is_front_defroster_on", "Unknown"
+                ),
+                "is_rear_defroster_on": climate_state.get(
+                    "is_rear_defroster_on", "Unknown"
+                ),
                 "fan_status": climate_state.get("fan_status", "Unknown"),
                 "seat_heater_left": climate_state.get("seat_heater_left", "Unknown"),
                 "seat_heater_right": climate_state.get("seat_heater_right", "Unknown"),
-                "seat_heater_rear_left": climate_state.get("seat_heater_rear_left", "Unknown"),
-                "seat_heater_rear_right": climate_state.get("seat_heater_rear_right", "Unknown"),
-                "steering_wheel_heater": climate_state.get("steering_wheel_heater", "Unknown"),
-                "climate_keeper_mode": climate_state.get("climate_keeper_mode", "Unknown"),
+                "seat_heater_rear_left": climate_state.get(
+                    "seat_heater_rear_left", "Unknown"
+                ),
+                "seat_heater_rear_right": climate_state.get(
+                    "seat_heater_rear_right", "Unknown"
+                ),
+                "steering_wheel_heater": climate_state.get(
+                    "steering_wheel_heater", "Unknown"
+                ),
+                "climate_keeper_mode": climate_state.get(
+                    "climate_keeper_mode", "Unknown"
+                ),
             }
-            
+
             return climate_info
-            
+
         except Exception as e:
             logging.error(f"Error getting climate state: {str(e)}")
             return {"error": str(e)}
@@ -977,28 +1009,40 @@ class tesla(Extensions):
     def handle_tesla_error(self, response):
         """Handle common Tesla API errors with user-friendly messages"""
         if response.status_code == 401:
-            return {"error": "Authentication failed. Please check your Tesla access token."}
+            return {
+                "error": "Authentication failed. Please check your Tesla access token."
+            }
         elif response.status_code == 403:
-            return {"error": "Access denied. Please ensure your account has the necessary permissions."}
+            return {
+                "error": "Access denied. Please ensure your account has the necessary permissions."
+            }
         elif response.status_code == 404:
             return {"error": "Vehicle not found. Please check the VIN or vehicle ID."}
         elif response.status_code == 408:
-            return {"error": "Vehicle is not online or not responding. Try waking the vehicle first."}
+            return {
+                "error": "Vehicle is not online or not responding. Try waking the vehicle first."
+            }
         elif response.status_code == 429:
-            return {"error": "Rate limit exceeded. Please wait before sending more commands."}
+            return {
+                "error": "Rate limit exceeded. Please wait before sending more commands."
+            }
         elif response.status_code == 500:
             return {"error": "Tesla server error. Please try again later."}
         elif response.status_code == 503:
-            return {"error": "Tesla service temporarily unavailable. Please try again later."}
+            return {
+                "error": "Tesla service temporarily unavailable. Please try again later."
+            }
         else:
-            return {"error": f"Tesla API error (HTTP {response.status_code}): {response.text}"}
+            return {
+                "error": f"Tesla API error (HTTP {response.status_code}): {response.text}"
+            }
 
     async def check_vehicle_online(self, vehicle_tag):
         """Check if vehicle is online and ready to receive commands
-        
+
         Args:
             vehicle_tag: VIN or vehicle ID
-            
+
         Returns:
             bool: True if vehicle is online, False otherwise
         """
@@ -1017,14 +1061,18 @@ class tesla(Extensions):
                 return False
 
             vehicles = response.json().get("response", [])
-            
+
             # Find the vehicle
             if len(vehicle_tag) == 17 and vehicle_tag.isalnum():
                 # It's a VIN
-                vehicle = next((v for v in vehicles if v.get("vin") == vehicle_tag), None)
+                vehicle = next(
+                    (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                )
             else:
                 # It's a vehicle ID
-                vehicle = next((v for v in vehicles if v.get("id_s") == vehicle_tag), None)
+                vehicle = next(
+                    (v for v in vehicles if v.get("id_s") == vehicle_tag), None
+                )
 
             if not vehicle:
                 return False
