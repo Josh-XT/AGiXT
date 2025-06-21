@@ -486,13 +486,13 @@ class tesla(Extensions):
             raise Exception(f"Failed to sign command with TVCP: {str(e)}")
 
     async def get_vehicles(self):
-        """Get list of vehicles with key state information
+        """Get list of vehicles with comprehensive state information
 
         Args:
             None
 
         Returns:
-            str: Table of user's Tesla vehicles with key information
+            str: Detailed table of user's Tesla vehicles with comprehensive state information
 
         Note: This should be used any time the user asks for any vehicle interaction to ensure the correct vehicle is selected by vehicle tag (VIN).
         """
@@ -527,11 +527,15 @@ class tesla(Extensions):
             # Decode VINs
             vin_decodings = TeslaVINDecoder.batch_decode(vins)
 
-            # Create result table header with additional columns
-            vehicles = "User's Tesla Vehicles:\n| VIN | ID | Model | Year | Description | Battery | Status | Climate | Odometer |\n"
-            vehicles += "| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+            # Create comprehensive result with basic info table and detailed state
+            result = "## Tesla Vehicles Overview\n\n"
 
-            # Process each vehicle
+            # Basic info table
+            result += "### Basic Vehicle Information\n"
+            result += "| VIN | ID | Model | Year | Description | Status |\n"
+            result += "| --- | --- | --- | --- | --- | --- |\n"
+
+            # Process each vehicle for basic info
             for vehicle in vehicle_data:
                 if "vin" not in vehicle:
                     continue
@@ -546,74 +550,177 @@ class tesla(Extensions):
                     {},
                 )
 
-                # Initialize additional data fields
-                battery_level = "N/A"
-                vehicle_status = vehicle.get("state", "Unknown")
-                climate_info = "N/A"
-                odometer = "N/A"
-
-                # Only fetch additional data if vehicle is online
-                if vehicle.get("state") == "online":
-                    try:
-                        # Get vehicle data
-                        vehicle_id = vehicle["id_s"]
-                        vehicle_data_url = (
-                            f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
-                        )
-                        vehicle_response = requests.get(
-                            vehicle_data_url, headers=headers, timeout=10
-                        )
-
-                        if vehicle_response.status_code == 200:
-                            vehicle_detail = vehicle_response.json().get("response", {})
-
-                            # Extract battery info
-                            charge_state = vehicle_detail.get("charge_state", {})
-                            if charge_state:
-                                battery_level = (
-                                    f"{charge_state.get('battery_level', 'N/A')}%"
-                                )
-
-                            # Extract climate info
-                            climate_state = vehicle_detail.get("climate_state", {})
-                            if climate_state:
-                                inside_temp = climate_state.get("inside_temp")
-                                outside_temp = climate_state.get("outside_temp")
-                                climate_on = climate_state.get("is_climate_on", False)
-                                if inside_temp is not None and outside_temp is not None:
-                                    status = "On" if climate_on else "Off"
-                                    climate_info = (
-                                        f"{inside_temp}°C/{outside_temp}°C ({status})"
-                                    )
-
-                            # Extract odometer
-                            vehicle_state = vehicle_detail.get("vehicle_state", {})
-                            if vehicle_state:
-                                odometer_miles = vehicle_state.get("odometer")
-                                if odometer_miles is not None:
-                                    odometer = f"{odometer_miles:.0f} mi"
-
-                    except Exception as e:
-                        logging.warning(
-                            f"Failed to get detailed data for vehicle {vehicle['vin']}: {str(e)}"
-                        )
-
-                # Build table row
                 vin = vehicle["vin"]
                 vehicle_id = vehicle.get("id_s", "N/A")
                 model = decoded_info.get("model", "Unknown")
                 year = decoded_info.get("model_year", "Unknown")
                 description = decoded_info.get("full_description", "Unknown")
+                vehicle_status = vehicle.get("state", "Unknown")
 
-                vehicles += f"| {vin} | {vehicle_id} | {model} | {year} | {description} | {battery_level} | {vehicle_status} | {climate_info} | {odometer} |\n"
+                result += f"| {vin} | {vehicle_id} | {model} | {year} | {description} | {vehicle_status} |\n"
+
+            # Detailed state information for each vehicle
+            result += "\n### Detailed Vehicle State Information\n\n"
+
+            for vehicle in vehicle_data:
+                if "vin" not in vehicle:
+                    continue
+
+                vin = vehicle["vin"]
+                vehicle_name = vehicle.get("display_name", f"Vehicle {vin[-6:]}")
+                vehicle_status = vehicle.get("state", "Unknown")
+
+                result += f"#### {vehicle_name} ({vin})\n"
+                result += f"**Status:** {vehicle_status}\n\n"
+
+                # Only fetch detailed data if vehicle is online
+                if vehicle.get("state") == "online":
+                    try:
+                        # Get comprehensive vehicle data
+                        vehicle_id = vehicle["id_s"]
+                        vehicle_data_url = (
+                            f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
+                        )
+                        vehicle_response = requests.get(
+                            vehicle_data_url, headers=headers, timeout=15
+                        )
+
+                        if vehicle_response.status_code == 200:
+                            vehicle_detail = vehicle_response.json().get("response", {})
+
+                            # Extract and format all state information
+                            charge_state = vehicle_detail.get("charge_state", {})
+                            climate_state = vehicle_detail.get("climate_state", {})
+                            vehicle_state = vehicle_detail.get("vehicle_state", {})
+
+                            # Battery and Charging Information
+                            if charge_state:
+                                battery_level = charge_state.get("battery_level", "N/A")
+                                usable_battery = charge_state.get(
+                                    "usable_battery_level", "N/A"
+                                )
+                                charging_state = charge_state.get(
+                                    "charging_state", "Disconnected"
+                                )
+                                charge_limit = charge_state.get(
+                                    "charge_limit_soc", "N/A"
+                                )
+                                est_range = charge_state.get("est_battery_range", "N/A")
+                                charge_rate = charge_state.get("charge_rate", 0)
+                                time_to_full = charge_state.get(
+                                    "time_to_full_charge", 0
+                                )
+
+                                result += f"**🔋 Battery & Charging:**\n"
+                                result += f"- Battery Level: {battery_level}% (usable: {usable_battery}%)\n"
+                                result += f"- Charging State: {charging_state}\n"
+                                result += f"- Charge Limit: {charge_limit}%\n"
+                                result += f"- Estimated Range: {est_range} mi\n"
+                                if charging_state != "Disconnected" and charge_rate > 0:
+                                    result += f"- Charge Rate: {charge_rate} mi/hr\n"
+                                    result += f"- Time to Full: {time_to_full} hours\n"
+                                result += "\n"
+
+                            # Climate Information
+                            if climate_state:
+                                inside_temp = climate_state.get("inside_temp")
+                                outside_temp = climate_state.get("outside_temp")
+                                climate_on = climate_state.get("is_climate_on", False)
+                                driver_temp = climate_state.get("driver_temp_setting")
+                                passenger_temp = climate_state.get(
+                                    "passenger_temp_setting"
+                                )
+
+                                result += f"**🌡️ Climate:**\n"
+                                result += f"- Climate System: {'On' if climate_on else 'Off'}\n"
+                                if inside_temp is not None:
+                                    result += f"- Inside Temperature: {inside_temp}°C\n"
+                                if outside_temp is not None:
+                                    result += (
+                                        f"- Outside Temperature: {outside_temp}°C\n"
+                                    )
+                                if driver_temp is not None:
+                                    result += f"- Driver Setting: {driver_temp}°C\n"
+                                if passenger_temp is not None:
+                                    result += (
+                                        f"- Passenger Setting: {passenger_temp}°C\n"
+                                    )
+                                result += "\n"
+
+                            # Vehicle State Information
+                            if vehicle_state:
+                                locked = vehicle_state.get("locked", "Unknown")
+                                odometer = vehicle_state.get("odometer")
+                                sentry_mode = vehicle_state.get("sentry_mode", False)
+                                valet_mode = vehicle_state.get("valet_mode", False)
+                                software_update = vehicle_state.get(
+                                    "software_update", {}
+                                )
+
+                                result += f"**🚗 Vehicle State:**\n"
+                                result += (
+                                    f"- Doors Locked: {'Yes' if locked else 'No'}\n"
+                                )
+                                if odometer is not None:
+                                    result += f"- Odometer: {odometer:.0f} mi\n"
+                                result += (
+                                    f"- Sentry Mode: {'On' if sentry_mode else 'Off'}\n"
+                                )
+                                result += (
+                                    f"- Valet Mode: {'On' if valet_mode else 'Off'}\n"
+                                )
+
+                                # Doors status
+                                doors_open = []
+                                if vehicle_state.get("df") == 1:
+                                    doors_open.append("Driver Front")
+                                if vehicle_state.get("dr") == 1:
+                                    doors_open.append("Driver Rear")
+                                if vehicle_state.get("pf") == 1:
+                                    doors_open.append("Passenger Front")
+                                if vehicle_state.get("pr") == 1:
+                                    doors_open.append("Passenger Rear")
+                                if vehicle_state.get("ft") == 1:
+                                    doors_open.append("Front Trunk")
+                                if vehicle_state.get("rt") == 1:
+                                    doors_open.append("Rear Trunk")
+
+                                if doors_open:
+                                    result += f"- Open Doors/Trunks: {', '.join(doors_open)}\n"
+                                else:
+                                    result += f"- Open Doors/Trunks: None\n"
+
+                                # Software update status
+                                if software_update and software_update.get("status"):
+                                    status = software_update.get("status", "")
+                                    version = software_update.get("version", "")
+                                    result += f"- Software Update: {status}"
+                                    if version:
+                                        result += f" (v{version})"
+                                    result += "\n"
+
+                                result += "\n"
+
+                        else:
+                            result += f"⚠️ Unable to fetch detailed data (HTTP {vehicle_response.status_code})\n\n"
+
+                    except Exception as e:
+                        result += f"⚠️ Error fetching detailed data: {str(e)}\n\n"
+                        logging.warning(
+                            f"Failed to get detailed data for vehicle {vin}: {str(e)}"
+                        )
+                else:
+                    result += f"ℹ️ Vehicle is {vehicle_status} - detailed state unavailable\n\n"
 
             # Add debugging information
-            vehicles += f"\n\nDebugging Information:\n"
-            vehicles += f"- Total vehicles found: {len(vehicle_data)}\n"
-            vehicles += f"- API Base URL: {self.api_base_url}\n"
-            vehicles += f"- Use 'Tesla - Debug Vehicle Lookup' with a specific VIN for detailed lookup debugging\n"
+            result += "---\n"
+            result += "### Debug Information\n"
+            result += f"- Total vehicles found: {len(vehicle_data)}\n"
+            result += f"- API Base URL: {self.api_base_url}\n"
+            result += f"- Use 'Tesla - Debug Vehicle Lookup' with a specific VIN for detailed lookup debugging\n"
+            result += f"- Use 'Tesla - Get Vehicle State' with a VIN for individual vehicle state details\n"
 
-            return vehicles
+            return result
 
         except Exception as e:
             error_details = (
