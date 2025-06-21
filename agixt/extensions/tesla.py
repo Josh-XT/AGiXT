@@ -443,16 +443,15 @@ class tesla(Extensions):
             # TVCP requires a specific signing format
             timestamp = str(int(time.time()))
 
-            # For TVCP, Tesla expects the command data to be in the exact format
-            # that will be sent as the routable_message
-            message_payload = {"command": command}
+            # For TVCP, the message to sign should be the command payload
+            # in the same format as would be sent to the legacy endpoint
             if command_data:
-                message_payload.update(command_data)
-
-            # Create canonical JSON for signing (this should match the routable_message)
-            canonical_message = json.dumps(
-                message_payload, separators=(",", ":"), sort_keys=True
-            )
+                canonical_message = json.dumps(
+                    command_data, separators=(",", ":"), sort_keys=True
+                )
+            else:
+                # For commands with no parameters (like honk_horn), use empty object
+                canonical_message = "{}"
 
             # TVCP message format: timestamp.canonical_message
             message_to_sign = f"{timestamp}.{canonical_message}"
@@ -639,8 +638,8 @@ class tesla(Extensions):
             else:
                 vehicle_id = vehicle_tag
 
-            # Use TVCP endpoint for signed commands
-            url = f"{self.api_base_url}/vehicles/{vehicle_id}/signed_command"
+            # Use legacy command endpoint with TVCP headers
+            url = f"{self.api_base_url}/vehicles/{vehicle_id}/command/{command}"
 
             # Prepare command data
             command_data = data if data is not None else {}
@@ -657,29 +656,18 @@ class tesla(Extensions):
                     f"TVCP command signing required for Tesla Fleet API: {str(e)}"
                 )
 
-            # Create TVCP payload - Tesla's expected format
-            # Based on Tesla's TVCP documentation, routable_message should contain
-            # the command structure that would normally be sent to the legacy endpoint
-
-            # Create the command payload in the format Tesla expects
-            command_payload = {"command": command}
-
-            # Add any additional data if provided
-            if command_data:
-                command_payload.update(command_data)
-
-            tvcp_payload = {"routable_message": command_payload}
+            # For TVCP, send the command data directly (not in routable_message)
+            # This matches the legacy endpoint format but with TVCP headers
+            payload = command_data if command_data else {}
 
             # Log details for debugging
             logging.info(f"Tesla TVCP command: {command} for vehicle {vehicle_id}")
-            logging.info(f"TVCP payload: {tvcp_payload}")
+            logging.info(f"TVCP payload: {payload}")
             logging.info(
                 f"Final headers: {dict((k, v if k != 'Authorization' else 'Bearer [REDACTED]') for k, v in headers.items())}"
             )
 
-            response = requests.post(
-                url, headers=headers, json=tvcp_payload, timeout=15
-            )
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
 
             logging.info(f"Response status: {response.status_code}")
             logging.info(f"Response text: {response.text}")
