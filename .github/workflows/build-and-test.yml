@@ -58,7 +58,7 @@ jobs:
   
   deploy:
     runs-on: ubuntu-22.04
-    name: Deploy to Production
+    name: Deploy to dev server
     needs: build
     if: github.ref == 'refs/heads/main'
     steps:
@@ -114,6 +114,86 @@ jobs:
                   {
                     "name": "Branch",
                     "value": "${{ github.ref_name }}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Commit",
+                    "value": "[${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})",
+                    "inline": true
+                  },
+                  {
+                    "name": "Deploy Response",
+                    "value": "```json\n'$RESPONSE_BODY'\n```",
+                    "inline": false
+                  }
+                ],
+                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+              }]
+            }' || echo "Failed to send Discord notification"
+
+  deploy-release:
+    runs-on: ubuntu-22.04
+    name: Deploy to everything.software
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Deploy Release Application
+        id: deploy-release
+        run: |
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS_CODE:%{http_code}" -X POST "${{ secrets.DEPLOY_URI }}" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: ${{ secrets.DEPLOY_SECRET }}" \
+            -d '{"domain": "everything.software"}')
+          
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS_CODE:[0-9]*" | cut -d: -f2)
+          RESPONSE_BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS_CODE:/d')
+          
+          echo "deploy_response=$RESPONSE_BODY" >> $GITHUB_OUTPUT
+          echo "deploy_status=$HTTP_STATUS" >> $GITHUB_OUTPUT
+          
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Release deployment successful with status $HTTP_STATUS"
+          else
+            echo "Release deployment failed with status $HTTP_STATUS"
+            exit 1
+          fi
+          
+          # Send Discord Notification for Release
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            STATUS="✅ Success"
+            COLOR=3066993
+          else
+            STATUS="❌ Failed"
+            COLOR=15158332
+          fi
+          
+          # Escape and truncate response for Discord (max 1024 chars per field)
+          if [ ${#RESPONSE_BODY} -gt 1000 ]; then
+            RESPONSE_BODY="${RESPONSE_BODY:0:1000}..."
+          fi
+          RESPONSE_BODY=$(echo "$RESPONSE_BODY" | sed 's/"/\\"/g' | sed 's/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+          
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "🎉 Release Deployment Notification",
+                "description": "Release **${{ github.ref_name }}** has been deployed to **everything.software**",
+                "color": '$COLOR',
+                "fields": [
+                  {
+                    "name": "Status",
+                    "value": "'$STATUS' (HTTP '$HTTP_STATUS')",
+                    "inline": true
+                  },
+                  {
+                    "name": "Release Tag",
+                    "value": "${{ github.ref_name }}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Domain",
+                    "value": "everything.software",
                     "inline": true
                   },
                   {
