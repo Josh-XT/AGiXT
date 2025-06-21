@@ -743,7 +743,7 @@ async def conversation_stream(
                                     )
                                 )
                         except Exception as e:
-                            logging.warning(f"Error parsing message timestamp: {e}")
+                            pass  # Ignore parsing errors
 
                 last_check_time = datetime.now()
 
