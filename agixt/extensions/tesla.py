@@ -47,7 +47,7 @@ class TeslaVINDecoder:
     # Body Type (Position 5)
     BODY_CODES = {
         "A": "Sedan or Hatchback",
-        "B": "SUV or Crossover", 
+        "B": "SUV or Crossover",
         "C": "Coupe",
         "E": "Truck",  # Updated for Cybertruck
         "F": "SUV or Crossover",
@@ -259,7 +259,10 @@ class TeslaVINDecoder:
                 result["drivetrain"] = TeslaVINDecoder.DRIVETRAIN_CODES.get(
                     drivetrain_code, "Unknown Drivetrain"
                 )
-                if "Performance" in result["drivetrain"] or "Tri Motor" in result["drivetrain"]:
+                if (
+                    "Performance" in result["drivetrain"]
+                    or "Tri Motor" in result["drivetrain"]
+                ):
                     result["trim"] = "Cyberbeast"
                 else:
                     result["trim"] = "AWD"
@@ -838,9 +841,9 @@ class tesla(Extensions):
     # Fun Commands
     async def fart(self, vehicle_tag):
         """Make the vehicle emit a fart sound
-        
+
         Note: This command uses the vehicle's external speaker system (Boombox feature).
-        This feature is only available on vehicles with external speakers and may require 
+        This feature is only available on vehicles with external speakers and may require
         specific Tesla account permissions. If not available, this will suggest alternatives.
 
         Args:
@@ -855,16 +858,18 @@ class tesla(Extensions):
             return {
                 "error": "Vehicle is not online. Please wake the vehicle first using 'Tesla - Wake Vehicle'."
             }
-        
+
         try:
             # Try the boombox command (requires external speakers)
-            result = await self.send_command(vehicle_tag, "remote_boombox", {"sound": 1})
-            
+            result = await self.send_command(
+                vehicle_tag, "remote_boombox", {"sound": 1}
+            )
+
             return result
-            
+
         except Exception as e:
             error_msg = str(e)
-            
+
             # Handle specific error cases with helpful messages
             if "Access denied" in error_msg or "403" in error_msg:
                 return {
@@ -873,8 +878,8 @@ class tesla(Extensions):
                     "alternatives": [
                         "Use 'Tesla - Honk Horn' for a fun sound effect",
                         "Use 'Tesla - Flash Lights' for a visual effect",
-                        "Check if your vehicle has the Boombox feature in the Tesla mobile app"
-                    ]
+                        "Check if your vehicle has the Boombox feature in the Tesla mobile app",
+                    ],
                 }
             elif "404" in error_msg or "not found" in error_msg.lower():
                 return {
@@ -882,13 +887,15 @@ class tesla(Extensions):
                     "reason": "Your vehicle may not have external speakers or the Boombox feature.",
                     "alternatives": [
                         "Use 'Tesla - Honk Horn' instead",
-                        "Use 'Tesla - Flash Lights' for a different fun effect"
-                    ]
+                        "Use 'Tesla - Flash Lights' for a different fun effect",
+                    ],
                 }
             else:
                 return {
                     "error": f"Fart command failed: {error_msg}",
-                    "alternatives": ["Try 'Tesla - Honk Horn' or 'Tesla - Flash Lights' instead"]
+                    "alternatives": [
+                        "Try 'Tesla - Honk Horn' or 'Tesla - Flash Lights' instead"
+                    ],
                 }
 
     async def get_vehicle_data(self, vehicle_tag, data_type="vehicle_data"):
