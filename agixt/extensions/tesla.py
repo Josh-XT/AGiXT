@@ -418,11 +418,10 @@ class tesla(Extensions):
             raise Exception("No valid Tesla access token found")
 
     def sign_command(self, command_data: Dict, vehicle_id: str, command: str) -> Dict:
-        """Sign Tesla commands using the private key for Fleet API security
+        """Sign Tesla commands using Tesla Vehicle Command Protocol (TVCP)
 
-        Tesla requires commands to be signed with a specific format:
-        - Message format: HTTP_METHOD|URI|BODY|timestamp
-        - Signature is added to headers, not body
+        Tesla Fleet API now requires TVCP for vehicle commands.
+        Reference: https://developer.tesla.com/docs/fleet-api/support/announcements
 
         Args:
             command_data: The command data to sign
@@ -430,7 +429,7 @@ class tesla(Extensions):
             command: The command name
 
         Returns:
-            Dict containing headers with signature
+            Dict containing headers with signature for TVCP
         """
         try:
             # Get the private key
@@ -441,23 +440,22 @@ class tesla(Extensions):
                 private_key_pem.encode(), password=None
             )
 
-            # Create the message components according to Tesla spec
+            # TVCP requires a specific signing format
             timestamp = str(int(time.time()))
-            http_method = "POST"
-            uri = f"/api/1/vehicles/{vehicle_id}/command/{command}"
 
-            # Body must be exactly as it will be sent over the wire
-            if command_data:
-                body = json.dumps(command_data, separators=(",", ":"), sort_keys=True)
-            else:
-                # For commands with no data, send empty JSON object
-                body = "{}"
+            # For TVCP, we need to sign the full payload
+            payload = {"command": command, "data": command_data if command_data else {}}
 
-            # Create the message to sign: METHOD|URI|BODY|timestamp
-            message_to_sign = f"{http_method}|{uri}|{body}|{timestamp}"
+            # Create canonical JSON for signing
+            canonical_payload = json.dumps(
+                payload, separators=(",", ":"), sort_keys=True
+            )
+
+            # TVCP message format: timestamp.canonical_payload
+            message_to_sign = f"{timestamp}.{canonical_payload}"
 
             # Debug logging
-            logging.info(f"Tesla signing message: {message_to_sign}")
+            logging.info(f"TVCP signing message: {message_to_sign}")
 
             # Sign the message
             signature = private_key.sign(
@@ -468,14 +466,18 @@ class tesla(Extensions):
             signature_b64 = base64.b64encode(signature).decode()
 
             # Debug logging
-            logging.info(f"Tesla signature generated: {signature_b64[:20]}...")
+            logging.info(f"TVCP signature generated: {signature_b64[:20]}...")
 
-            # Return headers with signature
-            return {"tesla-signature": signature_b64, "tesla-timestamp": timestamp}
+            # Return headers with TVCP signature format
+            return {
+                "tesla-signature": signature_b64,
+                "tesla-timestamp": timestamp,
+                "tesla-command-protocol": "1.0",  # Indicate TVCP version
+            }
 
         except Exception as e:
-            logging.error(f"Error signing Tesla command: {str(e)}")
-            raise Exception(f"Failed to sign command: {str(e)}")
+            logging.error(f"Error signing Tesla command with TVCP: {str(e)}")
+            raise Exception(f"Failed to sign command with TVCP: {str(e)}")
 
     async def get_vehicles(self):
         """Get list of vehicles with key state information
@@ -634,32 +636,36 @@ class tesla(Extensions):
             else:
                 vehicle_id = vehicle_tag
 
-            url = f"{self.api_base_url}/vehicles/{vehicle_id}/command/{command}"
+            # Use TVCP endpoint for signed commands
+            url = f"{self.api_base_url}/vehicles/{vehicle_id}/signed_command"
 
             # Prepare command data
             command_data = data if data is not None else {}
 
-            # Sign the command for Fleet API security
+            # Sign the command using TVCP
             try:
                 signature_headers = self.sign_command(command_data, vehicle_id, command)
                 # Add signature headers to existing headers
                 headers.update(signature_headers)
-                logging.info(f"Command signed successfully")
+                logging.info(f"Command signed successfully with TVCP")
             except Exception as e:
-                logging.error(f"Command signing failed: {str(e)}")
+                logging.error(f"TVCP command signing failed: {str(e)}")
                 raise Exception(
-                    f"Command signing required for Tesla Fleet API: {str(e)}"
+                    f"TVCP command signing required for Tesla Fleet API: {str(e)}"
                 )
 
+            # Create TVCP payload
+            tvcp_payload = {"command": command, "data": command_data}
+
             # Log details for debugging
-            logging.info(f"Tesla command: {command} for vehicle {vehicle_id}")
-            logging.info(f"Command data: {command_data}")
+            logging.info(f"Tesla TVCP command: {command} for vehicle {vehicle_id}")
+            logging.info(f"TVCP payload: {tvcp_payload}")
             logging.info(
                 f"Final headers: {dict((k, v if k != 'Authorization' else 'Bearer [REDACTED]') for k, v in headers.items())}"
             )
 
             response = requests.post(
-                url, headers=headers, json=command_data, timeout=15
+                url, headers=headers, json=tvcp_payload, timeout=15
             )
 
             logging.info(f"Response status: {response.status_code}")
@@ -1411,12 +1417,14 @@ class tesla(Extensions):
                     if (
                         "tesla-signature" in signed_headers
                         and "tesla-timestamp" in signed_headers
+                        and "tesla-command-protocol" in signed_headers
                     ):
                         diagnostic_results["command_signing"] = True
+                        diagnostic_results["command_protocol"] = "TVCP"
                     else:
                         diagnostic_results["command_signing"] = False
                         diagnostic_results["error_details"].append(
-                            f"Command signing returned invalid headers. Got: {list(signed_headers.keys()) if signed_headers else 'None'}"
+                            f"TVCP signing failed. Got headers: {list(signed_headers.keys()) if signed_headers else 'None'}"
                         )
                 except Exception as e:
                     diagnostic_results["command_signing"] = False
