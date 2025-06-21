@@ -327,6 +327,15 @@ class TeslaVINDecoder:
         result = TeslaVINDecoder.decode_vin(test_vin)
         return result
 
+
+class tesla(Extensions):
+    """
+    Tesla Fleet API Extension for AGiXT
+
+    This extension provides complete Tesla vehicle control through the Tesla Fleet API.
+    It supports the Tesla Vehicle Command Protocol (TVCP) for secure command signing.
+    """
+
     @staticmethod
     def celsius_to_fahrenheit(celsius):
         """Convert Celsius to Fahrenheit and format nicely"""
@@ -342,7 +351,7 @@ class TeslaVINDecoder:
         fahrenheit = self.celsius_to_fahrenheit(celsius_temp)
         return f"{fahrenheit}°F ({celsius_temp}°C)"
 
-    def commands(self):
+    def __init__(self, **kwargs):
         """
         The Tesla extension provides direct control of Tesla vehicles through the Fleet API.
         This extension allows AI agents to:
@@ -357,73 +366,71 @@ class TeslaVINDecoder:
 
         The extension requires the user to be authenticated with Tesla through OAuth.
         """
+        self.api_key = kwargs.get("api_key")
+        self.access_token = kwargs.get("TESLA_ACCESS_TOKEN", None)
+        self.api_base_url = "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1"
+        tesla_client_id = getenv("TESLA_CLIENT_ID")
+        tesla_client_secret = getenv("TESLA_CLIENT_SECRET")
+        self.auth = None
 
-        def __init__(self, **kwargs):
-            self.api_key = kwargs.get("api_key")
-            self.access_token = kwargs.get("TESLA_ACCESS_TOKEN", None)
-            self.api_base_url = "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1"
-            tesla_client_id = getenv("TESLA_CLIENT_ID")
-            tesla_client_secret = getenv("TESLA_CLIENT_SECRET")
-            self.auth = None
+        if tesla_client_id and tesla_client_secret:
+            self.commands = {
+                # Basic Vehicle Controls
+                "Tesla - Lock Doors": self.lock_doors,
+                "Tesla - Unlock Doors": self.unlock_doors,
+                "Tesla - Flash Lights": self.flash_lights,
+                "Tesla - Honk Horn": self.honk_horn,
+                "Tesla - Wake Vehicle": self.wake_vehicle,
+                "Tesla - Remote Start": self.remote_start,
+                # Trunk/Port Controls
+                "Tesla - Actuate Trunk": self.actuate_trunk,
+                "Tesla - Open Charge Port": self.open_charge_port,
+                "Tesla - Close Charge Port": self.close_charge_port,
+                # Climate Controls
+                "Tesla - Set Temperature": self.set_temperature,
+                "Tesla - Start Climate": self.start_climate,
+                "Tesla - Stop Climate": self.stop_climate,
+                "Tesla - Set Seat Heater": self.set_seat_heater,
+                "Tesla - Set Steering Wheel Heat": self.set_steering_wheel_heat,
+                "Tesla - Set Climate Keeper": self.set_climate_keeper,
+                # Charging Controls
+                "Tesla - Start Charging": self.start_charging,
+                "Tesla - Stop Charging": self.stop_charging,
+                "Tesla - Set Charge Limit": self.set_charge_limit,
+                "Tesla - Set Charging Amps": self.set_charging_amps,
+                # Media Controls
+                "Tesla - Adjust Volume": self.adjust_volume,
+                "Tesla - Toggle Playback": self.toggle_playback,
+                "Tesla - Next Track": self.next_track,
+                "Tesla - Previous Track": self.previous_track,
+                "Tesla - Next Favorite": self.next_favorite,
+                "Tesla - Previous Favorite": self.previous_favorite,
+                # Windows/Sunroof
+                "Tesla - Control Windows": self.control_windows,
+                "Tesla - Control Sunroof": self.control_sunroof,
+                # Navigation
+                "Tesla - Navigate To": self.navigate_to,
+                "Tesla - Navigate To Supercharger": self.navigate_to_supercharger,
+                # Information Commands
+                "Tesla - Get Vehicles": self.get_vehicles,
+                "Tesla - Get Vehicle State": self.get_vehicle_state,
+                "Tesla - Get Charge State": self.get_charge_state,
+                "Tesla - Get Climate State": self.get_climate_state,
+                "Tesla - Check Vehicle Online": self.check_vehicle_online,
+                "Tesla - Check Account Permissions": self.check_account_permissions,
+                "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
+                "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
+                "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
+                "Tesla - TVCP Vehicle Pairing Guide": self.setup_vehicle_command_proxy,
+                # Fun Commands
+                "Tesla - Fart": self.fart,
+            }
 
-            if tesla_client_id and tesla_client_secret:
-                self.commands = {
-                    # Basic Vehicle Controls
-                    "Tesla - Lock Doors": self.lock_doors,
-                    "Tesla - Unlock Doors": self.unlock_doors,
-                    "Tesla - Flash Lights": self.flash_lights,
-                    "Tesla - Honk Horn": self.honk_horn,
-                    "Tesla - Wake Vehicle": self.wake_vehicle,
-                    "Tesla - Remote Start": self.remote_start,
-                    # Trunk/Port Controls
-                    "Tesla - Actuate Trunk": self.actuate_trunk,
-                    "Tesla - Open Charge Port": self.open_charge_port,
-                    "Tesla - Close Charge Port": self.close_charge_port,
-                    # Climate Controls
-                    "Tesla - Set Temperature": self.set_temperature,
-                    "Tesla - Start Climate": self.start_climate,
-                    "Tesla - Stop Climate": self.stop_climate,
-                    "Tesla - Set Seat Heater": self.set_seat_heater,
-                    "Tesla - Set Steering Wheel Heat": self.set_steering_wheel_heat,
-                    "Tesla - Set Climate Keeper": self.set_climate_keeper,
-                    # Charging Controls
-                    "Tesla - Start Charging": self.start_charging,
-                    "Tesla - Stop Charging": self.stop_charging,
-                    "Tesla - Set Charge Limit": self.set_charge_limit,
-                    "Tesla - Set Charging Amps": self.set_charging_amps,
-                    # Media Controls
-                    "Tesla - Adjust Volume": self.adjust_volume,
-                    "Tesla - Toggle Playback": self.toggle_playback,
-                    "Tesla - Next Track": self.next_track,
-                    "Tesla - Previous Track": self.previous_track,
-                    "Tesla - Next Favorite": self.next_favorite,
-                    "Tesla - Previous Favorite": self.previous_favorite,
-                    # Windows/Sunroof
-                    "Tesla - Control Windows": self.control_windows,
-                    "Tesla - Control Sunroof": self.control_sunroof,
-                    # Navigation
-                    "Tesla - Navigate To": self.navigate_to,
-                    "Tesla - Navigate To Supercharger": self.navigate_to_supercharger,
-                    # Information Commands
-                    "Tesla - Get Vehicles": self.get_vehicles,
-                    "Tesla - Get Vehicle State": self.get_vehicle_state,
-                    "Tesla - Get Charge State": self.get_charge_state,
-                    "Tesla - Get Climate State": self.get_climate_state,
-                    "Tesla - Check Vehicle Online": self.check_vehicle_online,
-                    "Tesla - Check Account Permissions": self.check_account_permissions,
-                    "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
-                    "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
-                    "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
-                    "Tesla - TVCP Vehicle Pairing Guide": self.setup_vehicle_command_proxy,
-                    # Fun Commands
-                    "Tesla - Fart": self.fart,
-                }
-
-                if self.api_key:
-                    try:
-                        self.auth = MagicalAuth(token=self.api_key)
-                    except Exception as e:
-                        logging.error(f"Error initializing Tesla client: {str(e)}")
+            if self.api_key:
+                try:
+                    self.auth = MagicalAuth(token=self.api_key)
+                except Exception as e:
+                    logging.error(f"Error initializing Tesla client: {str(e)}")
 
         def verify_user(self):
             """Verify user access token and refresh if needed"""
@@ -432,7 +439,9 @@ class TeslaVINDecoder:
             if not self.access_token:
                 raise Exception("No valid Tesla access token found")
 
-        def sign_command(self, command_data: Dict, vehicle_id: str, command: str) -> Dict:
+        def sign_command(
+            self, command_data: Dict, vehicle_id: str, command: str
+        ) -> Dict:
             """Sign Tesla commands using Tesla Vehicle Command Protocol (TVCP)
 
             Tesla Fleet API now requires TVCP for vehicle commands.
@@ -589,15 +598,15 @@ class TeslaVINDecoder:
                         try:
                             # Get comprehensive vehicle data
                             vehicle_id = vehicle["id_s"]
-                            vehicle_data_url = (
-                                f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
-                            )
+                            vehicle_data_url = f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
                             vehicle_response = requests.get(
                                 vehicle_data_url, headers=headers, timeout=15
                             )
 
                             if vehicle_response.status_code == 200:
-                                vehicle_detail = vehicle_response.json().get("response", {})
+                                vehicle_detail = vehicle_response.json().get(
+                                    "response", {}
+                                )
 
                                 # Extract and format all state information
                                 charge_state = vehicle_detail.get("charge_state", {})
@@ -606,7 +615,9 @@ class TeslaVINDecoder:
 
                                 # Battery and Charging Information
                                 if charge_state:
-                                    battery_level = charge_state.get("battery_level", "N/A")
+                                    battery_level = charge_state.get(
+                                        "battery_level", "N/A"
+                                    )
                                     usable_battery = charge_state.get(
                                         "usable_battery_level", "N/A"
                                     )
@@ -616,7 +627,9 @@ class TeslaVINDecoder:
                                     charge_limit = charge_state.get(
                                         "charge_limit_soc", "N/A"
                                     )
-                                    est_range = charge_state.get("est_battery_range", "N/A")
+                                    est_range = charge_state.get(
+                                        "est_battery_range", "N/A"
+                                    )
                                     charge_rate = charge_state.get("charge_rate", 0)
                                     time_to_full = charge_state.get(
                                         "time_to_full_charge", 0
@@ -627,17 +640,28 @@ class TeslaVINDecoder:
                                     result += f"- Charging State: {charging_state}\n"
                                     result += f"- Charge Limit: {charge_limit}%\n"
                                     result += f"- Estimated Range: {est_range} mi\n"
-                                    if charging_state != "Disconnected" and charge_rate > 0:
-                                        result += f"- Charge Rate: {charge_rate} mi/hr\n"
-                                        result += f"- Time to Full: {time_to_full} hours\n"
+                                    if (
+                                        charging_state != "Disconnected"
+                                        and charge_rate > 0
+                                    ):
+                                        result += (
+                                            f"- Charge Rate: {charge_rate} mi/hr\n"
+                                        )
+                                        result += (
+                                            f"- Time to Full: {time_to_full} hours\n"
+                                        )
                                     result += "\n"
 
                                 # Climate Information
                                 if climate_state:
                                     inside_temp = climate_state.get("inside_temp")
                                     outside_temp = climate_state.get("outside_temp")
-                                    climate_on = climate_state.get("is_climate_on", False)
-                                    driver_temp = climate_state.get("driver_temp_setting")
+                                    climate_on = climate_state.get(
+                                        "is_climate_on", False
+                                    )
+                                    driver_temp = climate_state.get(
+                                        "driver_temp_setting"
+                                    )
                                     passenger_temp = climate_state.get(
                                         "passenger_temp_setting"
                                     )
@@ -645,28 +669,38 @@ class TeslaVINDecoder:
                                     result += f"**🌡️ Climate:**\n"
                                     result += f"- Climate System: {'On' if climate_on else 'Off'}\n"
                                     if inside_temp is not None:
-                                        inside_temp_f = round(inside_temp * 9/5 + 32, 1)
-                                        result += f"- Inside Temperature: {inside_temp_f}°F\n"
+                                        inside_temp_f = round(
+                                            inside_temp * 9 / 5 + 32, 1
+                                        )
+                                        result += (
+                                            f"- Inside Temperature: {inside_temp_f}°F\n"
+                                        )
                                     if outside_temp is not None:
-                                        outside_temp_f = round(outside_temp * 9/5 + 32, 1)
-                                        result += (
-                                            f"- Outside Temperature: {outside_temp_f}°F\n"
+                                        outside_temp_f = round(
+                                            outside_temp * 9 / 5 + 32, 1
                                         )
+                                        result += f"- Outside Temperature: {outside_temp_f}°F\n"
                                     if driver_temp is not None:
-                                        driver_temp_f = round(driver_temp * 9/5 + 32, 1)
-                                        result += f"- Driver Setting: {driver_temp_f}°F\n"
-                                    if passenger_temp is not None:
-                                        passenger_temp_f = round(passenger_temp * 9/5 + 32, 1)
-                                        result += (
-                                            f"- Passenger Setting: {passenger_temp_f}°F\n"
+                                        driver_temp_f = round(
+                                            driver_temp * 9 / 5 + 32, 1
                                         )
+                                        result += (
+                                            f"- Driver Setting: {driver_temp_f}°F\n"
+                                        )
+                                    if passenger_temp is not None:
+                                        passenger_temp_f = round(
+                                            passenger_temp * 9 / 5 + 32, 1
+                                        )
+                                        result += f"- Passenger Setting: {passenger_temp_f}°F\n"
                                     result += "\n"
 
                                 # Vehicle State Information
                                 if vehicle_state:
                                     locked = vehicle_state.get("locked", "Unknown")
                                     odometer = vehicle_state.get("odometer")
-                                    sentry_mode = vehicle_state.get("sentry_mode", False)
+                                    sentry_mode = vehicle_state.get(
+                                        "sentry_mode", False
+                                    )
                                     valet_mode = vehicle_state.get("valet_mode", False)
                                     software_update = vehicle_state.get(
                                         "software_update", {}
@@ -678,12 +712,8 @@ class TeslaVINDecoder:
                                     )
                                     if odometer is not None:
                                         result += f"- Odometer: {odometer:.0f} mi\n"
-                                    result += (
-                                        f"- Sentry Mode: {'On' if sentry_mode else 'Off'}\n"
-                                    )
-                                    result += (
-                                        f"- Valet Mode: {'On' if valet_mode else 'Off'}\n"
-                                    )
+                                    result += f"- Sentry Mode: {'On' if sentry_mode else 'Off'}\n"
+                                    result += f"- Valet Mode: {'On' if valet_mode else 'Off'}\n"
 
                                     # Doors status
                                     doors_open = []
@@ -706,7 +736,9 @@ class TeslaVINDecoder:
                                         result += f"- Open Doors/Trunks: None\n"
 
                                     # Software update status
-                                    if software_update and software_update.get("status"):
+                                    if software_update and software_update.get(
+                                        "status"
+                                    ):
                                         status = software_update.get("status", "")
                                         version = software_update.get("version", "")
                                         result += f"- Software Update: {status}"
@@ -792,7 +824,9 @@ class TeslaVINDecoder:
                                 f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
                             )
                     else:
-                        raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
+                        raise Exception(
+                            f"Failed to get vehicles: {vehicles_response.text}"
+                        )
                 else:
                     vehicle_id = vehicle_tag
 
@@ -872,7 +906,9 @@ class TeslaVINDecoder:
 
                 # For newer vehicles, try TVCP signing
                 try:
-                    signature_headers = self.sign_command(command_data, vehicle_id, command)
+                    signature_headers = self.sign_command(
+                        command_data, vehicle_id, command
+                    )
                     # Add signature headers to existing headers
                     headers.update(signature_headers)
                     logging.info(f"Command signed with TVCP headers")
@@ -933,7 +969,9 @@ class TeslaVINDecoder:
                             "command_data": command_data,
                             "response_status": response.status_code,
                             "response_body": (
-                                response.text[:500] if response.text else "Empty response"
+                                response.text[:500]
+                                if response.text
+                                else "Empty response"
                             ),
                             "headers_sent": {
                                 k: v
@@ -1071,7 +1109,9 @@ class TeslaVINDecoder:
                                 f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
                             )
                     else:
-                        raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
+                        raise Exception(
+                            f"Failed to get vehicles: {vehicles_response.text}"
+                        )
                 else:
                     vehicle_id = vehicle_tag
 
@@ -1090,7 +1130,9 @@ class TeslaVINDecoder:
                             "api_url": url,
                             "response_status": response.status_code,
                             "response_body": (
-                                response.text[:500] if response.text else "Empty response"
+                                response.text[:500]
+                                if response.text
+                                else "Empty response"
                             ),
                         }
                     return error_response
@@ -1109,7 +1151,9 @@ class TeslaVINDecoder:
                     },
                 }
 
-        async def ensure_vehicle_awake(self, vehicle_tag, max_attempts=3, wait_seconds=5):
+        async def ensure_vehicle_awake(
+            self, vehicle_tag, max_attempts=3, wait_seconds=5
+        ):
             """Ensure vehicle is awake before sending commands
 
             Args:
@@ -1279,7 +1323,9 @@ class TeslaVINDecoder:
         # Media Controls
         async def adjust_volume(self, vehicle_tag, volume):
             """Adjust media volume"""
-            return await self.send_command(vehicle_tag, "adjust_volume", {"volume": volume})
+            return await self.send_command(
+                vehicle_tag, "adjust_volume", {"volume": volume}
+            )
 
         async def toggle_playback(self, vehicle_tag):
             """Toggle media playback"""
@@ -1437,7 +1483,9 @@ class TeslaVINDecoder:
                             logging.error(error_msg)
                             raise Exception(error_msg)
                     else:
-                        raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
+                        raise Exception(
+                            f"Failed to get vehicles: {vehicles_response.text}"
+                        )
                 else:
                     vehicle_id = vehicle_tag
 
@@ -1457,7 +1505,9 @@ class TeslaVINDecoder:
                             "data_type": data_type,
                             "response_status": response.status_code,
                             "response_body": (
-                                response.text[:500] if response.text else "Empty response"
+                                response.text[:500]
+                                if response.text
+                                else "Empty response"
                             ),
                         }
                     return error_response
@@ -1613,16 +1663,24 @@ class TeslaVINDecoder:
 
             # Convert temperatures from Celsius to Fahrenheit
             if climate_state.get("inside_temp") is not None:
-                climate_info["inside_temp_fahrenheit"] = round(climate_state.get("inside_temp") * 9/5 + 32, 1)
-            
+                climate_info["inside_temp_fahrenheit"] = round(
+                    climate_state.get("inside_temp") * 9 / 5 + 32, 1
+                )
+
             if climate_state.get("outside_temp") is not None:
-                climate_info["outside_temp_fahrenheit"] = round(climate_state.get("outside_temp") * 9/5 + 32, 1)
-            
+                climate_info["outside_temp_fahrenheit"] = round(
+                    climate_state.get("outside_temp") * 9 / 5 + 32, 1
+                )
+
             if climate_state.get("driver_temp_setting") is not None:
-                climate_info["driver_temp_setting_fahrenheit"] = round(climate_state.get("driver_temp_setting") * 9/5 + 32, 1)
-            
+                climate_info["driver_temp_setting_fahrenheit"] = round(
+                    climate_state.get("driver_temp_setting") * 9 / 5 + 32, 1
+                )
+
             if climate_state.get("passenger_temp_setting") is not None:
-                climate_info["passenger_temp_setting_fahrenheit"] = round(climate_state.get("passenger_temp_setting") * 9/5 + 32, 1)
+                climate_info["passenger_temp_setting_fahrenheit"] = round(
+                    climate_state.get("passenger_temp_setting") * 9 / 5 + 32, 1
+                )
 
             return {"response": climate_info}
 
@@ -2167,7 +2225,6 @@ class TeslaVINDecoder:
         except Exception as e:
             logging.error(f"Error checking vehicle online status: {str(e)}")
             return False
-
 
     async def check_tvcp_requirement(self, vehicle_tag):
         """Check if vehicle requires Tesla Vehicle Command Protocol (TVCP)
