@@ -197,7 +197,7 @@ class Task:
         return task_ids
 
     async def get_pending_tasks(self) -> list:
-        """Get all pending tasks that are due"""
+        """Get all pending tasks (scheduled but not completed)"""
         session = get_session()
         try:
             tz_info = ZoneInfo(getenv("TZ"))
@@ -211,8 +211,8 @@ class Task:
                 TaskItem.user_id == self.user_id,
                 TaskItem.completed == False,
                 TaskItem.scheduled == True,
-                TaskItem.due_date <= now,
             )
+            .order_by(TaskItem.due_date.asc())
             .all()
         )
         new_tasks = []
@@ -248,27 +248,18 @@ class Task:
         session.close()
 
     async def execute_pending_tasks(self):
-        """Check and execute all pending tasks"""
+        """Check and execute all tasks that are due"""
         session = get_session()
-        try:
-            tz_info = ZoneInfo(getenv("TZ"))
-            now = datetime.datetime.now(tz_info)
-        except:
-            now = datetime.datetime.now()
-        tasks = (
-            session.query(TaskItem)
-            .options(joinedload(TaskItem.category))  # Eager load the category
-            .filter(
-                TaskItem.user_id == self.user_id,
-                TaskItem.completed == False,
-                TaskItem.scheduled == True,
-                TaskItem.due_date <= now,
-            )
-            .all()
-        )
+        # Get all tasks that are due
+        tasks_data = await self.get_due_tasks()
 
-        for task in tasks:
+        for task_data in tasks_data:
             try:
+                # Get the actual task object from the database
+                task = session.query(TaskItem).get(task_data["id"])
+                if not task:
+                    continue
+
                 if task.agent_id:
                     agent = session.query(Agent).get(task.agent_id)
                     if agent:
@@ -391,3 +382,45 @@ class Task:
         while True:
             await self.execute_pending_tasks()
             await asyncio.sleep(check_interval)
+
+    async def get_due_tasks(self) -> list:
+        """Get all tasks that are due or overdue"""
+        session = get_session()
+        try:
+            tz_info = ZoneInfo(getenv("TZ"))
+            now = datetime.datetime.now(tz_info)
+        except:
+            now = datetime.datetime.now()
+        tasks = (
+            session.query(TaskItem)
+            .options(joinedload(TaskItem.category))  # Eager load the category
+            .filter(
+                TaskItem.user_id == self.user_id,
+                TaskItem.completed == False,
+                TaskItem.scheduled == True,
+                TaskItem.due_date <= now,
+            )
+            .order_by(TaskItem.due_date.asc())
+            .all()
+        )
+        new_tasks = []
+        for task in tasks:
+            task_dict = {
+                "id": str(task.id),
+                "description": task.description,
+                "agent_id": task.agent_id,
+                "scheduled": task.scheduled,
+                "due_date": convert_time(task.due_date, user_id=self.user_id),
+                "updated_at": task.updated_at,
+                "priority": task.priority,
+                "title": task.title,
+                "conversation_id": task.memory_collection,
+                "estimated_hours": task.estimated_hours,
+                "completed": task.completed,
+                "created_at": task.created_at,
+                "completed_at": task.completed_at,
+                "category_name": task.category.name if task.category else "Follow-ups",
+            }
+            new_tasks.append(task_dict)
+        session.close()
+        return new_tasks
