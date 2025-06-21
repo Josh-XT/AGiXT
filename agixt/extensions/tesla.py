@@ -399,8 +399,6 @@ class tesla(Extensions):
                 "Tesla - TVCP Vehicle Pairing Guide": self.setup_vehicle_command_proxy,
                 # Fun Commands
                 "Tesla - Fart": self.fart,
-                # Fun Commands
-                "Tesla - Fart": self.fart,
             }
 
             if self.api_key:
