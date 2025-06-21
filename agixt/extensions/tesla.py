@@ -27,6 +27,7 @@ class TeslaVINDecoder:
     WMI_CODES = {
         "5YJ": "Tesla USA",
         "7SA": "Tesla USA (Model Y)",
+        "7G2": "Tesla USA (Cybertruck)",
         "LRW": "Tesla China",
         "XP7": "Tesla Europe (Berlin)",
     }
@@ -46,9 +47,9 @@ class TeslaVINDecoder:
     # Body Type (Position 5)
     BODY_CODES = {
         "A": "Sedan or Hatchback",
-        "B": "SUV or Crossover",
+        "B": "SUV or Crossover", 
         "C": "Coupe",
-        "E": "Sedan or Hatchback",
+        "E": "Truck",  # Updated for Cybertruck
         "F": "SUV or Crossover",
         "P": "Performance",
         "R": "Roadster",
@@ -68,7 +69,7 @@ class TeslaVINDecoder:
         "B": "Dual Motor - AWD",
         "C": "Performance Dual Motor - AWD",
         "D": "Tri Motor - AWD (Plaid)",  # Added Plaid designation
-        "E": "Tri Motor - AWD (Plaid)",  # Updated to Plaid based on your feedback
+        "E": "Tri Motor - AWD",  # Cybertruck Tri Motor
         "F": "Quad Motor - AWD",
     }
 
@@ -240,6 +241,33 @@ class TeslaVINDecoder:
                 battery_code, "Unknown Battery Config"
             )
 
+        # Cybertruck specific interpretations
+        elif model_code == "C":
+            # Cybertruck has different drivetrain interpretations
+            if drivetrain_code == "E":
+                # E = Dual Motor AWD for Cybertruck
+                result["drivetrain"] = "Dual Motor - AWD"
+                if battery_code == "D":
+                    result["trim"] = "AWD"  # Standard dual motor
+                else:
+                    result["trim"] = "AWD"
+            elif drivetrain_code == "F" or drivetrain_code == "D":
+                # Tri-motor configurations (Cyberbeast)
+                result["drivetrain"] = "Tri Motor - AWD"
+                result["trim"] = "Cyberbeast"
+            else:
+                result["drivetrain"] = TeslaVINDecoder.DRIVETRAIN_CODES.get(
+                    drivetrain_code, "Unknown Drivetrain"
+                )
+                if "Performance" in result["drivetrain"] or "Tri Motor" in result["drivetrain"]:
+                    result["trim"] = "Cyberbeast"
+                else:
+                    result["trim"] = "AWD"
+
+            result["battery_config"] = TeslaVINDecoder.BATTERY_CODES.get(
+                battery_code, "Unknown Battery Config"
+            )
+
         # Model X and other models
         else:
             result["drivetrain"] = TeslaVINDecoder.DRIVETRAIN_CODES.get(
@@ -282,6 +310,13 @@ class TeslaVINDecoder:
     def batch_decode(vins: List[str]) -> List[Dict[str, Any]]:
         """Decode multiple VINs and return a list of decoded results."""
         return [TeslaVINDecoder.decode_vin(vin) for vin in vins]
+
+    @staticmethod
+    def test_cybertruck_vin():
+        """Test method for Cybertruck VIN decoding"""
+        test_vin = "7G2CEHED8SA071826"
+        result = TeslaVINDecoder.decode_vin(test_vin)
+        return result
 
 
 class tesla(Extensions):
@@ -803,14 +838,58 @@ class tesla(Extensions):
     # Fun Commands
     async def fart(self, vehicle_tag):
         """Make the vehicle emit a fart sound
+        
+        Note: This command uses the vehicle's external speaker system (Boombox feature).
+        This feature is only available on vehicles with external speakers and may require 
+        specific Tesla account permissions. If not available, this will suggest alternatives.
 
         Args:
             vehicle_tag: VIN or vehicle ID to identify the target vehicle
 
         Returns:
-            dict: Response from Tesla API
+            dict: Response from Tesla API or helpful error message with alternatives
         """
-        return await self.send_command(vehicle_tag, "remote_boombox", {"sound": 1})
+        # First check if vehicle is online
+        is_online = await self.check_vehicle_online(vehicle_tag)
+        if not is_online:
+            return {
+                "error": "Vehicle is not online. Please wake the vehicle first using 'Tesla - Wake Vehicle'."
+            }
+        
+        try:
+            # Try the boombox command (requires external speakers)
+            result = await self.send_command(vehicle_tag, "remote_boombox", {"sound": 1})
+            
+            return result
+            
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Handle specific error cases with helpful messages
+            if "Access denied" in error_msg or "403" in error_msg:
+                return {
+                    "error": "Fart sound not available on this vehicle or account.",
+                    "reason": "This feature requires a vehicle with external speakers (Boombox) and appropriate Fleet API permissions.",
+                    "alternatives": [
+                        "Use 'Tesla - Honk Horn' for a fun sound effect",
+                        "Use 'Tesla - Flash Lights' for a visual effect",
+                        "Check if your vehicle has the Boombox feature in the Tesla mobile app"
+                    ]
+                }
+            elif "404" in error_msg or "not found" in error_msg.lower():
+                return {
+                    "error": "Fart command not supported by this vehicle.",
+                    "reason": "Your vehicle may not have external speakers or the Boombox feature.",
+                    "alternatives": [
+                        "Use 'Tesla - Honk Horn' instead",
+                        "Use 'Tesla - Flash Lights' for a different fun effect"
+                    ]
+                }
+            else:
+                return {
+                    "error": f"Fart command failed: {error_msg}",
+                    "alternatives": ["Try 'Tesla - Honk Horn' or 'Tesla - Flash Lights' instead"]
+                }
 
     async def get_vehicle_data(self, vehicle_tag, data_type="vehicle_data"):
         """Get vehicle data from Tesla API
