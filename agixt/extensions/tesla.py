@@ -611,13 +611,21 @@ class tesla(Extensions):
             return f"Error retrieving Tesla vehicles: {str(e)}"
 
     async def send_command(self, vehicle_tag, command, data=None):
-        """Send command to vehicle with proper signing for Fleet API
+        """Send command to vehicle with proper signing for Fleet API and auto-wake
+
+        This method automatically wakes sleeping vehicles before sending control commands.
+        Data retrieval commands may work without waking the vehicle.
+
+        Args:
+            vehicle_tag: Vehicle VIN or ID
+            command: Tesla API command name
+            data: Optional command data/parameters
+
+        Returns:
+            dict: Tesla API response or error information
 
         Note: As of January 2024, most vehicles require the Tesla Vehicle Command Protocol (TVCP).
-        Direct Fleet API command calls are deprecated for newer vehicles.
-
-        For newer vehicles, you should use Tesla's Vehicle Command Proxy:
-        https://github.com/teslamotors/vehicle-command
+        This method includes automatic vehicle wake functionality for commands that require it.
         """
         try:
             self.verify_user()
@@ -646,6 +654,74 @@ class tesla(Extensions):
                     raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
             else:
                 vehicle_id = vehicle_tag
+
+            # Auto-wake vehicle if it's not online (only for commands that require it)
+            # Some data commands work even when vehicle is asleep
+            commands_that_need_awake = {
+                "door_lock",
+                "door_unlock",
+                "flash_lights",
+                "honk_horn",
+                "remote_start_drive",
+                "actuate_trunk",
+                "charge_port_door_open",
+                "charge_port_door_close",
+                "set_temps",
+                "auto_conditioning_start",
+                "auto_conditioning_stop",
+                "remote_seat_heater_request",
+                "remote_steering_wheel_heater_request",
+                "set_climate_keeper_mode",
+                "charge_start",
+                "charge_stop",
+                "set_charge_limit",
+                "set_charging_amps",
+                "adjust_volume",
+                "media_toggle_playback",
+                "media_next_track",
+                "media_prev_track",
+                "media_next_fav",
+                "media_prev_fav",
+                "window_control",
+                "sun_roof_control",
+                "navigation_gps_request",
+                "navigation_sc_request",
+                "remote_boombox",
+                "set_valet_mode",
+                "reset_valet_pin",
+                "trigger_homelink",
+                "speed_limit_activate",
+                "speed_limit_deactivate",
+                "speed_limit_clear_pin",
+                "speed_limit_set_limit",
+            }
+
+            if command != "wake_up" and command in commands_that_need_awake:
+                logging.info(
+                    f"Ensuring vehicle {vehicle_id} is awake before sending command: {command}"
+                )
+                wake_result = await self.ensure_vehicle_awake(vehicle_tag)
+
+                if not wake_result["success"]:
+                    return {
+                        "error": f"🚗 Vehicle Wake Required\n\n"
+                        f"The vehicle needs to be awake to receive commands, but wake attempts failed.\n\n"
+                        f"❌ Wake Error: {wake_result['error']}\n\n"
+                        f"💡 TROUBLESHOOTING:\n"
+                        f"• Check vehicle connectivity (cellular/WiFi)\n"
+                        f"• Vehicle may be in deep sleep mode\n"
+                        f"• Try manually waking via Tesla mobile app\n"
+                        f"• Ensure vehicle has sufficient battery\n\n"
+                        f"You can also try the manual 'Tesla - Wake Vehicle' command."
+                    }
+                else:
+                    logging.info(
+                        f"Vehicle {vehicle_id} is awake: {wake_result['message']}"
+                    )
+            elif command != "wake_up":
+                logging.info(
+                    f"Command {command} may work without waking vehicle (data retrieval)"
+                )
 
             # Try the legacy command endpoint first (for older vehicles or fleet accounts)
             url = f"{self.api_base_url}/vehicles/{vehicle_id}/command/{command}"
@@ -714,7 +790,37 @@ class tesla(Extensions):
 
             return result
 
+        except requests.exceptions.Timeout as e:
+            logging.error(f"Timeout sending command {command}: {str(e)}")
+            return {
+                "error": f"🚗 Command Timeout\n\n"
+                f"The vehicle did not respond within the timeout period.\n"
+                f"This usually means the vehicle has gone to sleep during command execution.\n\n"
+                f"💡 SUGGESTIONS:\n"
+                f"• Try the command again (auto-wake will attempt to wake the vehicle)\n"
+                f"• Use 'Tesla - Wake Vehicle' manually first\n"
+                f"• Check vehicle connectivity (cellular/WiFi)\n"
+                f"• Ensure vehicle battery is not critically low"
+            }
         except Exception as e:
+            error_str = str(e).lower()
+
+            # Check for sleep-related errors
+            if any(
+                keyword in error_str
+                for keyword in ["asleep", "sleep", "offline", "not available"]
+            ):
+                return {
+                    "error": f"🚗 Vehicle Sleep/Connectivity Issue\n\n"
+                    f"The vehicle appears to be asleep or offline.\n\n"
+                    f"💡 TROUBLESHOOTING:\n"
+                    f"• Auto-wake may have failed - try 'Tesla - Wake Vehicle' manually\n"
+                    f"• Check vehicle connectivity (cellular/WiFi signal)\n"
+                    f"• Ensure vehicle battery is not critically low\n"
+                    f"• Vehicle may be in deep sleep mode\n\n"
+                    f"Original error: {str(e)}"
+                }
+
             logging.error(f"Error sending command {command}: {str(e)}")
             return {"error": str(e)}
 
@@ -776,6 +882,86 @@ class tesla(Extensions):
         except Exception as e:
             logging.error(f"Error waking vehicle: {str(e)}")
             return {"error": str(e)}
+
+    async def ensure_vehicle_awake(self, vehicle_tag, max_attempts=3, wait_seconds=5):
+        """Ensure vehicle is awake before sending commands
+
+        Args:
+            vehicle_tag: VIN or vehicle ID
+            max_attempts: Maximum number of wake attempts (default 3)
+            wait_seconds: Seconds to wait between wake attempts (default 5)
+
+        Returns:
+            dict: Success/error status with details
+        """
+        try:
+            # First check if vehicle is already online
+            is_online = await self.check_vehicle_online(vehicle_tag)
+            if is_online:
+                logging.info(f"Vehicle {vehicle_tag} is already online")
+                return {"success": True, "message": "Vehicle is already online"}
+
+            logging.info(f"Vehicle {vehicle_tag} is asleep, attempting to wake...")
+
+            # Try to wake the vehicle with retries
+            for attempt in range(max_attempts):
+                logging.info(
+                    f"Wake attempt {attempt + 1}/{max_attempts} for vehicle {vehicle_tag}"
+                )
+
+                # Send wake command
+                wake_result = await self.wake_vehicle(vehicle_tag)
+
+                if "error" in wake_result:
+                    logging.warning(
+                        f"Wake attempt {attempt + 1} failed: {wake_result['error']}"
+                    )
+                    if attempt == max_attempts - 1:  # Last attempt
+                        return {
+                            "success": False,
+                            "error": f"Failed to wake vehicle after {max_attempts} attempts: {wake_result['error']}",
+                        }
+                    continue
+
+                # Wait for vehicle to wake up
+                await self._sleep(wait_seconds)
+
+                # Check if vehicle is now online
+                is_online = await self.check_vehicle_online(vehicle_tag)
+                if is_online:
+                    logging.info(
+                        f"Vehicle {vehicle_tag} successfully woken on attempt {attempt + 1}"
+                    )
+                    return {
+                        "success": True,
+                        "message": f"Vehicle woken successfully on attempt {attempt + 1}",
+                    }
+
+                logging.info(
+                    f"Vehicle {vehicle_tag} still not online after attempt {attempt + 1}, waiting..."
+                )
+
+                # Wait before next attempt (except on last attempt)
+                if attempt < max_attempts - 1:
+                    await self._sleep(wait_seconds)
+
+            return {
+                "success": False,
+                "error": f"Vehicle failed to wake up after {max_attempts} attempts. Vehicle may have connectivity issues or be in deep sleep mode.",
+            }
+
+        except Exception as e:
+            logging.error(f"Error in ensure_vehicle_awake: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Error ensuring vehicle is awake: {str(e)}",
+            }
+
+    async def _sleep(self, seconds):
+        """Helper method for non-blocking sleep"""
+        import asyncio
+
+        await asyncio.sleep(seconds)
 
     async def remote_start(self, vehicle_tag):
         """Enable keyless driving"""
@@ -955,16 +1141,8 @@ class tesla(Extensions):
         Returns:
             dict: Response from Tesla API or helpful error message with alternatives
         """
-        # First check if vehicle is online
-        is_online = await self.check_vehicle_online(vehicle_tag)
-        if not is_online:
-            return {
-                "error": "Vehicle is not online. Please wake the vehicle first.",
-                "suggestion": "Try using the 'Wake Vehicle' command first, then retry the fart command.",
-            }
-
         try:
-            # Try the boombox fart command
+            # Try the boombox fart command (send_command will auto-wake if needed)
             result = await self.send_command(
                 vehicle_tag,
                 "remote_boombox",
