@@ -443,16 +443,19 @@ class tesla(Extensions):
             # TVCP requires a specific signing format
             timestamp = str(int(time.time()))
 
-            # For TVCP, we need to sign the full payload
-            payload = {"command": command, "data": command_data if command_data else {}}
+            # For TVCP, Tesla expects the command data to be in the exact format
+            # that will be sent as the routable_message
+            message_payload = {"command": command}
+            if command_data:
+                message_payload.update(command_data)
 
-            # Create canonical JSON for signing
-            canonical_payload = json.dumps(
-                payload, separators=(",", ":"), sort_keys=True
+            # Create canonical JSON for signing (this should match the routable_message)
+            canonical_message = json.dumps(
+                message_payload, separators=(",", ":"), sort_keys=True
             )
 
-            # TVCP message format: timestamp.canonical_payload
-            message_to_sign = f"{timestamp}.{canonical_payload}"
+            # TVCP message format: timestamp.canonical_message
+            message_to_sign = f"{timestamp}.{canonical_message}"
 
             # Debug logging
             logging.info(f"TVCP signing message: {message_to_sign}")
@@ -654,8 +657,18 @@ class tesla(Extensions):
                     f"TVCP command signing required for Tesla Fleet API: {str(e)}"
                 )
 
-            # Create TVCP payload
-            tvcp_payload = {"command": command, "data": command_data}
+            # Create TVCP payload - Tesla's expected format
+            # Based on Tesla's TVCP documentation, routable_message should contain
+            # the command structure that would normally be sent to the legacy endpoint
+
+            # Create the command payload in the format Tesla expects
+            command_payload = {"command": command}
+
+            # Add any additional data if provided
+            if command_data:
+                command_payload.update(command_data)
+
+            tvcp_payload = {"routable_message": command_payload}
 
             # Log details for debugging
             logging.info(f"Tesla TVCP command: {command} for vehicle {vehicle_id}")
