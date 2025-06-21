@@ -396,6 +396,8 @@ class tesla(Extensions):
                 "Tesla - Get Charge State": self.get_charge_state,
                 "Tesla - Get Climate State": self.get_climate_state,
                 "Tesla - Check Vehicle Online": self.check_vehicle_online,
+                "Tesla - Check Account Permissions": self.check_account_permissions,
+                "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
                 # Fun Commands
                 "Tesla - Fart": self.fart,
             }
@@ -413,46 +415,55 @@ class tesla(Extensions):
         if not self.access_token:
             raise Exception("No valid Tesla access token found")
 
-    def sign_command(self, command_data: Dict) -> Dict:
+    def sign_command(self, command_data: Dict, vehicle_id: str, command: str) -> Dict:
         """Sign Tesla commands using the private key for Fleet API security
-
+        
+        Tesla requires commands to be signed with a specific format:
+        - Message format: HTTP_METHOD|URI|BODY|timestamp
+        - Signature is added to headers, not body
+        
         Args:
             command_data: The command data to sign
-
+            vehicle_id: The vehicle ID 
+            command: The command name
+            
         Returns:
-            Dict containing the signed command
+            Dict containing headers with signature
         """
         try:
             # Get the private key
             private_key_pem = get_tesla_private_key()
-
+            
             # Load the private key
             private_key = serialization.load_pem_private_key(
-                private_key_pem.encode(), password=None
+                private_key_pem.encode(),
+                password=None
             )
-
-            # Create the message to sign
-            timestamp = int(time.time())
-            message = json.dumps(command_data, separators=(",", ":"), sort_keys=True)
-
-            # Create the signature payload
-            signature_payload = f"{timestamp}.{message}"
-
-            # Sign the payload
+            
+            # Create the message components according to Tesla spec
+            timestamp = str(int(time.time()))
+            http_method = "POST"
+            uri = f"/api/1/vehicles/{vehicle_id}/command/{command}"
+            body = json.dumps(command_data, separators=(',', ':'), sort_keys=True) if command_data else ""
+            
+            # Create the message to sign: METHOD|URI|BODY|timestamp
+            message_to_sign = f"{http_method}|{uri}|{body}|{timestamp}"
+            
+            # Sign the message
             signature = private_key.sign(
-                signature_payload.encode(), ec.ECDSA(hashes.SHA256())
+                message_to_sign.encode('utf-8'),
+                ec.ECDSA(hashes.SHA256())
             )
-
+            
             # Encode signature in base64
             signature_b64 = base64.b64encode(signature).decode()
-
-            # Return signed command
+            
+            # Return headers with signature
             return {
-                "command": command_data,
-                "timestamp": timestamp,
-                "signature": signature_b64,
+                "Tesla-Signature": signature_b64,
+                "Tesla-Timestamp": timestamp
             }
-
+            
         except Exception as e:
             logging.error(f"Error signing Tesla command: {str(e)}")
             raise Exception(f"Failed to sign command: {str(e)}")
@@ -591,6 +602,7 @@ class tesla(Extensions):
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
+                "User-Agent": "AGiXT-Tesla/1.0",
             }
 
             # Check if vehicle_tag is VIN or vehicle ID
@@ -617,19 +629,26 @@ class tesla(Extensions):
 
             # Prepare command data
             command_data = data if data else {}
-
+            
             # Sign the command for Fleet API security
             try:
-                signed_command = self.sign_command(command_data)
-                payload = signed_command
+                signature_headers = self.sign_command(command_data, vehicle_id, command)
+                # Add signature headers to existing headers
+                headers.update(signature_headers)
+                logging.info(f"Command signed successfully")
             except Exception as e:
-                logging.warning(
-                    f"Command signing failed, trying unsigned request: {str(e)}"
-                )
-                # Fallback to unsigned request for backward compatibility
-                payload = command_data
+                logging.error(f"Command signing failed: {str(e)}")
+                raise Exception(f"Command signing required for Tesla Fleet API: {str(e)}")
 
-            response = requests.post(url, headers=headers, json=payload, timeout=15)
+            # Log details for debugging
+            logging.info(f"Tesla command: {command} for vehicle {vehicle_id}")
+            logging.info(f"Command data: {command_data}")
+            logging.info(f"Final headers: {dict((k, v if k != 'Authorization' else 'Bearer [REDACTED]') for k, v in headers.items())}")
+            
+            response = requests.post(url, headers=headers, json=command_data, timeout=15)
+            
+            logging.info(f"Response status: {response.status_code}")
+            logging.info(f"Response text: {response.text}")
 
             if response.status_code not in [200, 201, 202]:
                 return self.handle_tesla_error(response)
@@ -1124,6 +1143,214 @@ class tesla(Extensions):
             return {"error": "Tesla service unavailable. Please try again later."}
         else:
             return {"error": f"Tesla API error {response.status_code}: {response.text}"}
+
+    async def check_account_permissions(self):
+        """Check if the Tesla account has the necessary permissions for vehicle commands
+        
+        Returns:
+            dict: Permission status and available scopes
+        """
+        try:
+            self.verify_user()
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+            
+            # Check the me endpoint to see what permissions we have
+            me_url = f"{self.api_base_url}/users/me"
+            response = requests.get(me_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                user_data = response.json().get("response", {})
+                
+                # Check if we have vehicle command permissions
+                # This is indicated by having vehicles that allow commands
+                vehicles_url = f"{self.api_base_url}/vehicles"
+                vehicles_response = requests.get(vehicles_url, headers=headers, timeout=10)
+                
+                if vehicles_response.status_code == 200:
+                    vehicles = vehicles_response.json().get("response", [])
+                    
+                    permission_info = {
+                        "user_id": user_data.get("id"),
+                        "email": user_data.get("email"),
+                        "total_vehicles": len(vehicles),
+                        "vehicles_with_commands": 0,
+                        "command_capable_vehicles": []
+                    }
+                    
+                    # Check each vehicle for command capability
+                    for vehicle in vehicles:
+                        vehicle_id = vehicle.get("id_s")
+                        vin = vehicle.get("vin")
+                        state = vehicle.get("state")
+                        
+                        # Try to get vehicle data (this doesn't require command permissions)
+                        try:
+                            vehicle_data_url = f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
+                            vehicle_data_response = requests.get(vehicle_data_url, headers=headers, timeout=10)
+                            
+                            if vehicle_data_response.status_code == 200:
+                                permission_info["vehicles_with_commands"] += 1
+                                permission_info["command_capable_vehicles"].append({
+                                    "vin": vin,
+                                    "state": state,
+                                    "command_capable": True
+                                })
+                            else:
+                                permission_info["command_capable_vehicles"].append({
+                                    "vin": vin,
+                                    "state": state,
+                                    "command_capable": False,
+                                    "error": f"HTTP {vehicle_data_response.status_code}"
+                                })
+                        except Exception as e:
+                            permission_info["command_capable_vehicles"].append({
+                                "vin": vin,
+                                "state": state,
+                                "command_capable": False,
+                                "error": str(e)
+                            })
+                    
+                    return {"status": "success", "permissions": permission_info}
+                else:
+                    return {"status": "error", "error": f"Failed to get vehicles: {vehicles_response.text}"}
+            else:
+                return {"status": "error", "error": f"Failed to get user info: {response.text}"}
+                
+        except Exception as e:
+            logging.error(f"Error checking account permissions: {str(e)}")
+            return {"status": "error", "error": str(e)}
+
+    async def diagnose_tesla_setup(self):
+        """Comprehensive diagnostic of Tesla integration setup
+        
+        Returns:
+            dict: Complete diagnostic information about Tesla setup
+        """
+        diagnostic_results = {
+            "timestamp": int(time.time()),
+            "domain_registered": None,
+            "keys_exist": False,
+            "oauth_token_valid": False,
+            "fleet_api_access": False,
+            "command_permissions": False,
+            "vehicles_accessible": False,
+            "error_details": []
+        }
+        
+        try:
+            # Check if domain is registered
+            import os
+            from endpoints.TeslaIntegration import REGISTRATION_FILE, TESLA_DOMAIN
+            
+            if os.path.exists(REGISTRATION_FILE):
+                with open(REGISTRATION_FILE, 'r') as f:
+                    reg_data = json.load(f)
+                    diagnostic_results["domain_registered"] = {
+                        "status": reg_data.get("registered", False),
+                        "domain": reg_data.get("domain"),
+                        "date": reg_data.get("date")
+                    }
+            else:
+                diagnostic_results["error_details"].append("Registration file not found")
+            
+            # Check if Tesla keys exist
+            try:
+                from endpoints.TeslaIntegration import get_tesla_private_key
+                private_key = get_tesla_private_key()
+                if private_key and ("BEGIN EC PRIVATE KEY" in private_key or "BEGIN PRIVATE KEY" in private_key):
+                    diagnostic_results["keys_exist"] = True
+                else:
+                    diagnostic_results["error_details"].append("Tesla private key invalid format")
+            except Exception as e:
+                diagnostic_results["error_details"].append(f"Tesla keys error: {str(e)}")
+            
+            # Check OAuth token
+            try:
+                self.verify_user()
+                if self.access_token:
+                    diagnostic_results["oauth_token_valid"] = True
+                else:
+                    diagnostic_results["error_details"].append("No Tesla access token")
+            except Exception as e:
+                diagnostic_results["error_details"].append(f"OAuth token error: {str(e)}")
+            
+            # Check Fleet API access
+            if diagnostic_results["oauth_token_valid"]:
+                try:
+                    headers = {
+                        "Authorization": f"Bearer {self.access_token}",
+                        "Content-Type": "application/json",
+                    }
+                    
+                    # Test basic API access
+                    me_url = f"{self.api_base_url}/users/me"
+                    response = requests.get(me_url, headers=headers, timeout=10)
+                    
+                    if response.status_code == 200:
+                        diagnostic_results["fleet_api_access"] = True
+                        user_data = response.json().get("response", {})
+                        diagnostic_results["user_info"] = {
+                            "email": user_data.get("email"),
+                            "id": user_data.get("id")
+                        }
+                    else:
+                        diagnostic_results["error_details"].append(f"Fleet API access failed: HTTP {response.status_code} - {response.text}")
+                        
+                except Exception as e:
+                    diagnostic_results["error_details"].append(f"Fleet API test error: {str(e)}")
+            
+            # Check vehicles access
+            if diagnostic_results["fleet_api_access"]:
+                try:
+                    vehicles_url = f"{self.api_base_url}/vehicles"
+                    response = requests.get(vehicles_url, headers=headers, timeout=10)
+                    
+                    if response.status_code == 200:
+                        vehicles = response.json().get("response", [])
+                        diagnostic_results["vehicles_accessible"] = True
+                        diagnostic_results["vehicle_count"] = len(vehicles)
+                        diagnostic_results["vehicles"] = [
+                            {
+                                "vin": v.get("vin"),
+                                "state": v.get("state"),
+                                "display_name": v.get("display_name")
+                            } for v in vehicles
+                        ]
+                    else:
+                        diagnostic_results["error_details"].append(f"Vehicles access failed: HTTP {response.status_code} - {response.text}")
+                        
+                except Exception as e:
+                    diagnostic_results["error_details"].append(f"Vehicles access error: {str(e)}")
+            
+            # Test command signing
+            if diagnostic_results["keys_exist"]:
+                try:
+                    test_command = {"test": "data"}
+                    signed_headers = self.sign_command(test_command, "test_vehicle_id", "test_command")
+                    if "tesla-signature" in signed_headers and "tesla-timestamp" in signed_headers:
+                        diagnostic_results["command_signing"] = True
+                    else:
+                        diagnostic_results["error_details"].append("Command signing returned invalid headers")
+                except Exception as e:
+                    diagnostic_results["error_details"].append(f"Command signing test error: {str(e)}")
+            
+            # Overall health check
+            diagnostic_results["overall_health"] = (
+                diagnostic_results["domain_registered"] and 
+                diagnostic_results["keys_exist"] and 
+                diagnostic_results["oauth_token_valid"] and 
+                diagnostic_results["fleet_api_access"] and 
+                diagnostic_results["vehicles_accessible"]
+            )
+            
+            return diagnostic_results
+            
+        except Exception as e:
+            diagnostic_results["error_details"].append(f"Diagnostic error: {str(e)}")
+            return diagnostic_results
 
     async def check_vehicle_online(self, vehicle_tag):
         """Check if vehicle is online and ready to receive commands
