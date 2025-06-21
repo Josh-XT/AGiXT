@@ -643,10 +643,10 @@ class tesla(Extensions):
                 )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    
+
                     # Normalize the input VIN for comparison
                     input_vin = vehicle_tag.upper().strip().replace("-", "")
-                    
+
                     # Find vehicle with case-insensitive VIN comparison
                     vehicle = None
                     for v in vehicles:
@@ -654,12 +654,14 @@ class tesla(Extensions):
                         if api_vin == input_vin:
                             vehicle = v
                             break
-                    
+
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
                     else:
                         available_vins = [v.get("vin", "N/A") for v in vehicles]
-                        raise Exception(f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}")
+                        raise Exception(
+                            f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
+                        )
                 else:
                     raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
             else:
@@ -868,10 +870,10 @@ class tesla(Extensions):
                 )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    
+
                     # Normalize the input VIN for comparison
                     input_vin = vehicle_tag.upper().strip().replace("-", "")
-                    
+
                     # Find vehicle with case-insensitive VIN comparison
                     vehicle = None
                     for v in vehicles:
@@ -879,12 +881,14 @@ class tesla(Extensions):
                         if api_vin == input_vin:
                             vehicle = v
                             break
-                    
+
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
                     else:
                         available_vins = [v.get("vin", "N/A") for v in vehicles]
-                        raise Exception(f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}")
+                        raise Exception(
+                            f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
+                        )
                 else:
                     raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
             else:
@@ -1211,15 +1215,15 @@ class tesla(Extensions):
                 )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    
+
                     # Normalize the input VIN for comparison
                     input_vin = vehicle_tag.upper().strip().replace("-", "")
-                    
+
                     # Debug: Log available vehicles and their VINs
                     logging.info(f"Looking for VIN: {input_vin}")
                     available_vins = [v.get("vin", "N/A") for v in vehicles]
                     logging.info(f"Available vehicles VINs: {available_vins}")
-                    
+
                     # Find vehicle with case-insensitive VIN comparison
                     vehicle = None
                     for v in vehicles:
@@ -1227,10 +1231,12 @@ class tesla(Extensions):
                         if api_vin == input_vin:
                             vehicle = v
                             break
-                    
+
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
-                        logging.info(f"Found vehicle ID {vehicle_id} for VIN {input_vin}")
+                        logging.info(
+                            f"Found vehicle ID {vehicle_id} for VIN {input_vin}"
+                        )
                     else:
                         error_msg = f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
                         logging.error(error_msg)
@@ -1746,10 +1752,10 @@ class tesla(Extensions):
                 )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    
+
                     # Normalize the input VIN for comparison
                     input_vin = vehicle_tag.upper().strip().replace("-", "")
-                    
+
                     # Find vehicle with case-insensitive VIN comparison
                     vehicle = None
                     for v in vehicles:
@@ -1757,14 +1763,16 @@ class tesla(Extensions):
                         if api_vin == input_vin:
                             vehicle = v
                             break
-                    
+
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
                         vehicle_vin = vehicle["vin"]
                         vehicle_state = vehicle.get("state")
                     else:
                         available_vins = [v.get("vin", "N/A") for v in vehicles]
-                        return {"error": f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"}
+                        return {
+                            "error": f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
+                        }
                 else:
                     return {
                         "error": f"Failed to get vehicles: {vehicles_response.text}"
@@ -1853,16 +1861,16 @@ class tesla(Extensions):
                 )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    
+
                     # Normalize the input VIN for comparison
                     input_vin = vehicle_tag.upper().strip().replace("-", "")
-                    
+
                     # Find vehicle with case-insensitive VIN comparison
                     for v in vehicles:
                         api_vin = v.get("vin", "").upper().strip().replace("-", "")
                         if api_vin == input_vin:
                             return v.get("state") == "online"
-                    
+
                     return False  # VIN not found
                 else:
                     return False
@@ -1912,10 +1920,10 @@ class tesla(Extensions):
                 )
                 if vehicles_response.status_code == 200:
                     vehicles = vehicles_response.json().get("response", [])
-                    
+
                     # Normalize the input VIN for comparison
                     input_vin = vehicle_tag.upper().strip().replace("-", "")
-                    
+
                     # Find vehicle with case-insensitive VIN comparison
                     vehicle = None
                     for v in vehicles:
@@ -1923,7 +1931,7 @@ class tesla(Extensions):
                         if api_vin == input_vin:
                             vehicle = v
                             break
-                    
+
                     if vehicle:
                         vehicle_id = vehicle["id_s"]
                     else:
