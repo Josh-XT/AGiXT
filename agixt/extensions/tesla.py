@@ -1,9 +1,15 @@
 import logging
 import requests
+import json
+import base64
+import time
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
 from typing import Dict, List, Any
+from endpoints.TeslaIntegration import get_tesla_private_key
 
 
 class TeslaVINDecoder:
@@ -407,6 +413,50 @@ class tesla(Extensions):
         if not self.access_token:
             raise Exception("No valid Tesla access token found")
 
+    def sign_command(self, command_data: Dict) -> Dict:
+        """Sign Tesla commands using the private key for Fleet API security
+
+        Args:
+            command_data: The command data to sign
+
+        Returns:
+            Dict containing the signed command
+        """
+        try:
+            # Get the private key
+            private_key_pem = get_tesla_private_key()
+
+            # Load the private key
+            private_key = serialization.load_pem_private_key(
+                private_key_pem.encode(), password=None
+            )
+
+            # Create the message to sign
+            timestamp = int(time.time())
+            message = json.dumps(command_data, separators=(",", ":"), sort_keys=True)
+
+            # Create the signature payload
+            signature_payload = f"{timestamp}.{message}"
+
+            # Sign the payload
+            signature = private_key.sign(
+                signature_payload.encode(), ec.ECDSA(hashes.SHA256())
+            )
+
+            # Encode signature in base64
+            signature_b64 = base64.b64encode(signature).decode()
+
+            # Return signed command
+            return {
+                "command": command_data,
+                "timestamp": timestamp,
+                "signature": signature_b64,
+            }
+
+        except Exception as e:
+            logging.error(f"Error signing Tesla command: {str(e)}")
+            raise Exception(f"Failed to sign command: {str(e)}")
+
     async def get_vehicles(self):
         """Get list of vehicles with key state information
 
@@ -487,85 +537,55 @@ class tesla(Extensions):
                         )
 
                         if vehicle_response.status_code == 200:
-                            v_data = vehicle_response.json().get("response", {})
+                            vehicle_detail = vehicle_response.json().get("response", {})
 
                             # Extract battery info
-                            charge_state = v_data.get("charge_state", {})
+                            charge_state = vehicle_detail.get("charge_state", {})
                             if charge_state:
                                 battery_level = (
                                     f"{charge_state.get('battery_level', 'N/A')}%"
                                 )
-                                vehicle_status = charge_state.get(
-                                    "charging_state", vehicle_status
-                                )
 
                             # Extract climate info
-                            climate_state = v_data.get("climate_state", {})
+                            climate_state = vehicle_detail.get("climate_state", {})
                             if climate_state:
-                                is_climate_on = climate_state.get(
-                                    "is_climate_on", False
-                                )
                                 inside_temp = climate_state.get("inside_temp")
-                                temp_units = (
-                                    "°F"
-                                    if v_data.get("gui_settings", {}).get(
-                                        "gui_temperature_units"
+                                outside_temp = climate_state.get("outside_temp")
+                                climate_on = climate_state.get("is_climate_on", False)
+                                if inside_temp is not None and outside_temp is not None:
+                                    status = "On" if climate_on else "Off"
+                                    climate_info = (
+                                        f"{inside_temp}°C/{outside_temp}°C ({status})"
                                     )
-                                    == "F"
-                                    else "°C"
-                                )
-
-                                if inside_temp is not None:
-                                    climate_info = f"{'On' if is_climate_on else 'Off'} ({inside_temp}{temp_units})"
-                                else:
-                                    climate_info = "On" if is_climate_on else "Off"
 
                             # Extract odometer
-                            vehicle_state = v_data.get("vehicle_state", {})
-                            if (
-                                vehicle_state
-                                and vehicle_state.get("odometer") is not None
-                            ):
-                                odometer_value = vehicle_state.get("odometer")
-                                distance_units = (
-                                    v_data.get("gui_settings", {})
-                                    .get("gui_distance_units", "mi/hr")
-                                    .split("/")[0]
-                                )
-                                odometer = f"{odometer_value:.1f} {distance_units}"
-                        else:
-                            logging.warning(
-                                f"Failed to get vehicle data for {vehicle_id}: HTTP {vehicle_response.status_code}"
-                            )
+                            vehicle_state = vehicle_detail.get("vehicle_state", {})
+                            if vehicle_state:
+                                odometer_miles = vehicle_state.get("odometer")
+                                if odometer_miles is not None:
+                                    odometer = f"{odometer_miles:.0f} mi"
 
-                    except requests.exceptions.Timeout:
-                        logging.warning(
-                            f"Timeout getting data for vehicle {vehicle.get('id_s')}"
-                        )
                     except Exception as e:
-                        logging.error(
-                            f"Error getting data for vehicle {vehicle.get('id_s')}: {str(e)}"
+                        logging.warning(
+                            f"Failed to get detailed data for vehicle {vehicle['vin']}: {str(e)}"
                         )
 
-                # Add row to table
-                vehicles += (
-                    f"| {vehicle['vin']} | "
-                    f"{decoded_info.get('model', 'Unknown')} | "
-                    f"{decoded_info.get('model_year', 'Unknown')} | "
-                    f"{decoded_info.get('full_description', 'Unknown')} | "
-                    f"{battery_level} | "
-                    f"{vehicle_status} | "
-                    f"{climate_info} | "
-                    f"{odometer} |\n"
-                )
+                # Build table row
+                vin = vehicle["vin"]
+                model = decoded_info.get("model", "Unknown")
+                year = decoded_info.get("model_year", "Unknown")
+                description = decoded_info.get("full_description", "Unknown")
+
+                vehicles += f"| {vin} | {model} | {year} | {description} | {battery_level} | {vehicle_status} | {climate_info} | {odometer} |\n"
 
             return vehicles
+
         except Exception as e:
-            logging.error(f"Error getting vehicles: {str(e)}")
-            return f"Error retrieving vehicles: {str(e)}"
+            logging.error(f"Error getting Tesla vehicles: {str(e)}")
+            return f"Error retrieving Tesla vehicles: {str(e)}"
 
     async def send_command(self, vehicle_tag, command, data=None):
-        """Send command to vehicle"""
+        """Send command to vehicle with proper signing for Fleet API"""
         try:
             self.verify_user()
             headers = {
@@ -595,10 +615,21 @@ class tesla(Extensions):
 
             url = f"{self.api_base_url}/vehicles/{vehicle_id}/command/{command}"
 
-            if data:
-                response = requests.post(url, headers=headers, json=data, timeout=15)
-            else:
-                response = requests.post(url, headers=headers, timeout=15)
+            # Prepare command data
+            command_data = data if data else {}
+
+            # Sign the command for Fleet API security
+            try:
+                signed_command = self.sign_command(command_data)
+                payload = signed_command
+            except Exception as e:
+                logging.warning(
+                    f"Command signing failed, trying unsigned request: {str(e)}"
+                )
+                # Fallback to unsigned request for backward compatibility
+                payload = command_data
+
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
 
             if response.status_code not in [200, 201, 202]:
                 return self.handle_tesla_error(response)
@@ -662,14 +693,14 @@ class tesla(Extensions):
             else:
                 vehicle_id = vehicle_tag
 
-            # Wake up uses a different endpoint (POST to /vehicles/{id}/wake_up)
             url = f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"
-            response = requests.post(url, headers=headers, timeout=15)
+            response = requests.post(url, headers=headers, timeout=30)
 
             if response.status_code not in [200, 201, 202]:
                 return self.handle_tesla_error(response)
 
-            return response.json()
+            result = response.json()
+            return result
 
         except Exception as e:
             logging.error(f"Error waking vehicle: {str(e)}")
@@ -685,7 +716,7 @@ class tesla(Extensions):
         return await self.send_command(
             vehicle_tag,
             "actuate_trunk",
-            {"which_trunk": which_trunk},  # "front" or "rear"
+            {"which_trunk": which_trunk},
         )
 
     async def open_charge_port(self, vehicle_tag):
@@ -738,7 +769,7 @@ class tesla(Extensions):
         return await self.send_command(
             vehicle_tag,
             "set_climate_keeper_mode",
-            {"climate_keeper_mode": mode},  # 0: Off, 1: Keep, 2: Dog, 3: Camp
+            {"climate_keeper_mode": mode},
         )
 
     # Charging Controls
@@ -799,7 +830,8 @@ class tesla(Extensions):
         """
         data = {"command": command}
         if lat is not None and lon is not None:
-            data.update({"lat": lat, "lon": lon})
+            data["lat"] = lat
+            data["lon"] = lon
         return await self.send_command(vehicle_tag, "window_control", data)
 
     async def control_sunroof(self, vehicle_tag, state):
@@ -856,47 +888,34 @@ class tesla(Extensions):
         is_online = await self.check_vehicle_online(vehicle_tag)
         if not is_online:
             return {
-                "error": "Vehicle is not online. Please wake the vehicle first using 'Tesla - Wake Vehicle'."
+                "error": "Vehicle is not online. Please wake the vehicle first.",
+                "suggestion": "Try using the 'Wake Vehicle' command first, then retry the fart command.",
             }
 
         try:
-            # Try the boombox command (requires external speakers)
+            # Try the boombox fart command
             result = await self.send_command(
-                vehicle_tag, "remote_boombox", {"sound": 1}
+                vehicle_tag,
+                "remote_boombox",
+                {"sound": 1},  # Sound 1 is typically a fart sound
             )
+
+            if "error" in result:
+                # If boombox isn't available, try honk as alternative
+                return {
+                    "error": "Boombox feature not available on this vehicle.",
+                    "alternative": "Used horn honk instead!",
+                    "result": await self.honk_horn(vehicle_tag),
+                }
 
             return result
 
         except Exception as e:
-            error_msg = str(e)
-
-            # Handle specific error cases with helpful messages
-            if "Access denied" in error_msg or "403" in error_msg:
-                return {
-                    "error": "Fart sound not available on this vehicle or account.",
-                    "reason": "This feature requires a vehicle with external speakers (Boombox) and appropriate Fleet API permissions.",
-                    "alternatives": [
-                        "Use 'Tesla - Honk Horn' for a fun sound effect",
-                        "Use 'Tesla - Flash Lights' for a visual effect",
-                        "Check if your vehicle has the Boombox feature in the Tesla mobile app",
-                    ],
-                }
-            elif "404" in error_msg or "not found" in error_msg.lower():
-                return {
-                    "error": "Fart command not supported by this vehicle.",
-                    "reason": "Your vehicle may not have external speakers or the Boombox feature.",
-                    "alternatives": [
-                        "Use 'Tesla - Honk Horn' instead",
-                        "Use 'Tesla - Flash Lights' for a different fun effect",
-                    ],
-                }
-            else:
-                return {
-                    "error": f"Fart command failed: {error_msg}",
-                    "alternatives": [
-                        "Try 'Tesla - Honk Horn' or 'Tesla - Flash Lights' instead"
-                    ],
-                }
+            logging.error(f"Error with fart command: {str(e)}")
+            return {
+                "error": f"Fart command failed: {str(e)}",
+                "suggestion": "This feature requires a vehicle with external speakers (Boombox). Try honking the horn instead!",
+            }
 
     async def get_vehicle_data(self, vehicle_tag, data_type="vehicle_data"):
         """Get vehicle data from Tesla API
@@ -958,39 +977,42 @@ class tesla(Extensions):
             dict: Detailed vehicle state information including doors, locks, etc.
         """
         try:
-            result = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
-            if "error" in result:
-                return result
+            data = await self.get_vehicle_data(
+                vehicle_tag, "data_request/vehicle_state"
+            )
 
-            vehicle_state = result.get("response", {}).get("vehicle_state", {})
-            if not vehicle_state:
-                return {"error": "No vehicle state data available"}
+            if "error" in data:
+                return data
+
+            vehicle_state = data.get("response", {})
 
             # Format important state information
             state_info = {
-                "doors_locked": vehicle_state.get("locked", "Unknown"),
+                "doors_locked": vehicle_state.get("locked"),
                 "doors_open": {
-                    "driver_front": vehicle_state.get("df", 0) == 1,
-                    "passenger_front": vehicle_state.get("pf", 0) == 1,
-                    "driver_rear": vehicle_state.get("dr", 0) == 1,
-                    "passenger_rear": vehicle_state.get("pr", 0) == 1,
-                },
-                "trunk_open": {
-                    "front": vehicle_state.get("ft", 0) == 1,
-                    "rear": vehicle_state.get("rt", 0) == 1,
+                    "driver_front": vehicle_state.get("df") == 1,
+                    "driver_rear": vehicle_state.get("dr") == 1,
+                    "passenger_front": vehicle_state.get("pf") == 1,
+                    "passenger_rear": vehicle_state.get("pr") == 1,
                 },
                 "windows_open": {
-                    "driver_front": vehicle_state.get("fd_window", 0) > 0,
-                    "passenger_front": vehicle_state.get("fp_window", 0) > 0,
-                    "driver_rear": vehicle_state.get("rd_window", 0) > 0,
-                    "passenger_rear": vehicle_state.get("rp_window", 0) > 0,
+                    "driver_front": vehicle_state.get("fd_window") > 0,
+                    "driver_rear": vehicle_state.get("rd_window") > 0,
+                    "passenger_front": vehicle_state.get("fp_window") > 0,
+                    "passenger_rear": vehicle_state.get("rp_window") > 0,
                 },
-                "odometer": vehicle_state.get("odometer", "Unknown"),
-                "software_update": vehicle_state.get("software_update", {}),
-                "sentry_mode": vehicle_state.get("sentry_mode", "Unknown"),
+                "trunk_open": {
+                    "front": vehicle_state.get("ft") == 1,
+                    "rear": vehicle_state.get("rt") == 1,
+                },
+                "odometer": vehicle_state.get("odometer"),
+                "software_update": vehicle_state.get("software_update"),
+                "sentry_mode": vehicle_state.get("sentry_mode"),
+                "valet_mode": vehicle_state.get("valet_mode"),
+                "vehicle_name": vehicle_state.get("vehicle_name"),
             }
 
-            return state_info
+            return {"response": state_info}
 
         except Exception as e:
             logging.error(f"Error getting vehicle state: {str(e)}")
@@ -1006,33 +1028,31 @@ class tesla(Extensions):
             dict: Detailed charging state information
         """
         try:
-            result = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
-            if "error" in result:
-                return result
+            data = await self.get_vehicle_data(vehicle_tag, "data_request/charge_state")
 
-            charge_state = result.get("response", {}).get("charge_state", {})
-            if not charge_state:
-                return {"error": "No charge state data available"}
+            if "error" in data:
+                return data
 
-            # Format charging information
-            charge_info = {
-                "battery_level": f"{charge_state.get('battery_level', 'Unknown')}%",
-                "usable_battery_level": f"{charge_state.get('usable_battery_level', 'Unknown')}%",
-                "charge_limit_soc": f"{charge_state.get('charge_limit_soc', 'Unknown')}%",
-                "charging_state": charge_state.get("charging_state", "Unknown"),
-                "time_to_full_charge": f"{charge_state.get('time_to_full_charge', 'Unknown')} hours",
-                "charge_rate": f"{charge_state.get('charge_rate', 'Unknown')} miles/hour",
-                "charger_power": f"{charge_state.get('charger_power', 'Unknown')} kW",
-                "charger_voltage": f"{charge_state.get('charger_voltage', 'Unknown')} V",
-                "charger_actual_current": f"{charge_state.get('charger_actual_current', 'Unknown')} A",
-                "charge_port_door_open": charge_state.get(
-                    "charge_port_door_open", "Unknown"
-                ),
-                "est_battery_range": f"{charge_state.get('est_battery_range', 'Unknown')} miles",
-                "ideal_battery_range": f"{charge_state.get('ideal_battery_range', 'Unknown')} miles",
+            charge_state = data.get("response", {})
+
+            # Format important charging information
+            charging_info = {
+                "battery_level": charge_state.get("battery_level"),
+                "usable_battery_level": charge_state.get("usable_battery_level"),
+                "charge_limit_soc": charge_state.get("charge_limit_soc"),
+                "charging_state": charge_state.get("charging_state"),
+                "time_to_full_charge": charge_state.get("time_to_full_charge"),
+                "charge_rate": charge_state.get("charge_rate"),
+                "charge_port_door_open": charge_state.get("charge_port_door_open"),
+                "charge_port_latch": charge_state.get("charge_port_latch"),
+                "charger_voltage": charge_state.get("charger_voltage"),
+                "charger_actual_current": charge_state.get("charger_actual_current"),
+                "charger_power": charge_state.get("charger_power"),
+                "est_battery_range": charge_state.get("est_battery_range"),
+                "ideal_battery_range": charge_state.get("ideal_battery_range"),
             }
 
-            return charge_info
+            return {"response": charging_info}
 
         except Exception as e:
             logging.error(f"Error getting charge state: {str(e)}")
@@ -1048,45 +1068,33 @@ class tesla(Extensions):
             dict: Detailed climate state information
         """
         try:
-            result = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
-            if "error" in result:
-                return result
+            data = await self.get_vehicle_data(
+                vehicle_tag, "data_request/climate_state"
+            )
 
-            climate_state = result.get("response", {}).get("climate_state", {})
-            if not climate_state:
-                return {"error": "No climate state data available"}
+            if "error" in data:
+                return data
 
-            # Format climate information
+            climate_state = data.get("response", {})
+
+            # Format important climate information
             climate_info = {
-                "is_climate_on": climate_state.get("is_climate_on", "Unknown"),
-                "inside_temp": f"{climate_state.get('inside_temp', 'Unknown')}°C",
-                "outside_temp": f"{climate_state.get('outside_temp', 'Unknown')}°C",
-                "driver_temp_setting": f"{climate_state.get('driver_temp_setting', 'Unknown')}°C",
-                "passenger_temp_setting": f"{climate_state.get('passenger_temp_setting', 'Unknown')}°C",
-                "is_front_defroster_on": climate_state.get(
-                    "is_front_defroster_on", "Unknown"
-                ),
-                "is_rear_defroster_on": climate_state.get(
-                    "is_rear_defroster_on", "Unknown"
-                ),
-                "fan_status": climate_state.get("fan_status", "Unknown"),
-                "seat_heater_left": climate_state.get("seat_heater_left", "Unknown"),
-                "seat_heater_right": climate_state.get("seat_heater_right", "Unknown"),
-                "seat_heater_rear_left": climate_state.get(
-                    "seat_heater_rear_left", "Unknown"
-                ),
-                "seat_heater_rear_right": climate_state.get(
-                    "seat_heater_rear_right", "Unknown"
-                ),
-                "steering_wheel_heater": climate_state.get(
-                    "steering_wheel_heater", "Unknown"
-                ),
-                "climate_keeper_mode": climate_state.get(
-                    "climate_keeper_mode", "Unknown"
-                ),
+                "inside_temp": climate_state.get("inside_temp"),
+                "outside_temp": climate_state.get("outside_temp"),
+                "driver_temp_setting": climate_state.get("driver_temp_setting"),
+                "passenger_temp_setting": climate_state.get("passenger_temp_setting"),
+                "is_climate_on": climate_state.get("is_climate_on"),
+                "is_auto_conditioning_on": climate_state.get("is_auto_conditioning_on"),
+                "fan_status": climate_state.get("fan_status"),
+                "seat_heater_left": climate_state.get("seat_heater_left"),
+                "seat_heater_right": climate_state.get("seat_heater_right"),
+                "seat_heater_rear_left": climate_state.get("seat_heater_rear_left"),
+                "seat_heater_rear_right": climate_state.get("seat_heater_rear_right"),
+                "steering_wheel_heater": climate_state.get("steering_wheel_heater"),
+                "climate_keeper_mode": climate_state.get("climate_keeper_mode"),
             }
 
-            return climate_info
+            return {"response": climate_info}
 
         except Exception as e:
             logging.error(f"Error getting climate state: {str(e)}")
@@ -1095,9 +1103,7 @@ class tesla(Extensions):
     def handle_tesla_error(self, response):
         """Handle common Tesla API errors with user-friendly messages"""
         if response.status_code == 401:
-            return {
-                "error": "Authentication failed. Please check your Tesla access token."
-            }
+            return {"error": "Authentication failed. Please refresh your Tesla token."}
         elif response.status_code == 403:
             return {
                 "error": "Access denied. Please ensure your account has the necessary permissions."
@@ -1106,7 +1112,7 @@ class tesla(Extensions):
             return {"error": "Vehicle not found. Please check the VIN or vehicle ID."}
         elif response.status_code == 408:
             return {
-                "error": "Vehicle is not online or not responding. Try waking the vehicle first."
+                "error": "Vehicle command timeout. The vehicle may be asleep or out of range."
             }
         elif response.status_code == 429:
             return {
@@ -1115,13 +1121,9 @@ class tesla(Extensions):
         elif response.status_code == 500:
             return {"error": "Tesla server error. Please try again later."}
         elif response.status_code == 503:
-            return {
-                "error": "Tesla service temporarily unavailable. Please try again later."
-            }
+            return {"error": "Tesla service unavailable. Please try again later."}
         else:
-            return {
-                "error": f"Tesla API error (HTTP {response.status_code}): {response.text}"
-            }
+            return {"error": f"Tesla API error {response.status_code}: {response.text}"}
 
     async def check_vehicle_online(self, vehicle_tag):
         """Check if vehicle is online and ready to receive commands
@@ -1139,31 +1141,39 @@ class tesla(Extensions):
                 "Content-Type": "application/json",
             }
 
-            # Get vehicle status
-            url = f"{self.api_base_url}/vehicles"
-            response = requests.get(url, headers=headers, timeout=10)
-
-            if response.status_code != 200:
-                return False
-
-            vehicles = response.json().get("response", [])
-
-            # Find the vehicle
+            # Check if vehicle_tag is VIN or vehicle ID
             if len(vehicle_tag) == 17 and vehicle_tag.isalnum():
-                # It's a VIN
-                vehicle = next(
-                    (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                # It's a VIN, need to get vehicle ID first
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
                 )
+                if vehicles_response.status_code == 200:
+                    vehicles = vehicles_response.json().get("response", [])
+                    vehicle = next(
+                        (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                    )
+                    if vehicle:
+                        return vehicle.get("state") == "online"
+                    else:
+                        return False
+                else:
+                    return False
             else:
-                # It's a vehicle ID
-                vehicle = next(
-                    (v for v in vehicles if v.get("id_s") == vehicle_tag), None
+                # Direct vehicle ID lookup
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
                 )
-
-            if not vehicle:
-                return False
-
-            return vehicle.get("state") == "online"
+                if vehicles_response.status_code == 200:
+                    vehicles = vehicles_response.json().get("response", [])
+                    vehicle = next(
+                        (v for v in vehicles if v.get("id_s") == vehicle_tag), None
+                    )
+                    if vehicle:
+                        return vehicle.get("state") == "online"
+                    else:
+                        return False
+                else:
+                    return False
 
         except Exception as e:
             logging.error(f"Error checking vehicle online status: {str(e)}")
