@@ -397,6 +397,8 @@ class tesla(Extensions):
                 "Tesla - Get Climate State": self.get_climate_state,
                 "Tesla - Check Vehicle Online": self.check_vehicle_online,
                 "Tesla - Check Account Permissions": self.check_account_permissions,
+                "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
+                "Tesla - Test Unsigned Command": self.test_unsigned_command,
                 "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
                 # Fun Commands
                 "Tesla - Fart": self.fart,
@@ -1402,27 +1404,34 @@ class tesla(Extensions):
                     signed_headers = self.sign_command(
                         test_command, "test_vehicle_id", "test_command"
                     )
+
+                    # Debug: log what we got back
+                    logging.info(f"Diagnostic signing test returned: {signed_headers}")
+
                     if (
                         "tesla-signature" in signed_headers
                         and "tesla-timestamp" in signed_headers
                     ):
                         diagnostic_results["command_signing"] = True
                     else:
+                        diagnostic_results["command_signing"] = False
                         diagnostic_results["error_details"].append(
-                            "Command signing returned invalid headers"
+                            f"Command signing returned invalid headers. Got: {list(signed_headers.keys()) if signed_headers else 'None'}"
                         )
                 except Exception as e:
+                    diagnostic_results["command_signing"] = False
                     diagnostic_results["error_details"].append(
                         f"Command signing test error: {str(e)}"
                     )
 
             # Overall health check
             diagnostic_results["overall_health"] = (
-                diagnostic_results["domain_registered"]
+                diagnostic_results.get("domain_registered", {}).get("status", False)
                 and diagnostic_results["keys_exist"]
                 and diagnostic_results["oauth_token_valid"]
                 and diagnostic_results["fleet_api_access"]
                 and diagnostic_results["vehicles_accessible"]
+                and diagnostic_results.get("command_signing", False)
             )
 
             return diagnostic_results
@@ -1430,6 +1439,105 @@ class tesla(Extensions):
         except Exception as e:
             diagnostic_results["error_details"].append(f"Diagnostic error: {str(e)}")
             return diagnostic_results
+
+    async def check_vehicle_third_party_access(self, vehicle_tag):
+        """Check if a specific vehicle is enabled for third-party access
+
+        Tesla requires vehicles to be explicitly enabled for third-party API access
+        in the Tesla mobile app under Security & Privacy settings.
+
+        Args:
+            vehicle_tag: VIN or vehicle ID
+
+        Returns:
+            dict: Third-party access status and instructions
+        """
+        try:
+            self.verify_user()
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get vehicle ID if VIN was provided
+            if len(vehicle_tag) == 17 and vehicle_tag.isalnum():
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
+                )
+                if vehicles_response.status_code == 200:
+                    vehicles = vehicles_response.json().get("response", [])
+                    vehicle = next(
+                        (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                    )
+                    if vehicle:
+                        vehicle_id = vehicle["id_s"]
+                        vehicle_vin = vehicle["vin"]
+                        vehicle_state = vehicle.get("state")
+                    else:
+                        return {"error": f"Vehicle with VIN {vehicle_tag} not found"}
+                else:
+                    return {
+                        "error": f"Failed to get vehicles: {vehicles_response.text}"
+                    }
+            else:
+                vehicle_id = vehicle_tag
+                # Get VIN for this vehicle ID
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
+                )
+                if vehicles_response.status_code == 200:
+                    vehicles = vehicles_response.json().get("response", [])
+                    vehicle = next(
+                        (v for v in vehicles if v.get("id_s") == vehicle_tag), None
+                    )
+                    if vehicle:
+                        vehicle_vin = vehicle["vin"]
+                        vehicle_state = vehicle.get("state")
+                    else:
+                        return {"error": f"Vehicle with ID {vehicle_tag} not found"}
+
+            # Try to get vehicle data - this tests basic access
+            vehicle_data_url = f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
+            data_response = requests.get(vehicle_data_url, headers=headers, timeout=10)
+
+            # Try a simple command to test command access - use wake_up as it's harmless
+            wake_url = f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"
+            wake_response = requests.post(wake_url, headers=headers, timeout=10)
+
+            result = {
+                "vehicle_vin": vehicle_vin,
+                "vehicle_state": vehicle_state,
+                "data_access": data_response.status_code == 200,
+                "command_access": wake_response.status_code in [200, 201, 202],
+                "data_error": (
+                    None
+                    if data_response.status_code == 200
+                    else f"HTTP {data_response.status_code}: {data_response.text}"
+                ),
+                "command_error": (
+                    None
+                    if wake_response.status_code in [200, 201, 202]
+                    else f"HTTP {wake_response.status_code}: {wake_response.text}"
+                ),
+            }
+
+            if not result["command_access"]:
+                result["instructions"] = {
+                    "message": "Vehicle may not be enabled for third-party access",
+                    "steps": [
+                        "1. Open the Tesla mobile app",
+                        "2. Go to Security & Privacy settings",
+                        "3. Enable 'Allow Mobile Connector' or 'Third-Party App Access'",
+                        "4. Ensure the vehicle is online and not in service mode",
+                        "5. Try the command again after a few minutes",
+                    ],
+                }
+
+            return result
+
+        except Exception as e:
+            logging.error(f"Error checking third-party access: {str(e)}")
+            return {"error": str(e)}
 
     async def check_vehicle_online(self, vehicle_tag):
         """Check if vehicle is online and ready to receive commands
@@ -1484,3 +1592,81 @@ class tesla(Extensions):
         except Exception as e:
             logging.error(f"Error checking vehicle online status: {str(e)}")
             return False
+
+    async def test_unsigned_command(self, vehicle_tag):
+        """Test sending a command without signing to isolate signing vs access issues
+
+        This uses the wake_up endpoint which might not require signing.
+
+        Args:
+            vehicle_tag: VIN or vehicle ID
+
+        Returns:
+            dict: Test result to help diagnose if issue is signing or access
+        """
+        try:
+            self.verify_user()
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get vehicle ID if VIN was provided
+            if len(vehicle_tag) == 17 and vehicle_tag.isalnum():
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
+                )
+                if vehicles_response.status_code == 200:
+                    vehicles = vehicles_response.json().get("response", [])
+                    vehicle = next(
+                        (v for v in vehicles if v.get("vin") == vehicle_tag), None
+                    )
+                    if vehicle:
+                        vehicle_id = vehicle["id_s"]
+                    else:
+                        return {"error": f"Vehicle with VIN {vehicle_tag} not found"}
+                else:
+                    return {
+                        "error": f"Failed to get vehicles: {vehicles_response.text}"
+                    }
+            else:
+                vehicle_id = vehicle_tag
+
+            # Test wake_up command without signing
+            wake_url = f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"
+
+            logging.info(f"Testing unsigned wake_up command for vehicle {vehicle_id}")
+            logging.info(f"URL: {wake_url}")
+
+            response = requests.post(wake_url, headers=headers, timeout=15)
+
+            logging.info(f"Unsigned command response status: {response.status_code}")
+            logging.info(f"Unsigned command response: {response.text}")
+
+            result = {
+                "test_type": "unsigned_wake_up",
+                "vehicle_id": vehicle_id,
+                "status_code": response.status_code,
+                "success": response.status_code in [200, 201, 202],
+                "response": response.text,
+                "analysis": "",
+            }
+
+            if result["success"]:
+                result["analysis"] = (
+                    "Unsigned commands work - issue is likely with command signing format"
+                )
+            elif response.status_code == 403:
+                result["analysis"] = (
+                    "Access denied even without signing - likely third-party access not enabled"
+                )
+            elif response.status_code == 401:
+                result["analysis"] = "Authentication issue - token may be invalid"
+            else:
+                result["analysis"] = f"Unexpected error: HTTP {response.status_code}"
+
+            return result
+
+        except Exception as e:
+            logging.error(f"Error testing unsigned command: {str(e)}")
+            return {"error": str(e)}
