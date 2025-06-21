@@ -1261,6 +1261,13 @@ class Interactions:
                             command_name=command_name,
                             command_args=command_args,
                         )
+                        try:
+                            command_output = json.dumps(
+                                command_output, indent=2, ensure_ascii=False
+                            )
+                            command_output = "```json\n" + command_output + "\n```"
+                        except:
+                            pass
                         c.log_interaction(
                             role=self.agent_name,
                             message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] `{command_name}` was executed successfully.\n{command_output}",
