@@ -611,10 +611,10 @@ class tesla(Extensions):
 
     async def send_command(self, vehicle_tag, command, data=None):
         """Send command to vehicle with proper signing for Fleet API
-        
+
         Note: As of January 2024, most vehicles require the Tesla Vehicle Command Protocol (TVCP).
         Direct Fleet API command calls are deprecated for newer vehicles.
-        
+
         For newer vehicles, you should use Tesla's Vehicle Command Proxy:
         https://github.com/teslamotors/vehicle-command
         """
@@ -666,7 +666,9 @@ class tesla(Extensions):
             logging.info(f"Payload: {command_data}")
             logging.info(f"URL: {url}")
 
-            response = requests.post(url, headers=headers, json=command_data, timeout=15)
+            response = requests.post(
+                url, headers=headers, json=command_data, timeout=15
+            )
 
             logging.info(f"Response status: {response.status_code}")
             logging.info(f"Response text: {response.text}")
@@ -676,16 +678,19 @@ class tesla(Extensions):
                 try:
                     error_data = response.json()
                     error_msg = error_data.get("error", "")
-                    if "Tesla Vehicle Command Protocol required" in error_msg or "routable_message" in error_msg:
+                    if (
+                        "Tesla Vehicle Command Protocol required" in error_msg
+                        or "routable_message" in error_msg
+                    ):
                         return {
                             "error": "This vehicle requires Tesla Vehicle Command Protocol (TVCP). "
-                                   "The direct Fleet API command endpoint is deprecated for this vehicle. "
-                                   "You need to either:\n"
-                                   "1. Use Tesla's Vehicle Command Proxy (recommended): "
-                                   "https://github.com/teslamotors/vehicle-command\n"
-                                   "2. Implement full TVCP protocol with protobuf messages\n"
-                                   "3. Check if this is a fleet account vehicle (which may still support direct commands)\n"
-                                   f"Original error: {error_msg}"
+                            "The direct Fleet API command endpoint is deprecated for this vehicle. "
+                            "You need to either:\n"
+                            "1. Use Tesla's Vehicle Command Proxy (recommended): "
+                            "https://github.com/teslamotors/vehicle-command\n"
+                            "2. Implement full TVCP protocol with protobuf messages\n"
+                            "3. Check if this is a fleet account vehicle (which may still support direct commands)\n"
+                            f"Original error: {error_msg}"
                         }
                 except:
                     pass
@@ -1700,17 +1705,17 @@ class tesla(Extensions):
 
     async def check_tvcp_requirement(self, vehicle_tag):
         """Check if vehicle requires Tesla Vehicle Command Protocol (TVCP)
-        
+
         Args:
             vehicle_tag: Vehicle VIN or ID
-            
+
         Returns:
             str: Information about TVCP requirements and setup instructions
         """
         try:
             # Get vehicle info first
             vehicles_info = await self.get_vehicles()
-            
+
             info = f"""
 Tesla Vehicle Command Protocol (TVCP) Information:
 
@@ -1741,6 +1746,6 @@ Current Status:
 - This means your vehicles likely require the Vehicle Command Proxy
 """
             return info
-            
+
         except Exception as e:
             return f"Error checking TVCP requirements: {str(e)}"
