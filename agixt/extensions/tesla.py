@@ -330,9 +330,18 @@ class TeslaVINDecoder:
 
 class tesla(Extensions):
     """
-    Tesla Fleet API Extension for AGiXT
+    The Tesla extension provides direct control of Tesla vehicles through the Fleet API.
+    This extension allows AI agents to:
+    - Control vehicle access (lock/unlock)
+    - Control climate settings
+    - Control trunk/charging port
+    - Manage charging
+    - Control media and volume
+    - Send navigation commands
+    - Control windows and sunroof
+    - Manage vehicle settings
 
-    This extension provides complete Tesla vehicle control through the Tesla Fleet API.
+    The extension requires the user to be authenticated with Tesla through OAuth.
     It supports the Tesla Vehicle Command Protocol (TVCP) for secure command signing.
     """
 
@@ -352,20 +361,6 @@ class tesla(Extensions):
         return f"{fahrenheit}°F ({celsius_temp}°C)"
 
     def __init__(self, **kwargs):
-        """
-        The Tesla extension provides direct control of Tesla vehicles through the Fleet API.
-        This extension allows AI agents to:
-        - Control vehicle access (lock/unlock)
-        - Control climate settings
-        - Control trunk/charging port
-        - Manage charging
-        - Control media and volume
-        - Send navigation commands
-        - Control windows and sunroof
-        - Manage vehicle settings
-
-        The extension requires the user to be authenticated with Tesla through OAuth.
-        """
         self.api_key = kwargs.get("api_key")
         self.access_token = kwargs.get("TESLA_ACCESS_TOKEN", None)
         self.api_base_url = "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1"
@@ -417,11 +412,9 @@ class tesla(Extensions):
                 "Tesla - Get Charge State": self.get_charge_state,
                 "Tesla - Get Climate State": self.get_climate_state,
                 "Tesla - Check Vehicle Online": self.check_vehicle_online,
-                "Tesla - Check Account Permissions": self.check_account_permissions,
-                "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
-                "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
-                "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
                 "Tesla - TVCP Vehicle Pairing Guide": self.setup_vehicle_command_proxy,
+                # Fun Commands
+                "Tesla - Fart": self.fart,
                 # Fun Commands
                 "Tesla - Fart": self.fart,
             }
