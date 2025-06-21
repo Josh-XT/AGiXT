@@ -399,6 +399,7 @@ class tesla(Extensions):
                 "Tesla - Check Account Permissions": self.check_account_permissions,
                 "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
                 "Tesla - Test Unsigned Command": self.test_unsigned_command,
+                "Tesla - Debug Vehicle Lookup": self.debug_vehicle_lookup,
                 "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
                 "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
                 "Tesla - TVCP Vehicle Pairing Guide": self.setup_vehicle_command_proxy,
@@ -526,8 +527,8 @@ class tesla(Extensions):
             vin_decodings = TeslaVINDecoder.batch_decode(vins)
 
             # Create result table header with additional columns
-            vehicles = "User's Tesla Vehicles:\n| VIN | Model | Year | Description | Battery | Status | Climate | Odometer |\n"
-            vehicles += "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+            vehicles = "User's Tesla Vehicles:\n| VIN | ID | Model | Year | Description | Battery | Status | Climate | Odometer |\n"
+            vehicles += "| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
 
             # Process each vehicle
             for vehicle in vehicle_data:
@@ -598,17 +599,30 @@ class tesla(Extensions):
 
                 # Build table row
                 vin = vehicle["vin"]
+                vehicle_id = vehicle.get("id_s", "N/A")
                 model = decoded_info.get("model", "Unknown")
                 year = decoded_info.get("model_year", "Unknown")
                 description = decoded_info.get("full_description", "Unknown")
 
-                vehicles += f"| {vin} | {model} | {year} | {description} | {battery_level} | {vehicle_status} | {climate_info} | {odometer} |\n"
+                vehicles += f"| {vin} | {vehicle_id} | {model} | {year} | {description} | {battery_level} | {vehicle_status} | {climate_info} | {odometer} |\n"
+
+            # Add debugging information
+            vehicles += f"\n\nDebugging Information:\n"
+            vehicles += f"- Total vehicles found: {len(vehicle_data)}\n"
+            vehicles += f"- API Base URL: {self.api_base_url}\n"
+            vehicles += f"- Use 'Tesla - Debug Vehicle Lookup' with a specific VIN for detailed lookup debugging\n"
 
             return vehicles
 
         except Exception as e:
+            error_details = (
+                f"Error retrieving Tesla vehicles: {str(e)}\n\nDebug Context:\n"
+            )
+            error_details += f"- Exception Type: {type(e).__name__}\n"
+            error_details += f"- API Base URL: {self.api_base_url}\n"
+            error_details += f"- Has Access Token: {'Yes' if hasattr(self, 'access_token') and self.access_token else 'No'}\n"
             logging.error(f"Error getting Tesla vehicles: {str(e)}")
-            return f"Error retrieving Tesla vehicles: {str(e)}"
+            return error_details
 
     async def send_command(self, vehicle_tag, command, data=None):
         """Send command to vehicle with proper signing for Fleet API and auto-wake
@@ -791,19 +805,49 @@ class tesla(Extensions):
                     pass
 
             if response.status_code not in [200, 201, 202]:
-                return self.handle_tesla_error(response)
+                # Enhanced error handling with detailed context
+                error_response = self.handle_tesla_error(response)
+                # Add debugging context to the error
+                if isinstance(error_response, dict) and "error" in error_response:
+                    error_response["debug_context"] = {
+                        "method": "send_command",
+                        "command": command,
+                        "input_vehicle_tag": vehicle_tag,
+                        "resolved_vehicle_id": vehicle_id,
+                        "api_url": url,
+                        "command_data": command_data,
+                        "response_status": response.status_code,
+                        "response_body": (
+                            response.text[:500] if response.text else "Empty response"
+                        ),
+                        "headers_sent": {
+                            k: v
+                            for k, v in headers.items()
+                            if k.lower() not in ["authorization"]
+                        },
+                    }
+                return error_response
 
             result = response.json()
 
             # Check if the command was successful
             if result.get("response", {}).get("result") == False:
                 reason = result.get("response", {}).get("reason", "Unknown error")
-                raise Exception(f"Command failed: {reason}")
+                return {
+                    "error": f"Command failed: {reason}",
+                    "debug_context": {
+                        "method": "send_command",
+                        "command": command,
+                        "input_vehicle_tag": vehicle_tag,
+                        "resolved_vehicle_id": vehicle_id,
+                        "api_response": result,
+                        "failure_reason": reason,
+                    },
+                }
 
             return result
 
         except requests.exceptions.Timeout as e:
-            logging.error(f"Timeout sending command {command}: {str(e)}")
             return {
                 "error": f"🚗 Command Timeout\n\n"
                 f"The vehicle did not respond within the timeout period.\n"
@@ -812,7 +856,14 @@ class tesla(Extensions):
                 f"• Try the command again (auto-wake will attempt to wake the vehicle)\n"
                 f"• Use 'Tesla - Wake Vehicle' manually first\n"
                 f"• Check vehicle connectivity (cellular/WiFi)\n"
-                f"• Ensure vehicle battery is not critically low"
+                f"• Ensure vehicle battery is not critically low",
+                "debug_context": {
+                    "method": "send_command",
+                    "command": command,
+                    "input_vehicle_tag": vehicle_tag,
+                    "timeout_seconds": 15,
+                    "exception_type": "Timeout",
+                },
             }
         except Exception as e:
             error_str = str(e).lower()
@@ -830,11 +881,26 @@ class tesla(Extensions):
                     f"• Check vehicle connectivity (cellular/WiFi signal)\n"
                     f"• Ensure vehicle battery is not critically low\n"
                     f"• Vehicle may be in deep sleep mode\n\n"
-                    f"Original error: {str(e)}"
+                    f"Original error: {str(e)}",
+                    "debug_context": {
+                        "method": "send_command",
+                        "command": command,
+                        "input_vehicle_tag": vehicle_tag,
+                        "exception_type": type(e).__name__,
+                        "original_error": str(e),
+                    },
                 }
 
-            logging.error(f"Error sending command {command}: {str(e)}")
-            return {"error": str(e)}
+            return {
+                "error": str(e),
+                "debug_context": {
+                    "method": "send_command",
+                    "command": command,
+                    "input_vehicle_tag": vehicle_tag,
+                    "exception_type": type(e).__name__,
+                    "api_base_url": self.api_base_url,
+                },
+            }
 
     # Basic Vehicle Controls
     async def lock_doors(self, vehicle_tag):
@@ -898,14 +964,35 @@ class tesla(Extensions):
             response = requests.post(url, headers=headers, timeout=30)
 
             if response.status_code not in [200, 201, 202]:
-                return self.handle_tesla_error(response)
+                # Enhanced error handling with detailed context
+                error_response = self.handle_tesla_error(response)
+                # Add debugging context to the error
+                if isinstance(error_response, dict) and "error" in error_response:
+                    error_response["debug_context"] = {
+                        "method": "wake_vehicle",
+                        "input_vehicle_tag": vehicle_tag,
+                        "resolved_vehicle_id": vehicle_id,
+                        "api_url": url,
+                        "response_status": response.status_code,
+                        "response_body": (
+                            response.text[:500] if response.text else "Empty response"
+                        ),
+                    }
+                return error_response
 
             result = response.json()
             return result
 
         except Exception as e:
-            logging.error(f"Error waking vehicle: {str(e)}")
-            return {"error": str(e)}
+            return {
+                "error": str(e),
+                "debug_context": {
+                    "method": "wake_vehicle",
+                    "input_vehicle_tag": vehicle_tag,
+                    "api_base_url": self.api_base_url,
+                    "exception_type": type(e).__name__,
+                },
+            }
 
     async def ensure_vehicle_awake(self, vehicle_tag, max_attempts=3, wait_seconds=5):
         """Ensure vehicle is awake before sending commands
@@ -1250,13 +1337,38 @@ class tesla(Extensions):
             response = requests.get(url, headers=headers, timeout=15)
 
             if response.status_code not in [200, 201, 202]:
-                return self.handle_tesla_error(response)
+                # Enhanced error handling with detailed context
+                error_response = self.handle_tesla_error(response)
+                # Add debugging context to the error
+                if isinstance(error_response, dict) and "error" in error_response:
+                    error_response["debug_context"] = {
+                        "method": "get_vehicle_data",
+                        "input_vehicle_tag": vehicle_tag,
+                        "resolved_vehicle_id": vehicle_id,
+                        "api_url": url,
+                        "data_type": data_type,
+                        "response_status": response.status_code,
+                        "response_body": (
+                            response.text[:500] if response.text else "Empty response"
+                        ),
+                    }
+                return error_response
 
             return response.json()
 
         except Exception as e:
-            logging.error(f"Error getting vehicle data: {str(e)}")
-            return {"error": str(e)}
+            error_details = {
+                "error": str(e),
+                "debug_context": {
+                    "method": "get_vehicle_data",
+                    "input_vehicle_tag": vehicle_tag,
+                    "data_type": data_type,
+                    "api_base_url": self.api_base_url,
+                    "exception_type": type(e).__name__,
+                },
+            }
+            logging.error(f"Error getting vehicle data: {error_details}")
+            return error_details
 
     # State Information Commands
     async def get_vehicle_state(self, vehicle_tag):
@@ -1394,8 +1506,24 @@ class tesla(Extensions):
 
     def handle_tesla_error(self, response):
         """Handle common Tesla API errors with user-friendly messages"""
+
+        # Base debug context that all errors will include
+        base_debug_context = {
+            "response_status": response.status_code,
+            "response_headers": (
+                dict(response.headers) if hasattr(response, "headers") else {}
+            ),
+            "response_body": (
+                response.text[:1000] if response.text else "Empty response"
+            ),
+            "api_url": response.url if hasattr(response, "url") else "Unknown",
+        }
+
         if response.status_code == 401:
-            return {"error": "Authentication failed. Please refresh your Tesla token."}
+            return {
+                "error": "Authentication failed. Please refresh your Tesla token.",
+                "debug_context": base_debug_context,
+            }
         elif response.status_code == 403:
             error_details = response.text
             base_error = "Access denied. Please ensure your account has the necessary permissions."
@@ -1432,6 +1560,10 @@ class tesla(Extensions):
                                 "3. Ensure your vehicle is online and connected",
                                 "4. Try the command again after pairing",
                             ],
+                            "debug_context": {
+                                **base_debug_context,
+                                "parsed_error": error_json,
+                            },
                         }
             except:
                 base_error += f" Raw response: {error_details}"
@@ -1445,23 +1577,38 @@ class tesla(Extensions):
                     "4. Ensure the vehicle is online and not in service mode",
                     f"5. If using newer vehicles, visit {self.get_vehicle_pairing_url()} in Tesla app",
                 ],
+                "debug_context": base_debug_context,
             }
         elif response.status_code == 404:
-            return {"error": "Vehicle not found. Please check the VIN or vehicle ID."}
+            return {
+                "error": "Vehicle not found. Please check the VIN or vehicle ID.",
+                "debug_context": base_debug_context,
+            }
         elif response.status_code == 408:
             return {
-                "error": "Vehicle command timeout. The vehicle may be asleep or out of range."
+                "error": "Vehicle command timeout. The vehicle may be asleep or out of range.",
+                "debug_context": base_debug_context,
             }
         elif response.status_code == 429:
             return {
-                "error": "Rate limit exceeded. Please wait before sending more commands."
+                "error": "Rate limit exceeded. Please wait before sending more commands.",
+                "debug_context": base_debug_context,
             }
         elif response.status_code == 500:
-            return {"error": "Tesla server error. Please try again later."}
+            return {
+                "error": "Tesla server error. Please try again later.",
+                "debug_context": base_debug_context,
+            }
         elif response.status_code == 503:
-            return {"error": "Tesla service unavailable. Please try again later."}
+            return {
+                "error": "Tesla service unavailable. Please try again later.",
+                "debug_context": base_debug_context,
+            }
         else:
-            return {"error": f"Tesla API error {response.status_code}: {response.text}"}
+            return {
+                "error": f"Tesla API error {response.status_code}: {response.text}",
+                "debug_context": base_debug_context,
+            }
 
     async def check_account_permissions(self):
         """Check if the Tesla account has the necessary permissions for vehicle commands
@@ -2148,3 +2295,105 @@ For more help: "Tesla - Diagnose Tesla Setup"
         if tesla_domain:
             return f"https://tesla.com/_ak/{tesla_domain}"
         return "https://tesla.com/_ak/yourdomain.com"
+
+    async def debug_vehicle_lookup(self, vehicle_tag):
+        """Debug method to show detailed VIN lookup process
+
+        Args:
+            vehicle_tag: VIN or vehicle ID to debug
+
+        Returns:
+            dict: Detailed debugging information
+        """
+        try:
+            self.verify_user()
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get all vehicles
+            vehicles_response = requests.get(
+                f"{self.api_base_url}/vehicles", headers=headers
+            )
+
+            debug_info = {
+                "input_vehicle_tag": vehicle_tag,
+                "input_length": len(vehicle_tag),
+                "input_is_alphanumeric": vehicle_tag.replace("-", "").isalnum(),
+                "vehicles_api_status": vehicles_response.status_code,
+                "vehicles_found": [],
+                "lookup_result": None,
+                "normalized_input": None,
+            }
+
+            if vehicles_response.status_code == 200:
+                vehicles = vehicles_response.json().get("response", [])
+
+                # Show all available vehicles
+                for v in vehicles:
+                    vehicle_info = {
+                        "vin": v.get("vin", "N/A"),
+                        "id_s": v.get("id_s", "N/A"),
+                        "state": v.get("state", "N/A"),
+                        "display_name": v.get("display_name", "N/A"),
+                    }
+                    debug_info["vehicles_found"].append(vehicle_info)
+
+                # Check if vehicle_tag looks like a VIN
+                if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
+                    input_vin = vehicle_tag.upper().strip().replace("-", "")
+                    debug_info["normalized_input"] = input_vin
+                    debug_info["lookup_type"] = "VIN"
+
+                    # Try to find matching vehicle
+                    for v in vehicles:
+                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
+                        if api_vin == input_vin:
+                            debug_info["lookup_result"] = {
+                                "found": True,
+                                "matched_vehicle": {
+                                    "vin": v.get("vin"),
+                                    "id_s": v.get("id_s"),
+                                    "state": v.get("state"),
+                                    "api_vin_normalized": api_vin,
+                                },
+                            }
+                            break
+
+                    if not debug_info["lookup_result"]:
+                        debug_info["lookup_result"] = {
+                            "found": False,
+                            "reason": "No VIN match found",
+                        }
+                else:
+                    debug_info["lookup_type"] = "Vehicle ID"
+                    debug_info["normalized_input"] = vehicle_tag
+
+                    # Try to find by vehicle ID
+                    for v in vehicles:
+                        if v.get("id_s") == vehicle_tag:
+                            debug_info["lookup_result"] = {
+                                "found": True,
+                                "matched_vehicle": {
+                                    "vin": v.get("vin"),
+                                    "id_s": v.get("id_s"),
+                                    "state": v.get("state"),
+                                },
+                            }
+                            break
+
+                    if not debug_info["lookup_result"]:
+                        debug_info["lookup_result"] = {
+                            "found": False,
+                            "reason": "No vehicle ID match found",
+                        }
+            else:
+                debug_info["error"] = (
+                    f"Failed to get vehicles: {vehicles_response.text}"
+                )
+
+            return debug_info
+
+        except Exception as e:
+            return {"error": f"Debug lookup failed: {str(e)}"}
