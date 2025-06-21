@@ -399,6 +399,7 @@ class tesla(Extensions):
                 "Tesla - Check Account Permissions": self.check_account_permissions,
                 "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
                 "Tesla - Test Unsigned Command": self.test_unsigned_command,
+                "Tesla - Test Fleet API Endpoints": self.test_fleet_api_endpoints,
                 "Tesla - Debug Vehicle Lookup": self.debug_vehicle_lookup,
                 "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
                 "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
@@ -1076,7 +1077,7 @@ class tesla(Extensions):
 
     async def remote_start(self, vehicle_tag):
         """Enable keyless driving"""
-        return await self.send_command(vehicle_tag, "remote_start_drive")
+        return await self.send_command(vehicle_tag, "remote_start")
 
     # Trunk/Port Controls
     async def actuate_trunk(self, vehicle_tag, which_trunk):
@@ -1381,14 +1382,15 @@ class tesla(Extensions):
             dict: Detailed vehicle state information including doors, locks, etc.
         """
         try:
-            data = await self.get_vehicle_data(
-                vehicle_tag, "data_request/vehicle_state"
-            )
+            # Use the correct Fleet API endpoint for vehicle data
+            data = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
 
             if "error" in data:
                 return data
 
-            vehicle_state = data.get("response", {})
+            # Extract vehicle_state from the full vehicle_data response
+            full_response = data.get("response", {})
+            vehicle_state = full_response.get("vehicle_state", {})
 
             # Format important state information
             state_info = {
@@ -1432,12 +1434,15 @@ class tesla(Extensions):
             dict: Detailed charging state information
         """
         try:
-            data = await self.get_vehicle_data(vehicle_tag, "data_request/charge_state")
+            # Use the correct Fleet API endpoint for vehicle data
+            data = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
 
             if "error" in data:
                 return data
 
-            charge_state = data.get("response", {})
+            # Extract charge_state from the full vehicle_data response
+            full_response = data.get("response", {})
+            charge_state = full_response.get("charge_state", {})
 
             # Format important charging information
             charging_info = {
@@ -1472,14 +1477,15 @@ class tesla(Extensions):
             dict: Detailed climate state information
         """
         try:
-            data = await self.get_vehicle_data(
-                vehicle_tag, "data_request/climate_state"
-            )
+            # Use the correct Fleet API endpoint for vehicle data
+            data = await self.get_vehicle_data(vehicle_tag, "vehicle_data")
 
             if "error" in data:
                 return data
 
-            climate_state = data.get("response", {})
+            # Extract climate_state from the full vehicle_data response
+            full_response = data.get("response", {})
+            climate_state = full_response.get("climate_state", {})
 
             # Format important climate information
             climate_info = {
@@ -2397,3 +2403,105 @@ For more help: "Tesla - Diagnose Tesla Setup"
 
         except Exception as e:
             return {"error": f"Debug lookup failed: {str(e)}"}
+
+    async def test_fleet_api_endpoints(self, vehicle_tag):
+        """Test Tesla Fleet API endpoints to verify correct structure
+
+        Args:
+            vehicle_tag: VIN or vehicle ID to test
+
+        Returns:
+            dict: Test results for various Fleet API endpoints
+        """
+        try:
+            self.verify_user()
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get vehicle ID if VIN was provided
+            if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
+                vehicles_response = requests.get(
+                    f"{self.api_base_url}/vehicles", headers=headers
+                )
+                if vehicles_response.status_code == 200:
+                    vehicles = vehicles_response.json().get("response", [])
+                    input_vin = vehicle_tag.upper().strip().replace("-", "")
+
+                    vehicle = None
+                    for v in vehicles:
+                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
+                        if api_vin == input_vin:
+                            vehicle = v
+                            break
+
+                    if vehicle:
+                        vehicle_id = vehicle["id_s"]
+                    else:
+                        return {"error": f"Vehicle with VIN {vehicle_tag} not found"}
+                else:
+                    return {
+                        "error": f"Failed to get vehicles: {vehicles_response.text}"
+                    }
+            else:
+                vehicle_id = vehicle_tag
+
+            # Test different Fleet API endpoints
+            test_results = {
+                "vehicle_id": vehicle_id,
+                "input_vehicle_tag": vehicle_tag,
+                "endpoint_tests": {},
+            }
+
+            # Test endpoints
+            endpoints_to_test = [
+                (
+                    "vehicle_data",
+                    f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data",
+                ),
+                ("wake_up", f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"),
+                (
+                    "legacy_vehicle_state",
+                    f"{self.api_base_url}/vehicles/{vehicle_id}/data_request/vehicle_state",
+                ),
+                (
+                    "legacy_charge_state",
+                    f"{self.api_base_url}/vehicles/{vehicle_id}/data_request/charge_state",
+                ),
+                (
+                    "legacy_climate_state",
+                    f"{self.api_base_url}/vehicles/{vehicle_id}/data_request/climate_state",
+                ),
+            ]
+
+            for endpoint_name, url in endpoints_to_test:
+                try:
+                    if endpoint_name == "wake_up":
+                        # POST for wake_up
+                        response = requests.post(url, headers=headers, timeout=10)
+                    else:
+                        # GET for data endpoints
+                        response = requests.get(url, headers=headers, timeout=10)
+
+                    test_results["endpoint_tests"][endpoint_name] = {
+                        "url": url,
+                        "status_code": response.status_code,
+                        "success": response.status_code in [200, 201, 202],
+                        "response_preview": (
+                            response.text[:200] if response.text else "Empty response"
+                        ),
+                        "is_html_error": "<!DOCTYPE html>" in response.text,
+                    }
+
+                except Exception as e:
+                    test_results["endpoint_tests"][endpoint_name] = {
+                        "url": url,
+                        "error": str(e),
+                        "success": False,
+                    }
+
+            return test_results
+
+        except Exception as e:
+            return {"error": f"Fleet API endpoint test failed: {str(e)}"}
