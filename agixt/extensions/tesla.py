@@ -327,1156 +327,1156 @@ class TeslaVINDecoder:
         result = TeslaVINDecoder.decode_vin(test_vin)
         return result
 
+    @staticmethod
+    def celsius_to_fahrenheit(celsius):
+        """Convert Celsius to Fahrenheit and format nicely"""
+        if celsius is None:
+            return None
+        fahrenheit = (celsius * 9 / 5) + 32
+        return round(fahrenheit, 1)
 
-class tesla(Extensions):
-    """
-    The Tesla extension provides direct control of Tesla vehicles through the Fleet API.
-    This extension allows AI agents to:
-    - Control vehicle access (lock/unlock)
-    - Control climate settings
-    - Control trunk/charging port
-    - Manage charging
-    - Control media and volume
-    - Send navigation commands
-    - Control windows and sunroof
-    - Manage vehicle settings
+    def format_temperature(self, celsius_temp):
+        """Format temperature with both Celsius and Fahrenheit"""
+        if celsius_temp is None:
+            return "N/A"
+        fahrenheit = self.celsius_to_fahrenheit(celsius_temp)
+        return f"{fahrenheit}°F ({celsius_temp}°C)"
 
-    The extension requires the user to be authenticated with Tesla through OAuth.
-    """
-
-    def __init__(self, **kwargs):
-        self.api_key = kwargs.get("api_key")
-        self.access_token = kwargs.get("TESLA_ACCESS_TOKEN", None)
-        self.api_base_url = "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1"
-        tesla_client_id = getenv("TESLA_CLIENT_ID")
-        tesla_client_secret = getenv("TESLA_CLIENT_SECRET")
-        self.auth = None
-
-        if tesla_client_id and tesla_client_secret:
-            self.commands = {
-                # Basic Vehicle Controls
-                "Tesla - Lock Doors": self.lock_doors,
-                "Tesla - Unlock Doors": self.unlock_doors,
-                "Tesla - Flash Lights": self.flash_lights,
-                "Tesla - Honk Horn": self.honk_horn,
-                "Tesla - Wake Vehicle": self.wake_vehicle,
-                "Tesla - Remote Start": self.remote_start,
-                # Trunk/Port Controls
-                "Tesla - Actuate Trunk": self.actuate_trunk,
-                "Tesla - Open Charge Port": self.open_charge_port,
-                "Tesla - Close Charge Port": self.close_charge_port,
-                # Climate Controls
-                "Tesla - Set Temperature": self.set_temperature,
-                "Tesla - Start Climate": self.start_climate,
-                "Tesla - Stop Climate": self.stop_climate,
-                "Tesla - Set Seat Heater": self.set_seat_heater,
-                "Tesla - Set Steering Wheel Heat": self.set_steering_wheel_heat,
-                "Tesla - Set Climate Keeper": self.set_climate_keeper,
-                # Charging Controls
-                "Tesla - Start Charging": self.start_charging,
-                "Tesla - Stop Charging": self.stop_charging,
-                "Tesla - Set Charge Limit": self.set_charge_limit,
-                "Tesla - Set Charging Amps": self.set_charging_amps,
-                # Media Controls
-                "Tesla - Adjust Volume": self.adjust_volume,
-                "Tesla - Toggle Playback": self.toggle_playback,
-                "Tesla - Next Track": self.next_track,
-                "Tesla - Previous Track": self.previous_track,
-                "Tesla - Next Favorite": self.next_favorite,
-                "Tesla - Previous Favorite": self.previous_favorite,
-                # Windows/Sunroof
-                "Tesla - Control Windows": self.control_windows,
-                "Tesla - Control Sunroof": self.control_sunroof,
-                # Navigation
-                "Tesla - Navigate To": self.navigate_to,
-                "Tesla - Navigate To Supercharger": self.navigate_to_supercharger,
-                # Information Commands
-                "Tesla - Get Vehicles": self.get_vehicles,
-                "Tesla - Get Vehicle State": self.get_vehicle_state,
-                "Tesla - Get Charge State": self.get_charge_state,
-                "Tesla - Get Climate State": self.get_climate_state,
-                "Tesla - Check Vehicle Online": self.check_vehicle_online,
-                "Tesla - Check Account Permissions": self.check_account_permissions,
-                "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
-                "Tesla - Test Unsigned Command": self.test_unsigned_command,
-                "Tesla - Test Fleet API Endpoints": self.test_fleet_api_endpoints,
-                "Tesla - Debug Vehicle Lookup": self.debug_vehicle_lookup,
-                "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
-                "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
-                "Tesla - TVCP Vehicle Pairing Guide": self.setup_vehicle_command_proxy,
-                # Fun Commands
-                "Tesla - Fart": self.fart,
-            }
-
-            if self.api_key:
-                try:
-                    self.auth = MagicalAuth(token=self.api_key)
-                except Exception as e:
-                    logging.error(f"Error initializing Tesla client: {str(e)}")
-
-    def verify_user(self):
-        """Verify user access token and refresh if needed"""
-        if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="tesla")
-        if not self.access_token:
-            raise Exception("No valid Tesla access token found")
-
-    def sign_command(self, command_data: Dict, vehicle_id: str, command: str) -> Dict:
-        """Sign Tesla commands using Tesla Vehicle Command Protocol (TVCP)
-
-        Tesla Fleet API now requires TVCP for vehicle commands.
-        Reference: https://developer.tesla.com/docs/fleet-api/support/announcements
-
-        Args:
-            command_data: The command data to sign
-            vehicle_id: The vehicle ID
-            command: The command name
-
-        Returns:
-            Dict containing headers with signature for TVCP
+    def commands(self):
         """
-        try:
-            # Get the private key
-            private_key_pem = get_tesla_private_key()
+        The Tesla extension provides direct control of Tesla vehicles through the Fleet API.
+        This extension allows AI agents to:
+        - Control vehicle access (lock/unlock)
+        - Control climate settings
+        - Control trunk/charging port
+        - Manage charging
+        - Control media and volume
+        - Send navigation commands
+        - Control windows and sunroof
+        - Manage vehicle settings
 
-            # Load the private key
-            private_key = serialization.load_pem_private_key(
-                private_key_pem.encode(), password=None
-            )
-
-            # TVCP requires a specific signing format
-            timestamp = str(int(time.time()))
-
-            # For TVCP, the message to sign should be the command payload
-            # in the same format as would be sent to the legacy endpoint
-            if command_data:
-                canonical_message = json.dumps(
-                    command_data, separators=(",", ":"), sort_keys=True
-                )
-            else:
-                # For commands with no parameters (like honk_horn), use empty object
-                canonical_message = "{}"
-
-            # TVCP message format: timestamp.canonical_message
-            message_to_sign = f"{timestamp}.{canonical_message}"
-
-            # Debug logging
-            logging.info(f"TVCP signing message: {message_to_sign}")
-
-            # Sign the message
-            signature = private_key.sign(
-                message_to_sign.encode("utf-8"), ec.ECDSA(hashes.SHA256())
-            )
-
-            # Encode signature in base64
-            signature_b64 = base64.b64encode(signature).decode()
-
-            # Debug logging
-            logging.info(f"TVCP signature generated: {signature_b64[:20]}...")
-
-            # Return headers with TVCP signature format
-            return {
-                "tesla-signature": signature_b64,
-                "tesla-timestamp": timestamp,
-                "tesla-command-protocol": "1.0",  # Indicate TVCP version
-            }
-
-        except Exception as e:
-            logging.error(f"Error signing Tesla command with TVCP: {str(e)}")
-            raise Exception(f"Failed to sign command with TVCP: {str(e)}")
-
-    async def get_vehicles(self):
-        """Get list of vehicles with comprehensive state information
-
-        Args:
-            None
-
-        Returns:
-            str: Detailed table of user's Tesla vehicles with comprehensive state information
-
-        Note: This should be used any time the user asks for any vehicle interaction to ensure the correct vehicle is selected by vehicle tag (VIN).
+        The extension requires the user to be authenticated with Tesla through OAuth.
         """
-        try:
-            self.verify_user()
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            }
 
-            # Get the list of vehicles
-            url = f"{self.api_base_url}/vehicles"
-            response = requests.get(url, headers=headers)
+        def __init__(self, **kwargs):
+            self.api_key = kwargs.get("api_key")
+            self.access_token = kwargs.get("TESLA_ACCESS_TOKEN", None)
+            self.api_base_url = "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1"
+            tesla_client_id = getenv("TESLA_CLIENT_ID")
+            tesla_client_secret = getenv("TESLA_CLIENT_SECRET")
+            self.auth = None
 
-            if response.status_code != 200:
-                raise Exception(
-                    f"Failed to get vehicles (HTTP {response.status_code}): {response.text}"
-                )
+            if tesla_client_id and tesla_client_secret:
+                self.commands = {
+                    # Basic Vehicle Controls
+                    "Tesla - Lock Doors": self.lock_doors,
+                    "Tesla - Unlock Doors": self.unlock_doors,
+                    "Tesla - Flash Lights": self.flash_lights,
+                    "Tesla - Honk Horn": self.honk_horn,
+                    "Tesla - Wake Vehicle": self.wake_vehicle,
+                    "Tesla - Remote Start": self.remote_start,
+                    # Trunk/Port Controls
+                    "Tesla - Actuate Trunk": self.actuate_trunk,
+                    "Tesla - Open Charge Port": self.open_charge_port,
+                    "Tesla - Close Charge Port": self.close_charge_port,
+                    # Climate Controls
+                    "Tesla - Set Temperature": self.set_temperature,
+                    "Tesla - Start Climate": self.start_climate,
+                    "Tesla - Stop Climate": self.stop_climate,
+                    "Tesla - Set Seat Heater": self.set_seat_heater,
+                    "Tesla - Set Steering Wheel Heat": self.set_steering_wheel_heat,
+                    "Tesla - Set Climate Keeper": self.set_climate_keeper,
+                    # Charging Controls
+                    "Tesla - Start Charging": self.start_charging,
+                    "Tesla - Stop Charging": self.stop_charging,
+                    "Tesla - Set Charge Limit": self.set_charge_limit,
+                    "Tesla - Set Charging Amps": self.set_charging_amps,
+                    # Media Controls
+                    "Tesla - Adjust Volume": self.adjust_volume,
+                    "Tesla - Toggle Playback": self.toggle_playback,
+                    "Tesla - Next Track": self.next_track,
+                    "Tesla - Previous Track": self.previous_track,
+                    "Tesla - Next Favorite": self.next_favorite,
+                    "Tesla - Previous Favorite": self.previous_favorite,
+                    # Windows/Sunroof
+                    "Tesla - Control Windows": self.control_windows,
+                    "Tesla - Control Sunroof": self.control_sunroof,
+                    # Navigation
+                    "Tesla - Navigate To": self.navigate_to,
+                    "Tesla - Navigate To Supercharger": self.navigate_to_supercharger,
+                    # Information Commands
+                    "Tesla - Get Vehicles": self.get_vehicles,
+                    "Tesla - Get Vehicle State": self.get_vehicle_state,
+                    "Tesla - Get Charge State": self.get_charge_state,
+                    "Tesla - Get Climate State": self.get_climate_state,
+                    "Tesla - Check Vehicle Online": self.check_vehicle_online,
+                    "Tesla - Check Account Permissions": self.check_account_permissions,
+                    "Tesla - Check Vehicle Third Party Access": self.check_vehicle_third_party_access,
+                    "Tesla - Diagnose Tesla Setup": self.diagnose_tesla_setup,
+                    "Tesla - Check TVCP Requirements": self.check_tvcp_requirement,
+                    "Tesla - TVCP Vehicle Pairing Guide": self.setup_vehicle_command_proxy,
+                    # Fun Commands
+                    "Tesla - Fart": self.fart,
+                }
 
-            data = response.json()
-            vehicle_data = data.get("response", [])
-
-            if not vehicle_data:
-                return "No Tesla vehicles found in your account."
-
-            # Collect VINs for decoding
-            vins = []
-            for vehicle in vehicle_data:
-                if "vin" in vehicle:
-                    vins.append(vehicle["vin"])
-
-            # Decode VINs
-            vin_decodings = TeslaVINDecoder.batch_decode(vins)
-
-            # Create comprehensive result with basic info table and detailed state
-            result = "## Tesla Vehicles Overview\n\n"
-
-            # Basic info table
-            result += "### Basic Vehicle Information\n"
-            result += "| VIN | ID | Model | Year | Description | Status |\n"
-            result += "| --- | --- | --- | --- | --- | --- |\n"
-
-            # Process each vehicle for basic info
-            for vehicle in vehicle_data:
-                if "vin" not in vehicle:
-                    continue
-
-                # Find the VIN decoding for this vehicle
-                decoded_info = next(
-                    (
-                        decoded
-                        for decoded in vin_decodings
-                        if decoded["vin"] == vehicle["vin"]
-                    ),
-                    {},
-                )
-
-                vin = vehicle["vin"]
-                vehicle_id = vehicle.get("id_s", "N/A")
-                model = decoded_info.get("model", "Unknown")
-                year = decoded_info.get("model_year", "Unknown")
-                description = decoded_info.get("full_description", "Unknown")
-                vehicle_status = vehicle.get("state", "Unknown")
-
-                result += f"| {vin} | {vehicle_id} | {model} | {year} | {description} | {vehicle_status} |\n"
-
-            # Detailed state information for each vehicle
-            result += "\n### Detailed Vehicle State Information\n\n"
-
-            for vehicle in vehicle_data:
-                if "vin" not in vehicle:
-                    continue
-
-                vin = vehicle["vin"]
-                vehicle_name = vehicle.get("display_name", f"Vehicle {vin[-6:]}")
-                vehicle_status = vehicle.get("state", "Unknown")
-
-                result += f"#### {vehicle_name} ({vin})\n"
-                result += f"**Status:** {vehicle_status}\n\n"
-
-                # Only fetch detailed data if vehicle is online
-                if vehicle.get("state") == "online":
+                if self.api_key:
                     try:
-                        # Get comprehensive vehicle data
-                        vehicle_id = vehicle["id_s"]
-                        vehicle_data_url = (
-                            f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
-                        )
-                        vehicle_response = requests.get(
-                            vehicle_data_url, headers=headers, timeout=15
-                        )
+                        self.auth = MagicalAuth(token=self.api_key)
+                    except Exception as e:
+                        logging.error(f"Error initializing Tesla client: {str(e)}")
 
-                        if vehicle_response.status_code == 200:
-                            vehicle_detail = vehicle_response.json().get("response", {})
+        def verify_user(self):
+            """Verify user access token and refresh if needed"""
+            if self.auth:
+                self.access_token = self.auth.refresh_oauth_token(provider="tesla")
+            if not self.access_token:
+                raise Exception("No valid Tesla access token found")
 
-                            # Extract and format all state information
-                            charge_state = vehicle_detail.get("charge_state", {})
-                            climate_state = vehicle_detail.get("climate_state", {})
-                            vehicle_state = vehicle_detail.get("vehicle_state", {})
+        def sign_command(self, command_data: Dict, vehicle_id: str, command: str) -> Dict:
+            """Sign Tesla commands using Tesla Vehicle Command Protocol (TVCP)
 
-                            # Battery and Charging Information
-                            if charge_state:
-                                battery_level = charge_state.get("battery_level", "N/A")
-                                usable_battery = charge_state.get(
-                                    "usable_battery_level", "N/A"
-                                )
-                                charging_state = charge_state.get(
-                                    "charging_state", "Disconnected"
-                                )
-                                charge_limit = charge_state.get(
-                                    "charge_limit_soc", "N/A"
-                                )
-                                est_range = charge_state.get("est_battery_range", "N/A")
-                                charge_rate = charge_state.get("charge_rate", 0)
-                                time_to_full = charge_state.get(
-                                    "time_to_full_charge", 0
-                                )
+            Tesla Fleet API now requires TVCP for vehicle commands.
+            Reference: https://developer.tesla.com/docs/fleet-api/support/announcements
 
-                                result += f"**🔋 Battery & Charging:**\n"
-                                result += f"- Battery Level: {battery_level}% (usable: {usable_battery}%)\n"
-                                result += f"- Charging State: {charging_state}\n"
-                                result += f"- Charge Limit: {charge_limit}%\n"
-                                result += f"- Estimated Range: {est_range} mi\n"
-                                if charging_state != "Disconnected" and charge_rate > 0:
-                                    result += f"- Charge Rate: {charge_rate} mi/hr\n"
-                                    result += f"- Time to Full: {time_to_full} hours\n"
-                                result += "\n"
+            Args:
+                command_data: The command data to sign
+                vehicle_id: The vehicle ID
+                command: The command name
 
-                            # Climate Information
-                            if climate_state:
-                                inside_temp = climate_state.get("inside_temp")
-                                outside_temp = climate_state.get("outside_temp")
-                                climate_on = climate_state.get("is_climate_on", False)
-                                driver_temp = climate_state.get("driver_temp_setting")
-                                passenger_temp = climate_state.get(
-                                    "passenger_temp_setting"
-                                )
+            Returns:
+                Dict containing headers with signature for TVCP
+            """
+            try:
+                # Get the private key
+                private_key_pem = get_tesla_private_key()
 
-                                result += f"**🌡️ Climate:**\n"
-                                result += f"- Climate System: {'On' if climate_on else 'Off'}\n"
-                                if inside_temp is not None:
-                                    result += f"- Inside Temperature: {inside_temp}°C\n"
-                                if outside_temp is not None:
-                                    result += (
-                                        f"- Outside Temperature: {outside_temp}°C\n"
+                # Load the private key
+                private_key = serialization.load_pem_private_key(
+                    private_key_pem.encode(), password=None
+                )
+
+                # TVCP requires a specific signing format
+                timestamp = str(int(time.time()))
+
+                # For TVCP, the message to sign should be the command payload
+                # in the same format as would be sent to the legacy endpoint
+                if command_data:
+                    canonical_message = json.dumps(
+                        command_data, separators=(",", ":"), sort_keys=True
+                    )
+                else:
+                    # For commands with no parameters (like honk_horn), use empty object
+                    canonical_message = "{}"
+
+                # TVCP message format: timestamp.canonical_message
+                message_to_sign = f"{timestamp}.{canonical_message}"
+
+                # Debug logging
+                logging.info(f"TVCP signing message: {message_to_sign}")
+
+                # Sign the message
+                signature = private_key.sign(
+                    message_to_sign.encode("utf-8"), ec.ECDSA(hashes.SHA256())
+                )
+
+                # Encode signature in base64
+                signature_b64 = base64.b64encode(signature).decode()
+
+                # Debug logging
+                logging.info(f"TVCP signature generated: {signature_b64[:20]}...")
+
+                # Return headers with TVCP signature format
+                return {
+                    "tesla-signature": signature_b64,
+                    "tesla-timestamp": timestamp,
+                    "tesla-command-protocol": "1.0",  # Indicate TVCP version
+                }
+
+            except Exception as e:
+                logging.error(f"Error signing Tesla command with TVCP: {str(e)}")
+                raise Exception(f"Failed to sign command with TVCP: {str(e)}")
+
+        async def get_vehicles(self):
+            """Get list of vehicles with comprehensive state information
+
+            Args:
+                None
+
+            Returns:
+                str: Detailed table of user's Tesla vehicles with comprehensive state information
+
+            Note: This should be used any time the user asks for any vehicle interaction to ensure the correct vehicle is selected by vehicle tag (VIN).
+            """
+            try:
+                self.verify_user()
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json",
+                }
+
+                # Get the list of vehicles
+                url = f"{self.api_base_url}/vehicles"
+                response = requests.get(url, headers=headers)
+
+                if response.status_code != 200:
+                    raise Exception(
+                        f"Failed to get vehicles (HTTP {response.status_code}): {response.text}"
+                    )
+
+                data = response.json()
+                vehicle_data = data.get("response", [])
+
+                if not vehicle_data:
+                    return "No Tesla vehicles found in your account."
+
+                # Collect VINs for decoding
+                vins = []
+                for vehicle in vehicle_data:
+                    if "vin" in vehicle:
+                        vins.append(vehicle["vin"])
+
+                # Decode VINs
+                vin_decodings = TeslaVINDecoder.batch_decode(vins)
+
+                # Create comprehensive result with basic info table and detailed state
+                result = "## Tesla Vehicles Overview\n\n"
+
+                # Basic info table
+                result += "### Basic Vehicle Information\n"
+                result += "| VIN | ID | Model | Year | Description | Status |\n"
+                result += "| --- | --- | --- | --- | --- | --- |\n"
+
+                # Process each vehicle for basic info
+                for vehicle in vehicle_data:
+                    if "vin" not in vehicle:
+                        continue
+
+                    # Find the VIN decoding for this vehicle
+                    decoded_info = next(
+                        (
+                            decoded
+                            for decoded in vin_decodings
+                            if decoded["vin"] == vehicle["vin"]
+                        ),
+                        {},
+                    )
+
+                    vin = vehicle["vin"]
+                    vehicle_id = vehicle.get("id_s", "N/A")
+                    model = decoded_info.get("model", "Unknown")
+                    year = decoded_info.get("model_year", "Unknown")
+                    description = decoded_info.get("full_description", "Unknown")
+                    vehicle_status = vehicle.get("state", "Unknown")
+
+                    result += f"| {vin} | {vehicle_id} | {model} | {year} | {description} | {vehicle_status} |\n"
+
+                # Detailed state information for each vehicle
+                result += "\n### Detailed Vehicle State Information\n\n"
+
+                for vehicle in vehicle_data:
+                    if "vin" not in vehicle:
+                        continue
+
+                    vin = vehicle["vin"]
+                    vehicle_name = vehicle.get("display_name", f"Vehicle {vin[-6:]}")
+                    vehicle_status = vehicle.get("state", "Unknown")
+
+                    result += f"#### {vehicle_name} ({vin})\n"
+                    result += f"**Status:** {vehicle_status}\n\n"
+
+                    # Only fetch detailed data if vehicle is online
+                    if vehicle.get("state") == "online":
+                        try:
+                            # Get comprehensive vehicle data
+                            vehicle_id = vehicle["id_s"]
+                            vehicle_data_url = (
+                                f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data"
+                            )
+                            vehicle_response = requests.get(
+                                vehicle_data_url, headers=headers, timeout=15
+                            )
+
+                            if vehicle_response.status_code == 200:
+                                vehicle_detail = vehicle_response.json().get("response", {})
+
+                                # Extract and format all state information
+                                charge_state = vehicle_detail.get("charge_state", {})
+                                climate_state = vehicle_detail.get("climate_state", {})
+                                vehicle_state = vehicle_detail.get("vehicle_state", {})
+
+                                # Battery and Charging Information
+                                if charge_state:
+                                    battery_level = charge_state.get("battery_level", "N/A")
+                                    usable_battery = charge_state.get(
+                                        "usable_battery_level", "N/A"
                                     )
-                                if driver_temp is not None:
-                                    result += f"- Driver Setting: {driver_temp}°C\n"
-                                if passenger_temp is not None:
-                                    result += (
-                                        f"- Passenger Setting: {passenger_temp}°C\n"
+                                    charging_state = charge_state.get(
+                                        "charging_state", "Disconnected"
                                     )
-                                result += "\n"
+                                    charge_limit = charge_state.get(
+                                        "charge_limit_soc", "N/A"
+                                    )
+                                    est_range = charge_state.get("est_battery_range", "N/A")
+                                    charge_rate = charge_state.get("charge_rate", 0)
+                                    time_to_full = charge_state.get(
+                                        "time_to_full_charge", 0
+                                    )
 
-                            # Vehicle State Information
-                            if vehicle_state:
-                                locked = vehicle_state.get("locked", "Unknown")
-                                odometer = vehicle_state.get("odometer")
-                                sentry_mode = vehicle_state.get("sentry_mode", False)
-                                valet_mode = vehicle_state.get("valet_mode", False)
-                                software_update = vehicle_state.get(
-                                    "software_update", {}
-                                )
-
-                                result += f"**🚗 Vehicle State:**\n"
-                                result += (
-                                    f"- Doors Locked: {'Yes' if locked else 'No'}\n"
-                                )
-                                if odometer is not None:
-                                    result += f"- Odometer: {odometer:.0f} mi\n"
-                                result += (
-                                    f"- Sentry Mode: {'On' if sentry_mode else 'Off'}\n"
-                                )
-                                result += (
-                                    f"- Valet Mode: {'On' if valet_mode else 'Off'}\n"
-                                )
-
-                                # Doors status
-                                doors_open = []
-                                if vehicle_state.get("df") == 1:
-                                    doors_open.append("Driver Front")
-                                if vehicle_state.get("dr") == 1:
-                                    doors_open.append("Driver Rear")
-                                if vehicle_state.get("pf") == 1:
-                                    doors_open.append("Passenger Front")
-                                if vehicle_state.get("pr") == 1:
-                                    doors_open.append("Passenger Rear")
-                                if vehicle_state.get("ft") == 1:
-                                    doors_open.append("Front Trunk")
-                                if vehicle_state.get("rt") == 1:
-                                    doors_open.append("Rear Trunk")
-
-                                if doors_open:
-                                    result += f"- Open Doors/Trunks: {', '.join(doors_open)}\n"
-                                else:
-                                    result += f"- Open Doors/Trunks: None\n"
-
-                                # Software update status
-                                if software_update and software_update.get("status"):
-                                    status = software_update.get("status", "")
-                                    version = software_update.get("version", "")
-                                    result += f"- Software Update: {status}"
-                                    if version:
-                                        result += f" (v{version})"
+                                    result += f"**🔋 Battery & Charging:**\n"
+                                    result += f"- Battery Level: {battery_level}% (usable: {usable_battery}%)\n"
+                                    result += f"- Charging State: {charging_state}\n"
+                                    result += f"- Charge Limit: {charge_limit}%\n"
+                                    result += f"- Estimated Range: {est_range} mi\n"
+                                    if charging_state != "Disconnected" and charge_rate > 0:
+                                        result += f"- Charge Rate: {charge_rate} mi/hr\n"
+                                        result += f"- Time to Full: {time_to_full} hours\n"
                                     result += "\n"
 
-                                result += "\n"
+                                # Climate Information
+                                if climate_state:
+                                    inside_temp = climate_state.get("inside_temp")
+                                    outside_temp = climate_state.get("outside_temp")
+                                    climate_on = climate_state.get("is_climate_on", False)
+                                    driver_temp = climate_state.get("driver_temp_setting")
+                                    passenger_temp = climate_state.get(
+                                        "passenger_temp_setting"
+                                    )
 
-                        else:
-                            result += f"⚠️ Unable to fetch detailed data (HTTP {vehicle_response.status_code})\n\n"
+                                    result += f"**🌡️ Climate:**\n"
+                                    result += f"- Climate System: {'On' if climate_on else 'Off'}\n"
+                                    if inside_temp is not None:
+                                        inside_temp_f = round(inside_temp * 9/5 + 32, 1)
+                                        result += f"- Inside Temperature: {inside_temp_f}°F\n"
+                                    if outside_temp is not None:
+                                        outside_temp_f = round(outside_temp * 9/5 + 32, 1)
+                                        result += (
+                                            f"- Outside Temperature: {outside_temp_f}°F\n"
+                                        )
+                                    if driver_temp is not None:
+                                        driver_temp_f = round(driver_temp * 9/5 + 32, 1)
+                                        result += f"- Driver Setting: {driver_temp_f}°F\n"
+                                    if passenger_temp is not None:
+                                        passenger_temp_f = round(passenger_temp * 9/5 + 32, 1)
+                                        result += (
+                                            f"- Passenger Setting: {passenger_temp_f}°F\n"
+                                        )
+                                    result += "\n"
 
-                    except Exception as e:
-                        result += f"⚠️ Error fetching detailed data: {str(e)}\n\n"
-                        logging.warning(
-                            f"Failed to get detailed data for vehicle {vin}: {str(e)}"
-                        )
-                else:
-                    result += f"ℹ️ Vehicle is {vehicle_status} - detailed state unavailable\n\n"
+                                # Vehicle State Information
+                                if vehicle_state:
+                                    locked = vehicle_state.get("locked", "Unknown")
+                                    odometer = vehicle_state.get("odometer")
+                                    sentry_mode = vehicle_state.get("sentry_mode", False)
+                                    valet_mode = vehicle_state.get("valet_mode", False)
+                                    software_update = vehicle_state.get(
+                                        "software_update", {}
+                                    )
 
-            # Add debugging information
-            result += "---\n"
-            result += "### Debug Information\n"
-            result += f"- Total vehicles found: {len(vehicle_data)}\n"
-            result += f"- API Base URL: {self.api_base_url}\n"
-            result += f"- Use 'Tesla - Debug Vehicle Lookup' with a specific VIN for detailed lookup debugging\n"
-            result += f"- Use 'Tesla - Get Vehicle State' with a VIN for individual vehicle state details\n"
+                                    result += f"**🚗 Vehicle State:**\n"
+                                    result += (
+                                        f"- Doors Locked: {'Yes' if locked else 'No'}\n"
+                                    )
+                                    if odometer is not None:
+                                        result += f"- Odometer: {odometer:.0f} mi\n"
+                                    result += (
+                                        f"- Sentry Mode: {'On' if sentry_mode else 'Off'}\n"
+                                    )
+                                    result += (
+                                        f"- Valet Mode: {'On' if valet_mode else 'Off'}\n"
+                                    )
 
-            return result
+                                    # Doors status
+                                    doors_open = []
+                                    if vehicle_state.get("df") == 1:
+                                        doors_open.append("Driver Front")
+                                    if vehicle_state.get("dr") == 1:
+                                        doors_open.append("Driver Rear")
+                                    if vehicle_state.get("pf") == 1:
+                                        doors_open.append("Passenger Front")
+                                    if vehicle_state.get("pr") == 1:
+                                        doors_open.append("Passenger Rear")
+                                    if vehicle_state.get("ft") == 1:
+                                        doors_open.append("Front Trunk")
+                                    if vehicle_state.get("rt") == 1:
+                                        doors_open.append("Rear Trunk")
 
-        except Exception as e:
-            error_details = (
-                f"Error retrieving Tesla vehicles: {str(e)}\n\nDebug Context:\n"
-            )
-            error_details += f"- Exception Type: {type(e).__name__}\n"
-            error_details += f"- API Base URL: {self.api_base_url}\n"
-            error_details += f"- Has Access Token: {'Yes' if hasattr(self, 'access_token') and self.access_token else 'No'}\n"
-            logging.error(f"Error getting Tesla vehicles: {str(e)}")
-            return error_details
+                                    if doors_open:
+                                        result += f"- Open Doors/Trunks: {', '.join(doors_open)}\n"
+                                    else:
+                                        result += f"- Open Doors/Trunks: None\n"
 
-    async def send_command(self, vehicle_tag, command, data=None):
-        """Send command to vehicle with proper signing for Fleet API and auto-wake
+                                    # Software update status
+                                    if software_update and software_update.get("status"):
+                                        status = software_update.get("status", "")
+                                        version = software_update.get("version", "")
+                                        result += f"- Software Update: {status}"
+                                        if version:
+                                            result += f" (v{version})"
+                                        result += "\n"
 
-        This method automatically wakes sleeping vehicles before sending control commands.
-        Data retrieval commands may work without waking the vehicle.
+                                    result += "\n"
 
-        Args:
-            vehicle_tag: Vehicle VIN or ID
-            command: Tesla API command name
-            data: Optional command data/parameters
+                            else:
+                                result += f"⚠️ Unable to fetch detailed data (HTTP {vehicle_response.status_code})\n\n"
 
-        Returns:
-            dict: Tesla API response or error information
-
-        Note: As of January 2024, most vehicles require the Tesla Vehicle Command Protocol (TVCP).
-        This method includes automatic vehicle wake functionality for commands that require it.
-        """
-        try:
-            self.verify_user()
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-                "User-Agent": "AGiXT-Tesla/1.0",
-            }
-
-            # Check if vehicle_tag is VIN or vehicle ID
-            if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
-                # It's a VIN, need to get vehicle ID first
-                vehicles_response = requests.get(
-                    f"{self.api_base_url}/vehicles", headers=headers
-                )
-                if vehicles_response.status_code == 200:
-                    vehicles = vehicles_response.json().get("response", [])
-
-                    # Normalize the input VIN for comparison
-                    input_vin = vehicle_tag.upper().strip().replace("-", "")
-
-                    # Find vehicle with case-insensitive VIN comparison
-                    vehicle = None
-                    for v in vehicles:
-                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
-                        if api_vin == input_vin:
-                            vehicle = v
-                            break
-
-                    if vehicle:
-                        vehicle_id = vehicle["id_s"]
+                        except Exception as e:
+                            result += f"⚠️ Error fetching detailed data: {str(e)}\n\n"
+                            logging.warning(
+                                f"Failed to get detailed data for vehicle {vin}: {str(e)}"
+                            )
                     else:
-                        available_vins = [v.get("vin", "N/A") for v in vehicles]
-                        raise Exception(
-                            f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
-                        )
-                else:
-                    raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
-            else:
-                vehicle_id = vehicle_tag
+                        result += f"ℹ️ Vehicle is {vehicle_status} - detailed state unavailable\n\n"
 
-            # Auto-wake vehicle if it's not online (only for commands that require it)
-            # Some data commands work even when vehicle is asleep
-            commands_that_need_awake = {
-                "door_lock",
-                "door_unlock",
-                "flash_lights",
-                "honk_horn",
-                "remote_start_drive",
-                "actuate_trunk",
-                "charge_port_door_open",
-                "charge_port_door_close",
-                "set_temps",
-                "auto_conditioning_start",
-                "auto_conditioning_stop",
-                "remote_seat_heater_request",
-                "remote_steering_wheel_heater_request",
-                "set_climate_keeper_mode",
-                "charge_start",
-                "charge_stop",
-                "set_charge_limit",
-                "set_charging_amps",
-                "adjust_volume",
-                "media_toggle_playback",
-                "media_next_track",
-                "media_prev_track",
-                "media_next_fav",
-                "media_prev_fav",
-                "window_control",
-                "sun_roof_control",
-                "navigation_gps_request",
-                "navigation_sc_request",
-                "remote_boombox",
-                "set_valet_mode",
-                "reset_valet_pin",
-                "trigger_homelink",
-                "speed_limit_activate",
-                "speed_limit_deactivate",
-                "speed_limit_clear_pin",
-                "speed_limit_set_limit",
-            }
+                return result
 
-            if command != "wake_up" and command in commands_that_need_awake:
-                logging.info(
-                    f"Ensuring vehicle {vehicle_id} is awake before sending command: {command}"
-                )
-                wake_result = await self.ensure_vehicle_awake(vehicle_tag)
-
-                if not wake_result["success"]:
-                    return {
-                        "error": f"🚗 Vehicle Wake Required\n\n"
-                        f"The vehicle needs to be awake to receive commands, but wake attempts failed.\n\n"
-                        f"❌ Wake Error: {wake_result['error']}\n\n"
-                        f"💡 TROUBLESHOOTING:\n"
-                        f"• Check vehicle connectivity (cellular/WiFi)\n"
-                        f"• Vehicle may be in deep sleep mode\n"
-                        f"• Try manually waking via Tesla mobile app\n"
-                        f"• Ensure vehicle has sufficient battery\n\n"
-                        f"You can also try the manual 'Tesla - Wake Vehicle' command."
-                    }
-                else:
-                    logging.info(
-                        f"Vehicle {vehicle_id} is awake: {wake_result['message']}"
-                    )
-            elif command != "wake_up":
-                logging.info(
-                    f"Command {command} may work without waking vehicle (data retrieval)"
-                )
-
-            # Try the legacy command endpoint first (for older vehicles or fleet accounts)
-            url = f"{self.api_base_url}/vehicles/{vehicle_id}/command/{command}"
-
-            # Prepare command data
-            command_data = data if data is not None else {}
-
-            # For newer vehicles, try TVCP signing
-            try:
-                signature_headers = self.sign_command(command_data, vehicle_id, command)
-                # Add signature headers to existing headers
-                headers.update(signature_headers)
-                logging.info(f"Command signed with TVCP headers")
             except Exception as e:
-                logging.warning(f"TVCP signing failed, trying without: {str(e)}")
+                error_details = (
+                    f"Error retrieving Tesla vehicles: {str(e)}\n\nDebug Context:\n"
+                )
+                error_details += f"- Exception Type: {type(e).__name__}\n"
+                error_details += f"- API Base URL: {self.api_base_url}\n"
+                error_details += f"- Has Access Token: {'Yes' if hasattr(self, 'access_token') and self.access_token else 'No'}\n"
+                logging.error(f"Error getting Tesla vehicles: {str(e)}")
+                return error_details
 
-            # Log details for debugging
-            logging.info(f"Tesla command: {command} for vehicle {vehicle_id}")
-            logging.info(f"Payload: {command_data}")
-            logging.info(f"URL: {url}")
+        async def send_command(self, vehicle_tag, command, data=None):
+            """Send command to vehicle with proper signing for Fleet API and auto-wake
 
-            response = requests.post(
-                url, headers=headers, json=command_data, timeout=15
-            )
+            This method automatically wakes sleeping vehicles before sending control commands.
+            Data retrieval commands may work without waking the vehicle.
 
-            logging.info(f"Response status: {response.status_code}")
-            logging.info(f"Response text: {response.text}")
+            Args:
+                vehicle_tag: Vehicle VIN or ID
+                command: Tesla API command name
+                data: Optional command data/parameters
 
-            # Check for TVCP requirement error
-            if response.status_code == 400:
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", "")
-                    if (
-                        "Tesla Vehicle Command Protocol required" in error_msg
-                        or "routable_message" in error_msg
-                    ):
-                        pairing_url = self.get_vehicle_pairing_url()
-                        tesla_domain = self.get_tesla_domain()
+            Returns:
+                dict: Tesla API response or error information
 
+            Note: As of January 2024, most vehicles require the Tesla Vehicle Command Protocol (TVCP).
+            This method includes automatic vehicle wake functionality for commands that require it.
+            """
+            try:
+                self.verify_user()
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "AGiXT-Tesla/1.0",
+                }
+
+                # Check if vehicle_tag is VIN or vehicle ID
+                if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
+                    # It's a VIN, need to get vehicle ID first
+                    vehicles_response = requests.get(
+                        f"{self.api_base_url}/vehicles", headers=headers
+                    )
+                    if vehicles_response.status_code == 200:
+                        vehicles = vehicles_response.json().get("response", [])
+
+                        # Normalize the input VIN for comparison
+                        input_vin = vehicle_tag.upper().strip().replace("-", "")
+
+                        # Find vehicle with case-insensitive VIN comparison
+                        vehicle = None
+                        for v in vehicles:
+                            api_vin = v.get("vin", "").upper().strip().replace("-", "")
+                            if api_vin == input_vin:
+                                vehicle = v
+                                break
+
+                        if vehicle:
+                            vehicle_id = vehicle["id_s"]
+                        else:
+                            available_vins = [v.get("vin", "N/A") for v in vehicles]
+                            raise Exception(
+                                f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
+                            )
+                    else:
+                        raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
+                else:
+                    vehicle_id = vehicle_tag
+
+                # Auto-wake vehicle if it's not online (only for commands that require it)
+                # Some data commands work even when vehicle is asleep
+                commands_that_need_awake = {
+                    "door_lock",
+                    "door_unlock",
+                    "flash_lights",
+                    "honk_horn",
+                    "remote_start_drive",
+                    "actuate_trunk",
+                    "charge_port_door_open",
+                    "charge_port_door_close",
+                    "set_temps",
+                    "auto_conditioning_start",
+                    "auto_conditioning_stop",
+                    "remote_seat_heater_request",
+                    "remote_steering_wheel_heater_request",
+                    "set_climate_keeper_mode",
+                    "charge_start",
+                    "charge_stop",
+                    "set_charge_limit",
+                    "set_charging_amps",
+                    "adjust_volume",
+                    "media_toggle_playback",
+                    "media_next_track",
+                    "media_prev_track",
+                    "media_next_fav",
+                    "media_prev_fav",
+                    "window_control",
+                    "sun_roof_control",
+                    "navigation_gps_request",
+                    "navigation_sc_request",
+                    "remote_boombox",
+                    "set_valet_mode",
+                    "reset_valet_pin",
+                    "trigger_homelink",
+                    "speed_limit_activate",
+                    "speed_limit_deactivate",
+                    "speed_limit_clear_pin",
+                    "speed_limit_set_limit",
+                }
+
+                if command != "wake_up" and command in commands_that_need_awake:
+                    logging.info(
+                        f"Ensuring vehicle {vehicle_id} is awake before sending command: {command}"
+                    )
+                    wake_result = await self.ensure_vehicle_awake(vehicle_tag)
+
+                    if not wake_result["success"]:
                         return {
-                            "error": f"🚗 Vehicle Command Authentication Required\n\n"
-                            f"This vehicle requires Tesla Vehicle Command Protocol (TVCP) authentication.\n"
-                            f"Your AGiXT server is properly configured, but this vehicle needs to be paired.\n\n"
-                            f"📱 TO FIX THIS:\n"
-                            f"1. Open the Tesla mobile app on your phone\n"
-                            f"2. Visit this URL in the Tesla app: {pairing_url}\n"
-                            f"3. Approve the pairing request when prompted\n"
-                            f"4. Try the command again\n\n"
-                            f"🔒 This one-time pairing process allows your vehicle to trust commands from AGiXT.\n"
-                            f"Domain: {tesla_domain}\n\n"
-                            f"Original error: {error_msg}"
+                            "error": f"🚗 Vehicle Wake Required\n\n"
+                            f"The vehicle needs to be awake to receive commands, but wake attempts failed.\n\n"
+                            f"❌ Wake Error: {wake_result['error']}\n\n"
+                            f"💡 TROUBLESHOOTING:\n"
+                            f"• Check vehicle connectivity (cellular/WiFi)\n"
+                            f"• Vehicle may be in deep sleep mode\n"
+                            f"• Try manually waking via Tesla mobile app\n"
+                            f"• Ensure vehicle has sufficient battery\n\n"
+                            f"You can also try the manual 'Tesla - Wake Vehicle' command."
                         }
-                except:
-                    pass
+                    else:
+                        logging.info(
+                            f"Vehicle {vehicle_id} is awake: {wake_result['message']}"
+                        )
+                elif command != "wake_up":
+                    logging.info(
+                        f"Command {command} may work without waking vehicle (data retrieval)"
+                    )
 
-            if response.status_code not in [200, 201, 202]:
-                # Enhanced error handling with detailed context
-                error_response = self.handle_tesla_error(response)
-                # Add debugging context to the error
-                if isinstance(error_response, dict) and "error" in error_response:
-                    error_response["debug_context"] = {
-                        "method": "send_command",
-                        "command": command,
-                        "input_vehicle_tag": vehicle_tag,
-                        "resolved_vehicle_id": vehicle_id,
-                        "api_url": url,
-                        "command_data": command_data,
-                        "response_status": response.status_code,
-                        "response_body": (
-                            response.text[:500] if response.text else "Empty response"
-                        ),
-                        "headers_sent": {
-                            k: v
-                            for k, v in headers.items()
-                            if k.lower() not in ["authorization"]
+                # Try the legacy command endpoint first (for older vehicles or fleet accounts)
+                url = f"{self.api_base_url}/vehicles/{vehicle_id}/command/{command}"
+
+                # Prepare command data
+                command_data = data if data is not None else {}
+
+                # For newer vehicles, try TVCP signing
+                try:
+                    signature_headers = self.sign_command(command_data, vehicle_id, command)
+                    # Add signature headers to existing headers
+                    headers.update(signature_headers)
+                    logging.info(f"Command signed with TVCP headers")
+                except Exception as e:
+                    logging.warning(f"TVCP signing failed, trying without: {str(e)}")
+
+                # Log details for debugging
+                logging.info(f"Tesla command: {command} for vehicle {vehicle_id}")
+                logging.info(f"Payload: {command_data}")
+                logging.info(f"URL: {url}")
+
+                response = requests.post(
+                    url, headers=headers, json=command_data, timeout=15
+                )
+
+                logging.info(f"Response status: {response.status_code}")
+                logging.info(f"Response text: {response.text}")
+
+                # Check for TVCP requirement error
+                if response.status_code == 400:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", "")
+                        if (
+                            "Tesla Vehicle Command Protocol required" in error_msg
+                            or "routable_message" in error_msg
+                        ):
+                            pairing_url = self.get_vehicle_pairing_url()
+                            tesla_domain = self.get_tesla_domain()
+
+                            return {
+                                "error": f"🚗 Vehicle Command Authentication Required\n\n"
+                                f"This vehicle requires Tesla Vehicle Command Protocol (TVCP) authentication.\n"
+                                f"Your AGiXT server is properly configured, but this vehicle needs to be paired.\n\n"
+                                f"📱 TO FIX THIS:\n"
+                                f"1. Open the Tesla mobile app on your phone\n"
+                                f"2. Visit this URL in the Tesla app: {pairing_url}\n"
+                                f"3. Approve the pairing request when prompted\n"
+                                f"4. Try the command again\n\n"
+                                f"🔒 This one-time pairing process allows your vehicle to trust commands from AGiXT.\n"
+                                f"Domain: {tesla_domain}\n\n"
+                                f"Original error: {error_msg}"
+                            }
+                    except:
+                        pass
+
+                if response.status_code not in [200, 201, 202]:
+                    # Enhanced error handling with detailed context
+                    error_response = self.handle_tesla_error(response)
+                    # Add debugging context to the error
+                    if isinstance(error_response, dict) and "error" in error_response:
+                        error_response["debug_context"] = {
+                            "method": "send_command",
+                            "command": command,
+                            "input_vehicle_tag": vehicle_tag,
+                            "resolved_vehicle_id": vehicle_id,
+                            "api_url": url,
+                            "command_data": command_data,
+                            "response_status": response.status_code,
+                            "response_body": (
+                                response.text[:500] if response.text else "Empty response"
+                            ),
+                            "headers_sent": {
+                                k: v
+                                for k, v in headers.items()
+                                if k.lower() not in ["authorization"]
+                            },
+                        }
+                    return error_response
+
+                result = response.json()
+
+                # Check if the command was successful
+                if result.get("response", {}).get("result") == False:
+                    reason = result.get("response", {}).get("reason", "Unknown error")
+                    return {
+                        "error": f"Command failed: {reason}",
+                        "debug_context": {
+                            "method": "send_command",
+                            "command": command,
+                            "input_vehicle_tag": vehicle_tag,
+                            "resolved_vehicle_id": vehicle_id,
+                            "api_response": result,
+                            "failure_reason": reason,
                         },
                     }
-                return error_response
 
-            result = response.json()
+                return result
 
-            # Check if the command was successful
-            if result.get("response", {}).get("result") == False:
-                reason = result.get("response", {}).get("reason", "Unknown error")
+            except requests.exceptions.Timeout as e:
                 return {
-                    "error": f"Command failed: {reason}",
+                    "error": f"🚗 Command Timeout\n\n"
+                    f"The vehicle did not respond within the timeout period.\n"
+                    f"This usually means the vehicle has gone to sleep during command execution.\n\n"
+                    f"💡 SUGGESTIONS:\n"
+                    f"• Try the command again (auto-wake will attempt to wake the vehicle)\n"
+                    f"• Use 'Tesla - Wake Vehicle' manually first\n"
+                    f"• Check vehicle connectivity (cellular/WiFi)\n"
+                    f"• Ensure vehicle battery is not critically low",
                     "debug_context": {
                         "method": "send_command",
                         "command": command,
                         "input_vehicle_tag": vehicle_tag,
-                        "resolved_vehicle_id": vehicle_id,
-                        "api_response": result,
-                        "failure_reason": reason,
+                        "timeout_seconds": 15,
+                        "exception_type": "Timeout",
                     },
                 }
+            except Exception as e:
+                error_str = str(e).lower()
 
-            return result
+                # Check for sleep-related errors
+                if any(
+                    keyword in error_str
+                    for keyword in ["asleep", "sleep", "offline", "not available"]
+                ):
+                    return {
+                        "error": f"🚗 Vehicle Sleep/Connectivity Issue\n\n"
+                        f"The vehicle appears to be asleep or offline.\n\n"
+                        f"💡 TROUBLESHOOTING:\n"
+                        f"• Auto-wake may have failed - try 'Tesla - Wake Vehicle' manually\n"
+                        f"• Check vehicle connectivity (cellular/WiFi signal)\n"
+                        f"• Ensure vehicle battery is not critically low\n"
+                        f"• Vehicle may be in deep sleep mode\n\n"
+                        f"Original error: {str(e)}",
+                        "debug_context": {
+                            "method": "send_command",
+                            "command": command,
+                            "input_vehicle_tag": vehicle_tag,
+                            "exception_type": type(e).__name__,
+                            "original_error": str(e),
+                        },
+                    }
 
-        except requests.exceptions.Timeout as e:
-            return {
-                "error": f"🚗 Command Timeout\n\n"
-                f"The vehicle did not respond within the timeout period.\n"
-                f"This usually means the vehicle has gone to sleep during command execution.\n\n"
-                f"💡 SUGGESTIONS:\n"
-                f"• Try the command again (auto-wake will attempt to wake the vehicle)\n"
-                f"• Use 'Tesla - Wake Vehicle' manually first\n"
-                f"• Check vehicle connectivity (cellular/WiFi)\n"
-                f"• Ensure vehicle battery is not critically low",
-                "debug_context": {
-                    "method": "send_command",
-                    "command": command,
-                    "input_vehicle_tag": vehicle_tag,
-                    "timeout_seconds": 15,
-                    "exception_type": "Timeout",
-                },
-            }
-        except Exception as e:
-            error_str = str(e).lower()
-
-            # Check for sleep-related errors
-            if any(
-                keyword in error_str
-                for keyword in ["asleep", "sleep", "offline", "not available"]
-            ):
                 return {
-                    "error": f"🚗 Vehicle Sleep/Connectivity Issue\n\n"
-                    f"The vehicle appears to be asleep or offline.\n\n"
-                    f"💡 TROUBLESHOOTING:\n"
-                    f"• Auto-wake may have failed - try 'Tesla - Wake Vehicle' manually\n"
-                    f"• Check vehicle connectivity (cellular/WiFi signal)\n"
-                    f"• Ensure vehicle battery is not critically low\n"
-                    f"• Vehicle may be in deep sleep mode\n\n"
-                    f"Original error: {str(e)}",
+                    "error": str(e),
                     "debug_context": {
                         "method": "send_command",
                         "command": command,
                         "input_vehicle_tag": vehicle_tag,
                         "exception_type": type(e).__name__,
-                        "original_error": str(e),
+                        "api_base_url": self.api_base_url,
                     },
                 }
 
-            return {
-                "error": str(e),
-                "debug_context": {
-                    "method": "send_command",
-                    "command": command,
-                    "input_vehicle_tag": vehicle_tag,
-                    "exception_type": type(e).__name__,
-                    "api_base_url": self.api_base_url,
-                },
-            }
+        # Basic Vehicle Controls
+        async def lock_doors(self, vehicle_tag):
+            """Lock the vehicle doors"""
+            return await self.send_command(vehicle_tag, "door_lock")
 
-    # Basic Vehicle Controls
-    async def lock_doors(self, vehicle_tag):
-        """Lock the vehicle doors"""
-        return await self.send_command(vehicle_tag, "door_lock")
+        async def unlock_doors(self, vehicle_tag):
+            """Unlock the vehicle doors"""
+            return await self.send_command(vehicle_tag, "door_unlock")
 
-    async def unlock_doors(self, vehicle_tag):
-        """Unlock the vehicle doors"""
-        return await self.send_command(vehicle_tag, "door_unlock")
+        async def flash_lights(self, vehicle_tag):
+            """Flash the vehicle lights"""
+            return await self.send_command(vehicle_tag, "flash_lights")
 
-    async def flash_lights(self, vehicle_tag):
-        """Flash the vehicle lights"""
-        return await self.send_command(vehicle_tag, "flash_lights")
+        async def honk_horn(self, vehicle_tag):
+            """Honk the vehicle horn"""
+            return await self.send_command(vehicle_tag, "honk_horn")
 
-    async def honk_horn(self, vehicle_tag):
-        """Honk the vehicle horn"""
-        return await self.send_command(vehicle_tag, "honk_horn")
-
-    async def wake_vehicle(self, vehicle_tag):
-        """Wake the vehicle from sleep"""
-        try:
-            self.verify_user()
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            }
-
-            # Check if vehicle_tag is VIN or vehicle ID
-            if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
-                # It's a VIN, need to get vehicle ID first
-                vehicles_response = requests.get(
-                    f"{self.api_base_url}/vehicles", headers=headers
-                )
-                if vehicles_response.status_code == 200:
-                    vehicles = vehicles_response.json().get("response", [])
-
-                    # Normalize the input VIN for comparison
-                    input_vin = vehicle_tag.upper().strip().replace("-", "")
-
-                    # Find vehicle with case-insensitive VIN comparison
-                    vehicle = None
-                    for v in vehicles:
-                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
-                        if api_vin == input_vin:
-                            vehicle = v
-                            break
-
-                    if vehicle:
-                        vehicle_id = vehicle["id_s"]
-                    else:
-                        available_vins = [v.get("vin", "N/A") for v in vehicles]
-                        raise Exception(
-                            f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
-                        )
-                else:
-                    raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
-            else:
-                vehicle_id = vehicle_tag
-
-            url = f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"
-            response = requests.post(url, headers=headers, timeout=30)
-
-            if response.status_code not in [200, 201, 202]:
-                # Enhanced error handling with detailed context
-                error_response = self.handle_tesla_error(response)
-                # Add debugging context to the error
-                if isinstance(error_response, dict) and "error" in error_response:
-                    error_response["debug_context"] = {
-                        "method": "wake_vehicle",
-                        "input_vehicle_tag": vehicle_tag,
-                        "resolved_vehicle_id": vehicle_id,
-                        "api_url": url,
-                        "response_status": response.status_code,
-                        "response_body": (
-                            response.text[:500] if response.text else "Empty response"
-                        ),
-                    }
-                return error_response
-
-            result = response.json()
-            return result
-
-        except Exception as e:
-            return {
-                "error": str(e),
-                "debug_context": {
-                    "method": "wake_vehicle",
-                    "input_vehicle_tag": vehicle_tag,
-                    "api_base_url": self.api_base_url,
-                    "exception_type": type(e).__name__,
-                },
-            }
-
-    async def ensure_vehicle_awake(self, vehicle_tag, max_attempts=3, wait_seconds=5):
-        """Ensure vehicle is awake before sending commands
-
-        Args:
-            vehicle_tag: VIN or vehicle ID
-            max_attempts: Maximum number of wake attempts (default 3)
-            wait_seconds: Seconds to wait between wake attempts (default 5)
-
-        Returns:
-            dict: Success/error status with details
-        """
-        try:
-            # First check if vehicle is already online
-            is_online = await self.check_vehicle_online(vehicle_tag)
-            if is_online:
-                logging.info(f"Vehicle {vehicle_tag} is already online")
-                return {"success": True, "message": "Vehicle is already online"}
-
-            logging.info(f"Vehicle {vehicle_tag} is asleep, attempting to wake...")
-
-            # Try to wake the vehicle with retries
-            for attempt in range(max_attempts):
-                logging.info(
-                    f"Wake attempt {attempt + 1}/{max_attempts} for vehicle {vehicle_tag}"
-                )
-
-                # Send wake command
-                wake_result = await self.wake_vehicle(vehicle_tag)
-
-                if "error" in wake_result:
-                    logging.warning(
-                        f"Wake attempt {attempt + 1} failed: {wake_result['error']}"
-                    )
-                    if attempt == max_attempts - 1:  # Last attempt
-                        return {
-                            "success": False,
-                            "error": f"Failed to wake vehicle after {max_attempts} attempts: {wake_result['error']}",
-                        }
-                    continue
-
-                # Wait for vehicle to wake up
-                await self._sleep(wait_seconds)
-
-                # Check if vehicle is now online
-                is_online = await self.check_vehicle_online(vehicle_tag)
-                if is_online:
-                    logging.info(
-                        f"Vehicle {vehicle_tag} successfully woken on attempt {attempt + 1}"
-                    )
-                    return {
-                        "success": True,
-                        "message": f"Vehicle woken successfully on attempt {attempt + 1}",
-                    }
-
-                logging.info(
-                    f"Vehicle {vehicle_tag} still not online after attempt {attempt + 1}, waiting..."
-                )
-
-                # Wait before next attempt (except on last attempt)
-                if attempt < max_attempts - 1:
-                    await self._sleep(wait_seconds)
-
-            return {
-                "success": False,
-                "error": f"Vehicle failed to wake up after {max_attempts} attempts. Vehicle may have connectivity issues or be in deep sleep mode.",
-            }
-
-        except Exception as e:
-            logging.error(f"Error in ensure_vehicle_awake: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Error ensuring vehicle is awake: {str(e)}",
-            }
-
-    async def _sleep(self, seconds):
-        """Helper method for non-blocking sleep"""
-        import asyncio
-
-        await asyncio.sleep(seconds)
-
-    async def remote_start(self, vehicle_tag):
-        """Enable keyless driving"""
-        return await self.send_command(vehicle_tag, "remote_start")
-
-    # Trunk/Port Controls
-    async def actuate_trunk(self, vehicle_tag, which_trunk):
-        """Control front or rear trunk"""
-        return await self.send_command(
-            vehicle_tag,
-            "actuate_trunk",
-            {"which_trunk": which_trunk},
-        )
-
-    async def open_charge_port(self, vehicle_tag):
-        """Open the charge port"""
-        return await self.send_command(vehicle_tag, "charge_port_door_open")
-
-    async def close_charge_port(self, vehicle_tag):
-        """Close the charge port"""
-        return await self.send_command(vehicle_tag, "charge_port_door_close")
-
-    # Climate Controls
-    async def set_temperature(self, vehicle_tag, driver_temp, passenger_temp):
-        """Set driver and passenger temperatures"""
-        return await self.send_command(
-            vehicle_tag,
-            "set_temps",
-            {"driver_temp": driver_temp, "passenger_temp": passenger_temp},
-        )
-
-    async def start_climate(self, vehicle_tag):
-        """Start climate control"""
-        return await self.send_command(vehicle_tag, "auto_conditioning_start")
-
-    async def stop_climate(self, vehicle_tag):
-        """Stop climate control"""
-        return await self.send_command(vehicle_tag, "auto_conditioning_stop")
-
-    async def set_seat_heater(self, vehicle_tag, seat_position, level):
-        """Set seat heater level
-
-        Args:
-            vehicle_tag: VIN or vehicle ID
-            seat_position: Seat position (0-8: 0=driver, 1=passenger, 2=rear_left, 4=rear_center, 5=rear_right, 6=third_row_left, 7=third_row_right)
-            level: Heat level (0-3: 0=off, 1=low, 2=medium, 3=high)
-        """
-        return await self.send_command(
-            vehicle_tag,
-            "remote_seat_heater_request",
-            {"heater": seat_position, "level": level},
-        )
-
-    async def set_steering_wheel_heat(self, vehicle_tag, enabled):
-        """Set steering wheel heater"""
-        return await self.send_command(
-            vehicle_tag, "remote_steering_wheel_heater_request", {"on": enabled}
-        )
-
-    async def set_climate_keeper(self, vehicle_tag, mode):
-        """Set climate keeper mode"""
-        return await self.send_command(
-            vehicle_tag,
-            "set_climate_keeper_mode",
-            {"climate_keeper_mode": mode},
-        )
-
-    # Charging Controls
-    async def start_charging(self, vehicle_tag):
-        """Start vehicle charging"""
-        return await self.send_command(vehicle_tag, "charge_start")
-
-    async def stop_charging(self, vehicle_tag):
-        """Stop vehicle charging"""
-        return await self.send_command(vehicle_tag, "charge_stop")
-
-    async def set_charge_limit(self, vehicle_tag, percent):
-        """Set charging limit percentage"""
-        return await self.send_command(
-            vehicle_tag, "set_charge_limit", {"percent": percent}
-        )
-
-    async def set_charging_amps(self, vehicle_tag, amps):
-        """Set charging amperage"""
-        return await self.send_command(
-            vehicle_tag, "set_charging_amps", {"charging_amps": amps}
-        )
-
-    # Media Controls
-    async def adjust_volume(self, vehicle_tag, volume):
-        """Adjust media volume"""
-        return await self.send_command(vehicle_tag, "adjust_volume", {"volume": volume})
-
-    async def toggle_playback(self, vehicle_tag):
-        """Toggle media playback"""
-        return await self.send_command(vehicle_tag, "media_toggle_playback")
-
-    async def next_track(self, vehicle_tag):
-        """Next media track"""
-        return await self.send_command(vehicle_tag, "media_next_track")
-
-    async def previous_track(self, vehicle_tag):
-        """Previous media track"""
-        return await self.send_command(vehicle_tag, "media_prev_track")
-
-    async def next_favorite(self, vehicle_tag):
-        """Next favorite track"""
-        return await self.send_command(vehicle_tag, "media_next_fav")
-
-    async def previous_favorite(self, vehicle_tag):
-        """Previous favorite track"""
-        return await self.send_command(vehicle_tag, "media_prev_fav")
-
-    # Windows/Sunroof
-    async def control_windows(self, vehicle_tag, command, lat=None, lon=None):
-        """Control windows (vent/close)
-
-        Args:
-            vehicle_tag: VIN or vehicle ID
-            command: Window command ("vent" or "close")
-            lat: Latitude for location verification (optional)
-            lon: Longitude for location verification (optional)
-        """
-        data = {"command": command}
-        if lat is not None and lon is not None:
-            data["lat"] = lat
-            data["lon"] = lon
-        return await self.send_command(vehicle_tag, "window_control", data)
-
-    async def control_sunroof(self, vehicle_tag, state):
-        """Control sunroof (stop/close/vent)"""
-        return await self.send_command(
-            vehicle_tag, "sun_roof_control", {"state": state}
-        )
-
-    # Navigation
-    async def navigate_to(self, vehicle_tag, lat, lon, order=0):
-        """Navigate to coordinates
-
-        Args:
-            vehicle_tag: VIN or vehicle ID
-            lat: Latitude coordinate
-            lon: Longitude coordinate
-            order: Waypoint order (default 0)
-        """
-        return await self.send_command(
-            vehicle_tag,
-            "navigation_gps_request",
-            {"lat": lat, "lon": lon, "order": order},
-        )
-
-    async def navigate_to_supercharger(self, vehicle_tag, supercharger_id, order=0):
-        """Navigate to supercharger
-
-        Args:
-            vehicle_tag: VIN or vehicle ID
-            supercharger_id: Supercharger location ID
-            order: Waypoint order (default 0)
-        """
-        return await self.send_command(
-            vehicle_tag,
-            "navigation_sc_request",
-            {"id": supercharger_id, "order": order},
-        )
-
-    # Fun Commands
-    async def fart(self, vehicle_tag):
-        """Make the vehicle emit a fart sound
-
-        Note: This command uses the vehicle's external speaker system (Boombox feature).
-        This feature is only available on vehicles with external speakers and may require
-        specific Tesla account permissions. If not available, this will suggest alternatives.
-
-        Args:
-            vehicle_tag: VIN or vehicle ID to identify the target vehicle
-
-        Returns:
-            dict: Response from Tesla API or helpful error message with alternatives
-        """
-        try:
-            # Try the boombox fart command (send_command will auto-wake if needed)
-            result = await self.send_command(
-                vehicle_tag,
-                "remote_boombox",
-                {"sound": 1},  # Sound 1 is typically a fart sound
-            )
-
-            if "error" in result:
-                # If boombox isn't available, try honk as alternative
-                return {
-                    "error": "Boombox feature not available on this vehicle.",
-                    "alternative": "Used horn honk instead!",
-                    "result": await self.honk_horn(vehicle_tag),
+        async def wake_vehicle(self, vehicle_tag):
+            """Wake the vehicle from sleep"""
+            try:
+                self.verify_user()
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json",
                 }
 
-            return result
+                # Check if vehicle_tag is VIN or vehicle ID
+                if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
+                    # It's a VIN, need to get vehicle ID first
+                    vehicles_response = requests.get(
+                        f"{self.api_base_url}/vehicles", headers=headers
+                    )
+                    if vehicles_response.status_code == 200:
+                        vehicles = vehicles_response.json().get("response", [])
 
-        except Exception as e:
-            logging.error(f"Error with fart command: {str(e)}")
-            return {
-                "error": f"Fart command failed: {str(e)}",
-                "suggestion": "This feature requires a vehicle with external speakers (Boombox). Try honking the horn instead!",
-            }
+                        # Normalize the input VIN for comparison
+                        input_vin = vehicle_tag.upper().strip().replace("-", "")
 
-    async def get_vehicle_data(self, vehicle_tag, data_type="vehicle_data"):
-        """Get vehicle data from Tesla API
+                        # Find vehicle with case-insensitive VIN comparison
+                        vehicle = None
+                        for v in vehicles:
+                            api_vin = v.get("vin", "").upper().strip().replace("-", "")
+                            if api_vin == input_vin:
+                                vehicle = v
+                                break
 
-        Args:
-            vehicle_tag: VIN or vehicle ID
-            data_type: Type of data to retrieve (vehicle_data, charge_state, climate_state, etc.)
-
-        Returns:
-            dict: Vehicle data response
-        """
-        try:
-            self.verify_user()
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            }
-
-            # Check if vehicle_tag is VIN or vehicle ID
-            if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
-                # It's a VIN, need to get vehicle ID first
-                vehicles_response = requests.get(
-                    f"{self.api_base_url}/vehicles", headers=headers
-                )
-                if vehicles_response.status_code == 200:
-                    vehicles = vehicles_response.json().get("response", [])
-
-                    # Normalize the input VIN for comparison
-                    input_vin = vehicle_tag.upper().strip().replace("-", "")
-
-                    # Debug: Log available vehicles and their VINs
-                    logging.info(f"Looking for VIN: {input_vin}")
-                    available_vins = [v.get("vin", "N/A") for v in vehicles]
-                    logging.info(f"Available vehicles VINs: {available_vins}")
-
-                    # Find vehicle with case-insensitive VIN comparison
-                    vehicle = None
-                    for v in vehicles:
-                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
-                        if api_vin == input_vin:
-                            vehicle = v
-                            break
-
-                    if vehicle:
-                        vehicle_id = vehicle["id_s"]
-                        logging.info(
-                            f"Found vehicle ID {vehicle_id} for VIN {input_vin}"
-                        )
+                        if vehicle:
+                            vehicle_id = vehicle["id_s"]
+                        else:
+                            available_vins = [v.get("vin", "N/A") for v in vehicles]
+                            raise Exception(
+                                f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
+                            )
                     else:
-                        error_msg = f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
-                        logging.error(error_msg)
-                        raise Exception(error_msg)
+                        raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
                 else:
-                    raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
-            else:
-                vehicle_id = vehicle_tag
+                    vehicle_id = vehicle_tag
 
-            url = f"{self.api_base_url}/vehicles/{vehicle_id}/{data_type}"
-            response = requests.get(url, headers=headers, timeout=15)
+                url = f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"
+                response = requests.post(url, headers=headers, timeout=30)
 
-            if response.status_code not in [200, 201, 202]:
-                # Enhanced error handling with detailed context
-                error_response = self.handle_tesla_error(response)
-                # Add debugging context to the error
-                if isinstance(error_response, dict) and "error" in error_response:
-                    error_response["debug_context"] = {
+                if response.status_code not in [200, 201, 202]:
+                    # Enhanced error handling with detailed context
+                    error_response = self.handle_tesla_error(response)
+                    # Add debugging context to the error
+                    if isinstance(error_response, dict) and "error" in error_response:
+                        error_response["debug_context"] = {
+                            "method": "wake_vehicle",
+                            "input_vehicle_tag": vehicle_tag,
+                            "resolved_vehicle_id": vehicle_id,
+                            "api_url": url,
+                            "response_status": response.status_code,
+                            "response_body": (
+                                response.text[:500] if response.text else "Empty response"
+                            ),
+                        }
+                    return error_response
+
+                result = response.json()
+                return result
+
+            except Exception as e:
+                return {
+                    "error": str(e),
+                    "debug_context": {
+                        "method": "wake_vehicle",
+                        "input_vehicle_tag": vehicle_tag,
+                        "api_base_url": self.api_base_url,
+                        "exception_type": type(e).__name__,
+                    },
+                }
+
+        async def ensure_vehicle_awake(self, vehicle_tag, max_attempts=3, wait_seconds=5):
+            """Ensure vehicle is awake before sending commands
+
+            Args:
+                vehicle_tag: VIN or vehicle ID
+                max_attempts: Maximum number of wake attempts (default 3)
+                wait_seconds: Seconds to wait between wake attempts (default 5)
+
+            Returns:
+                dict: Success/error status with details
+            """
+            try:
+                # First check if vehicle is already online
+                is_online = await self.check_vehicle_online(vehicle_tag)
+                if is_online:
+                    logging.info(f"Vehicle {vehicle_tag} is already online")
+                    return {"success": True, "message": "Vehicle is already online"}
+
+                logging.info(f"Vehicle {vehicle_tag} is asleep, attempting to wake...")
+
+                # Try to wake the vehicle with retries
+                for attempt in range(max_attempts):
+                    logging.info(
+                        f"Wake attempt {attempt + 1}/{max_attempts} for vehicle {vehicle_tag}"
+                    )
+
+                    # Send wake command
+                    wake_result = await self.wake_vehicle(vehicle_tag)
+
+                    if "error" in wake_result:
+                        logging.warning(
+                            f"Wake attempt {attempt + 1} failed: {wake_result['error']}"
+                        )
+                        if attempt == max_attempts - 1:  # Last attempt
+                            return {
+                                "success": False,
+                                "error": f"Failed to wake vehicle after {max_attempts} attempts: {wake_result['error']}",
+                            }
+                        continue
+
+                    # Wait for vehicle to wake up
+                    await self._sleep(wait_seconds)
+
+                    # Check if vehicle is now online
+                    is_online = await self.check_vehicle_online(vehicle_tag)
+                    if is_online:
+                        logging.info(
+                            f"Vehicle {vehicle_tag} successfully woken on attempt {attempt + 1}"
+                        )
+                        return {
+                            "success": True,
+                            "message": f"Vehicle woken successfully on attempt {attempt + 1}",
+                        }
+
+                    logging.info(
+                        f"Vehicle {vehicle_tag} still not online after attempt {attempt + 1}, waiting..."
+                    )
+
+                    # Wait before next attempt (except on last attempt)
+                    if attempt < max_attempts - 1:
+                        await self._sleep(wait_seconds)
+
+                return {
+                    "success": False,
+                    "error": f"Vehicle failed to wake up after {max_attempts} attempts. Vehicle may have connectivity issues or be in deep sleep mode.",
+                }
+
+            except Exception as e:
+                logging.error(f"Error in ensure_vehicle_awake: {str(e)}")
+                return {
+                    "success": False,
+                    "error": f"Error ensuring vehicle is awake: {str(e)}",
+                }
+
+        async def _sleep(self, seconds):
+            """Helper method for non-blocking sleep"""
+            import asyncio
+
+            await asyncio.sleep(seconds)
+
+        async def remote_start(self, vehicle_tag):
+            """Enable keyless driving"""
+            return await self.send_command(vehicle_tag, "remote_start")
+
+        # Trunk/Port Controls
+        async def actuate_trunk(self, vehicle_tag, which_trunk):
+            """Control front or rear trunk"""
+            return await self.send_command(
+                vehicle_tag,
+                "actuate_trunk",
+                {"which_trunk": which_trunk},
+            )
+
+        async def open_charge_port(self, vehicle_tag):
+            """Open the charge port"""
+            return await self.send_command(vehicle_tag, "charge_port_door_open")
+
+        async def close_charge_port(self, vehicle_tag):
+            """Close the charge port"""
+            return await self.send_command(vehicle_tag, "charge_port_door_close")
+
+        # Climate Controls
+        async def set_temperature(self, vehicle_tag, driver_temp, passenger_temp):
+            """Set driver and passenger temperatures"""
+            return await self.send_command(
+                vehicle_tag,
+                "set_temps",
+                {"driver_temp": driver_temp, "passenger_temp": passenger_temp},
+            )
+
+        async def start_climate(self, vehicle_tag):
+            """Start climate control"""
+            return await self.send_command(vehicle_tag, "auto_conditioning_start")
+
+        async def stop_climate(self, vehicle_tag):
+            """Stop climate control"""
+            return await self.send_command(vehicle_tag, "auto_conditioning_stop")
+
+        async def set_seat_heater(self, vehicle_tag, seat_position, level):
+            """Set seat heater level
+
+            Args:
+                vehicle_tag: VIN or vehicle ID
+                seat_position: Seat position (0-8: 0=driver, 1=passenger, 2=rear_left, 4=rear_center, 5=rear_right, 6=third_row_left, 7=third_row_right)
+                level: Heat level (0-3: 0=off, 1=low, 2=medium, 3=high)
+            """
+            return await self.send_command(
+                vehicle_tag,
+                "remote_seat_heater_request",
+                {"heater": seat_position, "level": level},
+            )
+
+        async def set_steering_wheel_heat(self, vehicle_tag, enabled):
+            """Set steering wheel heater"""
+            return await self.send_command(
+                vehicle_tag, "remote_steering_wheel_heater_request", {"on": enabled}
+            )
+
+        async def set_climate_keeper(self, vehicle_tag, mode):
+            """Set climate keeper mode"""
+            return await self.send_command(
+                vehicle_tag,
+                "set_climate_keeper_mode",
+                {"climate_keeper_mode": mode},
+            )
+
+        # Charging Controls
+        async def start_charging(self, vehicle_tag):
+            """Start vehicle charging"""
+            return await self.send_command(vehicle_tag, "charge_start")
+
+        async def stop_charging(self, vehicle_tag):
+            """Stop vehicle charging"""
+            return await self.send_command(vehicle_tag, "charge_stop")
+
+        async def set_charge_limit(self, vehicle_tag, percent):
+            """Set charging limit percentage"""
+            return await self.send_command(
+                vehicle_tag, "set_charge_limit", {"percent": percent}
+            )
+
+        async def set_charging_amps(self, vehicle_tag, amps):
+            """Set charging amperage"""
+            return await self.send_command(
+                vehicle_tag, "set_charging_amps", {"charging_amps": amps}
+            )
+
+        # Media Controls
+        async def adjust_volume(self, vehicle_tag, volume):
+            """Adjust media volume"""
+            return await self.send_command(vehicle_tag, "adjust_volume", {"volume": volume})
+
+        async def toggle_playback(self, vehicle_tag):
+            """Toggle media playback"""
+            return await self.send_command(vehicle_tag, "media_toggle_playback")
+
+        async def next_track(self, vehicle_tag):
+            """Next media track"""
+            return await self.send_command(vehicle_tag, "media_next_track")
+
+        async def previous_track(self, vehicle_tag):
+            """Previous media track"""
+            return await self.send_command(vehicle_tag, "media_prev_track")
+
+        async def next_favorite(self, vehicle_tag):
+            """Next favorite track"""
+            return await self.send_command(vehicle_tag, "media_next_fav")
+
+        async def previous_favorite(self, vehicle_tag):
+            """Previous favorite track"""
+            return await self.send_command(vehicle_tag, "media_prev_fav")
+
+        # Windows/Sunroof
+        async def control_windows(self, vehicle_tag, command, lat=None, lon=None):
+            """Control windows (vent/close)
+
+            Args:
+                vehicle_tag: VIN or vehicle ID
+                command: Window command ("vent" or "close")
+                lat: Latitude for location verification (optional)
+                lon: Longitude for location verification (optional)
+            """
+            data = {"command": command}
+            if lat is not None and lon is not None:
+                data["lat"] = lat
+                data["lon"] = lon
+            return await self.send_command(vehicle_tag, "window_control", data)
+
+        async def control_sunroof(self, vehicle_tag, state):
+            """Control sunroof (stop/close/vent)"""
+            return await self.send_command(
+                vehicle_tag, "sun_roof_control", {"state": state}
+            )
+
+        # Navigation
+        async def navigate_to(self, vehicle_tag, lat, lon, order=0):
+            """Navigate to coordinates
+
+            Args:
+                vehicle_tag: VIN or vehicle ID
+                lat: Latitude coordinate
+                lon: Longitude coordinate
+                order: Waypoint order (default 0)
+            """
+            return await self.send_command(
+                vehicle_tag,
+                "navigation_gps_request",
+                {"lat": lat, "lon": lon, "order": order},
+            )
+
+        async def navigate_to_supercharger(self, vehicle_tag, supercharger_id, order=0):
+            """Navigate to supercharger
+
+            Args:
+                vehicle_tag: VIN or vehicle ID
+                supercharger_id: Supercharger location ID
+                order: Waypoint order (default 0)
+            """
+            return await self.send_command(
+                vehicle_tag,
+                "navigation_sc_request",
+                {"id": supercharger_id, "order": order},
+            )
+
+        # Fun Commands
+        async def fart(self, vehicle_tag):
+            """Make the vehicle emit a fart sound
+
+            Note: This command uses the vehicle's external speaker system (Boombox feature).
+            This feature is only available on vehicles with external speakers and may require
+            specific Tesla account permissions. If not available, this will suggest alternatives.
+
+            Args:
+                vehicle_tag: VIN or vehicle ID to identify the target vehicle
+
+            Returns:
+                dict: Response from Tesla API or helpful error message with alternatives
+            """
+            try:
+                # Try the boombox fart command (send_command will auto-wake if needed)
+                result = await self.send_command(
+                    vehicle_tag,
+                    "remote_boombox",
+                    {"sound": 1},  # Sound 1 is typically a fart sound
+                )
+
+                if "error" in result:
+                    # If boombox isn't available, try honk as alternative
+                    return {
+                        "error": "Boombox feature not available on this vehicle.",
+                        "alternative": "Used horn honk instead!",
+                        "result": await self.honk_horn(vehicle_tag),
+                    }
+
+                return result
+
+            except Exception as e:
+                logging.error(f"Error with fart command: {str(e)}")
+                return {
+                    "error": f"Fart command failed: {str(e)}",
+                    "suggestion": "This feature requires a vehicle with external speakers (Boombox). Try honking the horn instead!",
+                }
+
+        async def get_vehicle_data(self, vehicle_tag, data_type="vehicle_data"):
+            """Get vehicle data from Tesla API
+
+            Args:
+                vehicle_tag: VIN or vehicle ID
+                data_type: Type of data to retrieve (vehicle_data, charge_state, climate_state, etc.)
+
+            Returns:
+                dict: Vehicle data response
+            """
+            try:
+                self.verify_user()
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json",
+                }
+
+                # Check if vehicle_tag is VIN or vehicle ID
+                if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
+                    # It's a VIN, need to get vehicle ID first
+                    vehicles_response = requests.get(
+                        f"{self.api_base_url}/vehicles", headers=headers
+                    )
+                    if vehicles_response.status_code == 200:
+                        vehicles = vehicles_response.json().get("response", [])
+
+                        # Normalize the input VIN for comparison
+                        input_vin = vehicle_tag.upper().strip().replace("-", "")
+
+                        # Find vehicle with case-insensitive VIN comparison
+                        vehicle = None
+                        for v in vehicles:
+                            api_vin = v.get("vin", "").upper().strip().replace("-", "")
+                            if api_vin == input_vin:
+                                vehicle = v
+                                break
+
+                        if vehicle:
+                            vehicle_id = vehicle["id_s"]
+                        else:
+                            available_vins = [v.get("vin", "N/A") for v in vehicles]
+                            error_msg = f"Vehicle with VIN {vehicle_tag} not found. Available VINs: {available_vins}"
+                            logging.error(error_msg)
+                            raise Exception(error_msg)
+                    else:
+                        raise Exception(f"Failed to get vehicles: {vehicles_response.text}")
+                else:
+                    vehicle_id = vehicle_tag
+
+                url = f"{self.api_base_url}/vehicles/{vehicle_id}/{data_type}"
+                response = requests.get(url, headers=headers, timeout=15)
+
+                if response.status_code not in [200, 201, 202]:
+                    # Enhanced error handling with detailed context
+                    error_response = self.handle_tesla_error(response)
+                    # Add debugging context to the error
+                    if isinstance(error_response, dict) and "error" in error_response:
+                        error_response["debug_context"] = {
+                            "method": "get_vehicle_data",
+                            "input_vehicle_tag": vehicle_tag,
+                            "resolved_vehicle_id": vehicle_id,
+                            "api_url": url,
+                            "data_type": data_type,
+                            "response_status": response.status_code,
+                            "response_body": (
+                                response.text[:500] if response.text else "Empty response"
+                            ),
+                        }
+                    return error_response
+
+                return response.json()
+
+            except Exception as e:
+                error_details = {
+                    "error": str(e),
+                    "debug_context": {
                         "method": "get_vehicle_data",
                         "input_vehicle_tag": vehicle_tag,
-                        "resolved_vehicle_id": vehicle_id,
-                        "api_url": url,
                         "data_type": data_type,
-                        "response_status": response.status_code,
-                        "response_body": (
-                            response.text[:500] if response.text else "Empty response"
-                        ),
-                    }
-                return error_response
-
-            return response.json()
-
-        except Exception as e:
-            error_details = {
-                "error": str(e),
-                "debug_context": {
-                    "method": "get_vehicle_data",
-                    "input_vehicle_tag": vehicle_tag,
-                    "data_type": data_type,
-                    "api_base_url": self.api_base_url,
-                    "exception_type": type(e).__name__,
-                },
-            }
-            logging.error(f"Error getting vehicle data: {error_details}")
-            return error_details
+                        "api_base_url": self.api_base_url,
+                        "exception_type": type(e).__name__,
+                    },
+                }
+                logging.error(f"Error getting vehicle data: {error_details}")
+                return error_details
 
     # State Information Commands
     async def get_vehicle_state(self, vehicle_tag):
@@ -1581,7 +1581,7 @@ class tesla(Extensions):
             vehicle_tag: VIN or vehicle ID
 
         Returns:
-            dict: Detailed climate state information
+            dict: Detailed climate state information with temperatures in Fahrenheit
         """
         try:
             # Use the correct Fleet API endpoint for vehicle data
@@ -1594,12 +1594,12 @@ class tesla(Extensions):
             full_response = data.get("response", {})
             climate_state = full_response.get("climate_state", {})
 
-            # Format important climate information
+            # Format important climate information with temperature conversion to Fahrenheit
             climate_info = {
-                "inside_temp": climate_state.get("inside_temp"),
-                "outside_temp": climate_state.get("outside_temp"),
-                "driver_temp_setting": climate_state.get("driver_temp_setting"),
-                "passenger_temp_setting": climate_state.get("passenger_temp_setting"),
+                "inside_temp_fahrenheit": None,
+                "outside_temp_fahrenheit": None,
+                "driver_temp_setting_fahrenheit": None,
+                "passenger_temp_setting_fahrenheit": None,
                 "is_climate_on": climate_state.get("is_climate_on"),
                 "is_auto_conditioning_on": climate_state.get("is_auto_conditioning_on"),
                 "fan_status": climate_state.get("fan_status"),
@@ -1610,6 +1610,19 @@ class tesla(Extensions):
                 "steering_wheel_heater": climate_state.get("steering_wheel_heater"),
                 "climate_keeper_mode": climate_state.get("climate_keeper_mode"),
             }
+
+            # Convert temperatures from Celsius to Fahrenheit
+            if climate_state.get("inside_temp") is not None:
+                climate_info["inside_temp_fahrenheit"] = round(climate_state.get("inside_temp") * 9/5 + 32, 1)
+            
+            if climate_state.get("outside_temp") is not None:
+                climate_info["outside_temp_fahrenheit"] = round(climate_state.get("outside_temp") * 9/5 + 32, 1)
+            
+            if climate_state.get("driver_temp_setting") is not None:
+                climate_info["driver_temp_setting_fahrenheit"] = round(climate_state.get("driver_temp_setting") * 9/5 + 32, 1)
+            
+            if climate_state.get("passenger_temp_setting") is not None:
+                climate_info["passenger_temp_setting_fahrenheit"] = round(climate_state.get("passenger_temp_setting") * 9/5 + 32, 1)
 
             return {"response": climate_info}
 
@@ -2155,92 +2168,6 @@ class tesla(Extensions):
             logging.error(f"Error checking vehicle online status: {str(e)}")
             return False
 
-    async def test_unsigned_command(self, vehicle_tag):
-        """Test sending a command without signing to isolate signing vs access issues
-
-        This uses the wake_up endpoint which might not require signing.
-
-        Args:
-            vehicle_tag: VIN or vehicle ID
-
-        Returns:
-            dict: Test result to help diagnose if issue is signing or access
-        """
-        try:
-            self.verify_user()
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            }
-
-            # Get vehicle ID if VIN was provided
-            if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
-                vehicles_response = requests.get(
-                    f"{self.api_base_url}/vehicles", headers=headers
-                )
-                if vehicles_response.status_code == 200:
-                    vehicles = vehicles_response.json().get("response", [])
-
-                    # Normalize the input VIN for comparison
-                    input_vin = vehicle_tag.upper().strip().replace("-", "")
-
-                    # Find vehicle with case-insensitive VIN comparison
-                    vehicle = None
-                    for v in vehicles:
-                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
-                        if api_vin == input_vin:
-                            vehicle = v
-                            break
-
-                    if vehicle:
-                        vehicle_id = vehicle["id_s"]
-                    else:
-                        return {"error": f"Vehicle with VIN {vehicle_tag} not found"}
-                else:
-                    return {
-                        "error": f"Failed to get vehicles: {vehicles_response.text}"
-                    }
-            else:
-                vehicle_id = vehicle_tag
-
-            # Test wake_up command without signing
-            wake_url = f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"
-
-            logging.info(f"Testing unsigned wake_up command for vehicle {vehicle_id}")
-            logging.info(f"URL: {wake_url}")
-
-            response = requests.post(wake_url, headers=headers, timeout=15)
-
-            logging.info(f"Unsigned command response status: {response.status_code}")
-            logging.info(f"Unsigned command response: {response.text}")
-
-            result = {
-                "test_type": "unsigned_wake_up",
-                "vehicle_id": vehicle_id,
-                "status_code": response.status_code,
-                "success": response.status_code in [200, 201, 202],
-                "response": response.text,
-                "analysis": "",
-            }
-
-            if result["success"]:
-                result["analysis"] = (
-                    "Unsigned commands work - issue is likely with command signing format"
-                )
-            elif response.status_code == 403:
-                result["analysis"] = (
-                    "Access denied even without signing - likely third-party access not enabled"
-                )
-            elif response.status_code == 401:
-                result["analysis"] = "Authentication issue - token may be invalid"
-            else:
-                result["analysis"] = f"Unexpected error: HTTP {response.status_code}"
-
-            return result
-
-        except Exception as e:
-            logging.error(f"Error testing unsigned command: {str(e)}")
-            return {"error": str(e)}
 
     async def check_tvcp_requirement(self, vehicle_tag):
         """Check if vehicle requires Tesla Vehicle Command Protocol (TVCP)
@@ -2408,207 +2335,3 @@ For more help: "Tesla - Diagnose Tesla Setup"
         if tesla_domain:
             return f"https://tesla.com/_ak/{tesla_domain}"
         return "https://tesla.com/_ak/yourdomain.com"
-
-    async def debug_vehicle_lookup(self, vehicle_tag):
-        """Debug method to show detailed VIN lookup process
-
-        Args:
-            vehicle_tag: VIN or vehicle ID to debug
-
-        Returns:
-            dict: Detailed debugging information
-        """
-        try:
-            self.verify_user()
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            }
-
-            # Get all vehicles
-            vehicles_response = requests.get(
-                f"{self.api_base_url}/vehicles", headers=headers
-            )
-
-            debug_info = {
-                "input_vehicle_tag": vehicle_tag,
-                "input_length": len(vehicle_tag),
-                "input_is_alphanumeric": vehicle_tag.replace("-", "").isalnum(),
-                "vehicles_api_status": vehicles_response.status_code,
-                "vehicles_found": [],
-                "lookup_result": None,
-                "normalized_input": None,
-            }
-
-            if vehicles_response.status_code == 200:
-                vehicles = vehicles_response.json().get("response", [])
-
-                # Show all available vehicles
-                for v in vehicles:
-                    vehicle_info = {
-                        "vin": v.get("vin", "N/A"),
-                        "id_s": v.get("id_s", "N/A"),
-                        "state": v.get("state", "N/A"),
-                        "display_name": v.get("display_name", "N/A"),
-                    }
-                    debug_info["vehicles_found"].append(vehicle_info)
-
-                # Check if vehicle_tag looks like a VIN
-                if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
-                    input_vin = vehicle_tag.upper().strip().replace("-", "")
-                    debug_info["normalized_input"] = input_vin
-                    debug_info["lookup_type"] = "VIN"
-
-                    # Try to find matching vehicle
-                    for v in vehicles:
-                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
-                        if api_vin == input_vin:
-                            debug_info["lookup_result"] = {
-                                "found": True,
-                                "matched_vehicle": {
-                                    "vin": v.get("vin"),
-                                    "id_s": v.get("id_s"),
-                                    "state": v.get("state"),
-                                    "api_vin_normalized": api_vin,
-                                },
-                            }
-                            break
-
-                    if not debug_info["lookup_result"]:
-                        debug_info["lookup_result"] = {
-                            "found": False,
-                            "reason": "No VIN match found",
-                        }
-                else:
-                    debug_info["lookup_type"] = "Vehicle ID"
-                    debug_info["normalized_input"] = vehicle_tag
-
-                    # Try to find by vehicle ID
-                    for v in vehicles:
-                        if v.get("id_s") == vehicle_tag:
-                            debug_info["lookup_result"] = {
-                                "found": True,
-                                "matched_vehicle": {
-                                    "vin": v.get("vin"),
-                                    "id_s": v.get("id_s"),
-                                    "state": v.get("state"),
-                                },
-                            }
-                            break
-
-                    if not debug_info["lookup_result"]:
-                        debug_info["lookup_result"] = {
-                            "found": False,
-                            "reason": "No vehicle ID match found",
-                        }
-            else:
-                debug_info["error"] = (
-                    f"Failed to get vehicles: {vehicles_response.text}"
-                )
-
-            return debug_info
-
-        except Exception as e:
-            return {"error": f"Debug lookup failed: {str(e)}"}
-
-    async def test_fleet_api_endpoints(self, vehicle_tag):
-        """Test Tesla Fleet API endpoints to verify correct structure
-
-        Args:
-            vehicle_tag: VIN or vehicle ID to test
-
-        Returns:
-            dict: Test results for various Fleet API endpoints
-        """
-        try:
-            self.verify_user()
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            }
-
-            # Get vehicle ID if VIN was provided
-            if len(vehicle_tag) == 17 and vehicle_tag.replace("-", "").isalnum():
-                vehicles_response = requests.get(
-                    f"{self.api_base_url}/vehicles", headers=headers
-                )
-                if vehicles_response.status_code == 200:
-                    vehicles = vehicles_response.json().get("response", [])
-                    input_vin = vehicle_tag.upper().strip().replace("-", "")
-
-                    vehicle = None
-                    for v in vehicles:
-                        api_vin = v.get("vin", "").upper().strip().replace("-", "")
-                        if api_vin == input_vin:
-                            vehicle = v
-                            break
-
-                    if vehicle:
-                        vehicle_id = vehicle["id_s"]
-                    else:
-                        return {"error": f"Vehicle with VIN {vehicle_tag} not found"}
-                else:
-                    return {
-                        "error": f"Failed to get vehicles: {vehicles_response.text}"
-                    }
-            else:
-                vehicle_id = vehicle_tag
-
-            # Test different Fleet API endpoints
-            test_results = {
-                "vehicle_id": vehicle_id,
-                "input_vehicle_tag": vehicle_tag,
-                "endpoint_tests": {},
-            }
-
-            # Test endpoints
-            endpoints_to_test = [
-                (
-                    "vehicle_data",
-                    f"{self.api_base_url}/vehicles/{vehicle_id}/vehicle_data",
-                ),
-                ("wake_up", f"{self.api_base_url}/vehicles/{vehicle_id}/wake_up"),
-                (
-                    "legacy_vehicle_state",
-                    f"{self.api_base_url}/vehicles/{vehicle_id}/data_request/vehicle_state",
-                ),
-                (
-                    "legacy_charge_state",
-                    f"{self.api_base_url}/vehicles/{vehicle_id}/data_request/charge_state",
-                ),
-                (
-                    "legacy_climate_state",
-                    f"{self.api_base_url}/vehicles/{vehicle_id}/data_request/climate_state",
-                ),
-            ]
-
-            for endpoint_name, url in endpoints_to_test:
-                try:
-                    if endpoint_name == "wake_up":
-                        # POST for wake_up
-                        response = requests.post(url, headers=headers, timeout=10)
-                    else:
-                        # GET for data endpoints
-                        response = requests.get(url, headers=headers, timeout=10)
-
-                    test_results["endpoint_tests"][endpoint_name] = {
-                        "url": url,
-                        "status_code": response.status_code,
-                        "success": response.status_code in [200, 201, 202],
-                        "response_preview": (
-                            response.text[:200] if response.text else "Empty response"
-                        ),
-                        "is_html_error": "<!DOCTYPE html>" in response.text,
-                    }
-
-                except Exception as e:
-                    test_results["endpoint_tests"][endpoint_name] = {
-                        "url": url,
-                        "error": str(e),
-                        "success": False,
-                    }
-
-            return test_results
-
-        except Exception as e:
-            return {"error": f"Fleet API endpoint test failed: {str(e)}"}
