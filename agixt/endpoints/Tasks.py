@@ -231,8 +231,8 @@ async def modify_task(
 @app.get(
     "/v1/tasks",
     tags=["Tasks"],
-    summary="Get all scheduled tasks",
-    description="Get all scheduled tasks for the current agent.",
+    summary="Get all pending tasks",
+    description="Get all pending (scheduled but not completed) tasks for the current user.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_scheduled_tasks(
@@ -240,4 +240,19 @@ async def get_scheduled_tasks(
 ):
     task_manager = Task(token=authorization)
     tasks = await task_manager.get_pending_tasks()
+    return {"tasks": tasks}
+
+
+@app.get(
+    "/v1/tasks/due",
+    tags=["Tasks"],
+    summary="Get all due tasks",
+    description="Get all tasks that are due or overdue for the current user.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_due_tasks(
+    user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    task_manager = Task(token=authorization)
+    tasks = await task_manager.get_due_tasks()
     return {"tasks": tasks}
