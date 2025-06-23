@@ -119,7 +119,7 @@ class solana_wallet(Extensions):
                 self.wallet_address = None
         else:
             # No private key provided or empty private key
-            print("No valid private key provided for Solana wallet initialization")
+            # print("No valid private key provided for Solana wallet initialization")
             self.wallet_keypair = None
             self.wallet_address = None
 

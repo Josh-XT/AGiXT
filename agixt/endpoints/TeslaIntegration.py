@@ -96,7 +96,7 @@ def register_with_tesla():
             "grant_type": "client_credentials",
             "client_id": client_id,
             "client_secret": client_secret,
-            "scope": "openid vehicle_device_data vehicle_cmds vehicle_charging_cmds",
+            "scope": "openid offline_access user_data vehicle_device_data vehicle_cmds vehicle_charging_cmds vehicle_location",
             "audience": audience,
         }
 

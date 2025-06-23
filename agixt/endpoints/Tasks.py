@@ -20,7 +20,7 @@ logging.basicConfig(
 class TaskModel(BaseModel):
     agent_name: str
     title: str
-    task_description: str
+    task_description: Optional[str] = None
     days: int = 0
     hours: int = 0
     minutes: int = 0
@@ -32,7 +32,7 @@ class TaskModel(BaseModel):
 class ReoccurringTaskModel(BaseModel):
     agent_name: str
     title: str
-    task_description: str
+    task_description: Optional[str] = None
     start_date: str
     end_date: str
     frequency: Optional[str] = "daily"
@@ -43,8 +43,8 @@ class ReoccurringTaskModel(BaseModel):
 
 class ModifyTaskModel(BaseModel):
     task_id: str
-    title: str = None
-    description: str = None
+    title: Optional[str] = None
+    description: Optional[str] = None
     due_date: str = None
     estimated_hours: str = None
     priority: str = None
@@ -59,14 +59,14 @@ class CategoryModel(BaseModel):
     memory_collection: str
     updated_at: str
     id: str
-    description: str
+    description: Optional[str] = None
     created_at: str
     category_id: Optional[str]
 
 
 class TaskItemModel(BaseModel):
     id: str
-    description: str
+    description: Optional[str] = None
     agent_id: str
     scheduled: bool
     due_date: Optional[str]
@@ -115,6 +115,11 @@ async def new_task(
         days=days, hours=hours, minutes=minutes
     )
 
+    # Set task description to "NA" if None
+    task_description = (
+        task.task_description if task.task_description is not None else "NA"
+    )
+
     # Initialize task manager with the current token
     task_manager = Task(token=authorization)
     # Create a descriptive title from the purpose of the follow-up
@@ -127,7 +132,7 @@ async def new_task(
 
         task_manager.ApiClient.new_conversation_message(
             role="user",
-            message=f"Create a task for me to {task.task_description}",
+            message=f"Create a task for me to {task_description}",
             conversation_name=conversation_name,
         )
         conversations = task_manager.ApiClient.get_conversations_with_ids()
@@ -143,7 +148,7 @@ async def new_task(
     # Create the follow-up task
     task_id = await task_manager.create_task(
         title=title_preview,
-        description=task.task_description,
+        description=task_description,
         category_name="Follow-ups",
         agent_name=task.agent_name,
         due_date=due_date,
@@ -168,12 +173,18 @@ async def new_reoccurring_task(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     task_manager = Task(token=authorization)
+
+    # Set task description to "NA" if None
+    task_description = (
+        task.task_description if task.task_description is not None else "NA"
+    )
+
     title_preview = task.title.split("\n")[0][:50] + (
         "..." if len(task.title) > 50 else ""
     )
     task_ids = await task_manager.create_reoccurring_task(
         title=title_preview,
-        description=task.task_description,
+        description=task_description,
         category_name="Follow-ups",
         agent_name=task.agent_name,
         start_date=task.start_date,
@@ -220,8 +231,8 @@ async def modify_task(
 @app.get(
     "/v1/tasks",
     tags=["Tasks"],
-    summary="Get all scheduled tasks",
-    description="Get all scheduled tasks for the current agent.",
+    summary="Get all pending tasks",
+    description="Get all pending (scheduled but not completed) tasks for the current user.",
     dependencies=[Depends(verify_api_key)],
 )
 async def get_scheduled_tasks(
@@ -229,4 +240,19 @@ async def get_scheduled_tasks(
 ):
     task_manager = Task(token=authorization)
     tasks = await task_manager.get_pending_tasks()
+    return {"tasks": tasks}
+
+
+@app.get(
+    "/v1/tasks/due",
+    tags=["Tasks"],
+    summary="Get all due tasks",
+    description="Get all tasks that are due or overdue for the current user.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_due_tasks(
+    user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    task_manager = Task(token=authorization)
+    tasks = await task_manager.get_due_tasks()
     return {"tasks": tasks}
