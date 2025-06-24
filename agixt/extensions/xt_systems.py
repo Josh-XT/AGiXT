@@ -1,7 +1,6 @@
 from Extensions import Extensions
 import requests
 import json
-from datetime import datetime, timedelta
 import logging
 
 
@@ -18,9 +17,8 @@ class xt_systems(Extensions):
         **kwargs,
     ):
         self.base_uri = XT_SYSTEMS_BASE_URL
-        if XT_SYSTEMS_API_KEY:
-            self.session = requests.Session()
-            self.session.headers.update({"Authorization": f"{XT_SYSTEMS_API_KEY}"})
+        self.session = requests.Session()
+        self.session.headers.update({"Authorization": f"{XT_SYSTEMS_API_KEY}"})
         self.commands = {
             # Asset Template Commands
             "Create Asset Template": self.create_asset_template,
@@ -44,6 +42,13 @@ class xt_systems(Extensions):
             "Get Contact": self.get_contact,
             "Update Contact": self.update_contact,
             "Delete Contact": self.delete_contact,
+            # Integration Commands
+            "Create Integration": self.create_integration,
+            "Get Integrations": self.get_integrations,
+            "Get Integration": self.get_integration,
+            "Update Integration": self.update_integration,
+            "Delete Integration": self.delete_integration,
+            "Sync Integration": self.sync_integration,
             # Secret Commands
             "Create Secret": self.create_secret,
             # Ticket Commands
