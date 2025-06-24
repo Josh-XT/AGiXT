@@ -1388,6 +1388,7 @@ class AGiXT:
             include_sources = (
                 str(self.agent_settings["include_sources"]).lower() == "true"
             )
+        additional_context = ""
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -1440,9 +1441,8 @@ class AGiXT:
                 analyze_user_input = (
                     str(message["analyze_user_input"]).lower() == "true"
                 )
-            additional_context = ""
             if "context" in message:
-                additional_context = str(message["context"]).strip()
+                additional_context += "\n" + str(message["context"]).strip()
             if "include_sources" in message:
                 include_sources = str(message["include_sources"]).lower() == "true"
             download_headers = {}
