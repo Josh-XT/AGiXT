@@ -12,13 +12,13 @@ class xt_systems(Extensions):
 
     def __init__(
         self,
-        XT_SYSTEMS_API_KEY: str = "",
         XT_SYSTEMS_BASE_URL: str = "https://api.xt.systems",
         **kwargs,
     ):
+        api_key = kwargs.get("api_key", "")
         self.base_uri = XT_SYSTEMS_BASE_URL
         self.session = requests.Session()
-        self.session.headers.update({"Authorization": f"{XT_SYSTEMS_API_KEY}"})
+        self.session.headers.update({"Authorization": f"{api_key}"})
         self.commands = {
             # Asset Template Commands
             "Create Asset Template": self.create_asset_template,
