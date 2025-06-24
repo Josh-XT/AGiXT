@@ -1440,6 +1440,9 @@ class AGiXT:
                 analyze_user_input = (
                     str(message["analyze_user_input"]).lower() == "true"
                 )
+            additional_context = ""
+            if "context" in message:
+                additional_context = str(message["context"]).strip()
             if "include_sources" in message:
                 include_sources = str(message["include_sources"]).lower() == "true"
             download_headers = {}
@@ -1779,6 +1782,9 @@ class AGiXT:
                     prompt_args["uploaded_file_data"] = file_content
             if len(language) > 2:
                 language = language[:2]
+            if "context" in prompt_args:
+                additional_context += "\n" + prompt_args["context"]
+                del prompt_args["context"]
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
@@ -1794,6 +1800,7 @@ class AGiXT:
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
+                context=additional_context,
                 **prompt_args,
             )
             if response.startswith(f"{self.agent_name}:"):
