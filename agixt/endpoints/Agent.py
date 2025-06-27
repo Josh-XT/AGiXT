@@ -144,9 +144,14 @@ async def update_agent_settings(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    update_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).update_agent_config(new_config=settings.settings, config_key="settings")
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    update_config = agent.update_agent_config(
+        new_config=settings.settings, config_key="settings"
+    )
+    config = agent.get_agent_config()
+    logging.info(
+        f"Agent {agent_name} updated. New config: {json.dumps(config, indent=2)}"
+    )
     return ResponseMessage(message=update_config)
 
 
@@ -760,6 +765,10 @@ async def delete_provider(
     new_settings = {key: "" for key in keys}
     update_config = agent.update_agent_config(
         new_config=new_settings, config_key="settings"
+    )
+    config = agent.get_agent_config()
+    logging.info(
+        f"Agent {agent_id} provider {provider_name} deleted. New config: {json.dumps(config, indent=2)}"
     )
     return ResponseMessage(message=update_config)
 
