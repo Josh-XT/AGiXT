@@ -203,15 +203,23 @@ def delete_agent(agent_name, user=DEFAULT_USER):
     return {"message": f"Agent {agent_name} deleted."}, 200
 
 
-def rename_agent(agent_name, new_name, user=DEFAULT_USER):
+def rename_agent(agent_name, new_name, user=DEFAULT_USER, company_id=None):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
-    agent = (
-        session.query(AgentModel)
-        .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
-        .first()
-    )
+    if not company_id:
+        agent = (
+            session.query(AgentModel)
+            .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
+            .first()
+        )
+    else:
+        agent = (
+            session.query(AgentModel)
+            .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
+            .filter(AgentModel.company_id == company_id)
+            .first()
+        )
     if not agent:
         session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
