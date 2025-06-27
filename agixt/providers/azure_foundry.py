@@ -1,4 +1,3 @@
-import os
 import base64
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
@@ -7,7 +6,7 @@ import logging
 import time
 
 
-class AzurefoundryProvider:
+class Azure_foundryProvider:
     """
     This provider uses the Azure AI Foundry Inference API to generate text from prompts. Learn more about how to set it up at <https://learn.microsoft.com/en-us/azure/ai-services/>.
     """
@@ -15,7 +14,7 @@ class AzurefoundryProvider:
     def __init__(
         self,
         AZURE_FOUNDRY_API_KEY: str = "",
-        AZURE_FOUNDRY__ENDPOINT: str = "https://your-endpoint.openai.azure.com",
+        AZURE_FOUNDRY_ENDPOINT: str = "https://your-endpoint.openai.azure.com",
         AZURE_FOUNDRY_DEPLOYMENT_NAME: str = "gpt-4o",
         AZURE_FOUNDRY_TEMPERATURE: float = 0.7,
         AZURE_FOUNDRY_TOP_P: float = 0.7,
@@ -27,7 +26,7 @@ class AzurefoundryProvider:
         self.friendly_name = "Azure"
         self.requirements = ["azure-ai-inference"]
         self.AZURE_API_KEY = AZURE_FOUNDRY_API_KEY
-        self.AZURE_OPENAI_ENDPOINT = AZURE_FOUNDRY__ENDPOINT
+        self.AZURE_OPENAI_ENDPOINT = AZURE_FOUNDRY_ENDPOINT
         self.AI_MODEL = AZURE_FOUNDRY_DEPLOYMENT_NAME
         self.AI_TEMPERATURE = (
             AZURE_FOUNDRY_TEMPERATURE if AZURE_FOUNDRY_TEMPERATURE else 0.7
