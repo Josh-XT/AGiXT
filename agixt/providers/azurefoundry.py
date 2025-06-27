@@ -14,29 +14,35 @@ class AzurefoundryProvider:
 
     def __init__(
         self,
-        AZURE_API_KEY: str = "",
-        AZURE_OPENAI_ENDPOINT: str = "https://your-endpoint.openai.azure.com",
-        AZURE_DEPLOYMENT_NAME: str = "gpt-4o",
-        AZURE_TEMPERATURE: float = 0.7,
-        AZURE_TOP_P: float = 0.7,
-        AZURE_MAX_TOKENS: int = 120000,
-        AZURE_WAIT_BETWEEN_REQUESTS: int = 1,
-        AZURE_WAIT_AFTER_FAILURE: int = 3,
+        AZURE_FOUNDRY_API_KEY: str = "",
+        AZURE_FOUNDRY__ENDPOINT: str = "https://your-endpoint.openai.azure.com",
+        AZURE_FOUNDRY_DEPLOYMENT_NAME: str = "gpt-4o",
+        AZURE_FOUNDRY_TEMPERATURE: float = 0.7,
+        AZURE_FOUNDRY_TOP_P: float = 0.7,
+        AZURE_FOUNDRY_MAX_TOKENS: int = 120000,
+        AZURE_FOUNDRY_WAIT_BETWEEN_REQUESTS: int = 1,
+        AZURE_FOUNDRY_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.friendly_name = "Azure"
         self.requirements = ["azure-ai-inference"]
-        self.AZURE_API_KEY = AZURE_API_KEY
-        self.AZURE_OPENAI_ENDPOINT = AZURE_OPENAI_ENDPOINT
-        self.AI_MODEL = AZURE_DEPLOYMENT_NAME
-        self.AI_TEMPERATURE = AZURE_TEMPERATURE if AZURE_TEMPERATURE else 0.7
-        self.AI_TOP_P = AZURE_TOP_P if AZURE_TOP_P else 0.7
-        self.MAX_TOKENS = AZURE_MAX_TOKENS if AZURE_MAX_TOKENS else 120000
+        self.AZURE_API_KEY = AZURE_FOUNDRY_API_KEY
+        self.AZURE_OPENAI_ENDPOINT = AZURE_FOUNDRY__ENDPOINT
+        self.AI_MODEL = AZURE_FOUNDRY_DEPLOYMENT_NAME
+        self.AI_TEMPERATURE = (
+            AZURE_FOUNDRY_TEMPERATURE if AZURE_FOUNDRY_TEMPERATURE else 0.7
+        )
+        self.AI_TOP_P = AZURE_FOUNDRY_TOP_P if AZURE_FOUNDRY_TOP_P else 0.7
+        self.MAX_TOKENS = (
+            AZURE_FOUNDRY_MAX_TOKENS if AZURE_FOUNDRY_MAX_TOKENS else 120000
+        )
         self.WAIT_AFTER_FAILURE = (
-            AZURE_WAIT_AFTER_FAILURE if AZURE_WAIT_AFTER_FAILURE else 3
+            AZURE_FOUNDRY_WAIT_AFTER_FAILURE if AZURE_FOUNDRY_WAIT_AFTER_FAILURE else 3
         )
         self.WAIT_BETWEEN_REQUESTS = (
-            AZURE_WAIT_BETWEEN_REQUESTS if AZURE_WAIT_BETWEEN_REQUESTS else 1
+            AZURE_FOUNDRY_WAIT_BETWEEN_REQUESTS
+            if AZURE_FOUNDRY_WAIT_BETWEEN_REQUESTS
+            else 1
         )
         self.failures = 0
 
