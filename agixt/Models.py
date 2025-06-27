@@ -85,6 +85,7 @@ class AgentName(BaseModel):
 
 class AgentNewName(BaseModel):
     new_name: str
+    company_id: Optional[str] = None
 
 
 class AgentPrompt(BaseModel):
