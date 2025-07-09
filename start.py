@@ -14,6 +14,7 @@ except ImportError:
         [sys.executable, "-m", "pip", "install", "tzlocal", "--break-system-packages"],
         check=True,
     )
+    print("Installed tzlocal package.")
     from tzlocal import get_localzone
 try:
     from dotenv import load_dotenv
