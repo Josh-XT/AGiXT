@@ -1935,7 +1935,7 @@ class MagicalAuth:
                     status_code=403,
                     detail="Unauthorized. Insufficient permissions.",
                 )
-            
+
             # Check if the invited user exists and is already part of the company
             user = db.query(User).filter(User.email == invitation.email).first()
             if user:
@@ -1948,7 +1948,7 @@ class MagicalAuth:
                 )
                 if user_company:
                     db.delete(user_company)
-            
+
             db.delete(invitation)
             db.commit()
             return "Invitation deleted successfully"
