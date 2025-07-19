@@ -553,11 +553,13 @@ class Websearch:
             websearch_timeout = int(websearch_timeout)
         except:
             websearch_timeout = 0
-        
+
         try:
             if websearch_depth > 0:
                 if len(user_input) > 0:
-                    c = Conversations(conversation_name=conversation_name, user=self.user)
+                    c = Conversations(
+                        conversation_name=conversation_name, user=self.user
+                    )
                     conversation_id = c.get_conversation_id()
                     new_activity_id = c.log_interaction(
                         role=self.agent_name,
@@ -612,7 +614,7 @@ class Websearch:
                         await self.safe_gather_tasks()
                     else:
                         await self.safe_gather_tasks(timeout=int(websearch_timeout))
-                        
+
         except Exception as e:
             logging.error(f"Error in websearch_agent: {e}")
             await self.cleanup_tasks()

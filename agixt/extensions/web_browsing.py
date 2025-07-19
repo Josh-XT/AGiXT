@@ -165,17 +165,20 @@ class web_browsing(Extensions):
                 self.playwright = await async_playwright().start()
                 self.browser = await self.playwright.chromium.launch(
                     headless=headless,
-                    args=['--no-sandbox', '--disable-dev-shm-usage']  # Improve stability
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                    ],  # Improve stability
                 )
                 self.context = await self.browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                 )
                 self.page = await self.context.new_page()
-                
+
                 # Set reasonable timeouts to prevent hanging
                 self.page.set_default_timeout(30000)  # 30 seconds
                 self.page.set_default_navigation_timeout(60000)  # 60 seconds
-                
+
                 logging.info("Playwright browser initialized.")
             elif self.page.is_closed():
                 logging.info("Page was closed, creating a new one.")

@@ -120,7 +120,7 @@ class TaskMonitor:
                                 session.delete(pending_task)
                                 session.commit()
                                 continue
-                                
+
                             task_manager = Task(
                                 token=impersonate_user(user_id=pending_task.user_id)
                             )
@@ -132,13 +132,19 @@ class TaskMonitor:
                                     timeout=300,
                                 )
                             except asyncio.TimeoutError:
-                                logging.error(f"Task {pending_task.id} timed out after 5 minutes")
+                                logging.error(
+                                    f"Task {pending_task.id} timed out after 5 minutes"
+                                )
                                 # Mark task as failed or reschedule
-                                pending_task.completed = True  # Mark as completed to prevent retry loops
+                                pending_task.completed = (
+                                    True  # Mark as completed to prevent retry loops
+                                )
                                 session.commit()
                                 continue
                             except Exception as task_e:
-                                logging.error(f"Task execution failed for {pending_task.id}: {str(task_e)}")
+                                logging.error(
+                                    f"Task execution failed for {pending_task.id}: {str(task_e)}"
+                                )
                                 # Don't let task execution errors crash the worker
                                 continue
 
@@ -169,7 +175,9 @@ class TaskMonitor:
                     try:
                         session.close()
                     except Exception as close_e:
-                        logging.error(f"Error closing session in finally block: {close_e}")
+                        logging.error(
+                            f"Error closing session in finally block: {close_e}"
+                        )
 
     async def start(self):
         """Start the task monitoring service"""
