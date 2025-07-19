@@ -249,43 +249,46 @@ class Task:
 
     async def execute_pending_tasks(self):
         """Check and execute all tasks that are due"""
-        session = get_session()
-        # Get all tasks that are due
-        tasks_data = await self.get_due_tasks()
+        session = None
+        executor = None
+        try:
+            session = get_session()
+            # Get all tasks that are due
+            tasks_data = await self.get_due_tasks()
 
-        for task_data in tasks_data:
-            try:
-                # Get the actual task object from the database
-                task = session.query(TaskItem).get(task_data["id"])
-                if not task:
-                    continue
+            for task_data in tasks_data:
+                try:
+                    # Get the actual task object from the database
+                    task = session.query(TaskItem).get(task_data["id"])
+                    if not task:
+                        continue
 
-                if task.agent_id:
-                    agent = session.query(Agent).get(task.agent_id)
-                    if agent:
-                        prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
+                    if task.agent_id:
+                        agent = session.query(Agent).get(task.agent_id)
+                        if agent:
+                            prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
 
-                        def execute_prompt():
-                            return self.ApiClient.prompt_agent(
-                                agent_name=agent.name,
-                                prompt_name="Think About It",
-                                prompt_args={
-                                    "user_input": prompt,
-                                    "conversation_name": task.memory_collection,
-                                    "websearch": False,
-                                    "analyze_user_input": False,
-                                    "log_user_input": False,
-                                    "log_output": True,
-                                    "tts": False,
-                                },
-                            )
+                            def execute_prompt():
+                                return self.ApiClient.prompt_agent(
+                                    agent_name=agent.name,
+                                    prompt_name="Think About It",
+                                    prompt_args={
+                                        "user_input": prompt,
+                                        "conversation_name": task.memory_collection,
+                                        "websearch": False,
+                                        "analyze_user_input": False,
+                                        "log_user_input": False,
+                                        "log_output": True,
+                                        "tts": False,
+                                    },
+                                )
 
-                        # Run the non-async prompt_agent in a thread pool
-                        loop = asyncio.get_running_loop()
-                        with ThreadPoolExecutor() as pool:
+                            # Run the non-async prompt_agent in a thread pool with proper resource management
+                            loop = asyncio.get_running_loop()
+                            executor = ThreadPoolExecutor(max_workers=1)
                             try:
                                 response = await asyncio.wait_for(
-                                    loop.run_in_executor(pool, execute_prompt),
+                                    loop.run_in_executor(executor, execute_prompt),
                                     timeout=300,  # 5 minute timeout
                                 )
                                 logging.info(
@@ -296,15 +299,33 @@ class Task:
                                     f"Task {task.id} timed out after 5 minutes"
                                 )
                                 raise
+                            finally:
+                                if executor:
+                                    executor.shutdown(wait=True)
+                                    executor = None
 
-                # Mark the current task as completed
-                await self.mark_task_completed(str(task.id))
+                    # Mark the current task as completed
+                    await self.mark_task_completed(str(task.id))
 
-            except Exception as e:
-                logging.error(f"Error executing task {task.id}: {str(e)}")
-            finally:
-                if session:
+                except Exception as e:
+                    logging.error(f"Error executing task {task.id}: {str(e)}")
+                    continue
+
+        except Exception as e:
+            logging.error(f"Error in execute_pending_tasks: {str(e)}")
+            raise
+        finally:
+            # Ensure cleanup
+            if executor:
+                try:
+                    executor.shutdown(wait=True)
+                except Exception as executor_e:
+                    logging.error(f"Error shutting down executor: {executor_e}")
+            if session:
+                try:
                     session.close()
+                except Exception as session_e:
+                    logging.error(f"Error closing session: {session_e}")
 
     async def get_tasks_by_category(self, category_name: str) -> list:
         """Get all tasks in a category"""
