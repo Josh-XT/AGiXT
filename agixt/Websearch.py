@@ -553,60 +553,107 @@ class Websearch:
             websearch_timeout = int(websearch_timeout)
         except:
             websearch_timeout = 0
-        if websearch_depth > 0:
-            if len(user_input) > 0:
-                c = Conversations(conversation_name=conversation_name, user=self.user)
-                conversation_id = c.get_conversation_id()
-                new_activity_id = c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{activity_id}] Searching for `{search_string}`.",
-                )
-                google_api_key = (
-                    self.agent_settings["GOOGLE_API_KEY"]
-                    if "GOOGLE_API_KEY" in self.agent_settings
-                    else ""
-                )
-                google_search_engine_id = (
-                    self.agent_settings["GOOGLE_SEARCH_ENGINE_ID"]
-                    if "GOOGLE_SEARCH_ENGINE_ID" in self.agent_settings
-                    else ""
-                )
-                links = []
-                if google_api_key != "" and google_search_engine_id != "":
-                    links = await self.google_search(
-                        query=search_string,
-                        google_api_key=google_api_key,
-                        google_search_engine_id=google_search_engine_id,
+        
+        try:
+            if websearch_depth > 0:
+                if len(user_input) > 0:
+                    c = Conversations(conversation_name=conversation_name, user=self.user)
+                    conversation_id = c.get_conversation_id()
+                    new_activity_id = c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{activity_id}] Searching for `{search_string}`.",
                     )
-                if links == [] or links is None:
-                    search_proxy = getenv("SEARCH_PROXY")
-                    if search_proxy != "":
-                        links = await self.ddg_search(
-                            query=search_string, proxy=search_proxy
-                        )
-                    else:
-                        links = await self.ddg_search(query=search_string)
-                if links == [] or links is None:
+                    google_api_key = (
+                        self.agent_settings["GOOGLE_API_KEY"]
+                        if "GOOGLE_API_KEY" in self.agent_settings
+                        else ""
+                    )
+                    google_search_engine_id = (
+                        self.agent_settings["GOOGLE_SEARCH_ENGINE_ID"]
+                        if "GOOGLE_SEARCH_ENGINE_ID" in self.agent_settings
+                        else ""
+                    )
                     links = []
-                    content, links = await self.web_search(
-                        query=search_string, conversation_id=conversation_id
-                    )
-
-                if len(links) > websearch_depth:
-                    links = links[:websearch_depth]
-                if links is not None and len(links) > 0:
-                    task = asyncio.create_task(
-                        self.recursive_browsing(
-                            user_input=user_input,
-                            links=links,
-                            conversation_name=conversation_name,
-                            conversation_id=conversation_id,
-                            activity_id=new_activity_id,
-                            agent_browsing=False,
+                    if google_api_key != "" and google_search_engine_id != "":
+                        links = await self.google_search(
+                            query=search_string,
+                            google_api_key=google_api_key,
+                            google_search_engine_id=google_search_engine_id,
                         )
-                    )
-                    self.tasks.append(task)
-                if int(websearch_timeout) == 0:
-                    await asyncio.gather(*self.tasks)
-                else:
-                    await asyncio.sleep(int(websearch_timeout))
+                    if links == [] or links is None:
+                        search_proxy = getenv("SEARCH_PROXY")
+                        if search_proxy != "":
+                            links = await self.ddg_search(
+                                query=search_string, proxy=search_proxy
+                            )
+                        else:
+                            links = await self.ddg_search(query=search_string)
+                    if links == [] or links is None:
+                        links = []
+                        content, links = await self.web_search(
+                            query=search_string, conversation_id=conversation_id
+                        )
+
+                    if len(links) > websearch_depth:
+                        links = links[:websearch_depth]
+                    if links is not None and len(links) > 0:
+                        task = asyncio.create_task(
+                            self.recursive_browsing(
+                                user_input=user_input,
+                                links=links,
+                                conversation_name=conversation_name,
+                                conversation_id=conversation_id,
+                                activity_id=new_activity_id,
+                                agent_browsing=False,
+                            )
+                        )
+                        self.tasks.append(task)
+                    if int(websearch_timeout) == 0:
+                        await self.safe_gather_tasks()
+                    else:
+                        await self.safe_gather_tasks(timeout=int(websearch_timeout))
+                        
+        except Exception as e:
+            logging.error(f"Error in websearch_agent: {e}")
+            await self.cleanup_tasks()
+        finally:
+            # Always clean up tasks
+            await self.cleanup_tasks()
+
+    async def cleanup_tasks(self):
+        """Clean up any pending tasks to prevent resource leaks"""
+        try:
+            # Cancel any pending tasks
+            for task in self.tasks:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        logging.error(f"Error during task cleanup: {e}")
+            self.tasks.clear()
+        except Exception as e:
+            logging.error(f"Error in cleanup_tasks: {e}")
+
+    async def safe_gather_tasks(self, timeout=None):
+        """Safely gather all tasks with proper timeout and cleanup"""
+        try:
+            if not self.tasks:
+                return
+
+            if timeout:
+                await asyncio.wait_for(
+                    asyncio.gather(*self.tasks, return_exceptions=True), timeout=timeout
+                )
+            else:
+                await asyncio.gather(*self.tasks, return_exceptions=True)
+        except asyncio.TimeoutError:
+            logging.warning("Tasks timed out, cancelling remaining tasks")
+            await self.cleanup_tasks()
+        except Exception as e:
+            logging.error(f"Error gathering tasks: {e}")
+            await self.cleanup_tasks()
+        finally:
+            self.tasks.clear()

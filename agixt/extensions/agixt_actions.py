@@ -211,6 +211,93 @@ class agixt_actions(Extensions):
             },
         )
 
+    async def create_agent(self, agent_name: str, role: str, mandatory_context: str):
+        """
+        Create a new AGiXT agent with the specified name, role, and reason for creation.
+
+        Args:
+            agent_name (str): The name of the new agent.
+            role (str): The role or purpose of the agent.
+            mandatory_context (str): Mandatory context should be a list of important guidelines to follow, in-context training to enable the agent to fill their role properly. Describe what is expected of the agent in their role in detail, describe their role and what they are responsible for working on, such as the task the assistant intends to assign to this agent.
+
+        Returns:
+            str: Success message indicating the agent was created.
+        """
+        # First, we are going to check to see if a user for the conversation exists yet.
+        # If not, we will create a user for the conversation.
+        # The purpose of this is to give the agent a hidden team that it can create and work with.
+        # This will ultimately be part of a "create team of agents" command
+        #  that takes comma separated "roles" required to complete the task in whole from first principles with minimal user intervention
+
+        from MagicalAuth import impersonate_user
+
+        try:
+            token = impersonate_user(email=f"{self.conversation_id}@agixt.agent")
+        except:
+            self.ApiClient.register_user(
+                email=f"{self.conversation_id}@agixt.agent",
+                first_name="AGiXT",
+                last_name="Agent",
+            )
+            token = impersonate_user(email=f"{self.conversation_id}@agixt.agent")
+        sdk = AGiXTSDK(base_uri=getenv("AGIXT_URI"), api_key=token)
+        # For this role, what extensions does the agent need access to? What commands does the agent need?
+        commands = {}
+        # Figure out available providers of the current self.agent_config and get their models to use as suggestions for selection
+        providers = sdk.get_providers_by_service("llm")
+        agent_providers = []
+        provider_settings = {}
+        for provider in providers:
+            # Check if any agent_config have any settings that start with upper "PROVIDER NAME"
+            provider_name = provider.upper()
+            if f"{provider_name}_API_KEY" in self.agent_config:
+                if (
+                    self.agent_config[f"{provider_name}_API_KEY"] != ""
+                    and self.agent_config[f"{provider_name}_API_KEY"] != None
+                ):
+                    model = "No model name available"
+                    if f"{provider_name}_MODEL" in self.agent_config:
+                        model = self.agent_config[f"{provider_name}_MODEL"]
+                    agent_providers.append({"name": provider, "model": model})
+                    provider_settings[provider_name.lower()] = {
+                        k: v
+                        for k, v in self.agent_config.items()
+                        if k.startswith(provider_name.upper())
+                    }
+
+        # Ask the agent what provider and model best suits the role of the ones available if there is more than one available.
+        if len(agent_providers) > 1:
+            provider_models = "\n".join(
+                [f"{p['name']}/{p['model']}" for p in agent_providers]
+            )
+            response = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": f"Given the role of {role} and the available providers and models:\n{provider_models}\nWhich provider and model would be best suited for this role? The response in your <answer> block should be formatted as `provider/model` without quotes, only one can be selected.",
+                    "disable_commands": True,
+                    "log_user_input": False,
+                    "log_output": False,
+                    "conversation_name": self.conversation_name,
+                    "tts": False,
+                },
+            )
+            # Parse the response to get the provider and model
+            provider, model = response.split("/")
+            provider = provider.strip().lower()
+        else:
+            provider = agent_providers[0]["name"].lower()
+        settings = {
+            "provider": provider,
+            "persona": mandatory_context,
+            "conversation_id": self.conversation_id,
+            **provider_settings[provider],
+        }
+        # If there are attachments in the conversation or hyperlinks, the agent will need to consume them.
+
+        sdk.add_agent(agent_name=agent_name, settings=settings, commands=commands)
+        return f"The new agent {agent_name} has been created successfully with the role of {role}. The assistant can now interact with this agent."
+
     async def run_data_analysis(self, data: str, query: str):
         """
         Run data analysis on a dataset of any format, including analyzing and solving math problems, and more.
