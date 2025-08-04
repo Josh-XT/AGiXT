@@ -113,6 +113,37 @@ class web_browsing(Extensions):
         self.context = None
         self.page = None
         self.popup = None
+        self._cleanup_attempted = False  # Track cleanup attempts
+
+    def __del__(self):
+        """Destructor to ensure cleanup on garbage collection"""
+        try:
+            if not self._cleanup_attempted and hasattr(self, 'playwright') and self.playwright:
+                # Create new event loop if necessary for cleanup
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is running, schedule cleanup for later
+                        loop.create_task(self._sync_cleanup())
+                    else:
+                        loop.run_until_complete(self._sync_cleanup())
+                except RuntimeError:
+                    # No event loop available, create one
+                    asyncio.run(self._sync_cleanup())
+        except Exception as e:
+            # Don't raise exceptions in destructor
+            try:
+                logging.error(f"Error in web_browsing destructor: {e}")
+            except:
+                pass  # Logging may not be available during shutdown
+
+    async def _sync_cleanup(self):
+        """Internal cleanup method for destructor"""
+        try:
+            await self.ensure_cleanup()
+        except Exception:
+            pass  # Ignore exceptions during destructor cleanup
 
     async def websearch(
         self,
@@ -2935,6 +2966,10 @@ Analyze the attached screenshot.
 
     async def ensure_cleanup(self):
         """Ensure all resources are cleaned up"""
+        if self._cleanup_attempted:
+            return  # Already cleaned up
+        
+        self._cleanup_attempted = True
         try:
             if hasattr(self, "page") and self.page and not self.page.is_closed():
                 await self.page.close()
