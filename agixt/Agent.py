@@ -689,31 +689,55 @@ class Agent:
             enabled_commands = [enabled_commands]
         for command in enabled_commands:
             config["commands"][command] = True
+        session.close()
         return config
 
     async def inference(
-        self, prompt: str, images: list = [], use_smartest: bool = False
+        self,
+        prompt: str,
+        images: list = [],
+        use_smartest: bool = False,
+        stream: bool = False,
     ):
         if not prompt:
             return ""
         input_tokens = get_tokens(prompt)
         provider_name = self.AGENT_CONFIG["settings"]["provider"]
         try:
-            if provider_name == "rotation" and use_smartest == True:
-                answer = await self.PROVIDER.inference(
-                    prompt=prompt, tokens=input_tokens, images=images, use_smartest=True
-                )
+            if stream:
+                # For streaming, return the stream object for the caller to handle
+                if provider_name == "rotation" and use_smartest == True:
+                    return await self.PROVIDER.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        use_smartest=True,
+                        stream=True,
+                    )
+                else:
+                    return await self.PROVIDER.inference(
+                        prompt=prompt, tokens=input_tokens, images=images, stream=True
+                    )
             else:
-                answer = await self.PROVIDER.inference(
-                    prompt=prompt, tokens=input_tokens, images=images
+                # Non-streaming path
+                if provider_name == "rotation" and use_smartest == True:
+                    answer = await self.PROVIDER.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        use_smartest=True,
+                    )
+                else:
+                    answer = await self.PROVIDER.inference(
+                        prompt=prompt, tokens=input_tokens, images=images
+                    )
+                output_tokens = get_tokens(answer)
+                self.auth.increase_token_counts(
+                    input_tokens=input_tokens, output_tokens=output_tokens
                 )
-            output_tokens = get_tokens(answer)
-            self.auth.increase_token_counts(
-                input_tokens=input_tokens, output_tokens=output_tokens
-            )
-            answer = str(answer).replace("\_", "_")
-            if answer.endswith("\n\n"):
-                answer = answer[:-2]
+                answer = str(answer).replace("\_", "_")
+                if answer.endswith("\n\n"):
+                    answer = answer[:-2]
         except Exception as e:
             logging.error(f"Error in inference: {str(e)}")
             answer = "<answer>Unable to process request.</answer>"
@@ -1120,6 +1144,7 @@ class Agent:
 
     def get_conversation_tasks(self, conversation_id: str) -> str:
         """Get all tasks assigned to an agent"""
+        session = None
         try:
             session = get_session()
             tasks = (
@@ -1133,7 +1158,6 @@ class Agent:
                 .all()
             )
             if not tasks:
-                session.close()
                 return ""
 
             markdown_tasks = "## The Assistant's Scheduled Tasks\n**The assistant currently has the following tasks scheduled:**\n"
@@ -1144,15 +1168,22 @@ class Agent:
                     f"**Description:** {task.description}\n"
                     f"**Will be completed at:** {string_due_date}\n"
                 )
-            session.close()
             return markdown_tasks
         except Exception as e:
             logging.error(f"Error getting tasks by agent: {str(e)}")
-            session.close()
             return ""
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception as close_e:
+                    logging.error(
+                        f"Error closing session in get_conversation_tasks: {close_e}"
+                    )
 
     def get_all_pending_tasks(self) -> list:
         """Get all tasks assigned to an agent"""
+        session = None
         try:
             session = get_session()
             tasks = (
@@ -1164,11 +1195,18 @@ class Agent:
                 )
                 .all()
             )
-            session.close()
             return tasks
         except Exception as e:
             logging.error(f"Error getting tasks by agent: {str(e)}")
             return []
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception as close_e:
+                    logging.error(
+                        f"Error closing session in get_all_pending_tasks: {close_e}"
+                    )
 
     def get_all_commands_markdown(self):
         command_list = [

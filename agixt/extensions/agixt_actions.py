@@ -211,6 +211,93 @@ class agixt_actions(Extensions):
             },
         )
 
+    async def create_agent(self, agent_name: str, role: str, mandatory_context: str):
+        """
+        Create a new AGiXT agent with the specified name, role, and reason for creation.
+
+        Args:
+            agent_name (str): The name of the new agent.
+            role (str): The role or purpose of the agent.
+            mandatory_context (str): Mandatory context should be a list of important guidelines to follow, in-context training to enable the agent to fill their role properly. Describe what is expected of the agent in their role in detail, describe their role and what they are responsible for working on, such as the task the assistant intends to assign to this agent.
+
+        Returns:
+            str: Success message indicating the agent was created.
+        """
+        # First, we are going to check to see if a user for the conversation exists yet.
+        # If not, we will create a user for the conversation.
+        # The purpose of this is to give the agent a hidden team that it can create and work with.
+        # This will ultimately be part of a "create team of agents" command
+        #  that takes comma separated "roles" required to complete the task in whole from first principles with minimal user intervention
+
+        from MagicalAuth import impersonate_user
+
+        try:
+            token = impersonate_user(email=f"{self.conversation_id}@agixt.agent")
+        except:
+            self.ApiClient.register_user(
+                email=f"{self.conversation_id}@agixt.agent",
+                first_name="AGiXT",
+                last_name="Agent",
+            )
+            token = impersonate_user(email=f"{self.conversation_id}@agixt.agent")
+        sdk = AGiXTSDK(base_uri=getenv("AGIXT_URI"), api_key=token)
+        # For this role, what extensions does the agent need access to? What commands does the agent need?
+        commands = {}
+        # Figure out available providers of the current self.agent_config and get their models to use as suggestions for selection
+        providers = sdk.get_providers_by_service("llm")
+        agent_providers = []
+        provider_settings = {}
+        for provider in providers:
+            # Check if any agent_config have any settings that start with upper "PROVIDER NAME"
+            provider_name = provider.upper()
+            if f"{provider_name}_API_KEY" in self.agent_config:
+                if (
+                    self.agent_config[f"{provider_name}_API_KEY"] != ""
+                    and self.agent_config[f"{provider_name}_API_KEY"] != None
+                ):
+                    model = "No model name available"
+                    if f"{provider_name}_MODEL" in self.agent_config:
+                        model = self.agent_config[f"{provider_name}_MODEL"]
+                    agent_providers.append({"name": provider, "model": model})
+                    provider_settings[provider_name.lower()] = {
+                        k: v
+                        for k, v in self.agent_config.items()
+                        if k.startswith(provider_name.upper())
+                    }
+
+        # Ask the agent what provider and model best suits the role of the ones available if there is more than one available.
+        if len(agent_providers) > 1:
+            provider_models = "\n".join(
+                [f"{p['name']}/{p['model']}" for p in agent_providers]
+            )
+            response = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": f"Given the role of {role} and the available providers and models:\n{provider_models}\nWhich provider and model would be best suited for this role? The response in your <answer> block should be formatted as `provider/model` without quotes, only one can be selected.",
+                    "disable_commands": True,
+                    "log_user_input": False,
+                    "log_output": False,
+                    "conversation_name": self.conversation_name,
+                    "tts": False,
+                },
+            )
+            # Parse the response to get the provider and model
+            provider, model = response.split("/")
+            provider = provider.strip().lower()
+        else:
+            provider = agent_providers[0]["name"].lower()
+        settings = {
+            "provider": provider,
+            "persona": mandatory_context,
+            "conversation_id": self.conversation_id,
+            **provider_settings[provider],
+        }
+        # If there are attachments in the conversation or hyperlinks, the agent will need to consume them.
+
+        sdk.add_agent(agent_name=agent_name, settings=settings, commands=commands)
+        return f"The new agent {agent_name} has been created successfully with the role of {role}. The assistant can now interact with this agent."
+
     async def run_data_analysis(self, data: str, query: str):
         """
         Run data analysis on a dataset of any format, including analyzing and solving math problems, and more.
@@ -1211,24 +1298,36 @@ class agixt_actions(Extensions):
             )
             logging.debug(f"LLM response for chain generation: {response}")
 
+            # Extract JSON from the response with improved logic
+            chain_json_str = None
             if "```json" in response:
                 chain_json_str = response.split("```json")[1].split("```")[0].strip()
             elif "```" in response:  # Handle plain ``` block
-                chain_json_str = response.split("```")[1].split("```")[0].strip()
-            else:
-                # Attempt to extract JSON if no markdown block found
+                parts = response.split("```")
+                if len(parts) >= 3:
+                    chain_json_str = parts[1].strip()
+                else:
+                    # Try to find JSON in the response
+                    for part in parts:
+                        if part.strip().startswith("{"):
+                            chain_json_str = part.strip()
+                            break
+
+            # If no code block found, try to extract JSON directly
+            if not chain_json_str:
                 try:
                     start = response.find("{")
                     end = response.rfind("}") + 1
                     if start != -1 and end != -1:
                         chain_json_str = response[start:end]
                     else:
-                        raise ValueError("No JSON object found in the response.")
+                        logging.error(f"No JSON found in response: {response}")
+                        return f"Error: The AI failed to generate the chain structure in the expected format. Response: Unable to process request."
                 except Exception as e:
                     logging.error(
                         f"Failed to extract JSON from LLM response: {response}. Error: {e}"
                     )
-                    return f"Error: The AI failed to generate the chain structure in the expected format. Response: {response}"
+                    return f"Error: The AI failed to generate the chain structure in the expected format. Response: Unable to process request."
 
             try:
                 chain_data = json.loads(chain_json_str)
@@ -1345,24 +1444,36 @@ class agixt_actions(Extensions):
                     "conversation_name": self.conversation_name,
                 },
             )
+            # Extract JSON from the response with improved logic
+            modifications_str = None
             if "```json" in response:
                 modifications_str = response.split("```json")[1].split("```")[0].strip()
             elif "```" in response:  # Handle plain ``` block
-                modifications_str = response.split("```")[1].split("```")[0].strip()
-            else:
-                # Attempt to extract JSON if no markdown block found
+                parts = response.split("```")
+                if len(parts) >= 3:
+                    modifications_str = parts[1].strip()
+                else:
+                    # Try to find JSON in the response
+                    for part in parts:
+                        if part.strip().startswith("{"):
+                            modifications_str = part.strip()
+                            break
+
+            # If no code block found, try to extract JSON directly
+            if not modifications_str:
                 try:
                     start = response.find("{")
                     end = response.rfind("}") + 1
                     if start != -1 and end != -1:
                         modifications_str = response[start:end]
                     else:
-                        raise ValueError("No JSON object found in the response.")
+                        logging.error(f"No JSON found in response: {response}")
+                        return f"Error: The AI failed to generate the chain modifications in the expected format. Response: Unable to process request."
                 except Exception as e:
                     logging.error(
                         f"Failed to extract JSON from LLM response: {response}. Error: {e}"
                     )
-                    return f"Error: The AI failed to generate the chain modifications in the expected format. Response: {response}"
+                    return f"Error: The AI failed to generate the chain modifications in the expected format. Response: Unable to process request."
             try:
                 modifications = json.loads(modifications_str)
             except json.JSONDecodeError as e:

@@ -2008,6 +2008,426 @@ class AGiXT:
         }
         return res_model
 
+    async def chat_completions_stream(self, prompt: ChatCompletions):
+        """
+        Generate a streaming OpenAI style chat completion response with a ChatCompletion prompt
+
+        Args:
+            prompt (ChatCompletions): Chat completions prompt
+
+        Yields:
+            str: Server-Sent Events formatted streaming response chunks
+        """
+        import json
+        import time
+        import asyncio
+
+        conversation_id = self.conversation_id
+        chunk_id = conversation_id  # Use conversation_id as the chunk ID
+        created_time = int(time.time())
+
+        # Process the prompt exactly like the non-streaming version
+        c = self.conversation
+        urls = []
+        files = []
+        new_prompt = ""
+        browse_links = True
+        tts = False
+        websearch = False
+        language = "en"
+        log_output = True
+        log_user_input = True
+        if "websearch" in self.agent_settings:
+            websearch = str(self.agent_settings["websearch"]).lower() == "true"
+        if "mode" in self.agent_settings:
+            mode = self.agent_settings["mode"]
+        else:
+            mode = "prompt"
+        if "prompt_name" in self.agent_settings:
+            prompt_name = self.agent_settings["prompt_name"]
+        else:
+            prompt_name = "Think About It"
+        if "prompt_category" in self.agent_settings:
+            prompt_category = self.agent_settings["prompt_category"]
+        else:
+            prompt_category = "Default"
+        if "LANGUAGE" in self.agent_settings:
+            language = str(self.agent_settings["LANGUAGE"]).lower()
+        prompt_args = {}
+        if "prompt_args" in self.agent_settings:
+            prompt_args = (
+                json.loads(self.agent_settings["prompt_args"])
+                if isinstance(self.agent_settings["prompt_args"], str)
+                else self.agent_settings["prompt_args"]
+            )
+        if "context_results" in self.agent_settings:
+            context_results = int(self.agent_settings["context_results"])
+        else:
+            context_results = 5
+        if "injected_memories" in self.agent_settings:
+            context_results = int(self.agent_settings["injected_memories"])
+        if "conversation_results" in self.agent_settings:
+            conversation_results = int(self.agent_settings["conversation_results"])
+        else:
+            conversation_results = 6
+        if "command_name" in self.agent_settings:
+            command_name = self.agent_settings["command_name"]
+        else:
+            command_name = ""
+        if "command_args" in self.agent_settings:
+            try:
+                command_args = (
+                    json.loads(self.agent_settings["command_args"])
+                    if isinstance(self.agent_settings["command_args"], str)
+                    else self.agent_settings["command_args"]
+                )
+            except Exception as e:
+                command_args = {}
+        else:
+            command_args = {}
+        if "command_variable" in self.agent_settings:
+            command_variable = self.agent_settings["command_variable"]
+        else:
+            command_variable = "text"
+        if "chain_name" in self.agent_settings:
+            chain_name = self.agent_settings["chain_name"]
+        else:
+            chain_name = ""
+        if "chain_args" in self.agent_settings:
+            chain_args = (
+                json.loads(self.agent_settings["chain_args"])
+                if isinstance(self.agent_settings["chain_args"], str)
+                else self.agent_settings["chain_args"]
+            )
+        else:
+            chain_args = {}
+        if "tts_provider" in self.agent_settings:
+            tts_provider = str(self.agent_settings["tts_provider"]).lower()
+            if tts_provider != "none" and tts_provider != "":
+                if "tts" in self.agent_settings:
+                    tts = str(self.agent_settings["tts"]).lower() == "true"
+        analyze_user_input = False
+        if "analyze_user_input" in self.agent_settings:
+            analyze_user_input = (
+                str(self.agent_settings["analyze_user_input"]).lower() == "true"
+            )
+        include_sources = False
+        if "include_sources" in self.agent_settings:
+            include_sources = (
+                str(self.agent_settings["include_sources"]).lower() == "true"
+            )
+        additional_context = ""
+
+        # Extract user message content from the prompt
+        for message in prompt.messages:
+            if "mode" in message:
+                if message["mode"] in ["prompt", "command", "chain"]:
+                    mode = message["mode"]
+            if "log_output" in message:
+                log_output = str(message["log_output"]).lower() == "true"
+            if "log_user_input" in message:
+                log_user_input = str(message["log_user_input"]).lower() == "true"
+            if "injected_memories" in message:
+                context_results = int(message["injected_memories"])
+            if "language" in message:
+                language = message["language"]
+            if "conversation_results" in message:
+                conversation_results = int(message["conversation_results"])
+            if "prompt_category" in message:
+                prompt_category = message["prompt_category"]
+            if "prompt_name" in message:
+                prompt_name = message["prompt_name"]
+            if "prompt_args" in message:
+                prompt_args = (
+                    json.loads(message["prompt_args"])
+                    if isinstance(message["prompt_args"], str)
+                    else message["prompt_args"]
+                )
+            if "command_name" in message:
+                command_name = message["command_name"]
+            if "command_args" in message:
+                command_args = (
+                    json.loads(message["command_args"])
+                    if isinstance(message["command_args"], str)
+                    else message["command_args"]
+                )
+            if "command_variable" in message:
+                command_variable = message["command_variable"]
+            if "chain_name" in message:
+                chain_name = message["chain_name"]
+            if "chain_args" in message:
+                chain_args = (
+                    json.loads(message["chain_args"])
+                    if isinstance(message["chain_args"], str)
+                    else message["chain_args"]
+                )
+            if "browse_links" in message:
+                browse_links = str(message["browse_links"]).lower() == "true"
+            if "tts" in message:
+                tts = str(message["tts"]).lower() == "true"
+            if "websearch" in message:
+                websearch = str(message["websearch"]).lower() == "true"
+            if "analyze_user_input" in message:
+                analyze_user_input = (
+                    str(message["analyze_user_input"]).lower() == "true"
+                )
+            if "context" in message:
+                additional_context += "\n" + str(message["context"]).strip()
+            if "include_sources" in message:
+                include_sources = str(message["include_sources"]).lower() == "true"
+            download_headers = {}
+            if "download_headers" in message:
+                download_headers = (
+                    json.loads(message["download_headers"])
+                    if isinstance(message["download_headers"], str)
+                    else message["download_headers"]
+                )
+            if "content" not in message:
+                continue
+            if isinstance(message["content"], str):
+                role = message["role"] if "role" in message else "User"
+                if role.lower() == "system":
+                    if "/" in message["content"]:
+                        new_prompt += f"{message['content']}\n\n"
+                if role.lower() == "user":
+                    new_prompt += f"{message['content']}\n\n"
+            if isinstance(message["content"], list):
+                for msg in message["content"]:
+                    if "text" in msg:
+                        role = message["role"] if "role" in message else "User"
+                        if role.lower() == "user":
+                            new_prompt += f"{msg['text']}\n\n"
+                    # Handle any file/URL content
+                    if isinstance(msg, dict):
+                        for key, value in msg.items():
+                            if "_url" in key:
+                                url = str(value["url"] if "url" in value else value)
+                                urls.append(url)
+
+        # Log user input
+        if log_user_input:
+            c.log_interaction(role="USER", message=new_prompt)
+
+        # Send initial streaming chunk
+        initial_chunk = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "created": created_time,
+            "model": self.agent_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": ""},
+                    "finish_reason": None,
+                }
+            ],
+        }
+        yield f"data: {json.dumps(initial_chunk)}\n\n"
+
+        try:
+            # Check if the provider supports streaming
+            import inspect
+
+            provider_stream_supported = (
+                hasattr(self.agent.PROVIDER, "inference")
+                and "stream"
+                in inspect.signature(self.agent.PROVIDER.inference).parameters
+            )
+
+            if provider_stream_supported and mode == "prompt":
+                # For streaming providers, we need to format the prompt with memories first
+                formatted_prompt, _, _ = await self.agent_interactions.format_prompt(
+                    user_input=new_prompt,
+                    top_results=context_results,
+                    min_relevance_score=0.3,
+                    conversation_results=conversation_results,
+                    prompt_name=prompt_name,
+                    prompt_category=prompt_category,
+                    log_user_input=False,
+                    log_output=False,
+                    **prompt_args,
+                )
+
+                # Use real provider streaming
+                stream_response = await self.agent.PROVIDER.inference(
+                    prompt=formatted_prompt, stream=True
+                )
+
+                full_response = ""
+
+                # Handle the stream response (OpenAI-style)
+                if hasattr(stream_response, "__aiter__"):
+                    async for chunk in stream_response:
+                        if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+                            choice = chunk.choices[0]
+                            if hasattr(choice, "delta") and hasattr(
+                                choice.delta, "content"
+                            ):
+                                content = choice.delta.content
+                                if content:
+                                    full_response += content
+                                    stream_chunk = {
+                                        "id": chunk_id,
+                                        "object": "chat.completion.chunk",
+                                        "created": created_time,
+                                        "model": self.agent_name,
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "delta": {"content": content},
+                                                "finish_reason": None,
+                                            }
+                                        ],
+                                    }
+                                    yield f"data: {json.dumps(stream_chunk)}\n\n"
+                elif hasattr(stream_response, "__iter__"):
+                    # Handle sync iterator
+                    for chunk in stream_response:
+                        if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+                            choice = chunk.choices[0]
+                            if hasattr(choice, "delta") and hasattr(
+                                choice.delta, "content"
+                            ):
+                                content = choice.delta.content
+                                if content:
+                                    full_response += content
+                                    stream_chunk = {
+                                        "id": chunk_id,
+                                        "object": "chat.completion.chunk",
+                                        "created": created_time,
+                                        "model": self.agent_name,
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "delta": {"content": content},
+                                                "finish_reason": None,
+                                            }
+                                        ],
+                                    }
+                                    yield f"data: {json.dumps(stream_chunk)}\n\n"
+                else:
+                    # Fall back to simulated streaming if the response isn't iterable
+                    response = str(stream_response)
+                    full_response = response
+                    # Simulate streaming by chunking the response
+                    words = response.split(" ")
+
+                    for i, word in enumerate(words):
+                        chunk = {
+                            "id": chunk_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": self.agent_name,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": word + " "},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        await asyncio.sleep(
+                            0.01
+                        )  # Small delay to simulate real streaming
+
+                # Log the complete response
+                if log_output and full_response:
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=full_response,
+                    )
+            else:
+                # Fallback: Use the regular inference method and simulate streaming
+                response = await self.inference(
+                    user_input=new_prompt,
+                    prompt_name=prompt_name,
+                    prompt_category=prompt_category,
+                    injected_memories=context_results,
+                    conversation_results=conversation_results,
+                    shots=prompt.n,
+                    websearch=websearch,
+                    browse_links=browse_links,
+                    voice_response=False,
+                    log_user_input=False,
+                    log_output=False,
+                    language=language,
+                    **prompt_args,
+                )
+
+                if response.startswith(f"{self.agent_name}:"):
+                    response = response[len(f"{self.agent_name}:") :]
+                if response.startswith(f"{self.agent_name} :"):
+                    response = response[len(f"{self.agent_name} :") :]
+
+                # Remove any special tags
+                response = self.remove_tagged_content(response, "execute")
+                response = self.remove_tagged_content(response, "output")
+
+                # Simulate streaming by chunking the response
+                words = response.split(" ")
+
+                for i, word in enumerate(words):
+                    chunk = {
+                        "id": chunk_id,
+                        "object": "chat.completion.chunk",
+                        "created": created_time,
+                        "model": self.agent_name,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": word + " "},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                    await asyncio.sleep(0.01)  # Small delay to simulate real streaming
+
+                # Log the response
+                if log_output:
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=response,
+                    )
+
+        except Exception as e:
+            import logging
+
+            logging.error(f"Streaming error: {str(e)}")
+            # Send error chunk
+            error_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created_time,
+                "model": self.agent_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "Error: An internal error has occurred."},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(error_chunk)}\n\n"
+
+        # Send final chunk to indicate completion
+        final_chunk = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "created": created_time,
+            "model": self.agent_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        yield f"data: {json.dumps(final_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
     async def batch_inference(
         self,
         user_inputs: List[str] = [],

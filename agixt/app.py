@@ -25,6 +25,7 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
+from ResourceMonitor import resource_monitor
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -43,26 +44,47 @@ task_monitor = TaskMonitor()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    workspace_manager.start_file_watcher()
-    await task_monitor.start()
-
     try:
+        workspace_manager.start_file_watcher()
+        await task_monitor.start()
+        await resource_monitor.start()
+        logging.info("AGiXT services started successfully")
         yield
+    except Exception as e:
+        logging.error(f"Error during startup: {e}")
+        raise
     finally:
         # Shutdown
-        workspace_manager.stop_file_watcher()
-        await task_monitor.stop()
+        try:
+            logging.info("Shutting down AGiXT services...")
+            await resource_monitor.stop()
+            workspace_manager.stop_file_watcher()
+            await task_monitor.stop()
+            logging.info("AGiXT services stopped successfully")
+        except Exception as e:
+            logging.error(f"Error during shutdown: {e}")
 
 
 # Register signal handlers for unexpected shutdowns
 async def cleanup():
-    workspace_manager.stop_file_watcher()
-    await task_monitor.stop()
+    try:
+        logging.info("Performing emergency cleanup...")
+        await resource_monitor.stop()
+        workspace_manager.stop_file_watcher()
+        await task_monitor.stop()
+        logging.info("Emergency cleanup completed")
+    except Exception as e:
+        logging.error(f"Error during emergency cleanup: {e}")
 
 
 def signal_handler(signum, frame):
-    asyncio.run(cleanup())
-    sys.exit(0)
+    logging.info(f"Received signal {signum}, shutting down gracefully...")
+    try:
+        asyncio.run(cleanup())
+    except Exception as e:
+        logging.error(f"Error in signal handler: {e}")
+    finally:
+        sys.exit(0)
 
 
 signal.signal(signal.SIGTERM, signal_handler)
