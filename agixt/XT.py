@@ -2404,7 +2404,7 @@ class AGiXT:
                 "choices": [
                     {
                         "index": 0,
-                        "delta": {"content": f"Error: {str(e)}"},
+                        "delta": {"content": "Error: An internal error has occurred."},
                         "finish_reason": "stop",
                     }
                 ],
