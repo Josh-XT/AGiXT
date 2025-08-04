@@ -136,24 +136,31 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
-                if "inject_memories_from_collection_number" in kwargs:
-                    collection_id = kwargs["inject_memories_from_collection_number"]
-                    try:
-                        context += await Memories(
-                            agent_name=self.agent_name,
-                            agent_config=self.agent.AGENT_CONFIG,
-                            collection_number=collection_id,
-                            ApiClient=self.ApiClient,
-                            user=self.user,
-                        ).get_memories(
-                            user_input=user_input,
-                            limit=top_results,
-                            min_relevance_score=min_relevance_score,
-                        )
-                    except Exception as e:
-                        logging.error(
-                            f"Error: {self.agent_name} failed to get memories from collection {collection_id}. {e}"
-                        )
+                # Default to injecting from collection 0 if no specific collection is specified
+                # This provides additional memories from collection 0 beyond what agent_memory provides
+                collection_id = kwargs.get("inject_memories_from_collection_number", "0")
+                
+                # Always inject additional memories from the specified collection
+                # Even if it's collection 0, as this may provide different or additional results
+                try:
+                    additional_memories = await Memories(
+                        agent_name=self.agent_name,
+                        agent_config=self.agent.AGENT_CONFIG,
+                        collection_number=collection_id,
+                        ApiClient=self.ApiClient,
+                        user=self.user,
+                    ).get_memories(
+                        user_input=user_input,
+                        limit=top_results,
+                        min_relevance_score=min_relevance_score,
+                    )
+                    # Only add if we got different memories to avoid complete duplicates
+                    if additional_memories:
+                        context += additional_memories
+                except Exception as e:
+                    logging.error(
+                        f"Error: {self.agent_name} failed to get memories from collection {collection_id}. {e}"
+                    )
                 conversation_context = await self.websearch.agent_memory.get_memories(
                     user_input=user_input,
                     limit=top_results,
