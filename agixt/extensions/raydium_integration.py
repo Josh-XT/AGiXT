@@ -21,17 +21,33 @@ import time
 import math
 
 # Raydium Program IDs
-RAYDIUM_AMM_V4_PROGRAM_ID = Pubkey.from_string("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")
-RAYDIUM_CLMM_PROGRAM_ID = Pubkey.from_string("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK")
-RAYDIUM_CPMM_PROGRAM_ID = Pubkey.from_string("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C")
-RAYDIUM_FARM_PROGRAM_ID = Pubkey.from_string("9KEPoZmtHUrBbhWN1v1KWLMkkvwY6WLtAVUCPRtRjP4z")
-RAYDIUM_STAKING_PROGRAM_ID = Pubkey.from_string("EhhTKczWMGQt46ynNeRX1WfeagwwJd7ufHvCDjRxjo5Q")
-RAYDIUM_ROUTE_PROGRAM_ID = Pubkey.from_string("routeUGWgWzqBWFcrCfv8tritsqukccJPu3q5GPP3xS")
+RAYDIUM_AMM_V4_PROGRAM_ID = Pubkey.from_string(
+    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+)
+RAYDIUM_CLMM_PROGRAM_ID = Pubkey.from_string(
+    "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+)
+RAYDIUM_CPMM_PROGRAM_ID = Pubkey.from_string(
+    "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
+)
+RAYDIUM_FARM_PROGRAM_ID = Pubkey.from_string(
+    "9KEPoZmtHUrBbhWN1v1KWLMkkvwY6WLtAVUCPRtRjP4z"
+)
+RAYDIUM_STAKING_PROGRAM_ID = Pubkey.from_string(
+    "EhhTKczWMGQt46ynNeRX1WfeagwwJd7ufHvCDjRxjo5Q"
+)
+RAYDIUM_ROUTE_PROGRAM_ID = Pubkey.from_string(
+    "routeUGWgWzqBWFcrCfv8tritsqukccJPu3q5GPP3xS"
+)
 
 # Token Program IDs
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-TOKEN_2022_PROGRAM_ID = Pubkey.from_string("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
-ASSOCIATED_TOKEN_PROGRAM_ID = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+TOKEN_2022_PROGRAM_ID = Pubkey.from_string(
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+)
+ASSOCIATED_TOKEN_PROGRAM_ID = Pubkey.from_string(
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+)
 
 # OpenBook Program ID
 OPENBOOK_PROGRAM_ID = Pubkey.from_string("srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX")
@@ -47,6 +63,7 @@ RAYDIUM_TRADE_API = "https://transaction-v1.raydium.io"
 @dataclass
 class PoolKeys:
     """Raydium pool keys structure"""
+
     id: Pubkey
     program_id: Pubkey
     authority: Pubkey
@@ -73,6 +90,7 @@ class PoolKeys:
 @dataclass
 class SwapQuote:
     """Raydium swap quote structure"""
+
     input_mint: str
     output_mint: str
     input_amount: int
@@ -86,7 +104,7 @@ class SwapQuote:
 class raydium_integration(Extensions):
     """
     Comprehensive Raydium integration for AGiXT
-    
+
     This extension provides full Raydium functionality including:
     - Token swapping (AMM trading)
     - Pool creation (CLMM and CPMM)
@@ -101,16 +119,16 @@ class raydium_integration(Extensions):
         SOLANA_API_URI = "https://rpc.hellomoon.io/15b3c970-4cdc-4718-ac26-3896d5422fb6"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = AsyncClient(SOLANA_API_URI)
-        
+
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
-        
+
         if WALLET_PRIVATE_KEY and WALLET_PRIVATE_KEY.strip():
             try:
                 try:
                     secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
                 except ValueError:
                     secret_bytes = base58.b58decode(WALLET_PRIVATE_KEY)
-                
+
                 self.wallet_keypair = Keypair.from_seed(secret_bytes)
                 self.wallet_address = str(self.wallet_keypair.pubkey())
             except Exception as e:
@@ -127,38 +145,32 @@ class raydium_integration(Extensions):
             "Execute Raydium Swap": self.execute_swap,
             "Get Token Price": self.get_token_price,
             "Get Best Route": self.get_best_route,
-            
             # Pool Management
             "Create CLMM Pool": self.create_clmm_pool,
             "Create CPMM Pool": self.create_cpmm_pool,
             "Get Pool Info": self.get_pool_info,
             "Get Pool Keys": self.get_pool_keys,
             "Get Pool List": self.get_pool_list,
-            
             # Liquidity Management
             "Add Liquidity": self.add_liquidity,
             "Remove Liquidity": self.remove_liquidity,
             "Get LP Token Balance": self.get_lp_token_balance,
             "Calculate LP Value": self.calculate_lp_value,
-            
             # Farming/Staking
             "Stake LP Tokens": self.stake_lp_tokens,
             "Unstake LP Tokens": self.unstake_lp_tokens,
             "Claim Farm Rewards": self.claim_farm_rewards,
             "Get Farm Info": self.get_farm_info,
             "Get User Farm Info": self.get_user_farm_info,
-            
             # Authority Management
             "Revoke Pool Authority": self.revoke_pool_authority,
             "Burn and Earn": self.burn_and_earn,
             "Set Pool Authority": self.set_pool_authority,
-            
             # Analytics
             "Get Pool Analytics": self.get_pool_analytics,
             "Get Trading Volume": self.get_trading_volume,
             "Get Pool APR": self.get_pool_apr,
             "Get Pool TVL": self.get_pool_tvl,
-            
             # Advanced Features
             "Create Market Maker Position": self.create_market_maker_position,
             "Close Market Maker Position": self.close_market_maker_position,
@@ -176,7 +188,9 @@ class raydium_integration(Extensions):
         except Exception as e:
             return {"error": str(e)}
 
-    async def _fetch_trade_api(self, endpoint: str, data: Dict = None, method: str = "GET") -> Dict:
+    async def _fetch_trade_api(
+        self, endpoint: str, data: Dict = None, method: str = "GET"
+    ) -> Dict:
         """Fetch data from Raydium Trade API"""
         try:
             url = f"{RAYDIUM_TRADE_API}/{endpoint}"
@@ -190,15 +204,11 @@ class raydium_integration(Extensions):
             return {"error": str(e)}
 
     async def get_swap_quote(
-        self, 
-        input_mint: str, 
-        output_mint: str, 
-        amount: str, 
-        slippage_bps: int = 100
+        self, input_mint: str, output_mint: str, amount: str, slippage_bps: int = 100
     ) -> str:
         """
         Get a swap quote from Raydium
-        
+
         Args:
             input_mint: Input token mint address
             output_mint: Output token mint address
@@ -210,14 +220,14 @@ class raydium_integration(Extensions):
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": slippage_bps
+                "slippageBps": slippage_bps,
             }
-            
+
             quote = await self._fetch_trade_api("compute/swap-base-in", params)
-            
+
             if "error" in quote:
                 return f"Error getting swap quote: {quote['error']}"
-            
+
             return f"""
 Swap Quote:
 - Input: {quote.get('inputAmount', 'N/A')} {input_mint}
@@ -235,11 +245,11 @@ Swap Quote:
         output_mint: str,
         amount: str,
         slippage_bps: int = 100,
-        tx_version: str = "V0"
+        tx_version: str = "V0",
     ) -> str:
         """
         Execute a token swap on Raydium
-        
+
         Args:
             input_mint: Input token mint address
             output_mint: Output token mint address
@@ -249,7 +259,7 @@ Swap Quote:
         """
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             # Get swap quote
             quote_params = {
@@ -257,18 +267,18 @@ Swap Quote:
                 "outputMint": output_mint,
                 "amount": amount,
                 "slippageBps": slippage_bps,
-                "txVersion": tx_version
+                "txVersion": tx_version,
             }
-            
+
             quote = await self._fetch_trade_api("compute/swap-base-in", quote_params)
-            
+
             if "error" in quote:
                 return f"Error getting swap quote: {quote['error']}"
-            
+
             # Get priority fee
             priority_fee = await self._fetch_raydium_api("sdk/priority-fee")
             fee = priority_fee.get("data", {}).get("default", {}).get("h", 25000)
-            
+
             # Build transaction
             tx_params = {
                 "computeUnitPriceMicroLamports": str(fee),
@@ -276,31 +286,33 @@ Swap Quote:
                 "txVersion": tx_version,
                 "wallet": self.wallet_address,
                 "wrapSol": input_mint == str(WSOL_MINT),
-                "unwrapSol": output_mint == str(WSOL_MINT)
+                "unwrapSol": output_mint == str(WSOL_MINT),
             }
-            
-            tx_response = await self._fetch_trade_api("transaction/swap-base-in", tx_params, "POST")
-            
+
+            tx_response = await self._fetch_trade_api(
+                "transaction/swap-base-in", tx_params, "POST"
+            )
+
             if "error" in tx_response:
                 return f"Error building transaction: {tx_response['error']}"
-            
+
             # Deserialize and sign transaction
             tx_data = tx_response["data"][0]["transaction"]
             tx_buf = base64.b64decode(tx_data)
-            
+
             if tx_version == "V0":
                 transaction = VersionedTransaction.deserialize(tx_buf)
                 transaction.sign([self.wallet_keypair])
-                
+
                 # Send transaction
                 response = await self.client.send_transaction(transaction)
                 tx_signature = response.value
             else:
                 # Legacy transaction handling would go here
                 return "Legacy transactions not yet supported"
-            
+
             return f"Swap executed successfully! Transaction signature: {tx_signature}"
-            
+
         except Exception as e:
             return f"Error executing swap: {str(e)}"
 
@@ -308,13 +320,13 @@ Swap Quote:
         """Get current token price from Raydium"""
         try:
             prices = await self._fetch_raydium_api("main/price")
-            
+
             if "error" in prices:
                 return f"Error fetching prices: {prices['error']}"
-            
+
             price = prices.get(token_mint, "Price not found")
             return f"Token {token_mint} price: ${price}"
-            
+
         except Exception as e:
             return f"Error getting token price: {str(e)}"
 
@@ -324,11 +336,11 @@ Swap Quote:
         quote_mint: str,
         fee_tier: int = 2500,  # 0.25%
         initial_price: float = 1.0,
-        tick_spacing: int = 60
+        tick_spacing: int = 60,
     ) -> str:
         """
         Create a Concentrated Liquidity Market Maker (CLMM) pool
-        
+
         Args:
             base_mint: Base token mint address
             quote_mint: Quote token mint address
@@ -338,7 +350,7 @@ Swap Quote:
         """
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             # This is a simplified implementation
             # In practice, you'd need to:
@@ -346,7 +358,7 @@ Swap Quote:
             # 2. Initialize the pool account
             # 3. Set up the tick arrays
             # 4. Fund the pool with initial liquidity
-            
+
             return f"""
 CLMM Pool Creation Initiated:
 - Base Mint: {base_mint}
@@ -367,11 +379,11 @@ Please ensure you have sufficient SOL for transaction fees.
         quote_mint: str,
         base_amount: str,
         quote_amount: str,
-        fee_rate: int = 25  # 0.25%
+        fee_rate: int = 25,  # 0.25%
     ) -> str:
         """
         Create a Constant Product Market Maker (CPMM) pool
-        
+
         Args:
             base_mint: Base token mint address
             quote_mint: Quote token mint address
@@ -381,14 +393,14 @@ Please ensure you have sufficient SOL for transaction fees.
         """
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             # This would involve:
             # 1. Creating the AMM pool account
             # 2. Creating associated token accounts
             # 3. Transferring initial liquidity
             # 4. Initializing the pool
-            
+
             return f"""
 CPMM Pool Creation Initiated:
 - Base Mint: {base_mint} (Amount: {base_amount})
@@ -405,22 +417,22 @@ Pool will be created with K = {float(base_amount) * float(quote_amount)}
         """Get detailed information about a specific pool"""
         try:
             pools = await self._fetch_raydium_api("sdk/liquidity/mainnet.json")
-            
+
             if "error" in pools:
                 return f"Error fetching pool data: {pools['error']}"
-            
+
             # Search in both official and unofficial pools
             all_pools = pools.get("official", []) + pools.get("unOfficial", [])
-            
+
             pool_info = None
             for pool in all_pools:
                 if pool.get("id") == pool_id:
                     pool_info = pool
                     break
-            
+
             if not pool_info:
                 return f"Pool {pool_id} not found"
-            
+
             return f"""
 Pool Information:
 - ID: {pool_info.get('id')}
@@ -436,15 +448,11 @@ Pool Information:
             return f"Error getting pool info: {str(e)}"
 
     async def add_liquidity(
-        self,
-        pool_id: str,
-        base_amount: str,
-        quote_amount: str,
-        slippage: float = 0.01
+        self, pool_id: str, base_amount: str, quote_amount: str, slippage: float = 0.01
     ) -> str:
         """
         Add liquidity to a Raydium pool
-        
+
         Args:
             pool_id: Pool ID to add liquidity to
             base_amount: Amount of base token to add
@@ -453,20 +461,20 @@ Pool Information:
         """
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             # Get pool information
             pool_info = await self.get_pool_info(pool_id)
-            
+
             if "not found" in pool_info:
                 return pool_info
-            
+
             # This would involve:
             # 1. Getting current pool state
             # 2. Calculating optimal amounts
             # 3. Creating add liquidity instruction
             # 4. Sending transaction
-            
+
             return f"""
 Liquidity Addition Initiated:
 - Pool: {pool_id}
@@ -480,14 +488,11 @@ Transaction will be submitted to add liquidity to the pool.
             return f"Error adding liquidity: {str(e)}"
 
     async def remove_liquidity(
-        self,
-        pool_id: str,
-        lp_amount: str,
-        slippage: float = 0.01
+        self, pool_id: str, lp_amount: str, slippage: float = 0.01
     ) -> str:
         """
         Remove liquidity from a Raydium pool
-        
+
         Args:
             pool_id: Pool ID to remove liquidity from
             lp_amount: Amount of LP tokens to burn
@@ -495,7 +500,7 @@ Transaction will be submitted to add liquidity to the pool.
         """
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Liquidity Removal Initiated:
@@ -513,19 +518,19 @@ LP tokens will be burned and underlying assets returned.
         try:
             # Fetch pool data
             pairs = await self._fetch_raydium_api("main/pairs")
-            
+
             if "error" in pairs:
                 return f"Error fetching pair data: {pairs['error']}"
-            
+
             pool_data = None
             for pair in pairs:
                 if pair.get("ammId") == pool_id:
                     pool_data = pair
                     break
-            
+
             if not pool_data:
                 return f"Pool analytics not found for {pool_id}"
-            
+
             return f"""
 Pool Analytics for {pool_id}:
 - Name: {pool_data.get('name', 'Unknown')}
@@ -545,7 +550,7 @@ Pool Analytics for {pool_id}:
         """Stake LP tokens in a Raydium farm"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 LP Token Staking Initiated:
@@ -561,7 +566,7 @@ LP tokens will be staked to earn additional rewards.
         """Claim rewards from a Raydium farm"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Farm Rewards Claim Initiated:
@@ -576,7 +581,7 @@ Pending rewards will be claimed and transferred to your wallet.
         """Revoke authority over a pool (make it immutable)"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Pool Authority Revocation Initiated:
@@ -591,13 +596,13 @@ Once authority is revoked, the pool becomes immutable and cannot be modified.
     async def burn_and_earn(self, pool_id: str) -> str:
         """
         Burn LP tokens while retaining fee earning rights
-        
+
         This is Raydium's proprietary feature that allows projects to
         renounce control over liquidity while maintaining trading fee rights.
         """
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Burn & Earn Initiated:
@@ -613,7 +618,9 @@ This action is IRREVERSIBLE!
         except Exception as e:
             return f"Error initiating burn and earn: {str(e)}"
 
-    async def get_best_route(self, input_mint: str, output_mint: str, amount: str) -> str:
+    async def get_best_route(
+        self, input_mint: str, output_mint: str, amount: str
+    ) -> str:
         """Get the best trading route for a swap"""
         try:
             quote = await self.get_swap_quote(input_mint, output_mint, amount)
@@ -625,40 +632,42 @@ This action is IRREVERSIBLE!
         """Get list of all Raydium pools"""
         try:
             pools = await self._fetch_raydium_api("sdk/liquidity/mainnet.json")
-            
+
             if "error" in pools:
                 return f"Error fetching pools: {pools['error']}"
-            
+
             official_pools = pools.get("official", [])
             unofficial_pools = pools.get("unOfficial", [])
-            
+
             result = f"Official Pools: {len(official_pools)}\n"
             if not official_only:
                 result += f"Unofficial Pools: {len(unofficial_pools)}\n"
-            
+
             result += f"Total Pools: {len(official_pools) + (0 if official_only else len(unofficial_pools))}"
-            
+
             return result
         except Exception as e:
             return f"Error getting pool list: {str(e)}"
 
-    async def get_lp_token_balance(self, pool_id: str, wallet_address: str = None) -> str:
+    async def get_lp_token_balance(
+        self, pool_id: str, wallet_address: str = None
+    ) -> str:
         """Get LP token balance for a specific pool"""
         if wallet_address is None:
             wallet_address = self.wallet_address
-        
+
         if not wallet_address:
             return "No wallet address available"
-        
+
         try:
             # Get pool info to find LP mint
             pool_info = await self.get_pool_info(pool_id)
-            
+
             # In a real implementation, you would:
             # 1. Extract LP mint from pool info
             # 2. Get token account balance for LP mint
             # 3. Return the balance
-            
+
             return f"LP token balance for pool {pool_id}: [Implementation needed]"
         except Exception as e:
             return f"Error getting LP token balance: {str(e)}"
@@ -668,12 +677,12 @@ This action is IRREVERSIBLE!
         try:
             # Get pool analytics for price information
             analytics = await self.get_pool_analytics(pool_id)
-            
+
             # In a real implementation, you would:
             # 1. Get current pool reserves
             # 2. Calculate LP token share
             # 3. Calculate USD value based on token prices
-            
+
             return f"LP token value calculation for {lp_amount} tokens: [Implementation needed]"
         except Exception as e:
             return f"Error calculating LP value: {str(e)}"
@@ -682,25 +691,25 @@ This action is IRREVERSIBLE!
         """Get detailed information about a farm"""
         try:
             farms = await self._fetch_raydium_api("sdk/farm/mainnet.json")
-            
+
             if "error" in farms:
                 return f"Error fetching farm data: {farms['error']}"
-            
+
             # Search through all farm categories
             all_farms = []
             for category in ["stake", "raydium", "fusion", "ecosystem"]:
                 if category in farms:
                     all_farms.extend(farms[category])
-            
+
             farm_info = None
             for farm in all_farms:
                 if farm.get("id") == farm_id:
                     farm_info = farm
                     break
-            
+
             if not farm_info:
                 return f"Farm {farm_id} not found"
-            
+
             return f"""
 Farm Information:
 - ID: {farm_info.get('id')}
@@ -720,16 +729,16 @@ Farm Information:
         """Get user-specific farm information"""
         if wallet_address is None:
             wallet_address = self.wallet_address
-        
+
         if not wallet_address:
             return "No wallet address available"
-        
+
         try:
             # In a real implementation, you would:
             # 1. Get user's staked amount
             # 2. Calculate pending rewards
             # 3. Get reward history
-            
+
             return f"""
 User Farm Information:
 - Farm ID: {farm_id}
@@ -745,7 +754,7 @@ User Farm Information:
         """Unstake LP tokens from a Raydium farm"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 LP Token Unstaking Initiated:
@@ -762,7 +771,7 @@ Any pending rewards will also be claimed.
         """Set new authority for a pool"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Pool Authority Change Initiated:
@@ -779,10 +788,10 @@ This action transfers control of the pool.
         """Get trading volume for a specific pool"""
         try:
             analytics = await self.get_pool_analytics(pool_id)
-            
+
             if "not found" in analytics:
                 return analytics
-            
+
             # Extract volume based on timeframe
             if timeframe == "24h":
                 return f"24h Trading Volume: {analytics}"
@@ -790,7 +799,7 @@ This action transfers control of the pool.
                 return f"7d Trading Volume: {analytics}"
             else:
                 return f"Volume data for {timeframe}: {analytics}"
-                
+
         except Exception as e:
             return f"Error getting trading volume: {str(e)}"
 
@@ -798,19 +807,19 @@ This action transfers control of the pool.
         """Get APR information for a pool"""
         try:
             pairs = await self._fetch_raydium_api("main/pairs")
-            
+
             if "error" in pairs:
                 return f"Error fetching APR data: {pairs['error']}"
-            
+
             pool_data = None
             for pair in pairs:
                 if pair.get("ammId") == pool_id:
                     pool_data = pair
                     break
-            
+
             if not pool_data:
                 return f"APR data not found for pool {pool_id}"
-            
+
             return f"""
 Pool APR Information:
 - 24h APR: {pool_data.get('apr24h', 'N/A')}%
@@ -824,19 +833,19 @@ Pool APR Information:
         """Get Total Value Locked (TVL) for a pool"""
         try:
             pairs = await self._fetch_raydium_api("main/pairs")
-            
+
             if "error" in pairs:
                 return f"Error fetching TVL data: {pairs['error']}"
-            
+
             pool_data = None
             for pair in pairs:
                 if pair.get("ammId") == pool_id:
                     pool_data = pair
                     break
-            
+
             if not pool_data:
                 return f"TVL data not found for pool {pool_id}"
-            
+
             return f"""
 Pool TVL Information:
 - Total Liquidity: ${pool_data.get('liquidity', 'N/A'):,.2f}
@@ -853,12 +862,12 @@ Pool TVL Information:
         lower_price: float,
         upper_price: float,
         base_amount: str,
-        quote_amount: str
+        quote_amount: str,
     ) -> str:
         """Create a concentrated liquidity position for market making"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Market Maker Position Creation:
@@ -877,7 +886,7 @@ that earns fees when trades occur within the specified range.
         """Close a market maker position and collect fees"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Market Maker Position Closure:
@@ -906,11 +915,13 @@ Position Information:
         except Exception as e:
             return f"Error getting position info: {str(e)}"
 
-    async def rebalance_position(self, position_id: str, new_lower_price: float, new_upper_price: float) -> str:
+    async def rebalance_position(
+        self, position_id: str, new_lower_price: float, new_upper_price: float
+    ) -> str:
         """Rebalance a market maker position to a new price range"""
         if not self.wallet_keypair:
             return "No wallet keypair available. Please set SOLANA_WALLET_API_KEY."
-        
+
         try:
             return f"""
 Position Rebalancing:
@@ -929,22 +940,22 @@ This will:
         """Get all the keys needed to interact with a pool"""
         try:
             pools = await self._fetch_raydium_api("sdk/liquidity/mainnet.json")
-            
+
             if "error" in pools:
                 return f"Error fetching pool keys: {pools['error']}"
-            
+
             # Search in both official and unofficial pools
             all_pools = pools.get("official", []) + pools.get("unOfficial", [])
-            
+
             pool_keys = None
             for pool in all_pools:
                 if pool.get("id") == pool_id:
                     pool_keys = pool
                     break
-            
+
             if not pool_keys:
                 return f"Pool keys not found for {pool_id}"
-            
+
             return f"""
 Pool Keys for {pool_id}:
 - Program ID: {pool_keys.get('programId')}
@@ -964,4 +975,4 @@ Pool Keys for {pool_id}:
 - Market Event Queue: {pool_keys.get('marketEventQueue')}
 """
         except Exception as e:
-            return f"Error getting pool keys: {str(e)}" 
+            return f"Error getting pool keys: {str(e)}"
