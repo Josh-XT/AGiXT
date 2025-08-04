@@ -138,8 +138,10 @@ class Interactions:
                 )
                 # Default to injecting from collection 0 if no specific collection is specified
                 # This provides additional memories from collection 0 beyond what agent_memory provides
-                collection_id = kwargs.get("inject_memories_from_collection_number", "0")
-                
+                collection_id = kwargs.get(
+                    "inject_memories_from_collection_number", "0"
+                )
+
                 # Always inject additional memories from the specified collection
                 # Even if it's collection 0, as this may provide different or additional results
                 try:
