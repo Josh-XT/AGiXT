@@ -393,12 +393,29 @@ class Extensions:
                 chain_name=command_name, user_input="", **args
             )
         else:  # It's a regular command
-            return await getattr(
-                module(
-                    **injection_variables,
-                ),
-                command_function.__name__,
-            )(**args)
+            extension_instance = None
+            try:
+                extension_instance = module(**injection_variables)
+                result = await getattr(extension_instance, command_function.__name__)(
+                    **args
+                )
+                return result
+            finally:
+                # Ensure cleanup for extensions that support it
+                if extension_instance and hasattr(extension_instance, "ensure_cleanup"):
+                    try:
+                        await extension_instance.ensure_cleanup()
+                    except Exception as e:
+                        logging.error(
+                            f"Error during extension cleanup for {command_name}: {e}"
+                        )
+                elif extension_instance and hasattr(extension_instance, "__aexit__"):
+                    try:
+                        await extension_instance.__aexit__(None, None, None)
+                    except Exception as e:
+                        logging.error(
+                            f"Error during extension async context cleanup for {command_name}: {e}"
+                        )
 
     def get_command_params(self, func):
         params = {}

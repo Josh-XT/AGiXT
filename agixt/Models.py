@@ -565,6 +565,14 @@ class ChatCompletionResponse(BaseModel):
     usage: Dict[str, int]
 
 
+class ChatCompletionChunk(BaseModel):
+    id: str
+    object: str = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: List[Dict[str, Any]]
+
+
 class EmbeddingData(BaseModel):
     embedding: List[float]
     index: int

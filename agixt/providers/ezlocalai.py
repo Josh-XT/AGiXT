@@ -85,15 +85,14 @@ class EzlocalaiProvider:
                 openai.base_url = self.API_URI
                 break
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
-        if not self.API_URI.endswith("/"):
-            self.API_URI += "/"
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], stream: bool = False
+    ):
+        if not self.AI_MODEL:
+            self.AI_MODEL = "default"
+        max_tokens = int(self.MAX_TOKENS) if tokens == 0 else tokens
         openai.base_url = self.API_URI
         openai.api_key = self.EZLOCALAI_API_KEY
-        openai.api_type = "openai"
-        max_tokens = (
-            int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
-        )
         messages = []
         if len(images) > 0:
             messages.append(
@@ -131,31 +130,36 @@ class EzlocalaiProvider:
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
                 n=1,
-                stream=False,
+                stream=stream,
             )
-            if not isinstance(response, str):
-                response = response.choices[0].message.content
-            if "User:" in response:
-                response = response.split("User:")[0]
-            response = response.lstrip()
-            response.replace("<s>", "").replace("</s>", "")
-            if "http://localhost:8091/outputs/" in response:
-                response = response.replace(
-                    "http://localhost:8091/outputs/", self.OUTPUT_URL
-                )
-            if self.OUTPUT_URL in response:
-                urls = re.findall(f"{re.escape(self.OUTPUT_URL)}[^\"' ]+", response)
-                urls = urls[0].split("\n\n")
-                for url in urls:
-                    file_type = url.split(".")[-1]
-                    if file_type == "wav":
-                        response = response.replace(
-                            url,
-                            f'<audio controls><source src="{url}" type="audio/wav"></audio>',
-                        )
-                    else:
-                        response = response.replace(url, f"![{file_type}]({url})")
-            return response
+
+            if stream:
+                # Return the stream object for the caller to handle
+                return response
+            else:
+                if not isinstance(response, str):
+                    response = response.choices[0].message.content
+                if "User:" in response:
+                    response = response.split("User:")[0]
+                response = response.lstrip()
+                response.replace("<s>", "").replace("</s>", "")
+                if "http://localhost:8091/outputs/" in response:
+                    response = response.replace(
+                        "http://localhost:8091/outputs/", self.OUTPUT_URL
+                    )
+                if self.OUTPUT_URL in response:
+                    urls = re.findall(f"{re.escape(self.OUTPUT_URL)}[^\"' ]+", response)
+                    urls = urls[0].split("\n\n")
+                    for url in urls:
+                        file_type = url.split(".")[-1]
+                        if file_type == "wav":
+                            response = response.replace(
+                                url,
+                                f'<audio controls><source src="{url}" type="audio/wav"></audio>',
+                            )
+                        else:
+                            response = response.replace(url, f"![{file_type}]({url})")
+                return response
         except Exception as e:
             self.failure_count += 1
             logging.info(f"ezLocalai API Error: {e}")

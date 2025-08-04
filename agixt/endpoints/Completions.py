@@ -1,6 +1,7 @@
 import time
 import uuid
 from fastapi import APIRouter, Depends, Header
+from fastapi.responses import StreamingResponse
 from Globals import get_tokens
 from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
@@ -15,6 +16,7 @@ from Models import (
     TextToSpeech,
     ImageCreation,
     ChatCompletionResponse,
+    ChatCompletionChunk,
     EmbeddingResponse,
     AudioTranscriptionResponse,
     AudioTranslationResponse,
@@ -22,6 +24,8 @@ from Models import (
     ImageGenerationResponse,
 )
 from XT import AGiXT
+import json
+import asyncio
 
 app = APIRouter()
 
@@ -33,8 +37,7 @@ app = APIRouter()
     tags=["Completions"],
     dependencies=[Depends(verify_api_key)],
     summary="Create Chat Completion",
-    description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format.",
-    response_model=ChatCompletionResponse,
+    description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format. Supports streaming responses when stream=true.",
 )
 async def chat_completion(
     prompt: ChatCompletions,
@@ -69,7 +72,20 @@ async def chat_completion(
         api_key=authorization,
         conversation_name=conversation_name,
     )
-    return await agixt.chat_completions(prompt=prompt)
+
+    # Check if streaming is requested
+    if prompt.stream:
+        return StreamingResponse(
+            agixt.chat_completions_stream(prompt=prompt),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Content-Type": "text/plain; charset=utf-8",
+            },
+        )
+    else:
+        return await agixt.chat_completions(prompt=prompt)
 
 
 # Embedding endpoint

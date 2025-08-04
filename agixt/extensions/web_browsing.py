@@ -113,6 +113,42 @@ class web_browsing(Extensions):
         self.context = None
         self.page = None
         self.popup = None
+        self._cleanup_attempted = False  # Track cleanup attempts
+
+    def __del__(self):
+        """Destructor to ensure cleanup on garbage collection"""
+        try:
+            if (
+                not self._cleanup_attempted
+                and hasattr(self, "playwright")
+                and self.playwright
+            ):
+                # Create new event loop if necessary for cleanup
+                import asyncio
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is running, schedule cleanup for later
+                        loop.create_task(self._sync_cleanup())
+                    else:
+                        loop.run_until_complete(self._sync_cleanup())
+                except RuntimeError:
+                    # No event loop available, create one
+                    asyncio.run(self._sync_cleanup())
+        except Exception as e:
+            # Don't raise exceptions in destructor
+            try:
+                logging.error(f"Error in web_browsing destructor: {e}")
+            except:
+                pass  # Logging may not be available during shutdown
+
+    async def _sync_cleanup(self):
+        """Internal cleanup method for destructor"""
+        try:
+            await self.ensure_cleanup()
+        except Exception:
+            pass  # Ignore exceptions during destructor cleanup
 
     async def websearch(
         self,
@@ -159,18 +195,36 @@ class web_browsing(Extensions):
 
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
-        if self.page is None:
-            logging.info("Initializing Playwright browser...")
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(headless=headless)
-            self.context = await self.browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-            )
-            self.page = await self.context.new_page()
-            logging.info("Playwright browser initialized.")
-        elif self.page.is_closed():
-            logging.info("Page was closed, creating a new one.")
-            self.page = await self.context.new_page()
+        try:
+            if self.page is None:
+                logging.info("Initializing Playwright browser...")
+                self.playwright = await async_playwright().start()
+                self.browser = await self.playwright.chromium.launch(
+                    headless=headless,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                    ],  # Improve stability
+                )
+                self.context = await self.browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                )
+                self.page = await self.context.new_page()
+
+                # Set reasonable timeouts to prevent hanging
+                self.page.set_default_timeout(30000)  # 30 seconds
+                self.page.set_default_navigation_timeout(60000)  # 60 seconds
+
+                logging.info("Playwright browser initialized.")
+            elif self.page.is_closed():
+                logging.info("Page was closed, creating a new one.")
+                self.page = await self.context.new_page()
+                self.page.set_default_timeout(30000)
+                self.page.set_default_navigation_timeout(60000)
+        except Exception as e:
+            logging.error(f"Error initializing browser: {e}")
+            await self.ensure_cleanup()
+            raise
 
     def get_text_safely(self, element) -> str:
         """
@@ -2906,3 +2960,38 @@ Analyze the attached screenshot.
                     conversation_name=self.conversation_name,
                 )
             return error_msg
+
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - ensure cleanup"""
+        await self.close_browser()
+
+    async def ensure_cleanup(self):
+        """Ensure all resources are cleaned up"""
+        if self._cleanup_attempted:
+            return  # Already cleaned up
+
+        self._cleanup_attempted = True
+        try:
+            if hasattr(self, "page") and self.page and not self.page.is_closed():
+                await self.page.close()
+            if hasattr(self, "context") and self.context:
+                await self.context.close()
+            if (
+                hasattr(self, "browser")
+                and self.browser
+                and self.browser.is_connected()
+            ):
+                await self.browser.close()
+            if hasattr(self, "playwright") and self.playwright:
+                await self.playwright.stop()
+        except Exception as e:
+            logging.error(f"Error during web browsing cleanup: {e}")
+        finally:
+            self.page = None
+            self.context = None
+            self.browser = None
+            self.playwright = None

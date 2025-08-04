@@ -79,7 +79,9 @@ class OpenaiProvider:
                 openai.base_url = self.API_URI
                 break
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], stream: bool = False
+    ):
         if images != []:
             if "vision" not in self.AI_MODEL and self.AI_MODEL != "gpt-4o":
                 self.AI_MODEL = "gpt-4o"
@@ -133,9 +135,14 @@ class OpenaiProvider:
                 max_tokens=4096,
                 top_p=float(self.AI_TOP_P),
                 n=1,
-                stream=False,
+                stream=stream,
             )
-            return response.choices[0].message.content
+
+            if stream:
+                # Return the stream object for the caller to handle
+                return response
+            else:
+                return response.choices[0].message.content
         except Exception as e:
             logging.info(f"OpenAI API Error: {e}")
             self.failures += 1
@@ -145,7 +152,7 @@ class OpenaiProvider:
                 self.rotate_uri()
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
-                return await self.inference(prompt=prompt, tokens=tokens)
+                return await self.inference(prompt=prompt, tokens=tokens, stream=stream)
             return str(response)
 
     async def transcribe_audio(self, audio_path: str):

@@ -73,8 +73,9 @@ class TaskMonitor:
             logging.error("Worker ID not initialized!")
             return []
 
-        session = get_session()
+        session = None
         try:
+            session = get_session()
             now = datetime.now(tz=ZoneInfo(getenv("TZ", "UTC")))
             all_tasks = (
                 session.query(TaskItem)
@@ -92,12 +93,22 @@ class TaskMonitor:
             ]
 
             return my_tasks
+        except Exception as e:
+            logging.error(f"Error getting pending tasks: {e}")
+            return []
         finally:
-            session.close()
+            if session:
+                try:
+                    session.close()
+                except Exception as close_e:
+                    logging.error(
+                        f"Error closing session in get_all_pending_tasks: {close_e}"
+                    )
 
     async def process_tasks(self):
         """Process tasks assigned to this worker"""
         while self.running:
+            session = None
             try:
                 # Add initial delay based on worker ID
                 if not hasattr(self, "_initial_delay_done"):
@@ -109,36 +120,57 @@ class TaskMonitor:
                     pending_tasks = await self.get_all_pending_tasks()
 
                     for pending_task in pending_tasks:
+                        task_session = None
                         try:
-                            session = get_session()
-                            try:
-                                if not pending_task.user_id:
-                                    logging.error(
-                                        f"Task {pending_task.id} has no associated user"
-                                    )
-                                    session.delete(pending_task)
-                                    session.commit()
-                                    continue
-                                task_manager = Task(
-                                    token=impersonate_user(user_id=pending_task.user_id)
+                            task_session = get_session()
+                            if not pending_task.user_id:
+                                logging.error(
+                                    f"Task {pending_task.id} has no associated user"
                                 )
+                                task_session.delete(pending_task)
+                                task_session.commit()
+                                continue
 
-                                try:
-                                    await asyncio.wait_for(
-                                        task_manager.execute_pending_tasks(),
-                                        timeout=300,
-                                    )
-                                except asyncio.TimeoutError:
-                                    logging.error(f"Task {pending_task.id} timed out")
-                                    continue
-                            finally:
-                                session.close()
+                            task_manager = Task(
+                                token=impersonate_user(user_id=pending_task.user_id)
+                            )
+
+                            # Execute task with timeout and proper resource management
+                            try:
+                                await asyncio.wait_for(
+                                    task_manager.execute_pending_tasks(),
+                                    timeout=300,
+                                )
+                            except asyncio.TimeoutError:
+                                logging.error(
+                                    f"Task {pending_task.id} timed out after 5 minutes"
+                                )
+                                # Mark task as failed or reschedule
+                                pending_task.completed = (
+                                    True  # Mark as completed to prevent retry loops
+                                )
+                                task_session.commit()
+                                continue
+                            except Exception as task_e:
+                                logging.error(
+                                    f"Task execution failed for {pending_task.id}: {str(task_e)}"
+                                )
+                                # Don't let task execution errors crash the worker
+                                continue
 
                         except Exception as e:
                             logging.error(
                                 f"Error processing task {pending_task.id}: {str(e)}"
                             )
                             continue
+                        finally:
+                            if task_session:
+                                try:
+                                    task_session.close()
+                                except Exception as close_e:
+                                    logging.error(
+                                        f"Error closing task session: {close_e}"
+                                    )
 
                 # Add randomized delay between checks (55-65 seconds)
                 check_interval = 60 + random.uniform(-5, 5)

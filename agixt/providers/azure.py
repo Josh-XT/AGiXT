@@ -40,7 +40,9 @@ class AzureProvider:
     def services():
         return ["llm", "vision"]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], stream: bool = False
+    ):
         if not self.AZURE_OPENAI_ENDPOINT.endswith("/"):
             self.AZURE_OPENAI_ENDPOINT += "/"
         openai = AzureOpenAI(
@@ -91,9 +93,14 @@ class AzureProvider:
                 max_tokens=4096,
                 top_p=float(self.AI_TOP_P),
                 n=1,
-                stream=False,
+                stream=stream,
             )
-            return response.choices[0].message.content
+
+            if stream:
+                # Return the stream object for the caller to handle
+                return response
+            else:
+                return response.choices[0].message.content
         except Exception as e:
             logging.warning(f"Azure OpenAI API Error: {e}")
             self.failures += 1
@@ -101,5 +108,5 @@ class AzureProvider:
                 raise Exception(f"Azure OpenAI API Error: Too many failures. {e}")
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
-                return await self.inference(prompt=prompt, tokens=tokens)
+                return await self.inference(prompt=prompt, tokens=tokens, stream=stream)
             return str(response)

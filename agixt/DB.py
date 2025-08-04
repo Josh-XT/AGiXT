@@ -44,19 +44,86 @@ try:
         DATABASE_URI = f"postgresql://{LOGIN_URI}"
     else:
         DATABASE_URI = f"sqlite:///{DATABASE_NAME}.db"
-    engine = create_engine(DATABASE_URI, pool_size=40, max_overflow=-1)
+
+    from resource_config import (
+        DB_POOL_SIZE,
+        DB_MAX_OVERFLOW,
+        DB_POOL_TIMEOUT,
+        DB_POOL_RECYCLE,
+    )
+
+    engine = create_engine(
+        DATABASE_URI,
+        pool_size=DB_POOL_SIZE,
+        max_overflow=DB_MAX_OVERFLOW,
+        pool_timeout=DB_POOL_TIMEOUT,
+        pool_recycle=DB_POOL_RECYCLE,
+        pool_pre_ping=True,  # Verify connections before use
+        echo=False,  # Set to True for SQL debugging
+    )
+
+    # Test connection immediately
     connection = engine.connect()
+    connection.close()  # Close test connection
     Base = declarative_base()
+
+    logging.info(
+        f"Database connection established successfully. Pool size: {DB_POOL_SIZE}, Max overflow: {DB_MAX_OVERFLOW}"
+    )
+
 except Exception as e:
     logging.error(f"Error connecting to database: {e}")
     Base = None
     engine = None
 
 
+from contextlib import contextmanager
+
+
 def get_session():
+    from ResourceMonitor import resource_monitor
+
     Session = sessionmaker(bind=engine, autoflush=False)
     session = Session()
+    # Register session with resource monitor for tracking
+    resource_monitor.register_db_session(session)
+
+    # Track session for debugging if enabled
+    if getenv("LOG_RESOURCE_USAGE", "false").lower() == "true":
+        try:
+            from session_tracker import session_tracker
+
+            session_tracker.track_session(session)
+
+            # Monkey patch the close method to automatically untrack
+            original_close = session.close
+
+            def tracked_close():
+                session_tracker.untrack_session(session)
+                return original_close()
+
+            session.close = tracked_close
+
+        except ImportError:
+            pass  # session_tracker not available
+
     return session
+
+
+@contextmanager
+def get_db_session():
+    """Context manager for database sessions that ensures proper cleanup"""
+    session = get_session()
+    try:
+        yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        try:
+            session.close()
+        except Exception as e:
+            logging.error(f"Error closing database session: {e}")
 
 
 def get_new_id():
@@ -519,9 +586,12 @@ class ChainStep(Base):
 
     def add_response(self, content):
         session = get_session()
-        response = ChainStepResponse(content=content, chain_step=self)
-        session.add(response)
-        session.commit()
+        try:
+            response = ChainStepResponse(content=content, chain_step=self)
+            session.add(response)
+            session.commit()
+        finally:
+            session.close()
 
 
 class ChainStepArgument(Base):
