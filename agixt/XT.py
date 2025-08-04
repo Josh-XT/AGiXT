@@ -2229,9 +2229,9 @@ class AGiXT:
             import inspect
 
             provider_stream_supported = (
-                hasattr(self.agent.provider, "inference")
+                hasattr(self.agent.PROVIDER, "inference")
                 and "stream"
-                in inspect.signature(self.agent.provider.inference).parameters
+                in inspect.signature(self.agent.PROVIDER.inference).parameters
             )
 
             if provider_stream_supported and mode == "prompt":
@@ -2249,7 +2249,7 @@ class AGiXT:
                 )
 
                 # Use real provider streaming
-                stream_response = await self.agent.provider.inference(
+                stream_response = await self.agent.PROVIDER.inference(
                     prompt=formatted_prompt, stream=True
                 )
 
