@@ -73,8 +73,9 @@ class TaskMonitor:
             logging.error("Worker ID not initialized!")
             return []
 
-        session = get_session()
+        session = None
         try:
+            session = get_session()
             now = datetime.now(tz=ZoneInfo(getenv("TZ", "UTC")))
             all_tasks = (
                 session.query(TaskItem)
@@ -92,8 +93,17 @@ class TaskMonitor:
             ]
 
             return my_tasks
+        except Exception as e:
+            logging.error(f"Error getting pending tasks: {e}")
+            return []
         finally:
-            session.close()
+            if session:
+                try:
+                    session.close()
+                except Exception as close_e:
+                    logging.error(
+                        f"Error closing session in get_all_pending_tasks: {close_e}"
+                    )
 
     async def process_tasks(self):
         """Process tasks assigned to this worker"""
@@ -110,15 +120,15 @@ class TaskMonitor:
                     pending_tasks = await self.get_all_pending_tasks()
 
                     for pending_task in pending_tasks:
-                        session = None
+                        task_session = None
                         try:
-                            session = get_session()
+                            task_session = get_session()
                             if not pending_task.user_id:
                                 logging.error(
                                     f"Task {pending_task.id} has no associated user"
                                 )
-                                session.delete(pending_task)
-                                session.commit()
+                                task_session.delete(pending_task)
+                                task_session.commit()
                                 continue
 
                             task_manager = Task(
@@ -139,7 +149,7 @@ class TaskMonitor:
                                 pending_task.completed = (
                                     True  # Mark as completed to prevent retry loops
                                 )
-                                session.commit()
+                                task_session.commit()
                                 continue
                             except Exception as task_e:
                                 logging.error(
@@ -154,11 +164,13 @@ class TaskMonitor:
                             )
                             continue
                         finally:
-                            if session:
+                            if task_session:
                                 try:
-                                    session.close()
+                                    task_session.close()
                                 except Exception as close_e:
-                                    logging.error(f"Error closing session: {close_e}")
+                                    logging.error(
+                                        f"Error closing task session: {close_e}"
+                                    )
 
                 # Add randomized delay between checks (55-65 seconds)
                 check_interval = 60 + random.uniform(-5, 5)
@@ -169,15 +181,6 @@ class TaskMonitor:
                     f"Error in main task loop (Worker {self.worker_id}): {str(e)}"
                 )
                 await asyncio.sleep(60)
-            finally:
-                # Ensure session is always closed
-                if session:
-                    try:
-                        session.close()
-                    except Exception as close_e:
-                        logging.error(
-                            f"Error closing session in finally block: {close_e}"
-                        )
 
     async def start(self):
         """Start the task monitoring service"""

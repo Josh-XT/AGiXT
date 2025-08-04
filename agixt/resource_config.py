@@ -6,8 +6,8 @@ TASK_CHECK_INTERVAL = 60  # Check for tasks every 60 seconds
 MAX_CONCURRENT_TASKS = 5  # Maximum concurrent tasks per worker
 
 # Database Settings
-DB_POOL_SIZE = 10
-DB_MAX_OVERFLOW = 20
+DB_POOL_SIZE = 20  # Increased from 10 but still controlled
+DB_MAX_OVERFLOW = 10  # Limited from 20 to prevent exhaustion
 DB_POOL_TIMEOUT = 30
 DB_POOL_RECYCLE = 3600  # 1 hour
 
@@ -26,6 +26,10 @@ MAX_SUBSCRIPTION_DURATION = 3600  # 1 hour
 
 # Memory Management
 MAX_MEMORY_USAGE_MB = 2048  # 2GB per worker
+
+# Resource Monitoring
+RESOURCE_CLEANUP_INTERVAL = 300  # 5 minutes
+MAX_TASK_DURATION = 1800  # 30 minutes max task duration
 CLEANUP_INTERVAL = 600  # 10 minutes
 
 # Logging

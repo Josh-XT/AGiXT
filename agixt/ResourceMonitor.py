@@ -59,6 +59,42 @@ class ResourceMonitor:
         """Cleanup dead session reference"""
         self.db_sessions.discard(ref)
 
+    async def check_database_health(self):
+        """Check database connection pool health"""
+        try:
+            from DB import engine
+
+            pool = engine.pool
+
+            # Get pool status
+            pool_size = pool.size()
+            checked_in = pool.checkedin()
+            checked_out = pool.checkedout()
+            overflow = pool.overflow()
+
+            # Log pool statistics if enabled
+            if getenv("LOG_RESOURCE_USAGE", "false").lower() == "true":
+                self.logger.info(
+                    f"DB Pool status - Size: {pool_size}, "
+                    f"Checked in: {checked_in}, "
+                    f"Checked out: {checked_out}, "
+                    f"Overflow: {overflow}"
+                )
+
+            # Check if we're approaching pool exhaustion
+            if checked_out >= (pool_size * 0.8):  # 80% of pool used
+                self.logger.warning(
+                    f"Database connection pool nearly exhausted: {checked_out}/{pool_size} connections in use"
+                )
+                await self.emergency_cleanup()
+                return True
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking database health: {e}")
+            return False
+
     async def check_memory_usage(self):
         """Check if memory usage is too high"""
         if not PSUTIL_AVAILABLE:
@@ -125,12 +161,30 @@ class ResourceMonitor:
         for ref in dead_browsers:
             self.browser_instances.discard(ref)
 
+        # Clean up database sessions - force close any hanging sessions
         dead_sessions = [ref for ref in self.db_sessions if ref() is None]
         for ref in dead_sessions:
             self.db_sessions.discard(ref)
 
+        # Force close any remaining alive sessions that might be hanging
+        alive_sessions = [ref for ref in self.db_sessions if ref() is not None]
+        session_cleanup_count = 0
+        for ref in alive_sessions:
+            session = ref()
+            if session:
+                try:
+                    session.close()
+                    session_cleanup_count += 1
+                except Exception as e:
+                    self.logger.error(f"Error force-closing database session: {e}")
+
+        if session_cleanup_count > 0:
+            self.logger.warning(
+                f"Force-closed {session_cleanup_count} hanging database sessions"
+            )
+
         self.logger.info(
-            f"Emergency cleanup completed. Cancelled {cancelled_count} tasks."
+            f"Emergency cleanup completed. Cancelled {cancelled_count} tasks, cleaned {session_cleanup_count} sessions."
         )
 
     async def periodic_cleanup(self):
@@ -142,6 +196,21 @@ class ResourceMonitor:
                 # Check memory usage
                 await self.check_memory_usage()
 
+                # Check database connection pool health
+                await self.check_database_health()
+
+                # Log session tracker stats if enabled
+                if getenv("LOG_RESOURCE_USAGE", "false").lower() == "true":
+                    try:
+                        from session_tracker import session_tracker
+
+                        stats = session_tracker.get_stats()
+                        if stats["active_sessions"] > 0:
+                            self.logger.info(f"Session tracker stats: {stats}")
+                            session_tracker.log_active_sessions()
+                    except ImportError:
+                        pass  # session_tracker not available
+
                 # Check long-running tasks
                 await self.check_long_running_tasks()
 
@@ -150,6 +219,13 @@ class ResourceMonitor:
 
                 # Log resource status
                 if getenv("LOG_RESOURCE_USAGE", "false").lower() == "true":
+                    active_db_sessions = len(
+                        [ref for ref in self.db_sessions if ref() is not None]
+                    )
+                    active_browser_instances = len(
+                        [ref for ref in self.browser_instances if ref() is not None]
+                    )
+
                     if PSUTIL_AVAILABLE:
                         process = psutil.Process()
                         memory_mb = process.memory_info().rss / 1024 / 1024
@@ -157,11 +233,15 @@ class ResourceMonitor:
                         self.logger.info(
                             f"Resource status - Memory: {memory_mb:.1f}MB, "
                             f"CPU: {cpu_percent:.1f}%, "
-                            f"Active tasks: {len(self.active_tasks)}"
+                            f"Active tasks: {len(self.active_tasks)}, "
+                            f"DB sessions: {active_db_sessions}, "
+                            f"Browsers: {active_browser_instances}"
                         )
                     else:
                         self.logger.info(
-                            f"Resource status - Active tasks: {len(self.active_tasks)}"
+                            f"Resource status - Active tasks: {len(self.active_tasks)}, "
+                            f"DB sessions: {active_db_sessions}, "
+                            f"Browsers: {active_browser_instances}"
                         )
 
             except Exception as e:
