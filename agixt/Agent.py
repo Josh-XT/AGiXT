@@ -692,28 +692,51 @@ class Agent:
         return config
 
     async def inference(
-        self, prompt: str, images: list = [], use_smartest: bool = False
+        self,
+        prompt: str,
+        images: list = [],
+        use_smartest: bool = False,
+        stream: bool = False,
     ):
         if not prompt:
             return ""
         input_tokens = get_tokens(prompt)
         provider_name = self.AGENT_CONFIG["settings"]["provider"]
         try:
-            if provider_name == "rotation" and use_smartest == True:
-                answer = await self.PROVIDER.inference(
-                    prompt=prompt, tokens=input_tokens, images=images, use_smartest=True
-                )
+            if stream:
+                # For streaming, return the stream object for the caller to handle
+                if provider_name == "rotation" and use_smartest == True:
+                    return await self.PROVIDER.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        use_smartest=True,
+                        stream=True,
+                    )
+                else:
+                    return await self.PROVIDER.inference(
+                        prompt=prompt, tokens=input_tokens, images=images, stream=True
+                    )
             else:
-                answer = await self.PROVIDER.inference(
-                    prompt=prompt, tokens=input_tokens, images=images
+                # Non-streaming path
+                if provider_name == "rotation" and use_smartest == True:
+                    answer = await self.PROVIDER.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        use_smartest=True,
+                    )
+                else:
+                    answer = await self.PROVIDER.inference(
+                        prompt=prompt, tokens=input_tokens, images=images
+                    )
+                output_tokens = get_tokens(answer)
+                self.auth.increase_token_counts(
+                    input_tokens=input_tokens, output_tokens=output_tokens
                 )
-            output_tokens = get_tokens(answer)
-            self.auth.increase_token_counts(
-                input_tokens=input_tokens, output_tokens=output_tokens
-            )
-            answer = str(answer).replace("\_", "_")
-            if answer.endswith("\n\n"):
-                answer = answer[:-2]
+                answer = str(answer).replace("\_", "_")
+                if answer.endswith("\n\n"):
+                    answer = answer[:-2]
         except Exception as e:
             logging.error(f"Error in inference: {str(e)}")
             answer = "<answer>Unable to process request.</answer>"

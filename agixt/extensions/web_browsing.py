@@ -118,9 +118,14 @@ class web_browsing(Extensions):
     def __del__(self):
         """Destructor to ensure cleanup on garbage collection"""
         try:
-            if not self._cleanup_attempted and hasattr(self, 'playwright') and self.playwright:
+            if (
+                not self._cleanup_attempted
+                and hasattr(self, "playwright")
+                and self.playwright
+            ):
                 # Create new event loop if necessary for cleanup
                 import asyncio
+
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
@@ -2968,7 +2973,7 @@ Analyze the attached screenshot.
         """Ensure all resources are cleaned up"""
         if self._cleanup_attempted:
             return  # Already cleaned up
-        
+
         self._cleanup_attempted = True
         try:
             if hasattr(self, "page") and self.page and not self.page.is_closed():
