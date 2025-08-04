@@ -586,9 +586,12 @@ class ChainStep(Base):
 
     def add_response(self, content):
         session = get_session()
-        response = ChainStepResponse(content=content, chain_step=self)
-        session.add(response)
-        session.commit()
+        try:
+            response = ChainStepResponse(content=content, chain_step=self)
+            session.add(response)
+            session.commit()
+        finally:
+            session.close()
 
 
 class ChainStepArgument(Base):

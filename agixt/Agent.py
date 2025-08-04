@@ -689,6 +689,7 @@ class Agent:
             enabled_commands = [enabled_commands]
         for command in enabled_commands:
             config["commands"][command] = True
+        session.close()
         return config
 
     async def inference(
@@ -1143,6 +1144,7 @@ class Agent:
 
     def get_conversation_tasks(self, conversation_id: str) -> str:
         """Get all tasks assigned to an agent"""
+        session = None
         try:
             session = get_session()
             tasks = (
@@ -1156,7 +1158,6 @@ class Agent:
                 .all()
             )
             if not tasks:
-                session.close()
                 return ""
 
             markdown_tasks = "## The Assistant's Scheduled Tasks\n**The assistant currently has the following tasks scheduled:**\n"
@@ -1167,15 +1168,22 @@ class Agent:
                     f"**Description:** {task.description}\n"
                     f"**Will be completed at:** {string_due_date}\n"
                 )
-            session.close()
             return markdown_tasks
         except Exception as e:
             logging.error(f"Error getting tasks by agent: {str(e)}")
-            session.close()
             return ""
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception as close_e:
+                    logging.error(
+                        f"Error closing session in get_conversation_tasks: {close_e}"
+                    )
 
     def get_all_pending_tasks(self) -> list:
         """Get all tasks assigned to an agent"""
+        session = None
         try:
             session = get_session()
             tasks = (
@@ -1187,11 +1195,18 @@ class Agent:
                 )
                 .all()
             )
-            session.close()
             return tasks
         except Exception as e:
             logging.error(f"Error getting tasks by agent: {str(e)}")
             return []
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception as close_e:
+                    logging.error(
+                        f"Error closing session in get_all_pending_tasks: {close_e}"
+                    )
 
     def get_all_commands_markdown(self):
         command_list = [
