@@ -1298,24 +1298,36 @@ class agixt_actions(Extensions):
             )
             logging.debug(f"LLM response for chain generation: {response}")
 
+            # Extract JSON from the response with improved logic
+            chain_json_str = None
             if "```json" in response:
                 chain_json_str = response.split("```json")[1].split("```")[0].strip()
             elif "```" in response:  # Handle plain ``` block
-                chain_json_str = response.split("```")[1].split("```")[0].strip()
-            else:
-                # Attempt to extract JSON if no markdown block found
+                parts = response.split("```")
+                if len(parts) >= 3:
+                    chain_json_str = parts[1].strip()
+                else:
+                    # Try to find JSON in the response
+                    for part in parts:
+                        if part.strip().startswith("{"):
+                            chain_json_str = part.strip()
+                            break
+
+            # If no code block found, try to extract JSON directly
+            if not chain_json_str:
                 try:
                     start = response.find("{")
                     end = response.rfind("}") + 1
                     if start != -1 and end != -1:
                         chain_json_str = response[start:end]
                     else:
-                        raise ValueError("No JSON object found in the response.")
+                        logging.error(f"No JSON found in response: {response}")
+                        return f"Error: The AI failed to generate the chain structure in the expected format. Response: Unable to process request."
                 except Exception as e:
                     logging.error(
                         f"Failed to extract JSON from LLM response: {response}. Error: {e}"
                     )
-                    return f"Error: The AI failed to generate the chain structure in the expected format. Response: {response}"
+                    return f"Error: The AI failed to generate the chain structure in the expected format. Response: Unable to process request."
 
             try:
                 chain_data = json.loads(chain_json_str)
@@ -1432,24 +1444,36 @@ class agixt_actions(Extensions):
                     "conversation_name": self.conversation_name,
                 },
             )
+            # Extract JSON from the response with improved logic
+            modifications_str = None
             if "```json" in response:
                 modifications_str = response.split("```json")[1].split("```")[0].strip()
             elif "```" in response:  # Handle plain ``` block
-                modifications_str = response.split("```")[1].split("```")[0].strip()
-            else:
-                # Attempt to extract JSON if no markdown block found
+                parts = response.split("```")
+                if len(parts) >= 3:
+                    modifications_str = parts[1].strip()
+                else:
+                    # Try to find JSON in the response
+                    for part in parts:
+                        if part.strip().startswith("{"):
+                            modifications_str = part.strip()
+                            break
+
+            # If no code block found, try to extract JSON directly
+            if not modifications_str:
                 try:
                     start = response.find("{")
                     end = response.rfind("}") + 1
                     if start != -1 and end != -1:
                         modifications_str = response[start:end]
                     else:
-                        raise ValueError("No JSON object found in the response.")
+                        logging.error(f"No JSON found in response: {response}")
+                        return f"Error: The AI failed to generate the chain modifications in the expected format. Response: Unable to process request."
                 except Exception as e:
                     logging.error(
                         f"Failed to extract JSON from LLM response: {response}. Error: {e}"
                     )
-                    return f"Error: The AI failed to generate the chain modifications in the expected format. Response: {response}"
+                    return f"Error: The AI failed to generate the chain modifications in the expected format. Response: Unable to process request."
             try:
                 modifications = json.loads(modifications_str)
             except json.JSONDecodeError as e:
