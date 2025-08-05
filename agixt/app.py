@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from middleware import CriticalEndpointProtectionMiddleware
 from endpoints.Agent import app as agent_endpoints
 from endpoints.Chain import app as chain_endpoints
 from endpoints.Completions import app as completions_endpoints
@@ -106,6 +107,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add critical endpoint protection middleware
+app.add_middleware(CriticalEndpointProtectionMiddleware)
 
 
 app.include_router(agent_endpoints)

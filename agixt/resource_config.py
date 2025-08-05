@@ -5,11 +5,11 @@ TASK_TIMEOUT = 180  # 3 minutes per task (reduced from 5)
 TASK_CHECK_INTERVAL = 60  # Check for tasks every 60 seconds
 MAX_CONCURRENT_TASKS = 3  # Reduced from 5 to prevent overload
 
-# Database Settings - More Conservative Pool Management
-DB_POOL_SIZE = 15  # Reduced from 20 to prevent exhaustion
-DB_MAX_OVERFLOW = 5  # Reduced from 10 to limit total connections
-DB_POOL_TIMEOUT = 20  # Reduced from 30 for faster timeout
-DB_POOL_RECYCLE = 1800  # 30 minutes (reduced from 1 hour)
+# Database Settings - Balanced Pool Management
+DB_POOL_SIZE = 20  # Increased back for auth endpoints
+DB_MAX_OVERFLOW = 15  # Allow more overflow for peak usage
+DB_POOL_TIMEOUT = 30  # Restored timeout for reliability
+DB_POOL_RECYCLE = 3600  # 1 hour - standard recycle time
 
 # Web Browsing Settings
 BROWSER_TIMEOUT = 30000  # 30 seconds
@@ -32,10 +32,10 @@ RESOURCE_CLEANUP_INTERVAL = 180  # 3 minutes (reduced from 5)
 MAX_TASK_DURATION = 900  # 15 minutes max task duration (reduced from 30)
 CLEANUP_INTERVAL = 300  # 5 minutes (reduced from 10)
 
-# Emergency Thresholds
-DB_POOL_WARNING_THRESHOLD = 0.7  # Warn at 70% pool usage
-DB_POOL_EMERGENCY_THRESHOLD = 0.9  # Emergency cleanup at 90%
-MEMORY_WARNING_THRESHOLD = 0.8  # Warn at 80% memory usage
+# Emergency Thresholds - More Lenient for Critical Endpoints
+DB_POOL_WARNING_THRESHOLD = 0.85  # Warn at 85% pool usage
+DB_POOL_EMERGENCY_THRESHOLD = 0.95  # Emergency cleanup at 95% only
+MEMORY_WARNING_THRESHOLD = 0.85  # Warn at 85% memory usage
 
 # Logging
 LOG_RESOURCE_USAGE = True

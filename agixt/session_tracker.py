@@ -1,118 +1,167 @@
-"""
-Database session tracking utility to help identify connection leaks.
-"""
-
 import logging
 import threading
-import time
-import traceback
-from collections import defaultdict
-from datetime import datetime
-from typing import Dict, List
+import weakref
+from datetime import datetime, timedelta
+from typing import Dict, Set
+from Globals import getenv
+
+logger = logging.getLogger(__name__)
 
 
 class SessionTracker:
-    """Track database sessions to help identify leaks"""
+    """Enhanced session tracking with automatic cleanup and monitoring"""
 
     def __init__(self):
-        self.active_sessions: Dict[int, dict] = {}
-        self.session_stats = defaultdict(int)
-        self.lock = threading.Lock()
-        self.logger = logging.getLogger(__name__)
+        self._lock = threading.RLock()
+        self._active_sessions: Dict[int, Dict] = {}
+        self._session_refs: Set[weakref.ref] = set()
+        self._stats = {
+            "total_created": 0,
+            "total_closed": 0,
+            "total_leaked": 0,
+            "active_sessions": 0,
+            "max_concurrent": 0,
+        }
 
-    def track_session(self, session, caller_info: str = None):
-        """Start tracking a database session"""
+    def track_session(self, session):
+        """Track a new database session"""
         session_id = id(session)
 
-        # Get caller information if not provided
-        if not caller_info:
-            stack = traceback.extract_stack()
-            # Get the caller's info (skip this function and get_session)
-            caller_frame = stack[-3] if len(stack) >= 3 else stack[-1]
-            caller_info = (
-                f"{caller_frame.filename}:{caller_frame.lineno}:{caller_frame.name}"
-            )
-
-        with self.lock:
-            self.active_sessions[session_id] = {
-                "session": session,
+        with self._lock:
+            # Create session info
+            session_info = {
+                "id": session_id,
                 "created_at": datetime.now(),
-                "caller": caller_info,
-                "stack_trace": "".join(traceback.format_stack()[:-1]),
+                "stack_trace": (
+                    self._get_creation_stack()
+                    if getenv("LOG_DETAILED_SESSIONS", "false").lower() == "true"
+                    else None
+                ),
+                "closed": False,
             }
-            self.session_stats["total_created"] += 1
+
+            self._active_sessions[session_id] = session_info
+            self._stats["total_created"] += 1
+            self._stats["active_sessions"] += 1
+
+            # Track max concurrent
+            if self._stats["active_sessions"] > self._stats["max_concurrent"]:
+                self._stats["max_concurrent"] = self._stats["active_sessions"]
+
+            # Create weak reference for cleanup
+            def cleanup_ref(ref):
+                self._session_refs.discard(ref)
+
+            ref = weakref.ref(session, cleanup_ref)
+            self._session_refs.add(ref)
+
+            if getenv("LOG_DETAILED_SESSIONS", "false").lower() == "true":
+                logger.debug(
+                    f"Session {session_id} created. Active: {self._stats['active_sessions']}"
+                )
 
     def untrack_session(self, session):
-        """Stop tracking a database session"""
+        """Mark session as properly closed"""
         session_id = id(session)
 
-        with self.lock:
-            if session_id in self.active_sessions:
-                session_info = self.active_sessions.pop(session_id)
-                duration = (datetime.now() - session_info["created_at"]).total_seconds()
-                self.session_stats["total_closed"] += 1
+        with self._lock:
+            if session_id in self._active_sessions:
+                self._active_sessions[session_id]["closed"] = True
+                self._active_sessions[session_id]["closed_at"] = datetime.now()
+                del self._active_sessions[session_id]
 
-                # Log long-lived sessions
-                if duration > 300:  # 5 minutes
-                    self.logger.warning(
-                        f"Long-lived session closed after {duration:.1f}s. "
-                        f"Created by: {session_info['caller']}"
+                self._stats["total_closed"] += 1
+                self._stats["active_sessions"] = max(
+                    0, self._stats["active_sessions"] - 1
+                )
+
+                if getenv("LOG_DETAILED_SESSIONS", "false").lower() == "true":
+                    logger.debug(
+                        f"Session {session_id} closed. Active: {self._stats['active_sessions']}"
                     )
 
-    def get_active_count(self) -> int:
-        """Get count of currently active sessions"""
-        with self.lock:
-            return len(self.active_sessions)
+    def get_stats(self) -> Dict:
+        """Get current session statistics"""
+        with self._lock:
+            # Check for leaked sessions (active for more than 10 minutes)
+            now = datetime.now()
+            leaked_count = 0
 
-    def get_stats(self) -> dict:
-        """Get session statistics"""
-        with self.lock:
-            active_count = len(self.active_sessions)
-            return {
-                "active_sessions": active_count,
-                "total_created": self.session_stats["total_created"],
-                "total_closed": self.session_stats["total_closed"],
-                "potential_leaks": self.session_stats["total_created"]
-                - self.session_stats["total_closed"],
-            }
+            for session_info in self._active_sessions.values():
+                if (
+                    now - session_info["created_at"]
+                ).total_seconds() > 600:  # 10 minutes
+                    leaked_count += 1
+
+            stats = self._stats.copy()
+            stats["leaked_sessions"] = leaked_count
+            stats["session_refs"] = len(self._session_refs)
+
+            return stats
 
     def log_active_sessions(self):
-        """Log information about currently active sessions"""
-        with self.lock:
-            if not self.active_sessions:
-                self.logger.info("No active database sessions")
+        """Log details of all active sessions"""
+        with self._lock:
+            if not self._active_sessions:
+                logger.info("No active database sessions")
                 return
 
             now = datetime.now()
-            active_sessions = []
+            for session_id, info in self._active_sessions.items():
+                age = (now - info["created_at"]).total_seconds()
+                logger.warning(f"Active session {session_id}: age={age:.1f}s")
 
-            for session_id, info in self.active_sessions.items():
-                duration = (now - info["created_at"]).total_seconds()
-                active_sessions.append(
-                    {"id": session_id, "duration": duration, "caller": info["caller"]}
-                )
-
-            # Sort by duration (longest first)
-            active_sessions.sort(key=lambda x: x["duration"], reverse=True)
-
-            self.logger.info(f"Active database sessions: {len(active_sessions)}")
-
-            for session_info in active_sessions[:5]:  # Log top 5 longest
-                self.logger.info(
-                    f"Session {session_info['id']} - "
-                    f"Duration: {session_info['duration']:.1f}s - "
-                    f"Caller: {session_info['caller']}"
-                )
-
-            # Log detailed stack trace for very long sessions
-            for session_id, info in self.active_sessions.items():
-                duration = (now - info["created_at"]).total_seconds()
-                if duration > 600:  # 10 minutes
-                    self.logger.error(
-                        f"Very long-lived session detected (Duration: {duration:.1f}s):\n"
-                        f"Caller: {info['caller']}\n"
-                        f"Stack trace:\n{info['stack_trace']}"
+                if (
+                    info["stack_trace"] and age > 300
+                ):  # Log stack trace for sessions older than 5 minutes
+                    logger.warning(
+                        f"Long-running session {session_id} stack trace:\n{info['stack_trace']}"
                     )
+
+    def cleanup_leaked_sessions(self) -> int:
+        """Force cleanup of leaked sessions and return count cleaned"""
+        cleaned = 0
+        now = datetime.now()
+
+        with self._lock:
+            leaked_sessions = []
+
+            # Find sessions that have been active too long
+            for session_id, info in self._active_sessions.items():
+                if (now - info["created_at"]).total_seconds() > 900:  # 15 minutes
+                    leaked_sessions.append(session_id)
+
+            # Remove leaked sessions from tracking
+            for session_id in leaked_sessions:
+                if session_id in self._active_sessions:
+                    del self._active_sessions[session_id]
+                    self._stats["active_sessions"] -= 1
+                    self._stats["total_leaked"] += 1
+                    cleaned += 1
+
+            if cleaned > 0:
+                logger.warning(f"Cleaned up {cleaned} leaked database sessions")
+
+        return cleaned
+
+    def _get_creation_stack(self) -> str:
+        """Get stack trace for session creation (debugging)"""
+        import traceback
+
+        return "".join(traceback.format_stack())
+
+    def force_cleanup_all(self):
+        """Emergency cleanup of all tracked sessions"""
+        with self._lock:
+            cleaned = len(self._active_sessions)
+            self._active_sessions.clear()
+            self._stats["active_sessions"] = 0
+            self._stats["total_leaked"] += cleaned
+
+            if cleaned > 0:
+                logger.error(
+                    f"Emergency cleanup: removed {cleaned} active sessions from tracking"
+                )
 
 
 # Global session tracker instance
