@@ -97,7 +97,7 @@ async def restart_service():
         logger.info(f"Uvicorn process restarted with PID {uvicorn_process.pid}")
 
         # Give it time to start up
-        await asyncio.sleep(10)
+        await asyncio.sleep(60)  # Give more time for full startup
 
     except Exception as e:
         logger.error(f"Failed to restart service: {e}")
@@ -112,7 +112,9 @@ async def monitor_loop():
     )
 
     # Initial startup delay
-    await asyncio.sleep(30)
+    initial_delay = int(getenv("INITIAL_STARTUP_DELAY"))
+    logger.info(f"Waiting {initial_delay} seconds for initial service startup...")
+    await asyncio.sleep(initial_delay)
 
     while True:
         try:
@@ -137,7 +139,7 @@ async def monitor_loop():
                     await restart_service()
                     consecutive_failures = 0
                     # Give extra time after restart
-                    await asyncio.sleep(30)
+                    await asyncio.sleep(60)
                     continue
 
         except Exception as e:
