@@ -407,9 +407,8 @@ class SystemDiagnostics:
                 gc.collect()  # Run twice for cyclic references
 
                 # Try to free up memory from resource monitor
-                from ResourceMonitor import resource_monitor
-
-                await resource_monitor.emergency_cleanup()
+                # Resource monitor was removed - no longer needed
+                pass
 
             elif "stuck tasks" in issue:
                 # Cancel stuck tasks

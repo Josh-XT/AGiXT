@@ -45,12 +45,11 @@ try:
     else:
         DATABASE_URI = f"sqlite:///{DATABASE_NAME}.db"
 
-    from resource_config import (
-        DB_POOL_SIZE,
-        DB_MAX_OVERFLOW,
-        DB_POOL_TIMEOUT,
-        DB_POOL_RECYCLE,
-    )
+    # Database connection pool settings
+    DB_POOL_SIZE = 20
+    DB_MAX_OVERFLOW = 15
+    DB_POOL_TIMEOUT = 30
+    DB_POOL_RECYCLE = 3600
 
     engine = create_engine(
         DATABASE_URI,
@@ -81,32 +80,8 @@ from contextlib import contextmanager
 
 
 def get_session():
-    from ResourceMonitor import resource_monitor
-
     Session = sessionmaker(bind=engine, autoflush=False)
     session = Session()
-    # Register session with resource monitor for tracking
-    resource_monitor.register_db_session(session)
-
-    # Track session for debugging if enabled
-    if getenv("LOG_RESOURCE_USAGE", "false").lower() == "true":
-        try:
-            from session_tracker import session_tracker
-
-            session_tracker.track_session(session)
-
-            # Monkey patch the close method to automatically untrack
-            original_close = session.close
-
-            def tracked_close():
-                session_tracker.untrack_session(session)
-                return original_close()
-
-            session.close = tracked_close
-
-        except ImportError:
-            pass  # session_tracker not available
-
     return session
 
 
