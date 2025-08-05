@@ -2809,15 +2809,15 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                             )
                     else:
                         # Store the changes for later batch commit
-                        if not hasattr(self, '_pending_file_changes'):
+                        if not hasattr(self, "_pending_file_changes"):
                             self._pending_file_changes = {}
-                        
+
                         self._pending_file_changes[file_path] = {
-                            'content': formatted_content,
-                            'file_obj': file_content_obj,
-                            'is_new': file_content_obj is None,
-                            'repo': repo,
-                            'branch': branch
+                            "content": formatted_content,
+                            "file_obj": file_content_obj,
+                            "is_new": file_content_obj is None,
+                            "repo": repo,
+                            "branch": branch,
                         }
 
                     # Return the primary diff
@@ -2884,63 +2884,69 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                 error_message += f": {str(e)}"
             return error_message
 
-    async def commit_pending_changes(self, commit_message: str = "Applied modifications") -> str:
+    async def commit_pending_changes(
+        self, commit_message: str = "Applied modifications"
+    ) -> str:
         """
         Commit all pending file changes that were prepared with commit_immediately=False.
-        
+
         Args:
             commit_message (str): The commit message for the batch commit
-            
+
         Returns:
             str: A summary of the committed changes
         """
-        if not hasattr(self, '_pending_file_changes') or not self._pending_file_changes:
+        if not hasattr(self, "_pending_file_changes") or not self._pending_file_changes:
             return "No pending changes to commit."
-        
+
         try:
             results = []
             for file_path, change_info in self._pending_file_changes.items():
                 try:
-                    if change_info['is_new']:
+                    if change_info["is_new"]:
                         # Create new file
-                        logging.info(f"Creating new file: {file_path} on branch {change_info['branch']}")
-                        change_info['repo'].create_file(
+                        logging.info(
+                            f"Creating new file: {file_path} on branch {change_info['branch']}"
+                        )
+                        change_info["repo"].create_file(
                             file_path,
                             commit_message,
-                            change_info['content'],
-                            branch=change_info['branch'],
+                            change_info["content"],
+                            branch=change_info["branch"],
                         )
                         results.append(f"Created: {file_path}")
                     else:
                         # Update existing file
-                        logging.info(f"Updating existing file: {file_path} on branch {change_info['branch']}")
-                        change_info['repo'].update_file(
+                        logging.info(
+                            f"Updating existing file: {file_path} on branch {change_info['branch']}"
+                        )
+                        change_info["repo"].update_file(
                             file_path,
                             commit_message,
-                            change_info['content'],
-                            change_info['file_obj'].sha,
-                            branch=change_info['branch'],
+                            change_info["content"],
+                            change_info["file_obj"].sha,
+                            branch=change_info["branch"],
                         )
                         results.append(f"Updated: {file_path}")
                 except Exception as e:
                     results.append(f"Error with {file_path}: {str(e)}")
-            
+
             # Clear pending changes
             self._pending_file_changes = {}
-            
+
             return f"Committed changes:\n" + "\n".join(results)
-            
+
         except Exception as e:
             return f"Error committing pending changes: {str(e)}"
 
     def clear_pending_changes(self) -> str:
         """
         Clear all pending file changes without committing them.
-        
+
         Returns:
             str: A confirmation message
         """
-        if hasattr(self, '_pending_file_changes'):
+        if hasattr(self, "_pending_file_changes"):
             count = len(self._pending_file_changes)
             self._pending_file_changes = {}
             return f"Cleared {count} pending file changes."
@@ -3007,7 +3013,9 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
 <fuzzy_match>true</fuzzy_match>
 </modification>
         """
-        return await self.modify_file_content(repo_url, file_path, modification, branch, commit_immediately)
+        return await self.modify_file_content(
+            repo_url, file_path, modification, branch, commit_immediately
+        )
 
     async def insert_in_file(
         self,
@@ -3059,7 +3067,9 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
 <fuzzy_match>true</fuzzy_match>
 </modification>
         """
-        return await self.modify_file_content(repo_url, file_path, modification, branch, commit_immediately)
+        return await self.modify_file_content(
+            repo_url, file_path, modification, branch, commit_immediately
+        )
 
     async def delete_from_file(
         self,
@@ -3109,7 +3119,9 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         <fuzzy_match>true</fuzzy_match>
         </modification>
         """
-        return await self.modify_file_content(repo_url, file_path, modification, branch, commit_immediately)
+        return await self.modify_file_content(
+            repo_url, file_path, modification, branch, commit_immediately
+        )
 
     async def handle_modifications(
         self,
@@ -3225,7 +3237,7 @@ Rewrite the modifications to fix the issue."""
         if has_error:
             # Clear any pending changes since we had errors
             self.clear_pending_changes()
-            
+
             error_results = [r for r in results if r.startswith("Error:")]
             error_message = "\n".join(error_results)
             self.ApiClient.new_conversation_message(
@@ -3247,18 +3259,18 @@ Rewrite the modifications to fix the issue."""
                 # Commit all pending changes in a single batch
                 commit_message = f"Fix issue #{issue_number}: Applied modifications to {len(file_mod_map)} file(s)"
                 commit_result = await self.commit_pending_changes(commit_message)
-                
+
                 if commit_result.startswith("Error"):
                     # Clear pending changes since commit failed
                     self.clear_pending_changes()
-                    
+
                     self.ApiClient.new_conversation_message(
                         role=self.agent_name,
                         message=f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to commit changes for issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nError: {commit_result}",
                         conversation_name=self.conversation_name,
                     )
                     return f"Error committing changes: {commit_result}"
-                
+
                 # Combine all results into a single message
                 combined_results = "\n\n".join(results)
                 self.ApiClient.new_conversation_message(
