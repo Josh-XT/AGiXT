@@ -15,6 +15,30 @@ from datetime import datetime
 from typing import Optional
 from Globals import getenv
 
+
+async def initialize_database():
+    """Initialize database like DB.py does"""
+    try:
+        # Import DB module to trigger database initialization
+        import DB
+
+        # Create tables
+        DB.Base.metadata.create_all(DB.engine)
+        DB.setup_default_roles()
+
+        # Handle seed data
+        seed_data = str(getenv("SEED_DATA")).lower() == "true"
+        if seed_data:
+            from SeedImports import import_all_data
+
+            import_all_data()
+
+        logger.info("Database initialization completed")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        raise
+
+
 # Configure logging
 logging.basicConfig(level=getenv("LOG_LEVEL"), format=getenv("LOG_FORMAT"))
 logger = logging.getLogger("AGiXT-HealthCheck")
@@ -81,9 +105,27 @@ async def restart_service():
                 uvicorn_process.kill()
                 uvicorn_process.wait()
 
-        # Start new process
+        # Initialize database first (like DB.py does)
+        logger.info("Initializing database...")
+        await initialize_database()
+
+        # Start new process - run uvicorn directly like DB.py does
         logger.info("Starting new AGiXT process...")
-        cmd = [sys.executable, "DB.py"]
+        cmd = [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "app:app",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "7437",
+            "--log-level",
+            str(getenv("LOG_LEVEL")).lower(),
+            "--workers",
+            str(getenv("UVICORN_WORKERS")),
+            "--proxy-headers",
+        ]
 
         uvicorn_process = subprocess.Popen(
             cmd,
@@ -162,6 +204,10 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
+    # Start the service first
+    logger.info("Starting AGiXT service...")
+    await restart_service()
+
     # Run the monitor
     try:
         await monitor_loop()
@@ -173,9 +219,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Start the service first
-    logger.info("Starting AGiXT service...")
-    asyncio.run(restart_service())
-
-    # Run the monitor
     asyncio.run(main())
