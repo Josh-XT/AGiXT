@@ -426,10 +426,11 @@ class Agent:
             )
             if not company_agent_session:
                 return None
-            user = company_agent_session.get_user()
+            # Company agents have email format: {company_id}@{company_id}.xt
+            company_email = f"{self.company_id}@{self.company_id}.xt"
             agent = Agent(
                 agent_name="AGiXT",
-                user=user["email"],
+                user=company_email,
                 ApiClient=company_agent_session,
             )
             return agent
