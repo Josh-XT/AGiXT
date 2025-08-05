@@ -13,21 +13,20 @@ import subprocess
 import logging
 from datetime import datetime
 from typing import Optional
+from Globals import getenv
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=getenv("LOG_LEVEL"), format=getenv("LOG_FORMAT"))
 logger = logging.getLogger("AGiXT-HealthCheck")
 
 # Configuration
-HEALTH_CHECK_URL = os.getenv("AGIXT_HEALTH_URL", "http://localhost:7437/health")
-CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL", "15"))  # seconds
-TIMEOUT = int(os.getenv("HEALTH_CHECK_TIMEOUT", "10"))  # seconds
+HEALTH_CHECK_URL = getenv("AGIXT_HEALTH_URL")
+CHECK_INTERVAL = int(getenv("HEALTH_CHECK_INTERVAL"))  # seconds
+TIMEOUT = int(getenv("HEALTH_CHECK_TIMEOUT"))  # seconds
 MAX_FAILURES = int(
-    os.getenv("HEALTH_CHECK_MAX_FAILURES", "3")
+    getenv("HEALTH_CHECK_MAX_FAILURES")
 )  # consecutive failures before restart
-RESTART_COOLDOWN = int(os.getenv("RESTART_COOLDOWN", "60"))  # seconds between restarts
+RESTART_COOLDOWN = int(getenv("RESTART_COOLDOWN"))  # seconds between restarts
 
 # Track state
 consecutive_failures = 0

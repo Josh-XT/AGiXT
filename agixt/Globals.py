@@ -63,6 +63,11 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "EZLOCALAI_API_KEY": "",
         "DEEPSEEK_API_KEY": "",
         "AZURE_OPENAI_ENDPOINT": "",
+        "AGIXT_HEALTH_URL": "http://localhost:7437/health",
+        "HEALTH_CHECK_INTERVAL": "15",
+        "HEALTH_CHECK_TIMEOUT": "10",
+        "HEALTH_CHECK_MAX_FAILURES": "3",
+        "RESTART_COOLDOWN": "60",
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"
