@@ -1415,270 +1415,250 @@ class Subscription:
         Subscribe to app state updates including user details, conversations list,
         and optionally a specific conversation's details.
         """
+        broadcaster = None
+        tasks = []
+
         try:
             # Initialize auth manager with provided token
             user, auth, auth_manager = await get_user_from_context(info)
 
             async def get_app_state():
-                # Get user details
-                user_data = auth_manager.login(
-                    ip_address=info.context["request"].client.host
-                )
-                preferences_dict = auth_manager.get_user_preferences()
-                preferences = convert_preferences_to_type(preferences_dict)
-                companies = auth_manager.get_user_companies_with_roles()
+                # Use context manager for database sessions to ensure cleanup
+                from DB import get_db_session
 
-                user_detail = UserDetail(
-                    id=str(user_data.id),
-                    email=user_data.email,
-                    first_name=user_data.first_name,
-                    last_name=user_data.last_name,
-                    companies=[
-                        CompanyInfo(
-                            id=str(company["id"]),
-                            name=company["name"],
-                            company_id=(
-                                str(company["company_id"])
-                                if company.get("company_id")
-                                else None
-                            ),
-                            agents=[
-                                AgentInfo(
-                                    name=agent["name"],
-                                    id=agent["id"],
-                                    status=agent["status"],
-                                    default=preferences_dict.get("agent_id")
-                                    == agent["id"],
-                                    company_id=agent.get("company_id"),
-                                )
-                                for agent in company.get("agents", [])
-                            ],
-                            role_id=company.get("role_id"),
-                            primary=company.get("primary", False),
+                try:
+                    with get_db_session() as session:
+                        # Get user details
+                        user_data = auth_manager.login(
+                            ip_address=info.context["request"].client.host
                         )
-                        for company in companies
-                    ],
-                    preferences=preferences,
-                )
+                        preferences_dict = auth_manager.get_user_preferences()
+                        preferences = convert_preferences_to_type(preferences_dict)
+                        companies = auth_manager.get_user_companies_with_roles()
 
-                # Get conversations
-                c = Conversations(user=user)
-                result = c.get_conversations_with_detail()
-
-                conversations = [
-                    ConversationMetadata(
-                        id=id,
-                        name=details["name"],
-                        agent_id=details["agent_id"],
-                        created_at=details["created_at"],
-                        updated_at=details["updated_at"],
-                        has_notifications=details["has_notifications"],
-                        summary=details["summary"],
-                        attachment_count=details["attachment_count"],
-                    )
-                    for id, details in result.items()
-                ]
-                conversations.sort(key=lambda x: x.updated_at, reverse=True)
-
-                # Handle pagination
-                page = pagination.page if pagination else 1
-                limit = pagination.limit if pagination else 100
-                total_items = len(conversations)
-                total_pages = -(-total_items // limit)  # Ceiling division
-                start_idx = (page - 1) * limit
-                end_idx = start_idx + limit
-
-                page_info = PageInfo(
-                    has_next_page=end_idx < total_items,
-                    has_previous_page=page > 1,
-                    total_pages=total_pages,
-                    total_items=total_items,
-                    current_page=page,
-                    items_per_page=limit,
-                )
-
-                conversation_connection = ConversationConnection(
-                    page_info=page_info, edges=conversations[start_idx:end_idx]
-                )
-
-                # Get current conversation if ID provided
-                current_conversation = None
-                if conversation_id:
-                    conversation_name = get_conversation_name_by_id(
-                        conversation_id=conversation_id, user_id=auth_manager.user_id
-                    )
-                    c = Conversations(user=user, conversation_name=conversation_name)
-                    conv_result = {"conversations": c.get_conversations_with_detail()}
-
-                    if conversation_id in conv_result["conversations"]:
-                        details = conv_result["conversations"][conversation_id]
-                        metadata = ConversationMetadata(
-                            id=conversation_id,
-                            name=details["name"],
-                            agent_id=details["agent_id"],
-                            created_at=details["created_at"],
-                            updated_at=details["updated_at"],
-                            has_notifications=details["has_notifications"],
-                            summary=details["summary"],
-                            attachment_count=details["attachment_count"],
-                        )
-
-                        c = Conversations(user=user, conversation_name=metadata.name)
-                        history_result = c.get_conversation()
-
-                        messages = [
-                            ConversationMessage(
-                                id=msg["id"],
-                                role=msg["role"],
-                                message=msg["message"],
-                                timestamp=msg["timestamp"],
-                                updated_at=msg["updated_at"],
-                                updated_by=msg["updated_by"],
-                                feedback_received=msg["feedback_received"],
-                            )
-                            for msg in history_result["interactions"]
-                        ]
-
-                        current_conversation = ConversationDetail(
-                            metadata=metadata, messages=messages
-                        )
-
-                notification_data = c.get_notifications()
-                notifications = [
-                    ConversationNotification(
-                        conversation_id=notif["conversation_id"],
-                        conversation_name=notif["conversation_name"],
-                        message_id=notif["message_id"],
-                        message=notif["message"],
-                        role=notif["role"],
-                        timestamp=notif["timestamp"],
-                    )
-                    for notif in notification_data
-                ]
-
-                return AppState(
-                    user=user_detail,
-                    conversations=conversation_connection,
-                    current_conversation=current_conversation,
-                    notifications=(notifications if notifications else None),
-                )
-
-            # Subscribe to relevant channels
-            broadcaster = Broadcast("memory://")
-            await broadcaster.connect()
-
-            try:
-                # Subscribe to conversations channel
-                async with broadcaster.subscribe(
-                    f"conversations_{user}"
-                ) as conversations_subscriber:
-                    if conversation_id:
-                        # For conversation-specific messages
-                        async with broadcaster.subscribe(
-                            f"messages_{conversation_id}"
-                        ) as messages_subscriber:
-                            # For notifications
-                            async with broadcaster.subscribe(
-                                f"notifications_{user}"
-                            ) as notifications_subscriber:
-                                # Send initial state
-                                initial_state = await get_app_state()
-                                yield AppStateEvent(state=initial_state)
-
-                                async def handle_subscriber(subscriber):
-                                    try:
-                                        async for event in subscriber:
-                                            updated_state = await get_app_state()
-                                            return updated_state
-                                    except Exception as e:
-                                        logging.error(
-                                            f"Subscriber handler error: {str(e)}"
+                        user_detail = UserDetail(
+                            id=str(user_data.id),
+                            email=user_data.email,
+                            first_name=user_data.first_name,
+                            last_name=user_data.last_name,
+                            companies=[
+                                CompanyInfo(
+                                    id=str(company["id"]),
+                                    name=company["name"],
+                                    company_id=(
+                                        str(company["company_id"])
+                                        if company.get("company_id")
+                                        else None
+                                    ),
+                                    agents=[
+                                        AgentInfo(
+                                            name=agent["name"],
+                                            id=agent["id"],
+                                            status=agent["status"],
+                                            default=preferences_dict.get("agent_id")
+                                            == agent["id"],
+                                            company_id=agent.get("company_id"),
                                         )
-                                        return None
+                                        for agent in company.get("agents", [])
+                                    ],
+                                    role_id=company.get("role_id"),
+                                    primary=company.get("primary", False),
+                                )
+                                for company in companies
+                            ],
+                            preferences=preferences,
+                        )
 
-                                # Create tasks for all active subscribers
-                                tasks = [
-                                    asyncio.create_task(
-                                        handle_subscriber(conversations_subscriber)
-                                    ),
-                                    asyncio.create_task(
-                                        handle_subscriber(messages_subscriber)
-                                    ),
-                                    asyncio.create_task(
-                                        handle_subscriber(notifications_subscriber)
-                                    ),
-                                ]
+                        # Get conversations - limit to reduce resource usage
+                        c = Conversations(user=user)
+                        result = c.get_conversations_with_detail()
 
-                                # Main subscription loop
-                                while True:
-                                    done, pending = await asyncio.wait(
-                                        tasks, return_when=asyncio.FIRST_COMPLETED
+                        conversations = [
+                            ConversationMetadata(
+                                id=id,
+                                name=details["name"],
+                                agent_id=details["agent_id"],
+                                created_at=details["created_at"],
+                                updated_at=details["updated_at"],
+                                has_notifications=details["has_notifications"],
+                                summary=details["summary"],
+                                attachment_count=details["attachment_count"],
+                            )
+                            for id, details in list(result.items())[
+                                :50
+                            ]  # Limit to 50 most recent
+                        ]
+                        conversations.sort(key=lambda x: x.updated_at, reverse=True)
+
+                        # Handle pagination
+                        page = pagination.page if pagination else 1
+                        limit = min(
+                            pagination.limit if pagination else 25, 25
+                        )  # Max 25 per page
+                        total_items = len(conversations)
+                        total_pages = -(-total_items // limit)  # Ceiling division
+                        start_idx = (page - 1) * limit
+                        end_idx = start_idx + limit
+
+                        page_info = PageInfo(
+                            has_next_page=end_idx < total_items,
+                            has_previous_page=page > 1,
+                            total_pages=total_pages,
+                            total_items=total_items,
+                            current_page=page,
+                            items_per_page=limit,
+                        )
+
+                        conversation_connection = ConversationConnection(
+                            page_info=page_info, edges=conversations[start_idx:end_idx]
+                        )
+
+                        # Get current conversation if ID provided - with limited history
+                        current_conversation = None
+                        if conversation_id:
+                            try:
+                                conversation_name = get_conversation_name_by_id(
+                                    conversation_id=conversation_id,
+                                    user_id=auth_manager.user_id,
+                                )
+                                c = Conversations(
+                                    user=user, conversation_name=conversation_name
+                                )
+                                conv_result = {
+                                    "conversations": c.get_conversations_with_detail()
+                                }
+
+                                if conversation_id in conv_result["conversations"]:
+                                    details = conv_result["conversations"][
+                                        conversation_id
+                                    ]
+                                    metadata = ConversationMetadata(
+                                        id=conversation_id,
+                                        name=details["name"],
+                                        agent_id=details["agent_id"],
+                                        created_at=details["created_at"],
+                                        updated_at=details["updated_at"],
+                                        has_notifications=details["has_notifications"],
+                                        summary=details["summary"],
+                                        attachment_count=details["attachment_count"],
                                     )
 
-                                    for task in done:
+                                    c = Conversations(
+                                        user=user, conversation_name=metadata.name
+                                    )
+                                    history_result = c.get_conversation()
+
+                                    # Limit messages to last 50 for performance
+                                    messages = [
+                                        ConversationMessage(
+                                            id=msg["id"],
+                                            role=msg["role"],
+                                            message=msg["message"],
+                                            timestamp=msg["timestamp"],
+                                            updated_at=msg["updated_at"],
+                                            updated_by=msg["updated_by"],
+                                            feedback_received=msg["feedback_received"],
+                                        )
+                                        for msg in history_result["interactions"][-50:]
+                                    ]
+
+                                    current_conversation = ConversationDetail(
+                                        metadata=metadata, messages=messages
+                                    )
+                            except Exception as conv_e:
+                                logging.error(
+                                    f"Error getting conversation details: {conv_e}"
+                                )
+
+                        # Get limited notifications
+                        notification_data = c.get_notifications()[
+                            :20
+                        ]  # Limit to 20 notifications
+                        notifications = [
+                            ConversationNotification(
+                                conversation_id=notif["conversation_id"],
+                                conversation_name=notif["conversation_name"],
+                                message_id=notif["message_id"],
+                                message=notif["message"],
+                                role=notif["role"],
+                                timestamp=notif["timestamp"],
+                            )
+                            for notif in notification_data
+                        ]
+
+                        return AppState(
+                            user=user_detail,
+                            conversations=conversation_connection,
+                            current_conversation=current_conversation,
+                            notifications=(notifications if notifications else None),
+                        )
+
+                except Exception as state_e:
+                    logging.error(f"Error getting app state: {state_e}")
+                    raise
+
+            # Initialize broadcaster with timeout
+            broadcaster = Broadcast("memory://")
+            try:
+                await asyncio.wait_for(broadcaster.connect(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logging.error("Broadcaster connection timeout")
+                raise Exception("Failed to connect to message broker")
+
+            # Send initial state
+            try:
+                initial_state = await asyncio.wait_for(get_app_state(), timeout=10.0)
+                yield AppStateEvent(state=initial_state)
+            except asyncio.TimeoutError:
+                logging.error("Initial state generation timeout")
+                return
+
+            # Simplified subscription with proper cleanup
+            subscription_channels = [f"conversations_{user}"]
+            if conversation_id:
+                subscription_channels.append(f"messages_{conversation_id}")
+            subscription_channels.append(f"notifications_{user}")
+
+            # Create subscribers with timeout
+            subscribers = []
+            try:
+                for channel in subscription_channels:
+                    subscriber = broadcaster.subscribe(channel)
+                    subscribers.append(subscriber)
+
+                # Use a single task to handle all subscriptions
+                async def handle_all_subscriptions():
+                    try:
+                        subscription_tasks = []
+                        for subscriber in subscribers:
+
+                            async def handle_subscriber_events(sub):
+                                async with sub as s:
+                                    async for event in s:
                                         try:
-                                            result = await task
-                                            if result:
-                                                yield AppStateEvent(state=result)
+                                            updated_state = await asyncio.wait_for(
+                                                get_app_state(), timeout=5.0
+                                            )
+                                            return updated_state
+                                        except asyncio.TimeoutError:
+                                            logging.warning("State update timeout")
+                                            return None
                                         except Exception as e:
-                                            logging.error(f"Task error: {str(e)}")
+                                            logging.error(f"State update error: {e}")
+                                            return None
 
-                                        # Recreate the completed task
-                                        if task in tasks:
-                                            index = tasks.index(task)
-                                            if index == 0:
-                                                tasks[0] = asyncio.create_task(
-                                                    handle_subscriber(
-                                                        conversations_subscriber
-                                                    )
-                                                )
-                                            elif index == 1:
-                                                tasks[1] = asyncio.create_task(
-                                                    handle_subscriber(
-                                                        messages_subscriber
-                                                    )
-                                                )
-                                            elif index == 2:
-                                                tasks[2] = asyncio.create_task(
-                                                    handle_subscriber(
-                                                        notifications_subscriber
-                                                    )
-                                                )
+                            task = asyncio.create_task(
+                                handle_subscriber_events(subscriber)
+                            )
+                            subscription_tasks.append(task)
 
-                                    # Keep the pending tasks
-                                    tasks = list(pending)
-                    else:
-                        # Without conversation_id, only subscribe to conversations and notifications
-                        async with broadcaster.subscribe(
-                            f"notifications_{user}"
-                        ) as notifications_subscriber:
-                            # Send initial state
-                            initial_state = await get_app_state()
-                            yield AppStateEvent(state=initial_state)
-
-                            async def handle_subscriber(subscriber):
-                                try:
-                                    async for event in subscriber:
-                                        updated_state = await get_app_state()
-                                        return updated_state
-                                except Exception as e:
-                                    logging.error(f"Subscriber handler error: {str(e)}")
-                                    return None
-
-                            # Create tasks for active subscribers
-                            tasks = [
-                                asyncio.create_task(
-                                    handle_subscriber(conversations_subscriber)
-                                ),
-                                asyncio.create_task(
-                                    handle_subscriber(notifications_subscriber)
-                                ),
-                            ]
-
-                            # Main subscription loop
-                            while True:
+                        # Wait for any subscription event with timeout
+                        while True:
+                            try:
                                 done, pending = await asyncio.wait(
-                                    tasks, return_when=asyncio.FIRST_COMPLETED
+                                    subscription_tasks,
+                                    return_when=asyncio.FIRST_COMPLETED,
+                                    timeout=30.0,  # 30 second timeout
                                 )
 
                                 for task in done:
@@ -1687,33 +1667,69 @@ class Subscription:
                                         if result:
                                             yield AppStateEvent(state=result)
                                     except Exception as e:
-                                        logging.error(f"Task error: {str(e)}")
+                                        logging.error(f"Subscription task error: {e}")
 
-                                    # Recreate the completed task
-                                    if task in tasks:
-                                        index = tasks.index(task)
-                                        if index == 0:
-                                            tasks[0] = asyncio.create_task(
-                                                handle_subscriber(
-                                                    conversations_subscriber
-                                                )
-                                            )
-                                        elif index == 1:
-                                            tasks[1] = asyncio.create_task(
-                                                handle_subscriber(
-                                                    notifications_subscriber
-                                                )
-                                            )
+                                # Cancel and recreate completed tasks
+                                for task in done:
+                                    if not task.cancelled():
+                                        task.cancel()
 
-                                # Keep the pending tasks
-                                tasks = list(pending)
+                                # Recreate tasks for continuous monitoring
+                                subscription_tasks = list(pending)
 
-            finally:
-                await broadcaster.disconnect()
+                                # If no tasks are running, break
+                                if not subscription_tasks:
+                                    break
+
+                            except asyncio.TimeoutError:
+                                # Periodic timeout to check connection health
+                                logging.debug(
+                                    "Subscription timeout - checking connection health"
+                                )
+                                continue
+
+                    except Exception as e:
+                        logging.error(f"Subscription handler error: {e}")
+                    finally:
+                        # Cleanup tasks
+                        for task in subscription_tasks:
+                            if not task.done():
+                                task.cancel()
+                                try:
+                                    await task
+                                except asyncio.CancelledError:
+                                    pass
+                                except Exception:
+                                    pass
+
+                # Run the subscription handler
+                await handle_all_subscriptions()
+
+            except Exception as sub_e:
+                logging.error(f"Subscription setup error: {sub_e}")
 
         except Exception as e:
             logging.error(f"Subscription error: {str(e)}")
             raise Exception(f"Subscription failed: {str(e)}")
+
+        finally:
+            # Ensure cleanup
+            if tasks:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception:
+                            pass
+
+            if broadcaster:
+                try:
+                    await asyncio.wait_for(broadcaster.disconnect(), timeout=2.0)
+                except Exception as e:
+                    logging.error(f"Error disconnecting broadcaster: {e}")
 
 
 # Query type with pagination
