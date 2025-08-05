@@ -250,7 +250,6 @@ class Task:
     async def execute_pending_tasks(self):
         """Check and execute all tasks that are due"""
         session = None
-        executor = None
         try:
             session = get_session()
             # Get all tasks that are due
@@ -268,47 +267,48 @@ class Task:
                         if agent:
                             prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
 
-                            def execute_prompt():
-                                return self.ApiClient.prompt_agent(
-                                    agent_name=agent.name,
-                                    prompt_name="Think About It",
-                                    prompt_args={
-                                        "user_input": prompt,
-                                        "conversation_name": task.memory_collection,
-                                        "websearch": False,
-                                        "analyze_user_input": False,
-                                        "log_user_input": False,
-                                        "log_output": True,
-                                        "tts": False,
-                                    },
-                                )
-
-                            # Run the non-async prompt_agent in a thread pool with proper resource management
-                            loop = asyncio.get_running_loop()
-                            executor = ThreadPoolExecutor(max_workers=1)
                             try:
+                                # Use async approach instead of ThreadPoolExecutor
                                 response = await asyncio.wait_for(
-                                    loop.run_in_executor(executor, execute_prompt),
-                                    timeout=300,  # 5 minute timeout
+                                    asyncio.to_thread(
+                                        self.ApiClient.prompt_agent,
+                                        agent_name=agent.name,
+                                        prompt_name="Think About It",
+                                        prompt_args={
+                                            "user_input": prompt,
+                                            "conversation_name": task.memory_collection,
+                                            "websearch": False,
+                                            "analyze_user_input": False,
+                                            "log_user_input": False,
+                                            "log_output": True,
+                                            "tts": False,
+                                        },
+                                    ),
+                                    timeout=120,  # Reduced to 2 minutes
                                 )
                                 logging.info(
-                                    f"Follow-up task {task.id} executed: {response[:100]}..."
+                                    f"Follow-up task {task.id} executed: {response[:100] if response else 'No response'}..."
                                 )
                             except asyncio.TimeoutError:
                                 logging.error(
-                                    f"Task {task.id} timed out after 5 minutes"
+                                    f"Task {task.id} timed out after 2 minutes"
                                 )
-                                raise
-                            finally:
-                                if executor:
-                                    executor.shutdown(wait=True)
-                                    executor = None
+                                # Don't raise - continue with other tasks
+                                continue
+                            except Exception as prompt_e:
+                                logging.error(
+                                    f"Error executing prompt for task {task.id}: {str(prompt_e)}"
+                                )
+                                # Don't raise - continue with other tasks
+                                continue
 
                     # Mark the current task as completed
                     await self.mark_task_completed(str(task.id))
 
                 except Exception as e:
-                    logging.error(f"Error executing task {task.id}: {str(e)}")
+                    logging.error(
+                        f"Error executing task {task_data.get('id', 'unknown')}: {str(e)}"
+                    )
                     continue
 
         except Exception as e:
@@ -316,11 +316,6 @@ class Task:
             raise
         finally:
             # Ensure cleanup
-            if executor:
-                try:
-                    executor.shutdown(wait=True)
-                except Exception as executor_e:
-                    logging.error(f"Error shutting down executor: {executor_e}")
             if session:
                 try:
                     session.close()

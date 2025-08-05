@@ -122,6 +122,11 @@ class TaskMonitor:
                     for pending_task in pending_tasks:
                         task_session = None
                         try:
+                            # Register task with resource monitor
+                            from ResourceMonitor import resource_monitor
+
+                            task_id = f"task_{pending_task.id}"
+
                             task_session = get_session()
                             if not pending_task.user_id:
                                 logging.error(
@@ -135,21 +140,35 @@ class TaskMonitor:
                                 token=impersonate_user(user_id=pending_task.user_id)
                             )
 
+                            # Create task with proper monitoring
+                            execution_task = asyncio.create_task(
+                                task_manager.execute_pending_tasks(), name=task_id
+                            )
+
+                            # Register with resource monitor
+                            resource_monitor.register_task(task_id, execution_task)
+
                             # Execute task with timeout and proper resource management
                             try:
                                 await asyncio.wait_for(
-                                    task_manager.execute_pending_tasks(),
-                                    timeout=300,
+                                    execution_task, timeout=180
+                                )  # Reduced to 3 minutes
+                                logging.info(
+                                    f"Task {pending_task.id} completed successfully"
                                 )
                             except asyncio.TimeoutError:
                                 logging.error(
-                                    f"Task {pending_task.id} timed out after 5 minutes"
+                                    f"Task {pending_task.id} timed out after 3 minutes"
                                 )
+                                execution_task.cancel()
                                 # Mark task as failed or reschedule
                                 pending_task.completed = (
                                     True  # Mark as completed to prevent retry loops
                                 )
                                 task_session.commit()
+                                continue
+                            except asyncio.CancelledError:
+                                logging.warning(f"Task {pending_task.id} was cancelled")
                                 continue
                             except Exception as task_e:
                                 logging.error(
@@ -157,6 +176,9 @@ class TaskMonitor:
                                 )
                                 # Don't let task execution errors crash the worker
                                 continue
+                            finally:
+                                # Always unregister task
+                                resource_monitor.unregister_task(task_id)
 
                         except Exception as e:
                             logging.error(

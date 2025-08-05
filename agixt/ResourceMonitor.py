@@ -22,16 +22,32 @@ class ResourceMonitor:
         self.running = False
         self.active_tasks: Dict[str, asyncio.Task] = {}
         self.task_start_times: Dict[str, datetime] = {}
-        self.cleanup_interval = int(
-            getenv("RESOURCE_CLEANUP_INTERVAL", "600")
-        )  # 10 minutes
-        self.max_memory_mb = int(getenv("MAX_MEMORY_USAGE_MB", "2048"))
-        self.max_task_duration = int(getenv("MAX_TASK_DURATION", "3600"))  # 1 hour
+
+        # Import configuration
+        from resource_config import (
+            RESOURCE_CLEANUP_INTERVAL,
+            MAX_MEMORY_USAGE_MB,
+            MAX_TASK_DURATION,
+            DB_POOL_WARNING_THRESHOLD,
+            DB_POOL_EMERGENCY_THRESHOLD,
+            MEMORY_WARNING_THRESHOLD,
+        )
+
+        self.cleanup_interval = RESOURCE_CLEANUP_INTERVAL
+        self.max_memory_mb = MAX_MEMORY_USAGE_MB
+        self.max_task_duration = MAX_TASK_DURATION
+        self.db_pool_warning_threshold = DB_POOL_WARNING_THRESHOLD
+        self.db_pool_emergency_threshold = DB_POOL_EMERGENCY_THRESHOLD
+        self.memory_warning_threshold = MEMORY_WARNING_THRESHOLD
         self.logger = logging.getLogger(__name__)
 
         # Resource tracking
         self.browser_instances: Set[weakref.ref] = set()
         self.db_sessions: Set[weakref.ref] = set()
+
+        # Emergency state tracking
+        self.emergency_mode = False
+        self.last_emergency_cleanup = datetime.min
 
     def register_task(self, task_id: str, task: asyncio.Task):
         """Register a task for monitoring"""
