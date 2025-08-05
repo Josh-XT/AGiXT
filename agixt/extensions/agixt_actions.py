@@ -1208,57 +1208,183 @@ class agixt_actions(Extensions):
         """
         return "Current date and time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    async def mcp_client(self, endpoint_url, api_key, user_input, tools=None):
+    async def mcp_client(
+        self,
+        endpoint_url,
+        api_key,
+        action="list_tools",
+        tool_name=None,
+        tool_arguments=None,
+        resource_uri=None,
+        prompt_name=None,
+        prompt_arguments=None,
+    ):
         """
         Model Context Protocol client for interacting with MCP servers.
 
+        This function provides a proper MCP client that follows the protocol specification
+        for discovering and using tools, resources, and prompts from MCP servers.
+
         Args:
-            endpoint_url (str): The URL of the MCP-compatible API endpoint
-            api_key (str): Your API key for authentication
-            user_input (str): The user's message as a simple string
-            tools (str, optional): Comma-separated list of tools
+            endpoint_url (str): The URL of the MCP server endpoint
+            api_key (str): Your API key for authentication (if required)
+            action (str): The action to perform. Options:
+                - "list_tools": List all available tools
+                - "call_tool": Call a specific tool
+                - "list_resources": List all available resources
+                - "read_resource": Read a specific resource
+                - "list_prompts": List all available prompts
+                - "get_prompt": Get a specific prompt
+            tool_name (str, optional): Name of the tool to call (required for call_tool)
+            tool_arguments (str, optional): JSON string of arguments for the tool
+            resource_uri (str, optional): URI of the resource to read (required for read_resource)
+            prompt_name (str, optional): Name of the prompt to get (required for get_prompt)
+            prompt_arguments (str, optional): JSON string of arguments for the prompt
 
         Returns:
-            str: The response from the MCP server
+            str: Formatted response from the MCP server
         """
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-
-        messages = [
-            {"role": "user", "content": user_input},
-        ]
-
-        payload = {
-            "messages": messages,
-        }
-
-        context = self.ApiClient.get_agent_memories(
-            agent_name=self.agent_name,
-            collection_number=self.conversation_id,
-            limit=100,
-        )
-        if context:
-            payload["context"] = {"document": json.dumps(context)}
-
-        # Convert comma-separated tools to a list
-        if tools:
-            tool_list = [tool.strip() for tool in tools.split(",")]
-            payload["tools"] = tool_list
-
         try:
-            response = requests.post(
-                endpoint_url, headers=headers, data=json.dumps(payload)
-            )
-            response.raise_for_status()  # Raise exception for HTTP errors
+            # Import the MCP client
+            from mcp_client import MCPClient, TransportType, AGiXTMCPAdapter
 
-            response_json = response.json()
-            return f"MCP Server Response: ```json\n{json.dumps(response_json, indent=2)}\n```"
+            # Create adapter
+            adapter = AGiXTMCPAdapter()
 
-        except requests.exceptions.RequestException as e:
-            print(f"Error making MCP request: {e}")
-            return f"Error making MCP request: {e}"
+            # Prepare auth headers
+            auth_headers = {}
+            if api_key:
+                auth_headers["Authorization"] = f"Bearer {api_key}"
+
+            # Connect to server
+            server_config = {
+                "transport": "http",
+                "endpoint_url": endpoint_url,
+                "auth_headers": auth_headers,
+            }
+
+            server_id = f"mcp_server_{uuid.uuid4().hex[:8]}"
+            client = await adapter.connect_to_server(server_id, server_config)
+
+            result = None
+
+            try:
+                if action == "list_tools":
+                    tools = await adapter.execute_mcp_action(server_id, "list_tools")
+                    result = "## Available MCP Tools\n\n"
+                    for tool in tools:
+                        result += f"### {tool.get('title', tool.get('name'))}\n"
+                        result += f"**Name**: `{tool.get('name')}`\n"
+                        result += f"**Description**: {tool.get('description', 'No description')}\n"
+                        if tool.get("inputSchema"):
+                            result += f"**Input Schema**:\n```json\n{json.dumps(tool['inputSchema'], indent=2)}\n```\n"
+                        result += "\n"
+
+                elif action == "call_tool":
+                    if not tool_name:
+                        return "Error: tool_name is required for call_tool action"
+
+                    # Parse tool arguments if provided
+                    args = {}
+                    if tool_arguments:
+                        try:
+                            args = json.loads(tool_arguments)
+                        except json.JSONDecodeError:
+                            return f"Error: Invalid JSON in tool_arguments: {tool_arguments}"
+
+                    content = await adapter.execute_mcp_action(
+                        server_id, "call_tool", tool_name=tool_name, arguments=args
+                    )
+
+                    result = f"## Tool Result: {tool_name}\n\n"
+                    for item in content:
+                        if item.get("type") == "text":
+                            result += item.get("text", "") + "\n"
+                        else:
+                            result += f"```json\n{json.dumps(item, indent=2)}\n```\n"
+
+                elif action == "list_resources":
+                    resources = await adapter.execute_mcp_action(
+                        server_id, "list_resources"
+                    )
+                    result = "## Available MCP Resources\n\n"
+                    for resource in resources:
+                        result += f"### {resource.get('title', resource.get('uri'))}\n"
+                        result += f"**URI**: `{resource.get('uri')}`\n"
+                        result += f"**Description**: {resource.get('description', 'No description')}\n"
+                        result += (
+                            f"**MIME Type**: {resource.get('mimeType', 'Unknown')}\n\n"
+                        )
+
+                elif action == "read_resource":
+                    if not resource_uri:
+                        return (
+                            "Error: resource_uri is required for read_resource action"
+                        )
+
+                    content = await adapter.execute_mcp_action(
+                        server_id, "read_resource", uri=resource_uri
+                    )
+
+                    result = f"## Resource Content: {resource_uri}\n\n"
+                    for item in content:
+                        if item.get("type") == "text":
+                            result += item.get("text", "") + "\n"
+                        else:
+                            result += f"```json\n{json.dumps(item, indent=2)}\n```\n"
+
+                elif action == "list_prompts":
+                    prompts = await adapter.execute_mcp_action(
+                        server_id, "list_prompts"
+                    )
+                    result = "## Available MCP Prompts\n\n"
+                    for prompt in prompts:
+                        result += f"### {prompt.get('title', prompt.get('name'))}\n"
+                        result += f"**Name**: `{prompt.get('name')}`\n"
+                        result += f"**Description**: {prompt.get('description', 'No description')}\n"
+                        if prompt.get("arguments"):
+                            result += f"**Arguments**:\n```json\n{json.dumps(prompt['arguments'], indent=2)}\n```\n"
+                        result += "\n"
+
+                elif action == "get_prompt":
+                    if not prompt_name:
+                        return "Error: prompt_name is required for get_prompt action"
+
+                    # Parse prompt arguments if provided
+                    args = {}
+                    if prompt_arguments:
+                        try:
+                            args = json.loads(prompt_arguments)
+                        except json.JSONDecodeError:
+                            return f"Error: Invalid JSON in prompt_arguments: {prompt_arguments}"
+
+                    prompt_data = await adapter.execute_mcp_action(
+                        server_id, "get_prompt", prompt_name=prompt_name, arguments=args
+                    )
+
+                    result = f"## Prompt: {prompt_name}\n\n"
+                    if prompt_data.get("description"):
+                        result += f"**Description**: {prompt_data['description']}\n\n"
+
+                    result += "### Messages:\n"
+                    for msg in prompt_data.get("messages", []):
+                        result += f"**Role**: {msg.get('role', 'unknown')}\n"
+                        result += f"**Content**: {msg.get('content', '')}\n\n"
+
+                else:
+                    result = f"Error: Unknown action '{action}'. Valid actions are: list_tools, call_tool, list_resources, read_resource, list_prompts, get_prompt"
+
+            finally:
+                # Always disconnect
+                await adapter.disconnect_all()
+
+            return result
+
+        except ImportError:
+            return "Error: MCP client module not found. Please ensure mcp_client.py is available."
+        except Exception as e:
+            logging.error(f"Error in MCP client: {str(e)}", exc_info=True)
+            return f"Error interacting with MCP server: {str(e)}"
 
     async def create_agixt_chain(self, natural_language_request: str):
         """

@@ -1414,11 +1414,8 @@ class Subscription:
         """
         Subscribe to app state updates with proper resource management and cleanup.
         """
-        from ResourceMonitor import resource_monitor
-        from resource_config import (
-            MAX_SUBSCRIPTION_DURATION,
-            SUBSCRIPTION_CLEANUP_INTERVAL,
-        )
+        MAX_SUBSCRIPTION_DURATION = 1800  # 30 minutes
+        SUBSCRIPTION_CLEANUP_INTERVAL = 180  # 3 minutes
 
         subscription_id = f"gql_subscription_{id(info)}"
         broadcaster = None
@@ -1426,11 +1423,6 @@ class Subscription:
         start_time = datetime.now()
 
         try:
-            # Register subscription with resource monitor
-            subscription_task = asyncio.current_task()
-            if subscription_task:
-                resource_monitor.register_task(subscription_id, subscription_task)
-
             # Initialize auth manager
             user, auth, auth_manager = await get_user_from_context(info)
 
@@ -1734,9 +1726,6 @@ class Subscription:
                     await broadcaster.disconnect()
                 except Exception as e:
                     logging.error(f"Error disconnecting broadcaster: {e}")
-
-            # Unregister from resource monitor
-            resource_monitor.unregister_task(subscription_id)
 
             # Force garbage collection
             import gc

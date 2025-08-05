@@ -26,7 +26,6 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
-from ResourceMonitor import resource_monitor
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -48,7 +47,6 @@ async def lifespan(app: FastAPI):
     try:
         workspace_manager.start_file_watcher()
         await task_monitor.start()
-        await resource_monitor.start()
         logging.info("AGiXT services started successfully")
         yield
     except Exception as e:
@@ -58,7 +56,6 @@ async def lifespan(app: FastAPI):
         # Shutdown
         try:
             logging.info("Shutting down AGiXT services...")
-            await resource_monitor.stop()
             workspace_manager.stop_file_watcher()
             await task_monitor.stop()
             logging.info("AGiXT services stopped successfully")
@@ -70,7 +67,6 @@ async def lifespan(app: FastAPI):
 async def cleanup():
     try:
         logging.info("Performing emergency cleanup...")
-        await resource_monitor.stop()
         workspace_manager.stop_file_watcher()
         await task_monitor.stop()
         logging.info("Emergency cleanup completed")
