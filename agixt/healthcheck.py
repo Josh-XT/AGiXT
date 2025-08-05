@@ -78,6 +78,68 @@ async def check_health() -> bool:
         return False
 
 
+async def start_service():
+    """Start the uvicorn process for the first time."""
+    global uvicorn_process
+
+    logger.info("Initializing AGiXT service...")
+
+    try:
+        # Initialize database first (like DB.py does)
+        logger.info("Initializing database...")
+        await initialize_database()
+
+        # Start uvicorn process
+        logger.info("Starting uvicorn server...")
+        cmd = [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "app:app",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "7437",
+            "--log-level",
+            str(getenv("LOG_LEVEL")).lower(),
+            "--workers",
+            str(getenv("UVICORN_WORKERS")),
+            "--proxy-headers",
+        ]
+
+        # Working directory should be /agixt (from Dockerfile WORKDIR)
+        work_dir = "/agixt"
+        logger.info(f"Starting uvicorn in directory: {work_dir}")
+        logger.info(f"Current working directory is: {os.getcwd()}")
+        logger.info(
+            f"Contents of {work_dir}: {os.listdir(work_dir) if os.path.exists(work_dir) else 'Directory does not exist'}"
+        )
+
+        uvicorn_process = subprocess.Popen(
+            cmd,
+            cwd=work_dir,
+            stdout=None,  # Don't capture output so we can see what happens
+            stderr=None,  # Don't capture errors so we can see what happens
+            env=os.environ.copy(),  # Pass through all environment variables
+        )
+
+        logger.info(f"Uvicorn process started with PID {uvicorn_process.pid}")
+
+        # Give it time to start up and check if it's still running
+        await asyncio.sleep(5)
+        if uvicorn_process.poll() is not None:
+            logger.error(
+                f"Uvicorn process died immediately with return code: {uvicorn_process.poll()}"
+            )
+            raise RuntimeError("Uvicorn failed to start")
+
+        logger.info("Uvicorn process appears to be running successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to start service: {e}")
+        raise
+
+
 async def restart_service():
     """Kill and restart the uvicorn process."""
     global uvicorn_process, last_restart_time
@@ -105,41 +167,11 @@ async def restart_service():
                 uvicorn_process.kill()
                 uvicorn_process.wait()
 
-        # Initialize database first (like DB.py does)
-        logger.info("Initializing database...")
-        await initialize_database()
-
-        # Start new process - run uvicorn directly like DB.py does
-        logger.info("Starting new AGiXT process...")
-        cmd = [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "app:app",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            "7437",
-            "--log-level",
-            str(getenv("LOG_LEVEL")).lower(),
-            "--workers",
-            str(getenv("UVICORN_WORKERS")),
-            "--proxy-headers",
-        ]
-
-        uvicorn_process = subprocess.Popen(
-            cmd,
-            cwd="/app/agixt" if os.path.exists("/app/agixt") else ".",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=os.environ.copy(),  # Pass through all environment variables
-        )
+        # Start the service again
+        await start_service()
 
         last_restart_time = datetime.now()
-        logger.info(f"Uvicorn process restarted with PID {uvicorn_process.pid}")
-
-        # Give it time to start up
-        await asyncio.sleep(60)  # Give more time for full startup
+        logger.info("Service restart completed")
 
     except Exception as e:
         logger.error(f"Failed to restart service: {e}")
@@ -206,7 +238,7 @@ async def main():
 
     # Start the service first
     logger.info("Starting AGiXT service...")
-    await restart_service()
+    await start_service()
 
     # Run the monitor
     try:
