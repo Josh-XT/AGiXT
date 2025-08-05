@@ -1702,9 +1702,8 @@ class Subscription:
                         task = tg.create_task(handle_channel(subscriber, channel))
                         tasks.append(task)
 
-            except* Exception as eg:
-                for e in eg.exceptions:
-                    logging.error(f"Task group error: {e}")
+            except Exception as e:
+                logging.error(f"Task group error: {e}")
 
         except asyncio.CancelledError:
             logging.info(f"Subscription {subscription_id} cancelled")
