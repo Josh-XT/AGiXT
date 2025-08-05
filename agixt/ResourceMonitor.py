@@ -97,13 +97,19 @@ class ResourceMonitor:
                     f"Overflow: {overflow}"
                 )
 
-            # Check if we're approaching pool exhaustion
-            if checked_out >= (pool_size * 0.8):  # 80% of pool used
+            # Check if we're approaching pool exhaustion - use configured threshold
+            pool_usage_ratio = checked_out / pool_size if pool_size > 0 else 0
+
+            if pool_usage_ratio >= self.db_pool_emergency_threshold:
                 self.logger.warning(
-                    f"Database connection pool nearly exhausted: {checked_out}/{pool_size} connections in use"
+                    f"Database connection pool nearly exhausted: {checked_out}/{pool_size} connections in use ({pool_usage_ratio:.1%})"
                 )
                 await self.emergency_cleanup()
                 return True
+            elif pool_usage_ratio >= self.db_pool_warning_threshold:
+                self.logger.warning(
+                    f"Database connection pool usage high: {checked_out}/{pool_size} connections in use ({pool_usage_ratio:.1%})"
+                )
 
             return False
 
