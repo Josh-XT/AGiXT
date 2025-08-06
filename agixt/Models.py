@@ -19,6 +19,9 @@ class CompanyResponse(BaseModel):
     id: str
     name: str
     company_id: Optional[str] = None
+    status: Optional[bool] = True
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
     users: List[UserResponse]
     children: List["CompanyResponse"] = []
 
@@ -621,6 +624,9 @@ class NewCompanyInput(BaseModel):
     name: str
     parent_company_id: Optional[str] = None
     agent_name: Optional[str] = getenv("AGENT_NAME")
+    status: Optional[bool] = True
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 class UpdateUserRole(BaseModel):
@@ -631,6 +637,13 @@ class UpdateUserRole(BaseModel):
 
 class RenameCompanyInput(BaseModel):
     name: str
+
+
+class UpdateCompanyInput(BaseModel):
+    name: Optional[str] = None
+    status: Optional[bool] = None
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 # Wallet Models

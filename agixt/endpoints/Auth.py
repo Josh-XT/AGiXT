@@ -13,6 +13,7 @@ from Models import (
     NewCompanyInput,
     NewCompanyResponse,
     RenameCompanyInput,
+    UpdateCompanyInput,
     UpdateUserRole,
 )
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
@@ -469,6 +470,9 @@ async def create_company(
             name=company.name,
             parent_company_id=company.parent_company_id,
             agent_name=company.agent_name,
+            status=company.status,
+            address=company.address,
+            phone_number=company.phone_number,
         )
         return NewCompanyResponse(**new_company)
     except Exception as e:
@@ -586,6 +590,35 @@ async def rename_company(
 ):
     auth = MagicalAuth(token=authorization)
     return auth.rename_company(company_id, company_name.name)
+
+
+@app.patch(
+    "/v1/companies/{company_id}",
+    response_model=CompanyResponse,
+    summary="Update company details",
+    tags=["Companies"],
+)
+async def update_company(
+    company_id: str,
+    company_details: UpdateCompanyInput,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        return auth.update_company(
+            company_id=company_id,
+            name=company_details.name,
+            status=company_details.status,
+            address=company_details.address,
+            phone_number=company_details.phone_number,
+        )
+    except Exception as e:
+        logging.error(f"Error in update_company endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while updating the company: {str(e)}",
+        )
 
 
 @app.put(
