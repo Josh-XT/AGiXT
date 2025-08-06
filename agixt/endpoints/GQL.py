@@ -1082,6 +1082,9 @@ class CompanyInfo:
     id: str
     name: str
     company_id: Optional[str]
+    status: Optional[bool] = True
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
     agents: List["AgentInfo"]
     role_id: Optional[int]
     primary: bool
@@ -1240,13 +1243,19 @@ class CompanyCreateInput:
     name: str
     parent_company_id: Optional[str] = None
     agent_name: Optional[str] = "AGiXT"
+    status: Optional[bool] = True
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 @strawberry.input
 class CompanyUpdateInput:
     """Input for updating a company"""
 
-    name: str
+    name: Optional[str] = None
+    status: Optional[bool] = None
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 def convert_preferences_to_type(pref_dict: dict) -> UserPreferences:
@@ -1456,6 +1465,9 @@ class Subscription:
                                     if company.get("company_id")
                                     else None
                                 ),
+                                status=company.get("status", True),
+                                address=company.get("address"),
+                                phone_number=company.get("phone_number"),
                                 agents=[
                                     AgentInfo(
                                         name=agent["name"],
@@ -2355,6 +2367,9 @@ class Query:
                         if company.get("company_id")
                         else None
                     ),
+                    status=company.get("status", True),
+                    address=company.get("address"),
+                    phone_number=company.get("phone_number"),
                     agents=[
                         AgentInfo(
                             name=agent["name"],
@@ -3519,12 +3534,18 @@ class Mutation:
             name=input.name,
             parent_company_id=input.parent_company_id,
             agent_name=input.agent_name,
+            status=input.status,
+            address=input.address,
+            phone_number=input.phone_number,
         )
 
         return CompanyInfo(
             id=result["id"],
             name=result["name"],
             company_id=None,
+            status=True,
+            address=input.address,
+            phone_number=input.phone_number,
             agents=[],
             role_id=2,  # Company admin by default
             primary=True,
@@ -3537,12 +3558,21 @@ class Mutation:
         """Update company details"""
         user, auth, auth_manager = await get_user_from_context(info)
 
-        result = auth_manager.update_company(company_id=company_id, name=input.name)
+        result = auth_manager.update_company(
+            company_id=company_id,
+            name=input.name,
+            status=input.status,
+            address=input.address,
+            phone_number=input.phone_number,
+        )
 
         return CompanyInfo(
             id=result.id,
             name=result.name,
             company_id=result.company_id,
+            status=result.status,
+            address=result.address,
+            phone_number=result.phone_number,
             agents=[],
             role_id=None,
             primary=False,
