@@ -24,6 +24,7 @@ async def initialize_database():
 
         # Create tables
         DB.Base.metadata.create_all(DB.engine)
+        DB.migrate_company_table()
         DB.setup_default_roles()
 
         # Handle seed data

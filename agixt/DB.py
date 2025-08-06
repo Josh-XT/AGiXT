@@ -127,6 +127,9 @@ class Company(Base):
     token = Column(String, nullable=True)
     training_data = Column(String, nullable=True)
     agent_name = Column(String, nullable=True, default=getenv("AGENT_NAME"))
+    status = Column(Boolean, nullable=True, default=True)
+    address = Column(String, nullable=True, default=None)
+    phone_number = Column(String, nullable=True, default=None)
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -958,6 +961,100 @@ default_roles = [
 ]
 
 
+def migrate_company_table():
+    """
+    Migration function to add new optional fields to the Company table if they don't exist.
+    This should be run before setup_default_roles().
+    """
+    try:
+        with get_session() as session:
+            # Check if we need to add the new columns
+            try:
+                # Try to access the new columns to see if they exist
+                session.execute(text("SELECT status FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT address FROM Company LIMIT 1")).fetchone()
+                session.execute(
+                    text("SELECT phone_number FROM Company LIMIT 1")
+                ).fetchone()
+                logging.info("Company table migration: All columns already exist")
+                return
+            except Exception:
+                # Columns don't exist, we need to add them
+                logging.info("Company table migration: Adding new columns")
+                pass
+
+            if DATABASE_TYPE == "sqlite":
+                # SQLite ALTER TABLE syntax
+                try:
+                    session.execute(
+                        text("ALTER TABLE Company ADD COLUMN status BOOLEAN DEFAULT 1")
+                    )
+                    logging.info("Added status column to Company table")
+                except Exception as e:
+                    if "duplicate column name" not in str(e).lower():
+                        logging.error(f"Error adding status column: {e}")
+
+                try:
+                    session.execute(
+                        text("ALTER TABLE Company ADD COLUMN address TEXT DEFAULT NULL")
+                    )
+                    logging.info("Added address column to Company table")
+                except Exception as e:
+                    if "duplicate column name" not in str(e).lower():
+                        logging.error(f"Error adding address column: {e}")
+
+                try:
+                    session.execute(
+                        text(
+                            "ALTER TABLE Company ADD COLUMN phone_number TEXT DEFAULT NULL"
+                        )
+                    )
+                    logging.info("Added phone_number column to Company table")
+                except Exception as e:
+                    if "duplicate column name" not in str(e).lower():
+                        logging.error(f"Error adding phone_number column: {e}")
+            else:
+                # PostgreSQL ALTER TABLE syntax
+                try:
+                    session.execute(
+                        text(
+                            'ALTER TABLE "Company" ADD COLUMN status BOOLEAN DEFAULT TRUE'
+                        )
+                    )
+                    logging.info("Added status column to Company table")
+                except Exception as e:
+                    if "already exists" not in str(e).lower():
+                        logging.error(f"Error adding status column: {e}")
+
+                try:
+                    session.execute(
+                        text(
+                            'ALTER TABLE "Company" ADD COLUMN address VARCHAR DEFAULT NULL'
+                        )
+                    )
+                    logging.info("Added address column to Company table")
+                except Exception as e:
+                    if "already exists" not in str(e).lower():
+                        logging.error(f"Error adding address column: {e}")
+
+                try:
+                    session.execute(
+                        text(
+                            'ALTER TABLE "Company" ADD COLUMN phone_number VARCHAR DEFAULT NULL'
+                        )
+                    )
+                    logging.info("Added phone_number column to Company table")
+                except Exception as e:
+                    if "already exists" not in str(e).lower():
+                        logging.error(f"Error adding phone_number column: {e}")
+
+            session.commit()
+            logging.info("Company table migration completed successfully")
+
+    except Exception as e:
+        logging.error(f"Error during Company table migration: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -982,6 +1079,7 @@ if __name__ == "__main__":
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
     Base.metadata.create_all(engine)
+    migrate_company_table()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:

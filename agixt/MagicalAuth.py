@@ -2336,6 +2336,9 @@ class MagicalAuth:
                         "company_id": (
                             str(company.company_id) if company.company_id else None
                         ),
+                        "status": getattr(company, "status", True),
+                        "address": getattr(company, "address", None),
+                        "phone_number": getattr(company, "phone_number", None),
                         "users": list(unique_users.values()),
                         "children": [],
                     }
@@ -2379,6 +2382,9 @@ class MagicalAuth:
                                 "id": str(child.id),
                                 "name": child.name,
                                 "company_id": str(child.company_id),
+                                "status": getattr(child, "status", True),
+                                "address": getattr(child, "address", None),
+                                "phone_number": getattr(child, "phone_number", None),
                                 "users": list(child_unique_users.values()),
                             }
                             company_data["children"].append(child_data)
@@ -2424,6 +2430,9 @@ class MagicalAuth:
         name: str,
         parent_company_id: Optional[str] = None,
         agent_name: str = None,
+        status: bool = True,
+        address: Optional[str] = None,
+        phone_number: Optional[str] = None,
     ):
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
@@ -2441,7 +2450,13 @@ class MagicalAuth:
                                 detail="Unauthorized. Insufficient permissions.",
                             )
                 new_company = Company.create(
-                    db, name=name, company_id=parent_company_id, agent_name=agent_name
+                    db,
+                    name=name,
+                    company_id=parent_company_id,
+                    agent_name=agent_name,
+                    status=status,
+                    address=address,
+                    phone_number=phone_number,
                 )
                 db.add(new_company)
                 db.commit()
@@ -2502,11 +2517,19 @@ class MagicalAuth:
         name: str,
         parent_company_id: Optional[str] = None,
         agent_name: str = None,
+        status: bool = True,
+        address: Optional[str] = None,
+        phone_number: Optional[str] = None,
     ):
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
         company = self.create_company(
-            name=name, parent_company_id=parent_company_id, agent_name=agent_name
+            name=name,
+            parent_company_id=parent_company_id,
+            agent_name=agent_name,
+            status=status,
+            address=address,
+            phone_number=phone_number,
         )
         agixt = self.get_user_agent_session()
         # Just create an agent associated with the company like we do at registration
@@ -2978,6 +3001,73 @@ class MagicalAuth:
                 id=str(company.id),
                 name=company.name,
                 company_id=str(company.company_id) if company.company_id else None,
+                status=getattr(company, "status", True),
+                address=getattr(company, "address", None),
+                phone_number=getattr(company, "phone_number", None),
+                users=[
+                    UserResponse(
+                        id=str(uc.user.id),
+                        email=uc.user.email,
+                        first_name=uc.user.first_name,
+                        last_name=uc.user.last_name,
+                        role=role_name,
+                        role_id=uc.role_id,
+                    )
+                    for uc in company.users
+                ],
+                children=[],
+            )
+
+    def update_company(
+        self,
+        company_id: str,
+        name: Optional[str] = None,
+        status: Optional[bool] = None,
+        address: Optional[str] = None,
+        phone_number: Optional[str] = None,
+    ):
+        # Check if company is in users companies
+        if str(company_id) not in self.get_user_companies():
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+        with get_session() as db:
+            company = db.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+            user_role = self.get_user_role(company_id)
+            if user_role > 2:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Unauthorized. Insufficient permissions.",
+                )
+
+            # Update only the fields that are provided
+            if name is not None:
+                company.name = name
+            if status is not None:
+                company.status = status
+            if address is not None:
+                company.address = address
+            if phone_number is not None:
+                company.phone_number = phone_number
+
+            db.commit()
+            role_name = None
+            for role in default_roles:
+                if role["id"] == user_role:
+                    role_name = role["name"]
+                    break
+            if role_name is None:
+                role_name = "user"
+            return CompanyResponse(
+                id=str(company.id),
+                name=company.name,
+                company_id=str(company.company_id) if company.company_id else None,
+                status=getattr(company, "status", True),
+                address=getattr(company, "address", None),
+                phone_number=getattr(company, "phone_number", None),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
