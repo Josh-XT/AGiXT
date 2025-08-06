@@ -16,7 +16,7 @@ from typing import Optional
 from Globals import getenv
 
 
-async def initialize_database():
+async def initialize_database(is_restart=False):
     """Initialize database like DB.py does"""
     try:
         # Import DB module to trigger database initialization
@@ -27,12 +27,17 @@ async def initialize_database():
         DB.migrate_company_table()
         DB.setup_default_roles()
 
-        # Handle seed data
-        seed_data = str(getenv("SEED_DATA")).lower() == "true"
-        if seed_data:
-            from SeedImports import import_all_data
+        # Handle seed data - only on initial boot, not on restarts
+        if not is_restart:
+            seed_data = str(getenv("SEED_DATA")).lower() == "true"
+            if seed_data:
+                logger.info("Running seed data import (initial boot only)...")
+                from SeedImports import import_all_data
 
-            import_all_data()
+                import_all_data()
+                logger.info("Seed data import completed")
+        else:
+            logger.info("Skipping seed data import (restart mode)")
 
         logger.info("Database initialization completed")
     except Exception as e:
@@ -79,16 +84,19 @@ async def check_health() -> bool:
         return False
 
 
-async def start_service():
+async def start_service(is_restart=False):
     """Start the uvicorn process for the first time."""
     global uvicorn_process
 
-    logger.info("Initializing AGiXT service...")
+    if is_restart:
+        logger.info("Restarting AGiXT service...")
+    else:
+        logger.info("Initializing AGiXT service...")
 
     try:
         # Initialize database first (like DB.py does)
         logger.info("Initializing database...")
-        await initialize_database()
+        await initialize_database(is_restart=is_restart)
 
         # Start uvicorn process
         logger.info("Starting uvicorn server...")
@@ -126,8 +134,11 @@ async def start_service():
 
         logger.info(f"Uvicorn process started with PID {uvicorn_process.pid}")
 
-        # Give it time to start up and check if it's still running
-        await asyncio.sleep(5)
+        # Give it more time to start up, especially after restarts
+        startup_wait = 15 if is_restart else 10
+        logger.info(f"Waiting {startup_wait} seconds for service to start...")
+        await asyncio.sleep(startup_wait)
+
         if uvicorn_process.poll() is not None:
             logger.error(
                 f"Uvicorn process died immediately with return code: {uvicorn_process.poll()}"
@@ -162,14 +173,18 @@ async def restart_service():
             logger.info("Killing existing uvicorn process...")
             uvicorn_process.terminate()
             try:
-                uvicorn_process.wait(timeout=10)
+                uvicorn_process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 logger.warning("Process didn't terminate gracefully, forcing kill...")
                 uvicorn_process.kill()
                 uvicorn_process.wait()
 
-        # Start the service again
-        await start_service()
+        # Wait a bit before starting again
+        logger.info("Waiting 5 seconds before restart...")
+        await asyncio.sleep(5)
+
+        # Start the service again (with restart flag to skip seed imports)
+        await start_service(is_restart=True)
 
         last_restart_time = datetime.now()
         logger.info("Service restart completed")
@@ -213,8 +228,11 @@ async def monitor_loop():
                     )
                     await restart_service()
                     consecutive_failures = 0
-                    # Give extra time after restart
-                    await asyncio.sleep(60)
+                    # Give extra time after restart for the service to fully start
+                    logger.info(
+                        "Waiting 90 seconds for service to fully restart before resuming health checks..."
+                    )
+                    await asyncio.sleep(90)
                     continue
 
         except Exception as e:
@@ -239,7 +257,7 @@ async def main():
 
     # Start the service first
     logger.info("Starting AGiXT service...")
-    await start_service()
+    await start_service(is_restart=False)
 
     # Run the monitor
     try:

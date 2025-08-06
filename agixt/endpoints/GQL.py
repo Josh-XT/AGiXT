@@ -3559,11 +3559,11 @@ class Mutation:
         user, auth, auth_manager = await get_user_from_context(info)
 
         result = auth_manager.update_company(
-            company_id=company_id, 
+            company_id=company_id,
             name=input.name,
             status=input.status,
             address=input.address,
-            phone_number=input.phone_number
+            phone_number=input.phone_number,
         )
 
         return CompanyInfo(
