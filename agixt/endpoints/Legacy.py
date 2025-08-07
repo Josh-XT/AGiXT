@@ -5,26 +5,94 @@ This file contains all legacy endpoints that use name-based parameters instead o
 These endpoints are maintained for backwards compatibility but are deprecated.
 Please use the v1 endpoints in the main endpoint files for new integrations.
 
-Legacy endpoints are tagged with "Legacy-*" in Swagger documentation.
+Legacy endpoints are tagged with "*-Legacy" in Swagger documentation.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+import json
+import os
+import base64
+import asyncio
 import logging
+import traceback
+import uuid
+from datetime import datetime
+from typing import Dict, Any, List, Optional
+from uuid import UUID
+from fastapi import APIRouter, HTTPException, Depends, Header
 
-from ..Agent import Agent
-from ..Chain import Chain
-from ..Conversations import Conversations
-from ..Memories import Memories
-from ..Prompts import Prompts
-from ..Extensions import Extensions
-from ..Interactions import Interactions
-from ..Transcription import Transcription
-from ..Tuning import Tuning
-from ..DB import get_session
-from ..middleware import auth, verify_api_key
-from ..Models import *
+from XT import AGiXT
+from Websearch import Websearch
+from Globals import getenv, get_default_agent, get_agixt_training_urls
+from ApiClient import (
+    Agent,
+    add_agent,
+    delete_agent,
+    rename_agent,
+    get_agents,
+    verify_api_key,
+    get_api_client,
+    is_admin,
+    WORKERS,
+)
+from Models import (
+    AgentNewName,
+    AgentPrompt,
+    ToggleCommandPayload,
+    AgentCommands,
+    AgentSettings,
+    AgentConfig,
+    AgentResponse,
+    AgentListResponse,
+    AgentConfigResponse,
+    AgentCommandsResponse,
+    AgentBrowsedLinksResponse,
+    AgentPromptResponse,
+    ResponseMessage,
+    UrlInput,
+    TTSInput,
+    TaskPlanInput,
+    PersonaInput,
+    ChatCompletions,
+    WalletResponseModel,
+    AgentMemoryQuery,
+    TextMemoryInput,
+    FileInput,
+    Dataset,
+    FinetuneAgentModel,
+    ExternalSource,
+    UserInput,
+    FeedbackInput,
+    MemoryResponse,
+    MemoryCollectionResponse,
+    DPOResponse,
+    ExtensionsModel,
+    CommandExecution,
+    CustomPromptModel,
+    PromptList,
+    PromptCategoryList,
+    PromptName,
+    PromptArgsResponse,
+    ChainDetailsResponse,
+    RunChain,
+    RunChainStep,
+    ChainName,
+    ChainData,
+    ChainNewName,
+    StepInfo,
+    ChainStep,
+    ChainStepNewInfo,
+)
+from Conversations import (
+    Conversations,
+    get_conversation_name_by_id,
+    get_conversation_id_by_name,
+)
+from Memories import Memories
+from Prompts import Prompts
+from Chain import Chain
+from Extensions import Extensions
+from MagicalAuth import MagicalAuth
+from providers.default import DefaultProvider
 
 
 # Create router for legacy endpoints
