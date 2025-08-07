@@ -20,6 +20,7 @@ from endpoints.Provider import app as provider_endpoints
 from endpoints.Auth import app as auth_endpoints
 from endpoints.Health import app as health_endpoints
 from endpoints.Tasks import app as tasks_endpoints
+from endpoints.Legacy import app as legacy_endpoints
 from endpoints.TeslaIntegration import register_tesla_routes
 from Globals import getenv
 from contextlib import asynccontextmanager
@@ -119,6 +120,7 @@ app.include_router(prompt_endpoints)
 app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
 app.include_router(health_endpoints)
+app.include_router(legacy_endpoints)
 
 
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
