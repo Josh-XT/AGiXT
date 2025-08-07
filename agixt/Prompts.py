@@ -408,11 +408,11 @@ class Prompts:
             raise Exception("Prompt not found")
         prompt_obj.name = prompt_name
         prompt_obj.content = prompt
-        
+
         # Update prompt arguments
         # Delete existing arguments
         session.query(Argument).filter(Argument.prompt_id == prompt_id).delete()
-        
+
         # Add new arguments
         prompt_args = self.get_prompt_args(prompt)
         for arg in prompt_args:
@@ -421,7 +421,7 @@ class Prompts:
                 name=arg,
             )
             session.add(argument)
-        
+
         session.commit()
         session.close()
 
@@ -465,24 +465,24 @@ class Prompts:
                 )
                 .first()
             )
-        
+
         if not prompt:
             session.close()
             return None
-            
+
         # Get arguments
         try:
             prompt_args = [arg.name for arg in prompt.arguments]
         except:
             prompt_args = []
-            
+
         result = {
             "prompt_name": prompt.name,
             "prompt_category": prompt.prompt_category.name,
             "prompt": prompt.content,
             "description": prompt.description,
             "arguments": prompt_args,
-            "id": str(prompt.id)
+            "id": str(prompt.id),
         }
         session.close()
         return result

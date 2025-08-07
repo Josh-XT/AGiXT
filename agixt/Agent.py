@@ -299,13 +299,21 @@ def get_agents(user=DEFAULT_USER, company=None):
 
 
 class Agent:
-    def __init__(self, agent_name=None, agent_id=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
+    def __init__(
+        self,
+        agent_name=None,
+        agent_id=None,
+        user=DEFAULT_USER,
+        ApiClient: AGiXTSDK = None,
+    ):
         # Validate that either agent_name or agent_id is provided, but not both
         if agent_name is not None and agent_id is not None:
-            raise ValueError("Cannot specify both agent_name and agent_id. Please provide only one.")
+            raise ValueError(
+                "Cannot specify both agent_name and agent_id. Please provide only one."
+            )
         if agent_name is None and agent_id is None:
             agent_name = "AGiXT"  # Default fallback
-            
+
         self.agent_name = agent_name
         self.agent_id = agent_id
         user = user if user is not None else DEFAULT_USER
@@ -314,13 +322,16 @@ class Agent:
         token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
         self.company_id = None
-        
+
         # If agent_id was provided, get the agent_name; if agent_name was provided, get the agent_id
         if self.agent_id is not None:
             self.agent_name = self.get_agent_name_by_id()
         else:
-            self.agent_id = str(self.get_agent_id())
-            
+            agent_id_result = self.get_agent_id()
+            self.agent_id = (
+                str(agent_id_result) if agent_id_result is not None else None
+            )
+
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -421,7 +432,11 @@ class Agent:
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
-        self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
+        # Ensure agent_id is valid before creating working directory
+        working_agent_id = self.agent_id if self.agent_id else "default"
+        self.working_directory = os.path.join(
+            os.getcwd(), "WORKSPACE", working_agent_id
+        )
         os.makedirs(self.working_directory, exist_ok=True)
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
@@ -512,9 +527,13 @@ class Agent:
 
     def get_agent_config(self):
         session = get_session()
-        
+
         # If we have agent_id, use it to find the agent
-        if hasattr(self, 'agent_id') and self.agent_id is not None:
+        if (
+            hasattr(self, "agent_id")
+            and self.agent_id is not None
+            and str(self.agent_id) != "None"
+        ):
             agent = (
                 session.query(AgentModel)
                 .filter(
@@ -524,7 +543,9 @@ class Agent:
             )
             if not agent:
                 # Try to find in global agents (DEFAULT_USER)
-                global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+                global_user = (
+                    session.query(User).filter(User.email == DEFAULT_USER).first()
+                )
                 if global_user:
                     agent = (
                         session.query(AgentModel)
@@ -539,7 +560,8 @@ class Agent:
             agent = (
                 session.query(AgentModel)
                 .filter(
-                    AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user_id == self.user_id,
                 )
                 .first()
             )
@@ -920,9 +942,13 @@ class Agent:
 
     def update_agent_config(self, new_config, config_key):
         session = get_session()
-        
+
         # If we have agent_id, use it to find the agent
-        if hasattr(self, 'agent_id') and self.agent_id is not None and str(self.agent_id) != "None":
+        if (
+            hasattr(self, "agent_id")
+            and self.agent_id is not None
+            and str(self.agent_id) != "None"
+        ):
             agent = (
                 session.query(AgentModel)
                 .filter(
@@ -932,7 +958,9 @@ class Agent:
             )
             if not agent:
                 # Try to find in global agents
-                global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+                global_user = (
+                    session.query(User).filter(User.email == DEFAULT_USER).first()
+                )
                 if global_user:
                     agent = (
                         session.query(AgentModel)
@@ -947,7 +975,8 @@ class Agent:
             agent = (
                 session.query(AgentModel)
                 .filter(
-                    AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user_id == self.user_id,
                 )
                 .first()
             )
@@ -955,7 +984,9 @@ class Agent:
                 if self.user == DEFAULT_USER:
                     return f"Agent {self.agent_name} not found."
                 # Check if it is a global agent and copy it if necessary
-                global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+                global_user = (
+                    session.query(User).filter(User.email == DEFAULT_USER).first()
+                )
                 global_agent = (
                     session.query(AgentModel)
                     .filter(
@@ -1193,7 +1224,9 @@ class Agent:
             )
             if not agent:
                 # Try to find in global agents (DEFAULT_USER)
-                global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+                global_user = (
+                    session.query(User).filter(User.email == DEFAULT_USER).first()
+                )
                 if global_user:
                     agent = (
                         session.query(AgentModel)
@@ -1204,7 +1237,9 @@ class Agent:
                         .first()
                     )
             if not agent:
-                raise ValueError(f"Agent with ID {self.agent_id} not found for user {self.user}")
+                raise ValueError(
+                    f"Agent with ID {self.agent_id} not found for user {self.user}"
+                )
             return agent.name
         finally:
             session.close()
@@ -1465,7 +1500,11 @@ class Agent:
         session = get_session()
         try:
             # Find the agent first to ensure it belongs to the user
-            if hasattr(self, 'agent_id') and self.agent_id is not None and str(self.agent_id) != "None":
+            if (
+                hasattr(self, "agent_id")
+                and self.agent_id is not None
+                and str(self.agent_id) != "None"
+            ):
                 agent = (
                     session.query(AgentModel)
                     .filter(

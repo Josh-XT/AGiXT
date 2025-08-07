@@ -1249,23 +1249,31 @@ class Chain:
     def get_chain_by_id(self, chain_id):
         """Get chain details by ID"""
         session = get_session()
-        chain_db = session.query(ChainDB).filter(
-            ChainDB.id == chain_id,
-            ChainDB.user_id == self.user_id,
-        ).first()
-        
+        chain_db = (
+            session.query(ChainDB)
+            .filter(
+                ChainDB.id == chain_id,
+                ChainDB.user_id == self.user_id,
+            )
+            .first()
+        )
+
         if chain_db is None:
             # Try global chains
             user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-            chain_db = session.query(ChainDB).filter(
-                ChainDB.id == chain_id,
-                ChainDB.user_id == user_data.id,
-            ).first()
-            
+            chain_db = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.id == chain_id,
+                    ChainDB.user_id == user_data.id,
+                )
+                .first()
+            )
+
         if chain_db is None:
             session.close()
             return None
-            
+
         steps = (
             session.query(ChainStep)
             .filter(ChainStep.chain_id == chain_db.id)
@@ -1287,7 +1295,7 @@ class Chain:
                     else ""
                 )
             chain_steps.append(step_data)
-            
+
         result = {
             "id": str(chain_db.id),
             "name": chain_db.name,
@@ -1300,15 +1308,19 @@ class Chain:
     def delete_chain_by_id(self, chain_id):
         """Delete chain by ID"""
         session = get_session()
-        chain = session.query(ChainDB).filter(
-            ChainDB.id == chain_id,
-            ChainDB.user_id == self.user_id,
-        ).first()
-        
+        chain = (
+            session.query(ChainDB)
+            .filter(
+                ChainDB.id == chain_id,
+                ChainDB.user_id == self.user_id,
+            )
+            .first()
+        )
+
         if not chain:
             session.close()
             raise Exception("Chain not found")
-            
+
         session.delete(chain)
         session.commit()
         session.close()
@@ -1316,15 +1328,19 @@ class Chain:
     def update_chain_by_id(self, chain_id, chain_name, description=""):
         """Update chain by ID"""
         session = get_session()
-        chain = session.query(ChainDB).filter(
-            ChainDB.id == chain_id,
-            ChainDB.user_id == self.user_id,
-        ).first()
-        
+        chain = (
+            session.query(ChainDB)
+            .filter(
+                ChainDB.id == chain_id,
+                ChainDB.user_id == self.user_id,
+            )
+            .first()
+        )
+
         if not chain:
             session.close()
             raise Exception("Chain not found")
-            
+
         chain.name = chain_name
         chain.description = description
         session.commit()
@@ -1333,30 +1349,38 @@ class Chain:
     def get_chain_args_by_id(self, chain_id):
         """Get chain arguments by ID"""
         session = get_session()
-        chain_db = session.query(ChainDB).filter(
-            ChainDB.id == chain_id,
-            ChainDB.user_id == self.user_id,
-        ).first()
-        
+        chain_db = (
+            session.query(ChainDB)
+            .filter(
+                ChainDB.id == chain_id,
+                ChainDB.user_id == self.user_id,
+            )
+            .first()
+        )
+
         if chain_db is None:
             # Try global chains
             user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-            chain_db = session.query(ChainDB).filter(
-                ChainDB.id == chain_id,
-                ChainDB.user_id == user_data.id,
-            ).first()
-            
+            chain_db = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.id == chain_id,
+                    ChainDB.user_id == user_data.id,
+                )
+                .first()
+            )
+
         if chain_db is None:
             session.close()
             return []
-            
+
         steps = (
             session.query(ChainStep)
             .filter(ChainStep.chain_id == chain_db.id)
             .order_by(ChainStep.step_number)
             .all()
         )
-        
+
         chain_args = []
         for step in steps:
             # Get step arguments
@@ -1368,6 +1392,6 @@ class Chain:
             for arg in step_args:
                 if arg.argument_name not in chain_args:
                     chain_args.append(arg.argument_name)
-                    
+
         session.close()
         return chain_args
