@@ -364,3 +364,125 @@ class Prompts:
             prompt_categories.append(prompt_category.name)
         session.close()
         return prompt_categories
+
+    def get_prompt_by_id(self, prompt_id: str):
+        """Get a prompt by its ID"""
+        session = get_session()
+        prompt = (
+            session.query(Prompt)
+            .filter(
+                Prompt.id == prompt_id,
+                Prompt.user_id == self.user_id,
+            )
+            .first()
+        )
+        if not prompt:
+            # Try global prompts
+            user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+            prompt = (
+                session.query(Prompt)
+                .filter(
+                    Prompt.id == prompt_id,
+                    Prompt.user_id == user_data.id,
+                )
+                .first()
+            )
+        session.close()
+        if not prompt:
+            return None
+        return prompt.content
+
+    def update_prompt_by_id(self, prompt_id: str, prompt_name: str, prompt: str):
+        """Update a prompt by its ID"""
+        session = get_session()
+        prompt_obj = (
+            session.query(Prompt)
+            .filter(
+                Prompt.id == prompt_id,
+                Prompt.user_id == self.user_id,
+            )
+            .first()
+        )
+        if not prompt_obj:
+            session.close()
+            raise Exception("Prompt not found")
+        prompt_obj.name = prompt_name
+        prompt_obj.content = prompt
+        
+        # Update prompt arguments
+        # Delete existing arguments
+        session.query(Argument).filter(Argument.prompt_id == prompt_id).delete()
+        
+        # Add new arguments
+        prompt_args = self.get_prompt_args(prompt)
+        for arg in prompt_args:
+            argument = Argument(
+                prompt_id=prompt_id,
+                name=arg,
+            )
+            session.add(argument)
+        
+        session.commit()
+        session.close()
+
+    def delete_prompt_by_id(self, prompt_id: str):
+        """Delete a prompt by its ID"""
+        session = get_session()
+        prompt = (
+            session.query(Prompt)
+            .filter(
+                Prompt.id == prompt_id,
+                Prompt.user_id == self.user_id,
+            )
+            .first()
+        )
+        if not prompt:
+            session.close()
+            raise Exception("Prompt not found")
+        session.delete(prompt)
+        session.commit()
+        session.close()
+
+    def get_prompt_details_by_id(self, prompt_id: str):
+        """Get full prompt details by ID"""
+        session = get_session()
+        prompt = (
+            session.query(Prompt)
+            .filter(
+                Prompt.id == prompt_id,
+                Prompt.user_id == self.user_id,
+            )
+            .first()
+        )
+        if not prompt:
+            # Try global prompts
+            user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+            prompt = (
+                session.query(Prompt)
+                .filter(
+                    Prompt.id == prompt_id,
+                    Prompt.user_id == user_data.id,
+                )
+                .first()
+            )
+        
+        if not prompt:
+            session.close()
+            return None
+            
+        # Get arguments
+        try:
+            prompt_args = [arg.name for arg in prompt.arguments]
+        except:
+            prompt_args = []
+            
+        result = {
+            "prompt_name": prompt.name,
+            "prompt_category": prompt.prompt_category.name,
+            "prompt": prompt.content,
+            "description": prompt.description,
+            "arguments": prompt_args,
+            "id": str(prompt.id)
+        }
+        session.close()
+        return result

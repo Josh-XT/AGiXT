@@ -21,7 +21,7 @@ app = APIRouter()
 
 @app.get(
     "/api/chain",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=List[str],
     summary="Get all chains",
@@ -36,7 +36,7 @@ async def get_chains(user=Depends(verify_api_key), authorization: str = Header(N
 
 @app.get(
     "/api/chain/{chain_name}",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=Dict[str, ChainDetailsResponse],
     summary="Get chain details",
@@ -53,7 +53,7 @@ async def get_chain(chain_name: str, user=Depends(verify_api_key)):
 
 @app.post(
     "/api/chain/{chain_name}/run",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=str,
     summary="Run chain",
@@ -99,7 +99,7 @@ async def run_chain(
 
 @app.post(
     "/api/chain/{chain_name}/run/step/{step_number}",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=str,
     summary="Run chain step",
@@ -153,7 +153,7 @@ async def run_chain_step(
 # Get chain args
 @app.get(
     "/api/chain/{chain_name}/args",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=Dict[str, List[str]],
     summary="Get chain arguments",
@@ -172,7 +172,7 @@ async def get_chain_args(
 
 @app.post(
     "/api/chain",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Create new chain",
@@ -195,7 +195,7 @@ async def add_chain(
 
 @app.post(
     "/api/chain/import",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Import chain",
@@ -216,7 +216,7 @@ async def importchain(
 
 @app.put(
     "/api/chain/{chain_name}",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Update chain",
@@ -254,7 +254,7 @@ async def update_chain(
 
 @app.delete(
     "/api/chain/{chain_name}",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Delete chain",
@@ -273,7 +273,7 @@ async def delete_chain(
 
 @app.post(
     "/api/chain/{chain_name}/step",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Add chain step",
@@ -302,7 +302,7 @@ async def add_step(
 
 @app.put(
     "/api/chain/{chain_name}/step/{step_number}",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Update chain step",
@@ -330,7 +330,7 @@ async def update_step(
 
 @app.patch(
     "/api/chain/{chain_name}/step/move",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Move chain step",
@@ -358,7 +358,7 @@ async def move_step(
 
 @app.delete(
     "/api/chain/{chain_name}/step/{step_number}",
-    tags=["Chain"],
+    tags=["Chain-Legacy"],
     dependencies=[Depends(verify_api_key)],
     response_model=ResponseMessage,
     summary="Delete chain step",
@@ -376,3 +376,95 @@ async def delete_step(
         raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).delete_step(chain_name=chain_name, step_number=step_number)
     return {"message": f"Step {step_number} deleted from chain '{chain_name}'."}
+
+
+# V1 Chain Endpoints using chain_id instead of chain_name
+
+
+@app.get(
+    "/v1/chain/{chain_id}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=Dict[str, ChainDetailsResponse],
+    summary="Get chain details by ID",
+    description="Retrieves detailed information about a specific chain using chain ID, including all steps and configurations.",
+)
+async def get_chain_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
+    if chain_id == "":
+        raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
+    chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)
+    if chain_data is None:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    return {chain_data["name"]: chain_data}
+
+
+@app.delete(
+    "/v1/chain/{chain_id}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Delete chain by ID",
+    description="Deletes a specific chain using chain ID. Requires admin privileges.",
+)
+async def delete_chain_by_id_v1(
+    chain_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
+) -> ResponseMessage:
+    if chain_id == "":
+        raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    try:
+        chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)
+        if chain_data is None:
+            raise HTTPException(status_code=404, detail="Chain not found")
+        Chain(user=user).delete_chain_by_id(chain_id=chain_id)
+        return {"message": f"Chain '{chain_data['name']}' deleted."}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.put(
+    "/v1/chain/{chain_id}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Update chain by ID",
+    description="Updates a chain's name and description using chain ID. Requires admin privileges.",
+)
+async def update_chain_by_id_v1(
+    chain_id: str,
+    chain_data: ChainNewName,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if chain_id == "":
+        raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    try:
+        Chain(user=user).update_chain_by_id(
+            chain_id=chain_id,
+            chain_name=chain_data.new_name,
+            description=getattr(chain_data, 'description', ''),
+        )
+        return {"message": f"Chain updated to '{chain_data.new_name}'."}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get(
+    "/v1/chain/{chain_id}/args",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=List[str],
+    summary="Get chain arguments by ID",
+    description="Retrieves the list of arguments required by a specific chain using chain ID.",
+)
+async def get_chain_args_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
+    if chain_id == "":
+        raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
+    try:
+        chain_args = Chain(user=user).get_chain_args_by_id(chain_id=chain_id)
+        return chain_args
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Chain not found")

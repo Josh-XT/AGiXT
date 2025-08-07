@@ -50,7 +50,7 @@ app = APIRouter()
 
 @app.post(
     "/api/agent",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Create a new agent",
     description="Creates a new agent with specified settings and optionally trains it with provided URLs.",
@@ -88,7 +88,7 @@ async def addagent(
 
 @app.post(
     "/api/agent/import",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Import an agent configuration",
     description="Imports an existing agent configuration including settings and commands.",
@@ -109,7 +109,7 @@ async def import_agent(
 
 @app.patch(
     "/api/agent/{agent_name}",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Rename an agent",
     description="Changes the name of an existing agent.",
@@ -129,7 +129,7 @@ async def renameagent(
 
 @app.put(
     "/api/agent/{agent_name}",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Update agent settings",
     description="Updates the settings for an existing agent.",
@@ -157,7 +157,7 @@ async def update_agent_settings(
 
 @app.put(
     "/api/agent/{agent_name}/persona",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Update agent persona",
     description="Updates the persona settings for an agent, optionally within a company context.",
@@ -189,7 +189,7 @@ async def update_persona(
 
 @app.get(
     "/api/agent/{agent_name}/persona",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Get agent persona",
     description="Retrieves the current persona settings for an agent.",
@@ -214,7 +214,7 @@ async def get_persona(
     "/api/agent/{agent_name}/persona/{company_id}",
     dependencies=[Depends(verify_api_key)],
     summary="Get agent persona",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
 )
 async def get_persona(
     agent_name: str,
@@ -237,7 +237,7 @@ async def get_persona(
 
 @app.put(
     "/api/agent/{agent_name}/persona/{company_id}",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
 )
 async def update_persona(
@@ -267,7 +267,7 @@ async def update_persona(
 
 @app.put(
     "/api/agent/{agent_name}/commands",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Update agent commands",
     description="Updates the available commands for an agent.",
@@ -290,7 +290,7 @@ async def update_agent_commands(
 
 @app.delete(
     "/api/agent/{agent_name}",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Delete an agent",
     description="Deletes an agent and all associated data including memory and configurations.",
@@ -315,7 +315,7 @@ async def deleteagent(
 
 @app.get(
     "/api/agent",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Get all agents",
     description="Retrieves a list of all available agents for the authenticated user.",
@@ -349,7 +349,7 @@ async def getagents(user=Depends(verify_api_key), authorization: str = Header(No
 
 @app.get(
     "/api/agent/{agent_name}",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Get agent configuration",
     description="Retrieves the complete configuration for a specific agent.",
@@ -375,7 +375,7 @@ async def get_agentconfig(
 
 @app.post(
     "/api/agent/{agent_name}/prompt",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Prompt an agent",
     description="Sends a prompt to an agent and receives a response. Can include various prompt arguments and conversation context.",
@@ -489,7 +489,7 @@ async def prompt_agent(
 
 @app.get(
     "/api/agent/{agent_name}/command",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Get agent commands",
     description="Retrieves the list of available commands for an agent.",
@@ -507,7 +507,7 @@ async def get_commands(
 
 @app.patch(
     "/api/agent/{agent_name}/command",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Toggle agent command",
     description="Enables or disables a specific command for an agent.",
@@ -534,7 +534,7 @@ async def toggle_command(
 
 @app.get(
     "/api/agent/{agent_name}/browsed_links/{collection_number}",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Get agent browsed links",
     description="Retrieves the list of URLs that have been browsed by the agent in a specific collection.",
@@ -556,7 +556,7 @@ async def get_agent_browsed_links(
 # Delete browsed link from memory
 @app.delete(
     "/api/agent/{agent_name}/browsed_links",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Delete browsed link",
     description="Removes a specific URL from the agent's browsed links history.",
@@ -585,7 +585,7 @@ async def delete_browsed_link(
 
 @app.post(
     "/api/agent/{agent_name}/text_to_speech",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Convert text to speech",
     description="Converts text to speech using the agent's configured TTS provider.",
@@ -620,7 +620,7 @@ async def text_to_speech(
 
 @app.post(
     "/api/agent/{agent_name}/plan/task",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Plan a task",
     description="Creates a task plan for the agent to execute, optionally including web search capabilities.",
@@ -709,13 +709,13 @@ from Providers import get_providers_with_details, get_provider_options
     description="Retrieves the list of providers connected to a specific agent.",
     response_model=Dict[str, str],
 )
-async def get_providers(
+async def get_providers_v1(
     agent_id: str,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, str]:
     ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_id, user=user, ApiClient=ApiClient)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     agent_settings = agent.AGENT_CONFIG["settings"]
     providers = get_providers_with_details()
     new_providers = {}
@@ -736,7 +736,6 @@ async def get_providers(
     return {"providers": new_providers}
 
 
-# `DEL /v1/agent/{agent_id}/provider/{provider_name}` ?
 @app.delete(
     "/v1/agent/{agent_id}/provider/{provider_name}",
     tags=["Agent"],
@@ -745,7 +744,7 @@ async def get_providers(
     description="Deletes a specific provider from the agent's configuration.",
     response_model=ResponseMessage,
 )
-async def delete_provider(
+async def delete_provider_v1(
     agent_id: str,
     provider_name: str,
     user=Depends(verify_api_key),
@@ -754,7 +753,7 @@ async def delete_provider(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_id, user=user, ApiClient=ApiClient)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     provider = get_provider_options(provider_name)
     # Find what keys have the word "KEY", "SECRET", "PASSWORD", or "TOKEN" in them
     keys = [
@@ -773,9 +772,551 @@ async def delete_provider(
     return ResponseMessage(message=update_config)
 
 
+# V1 Agent Endpoints using agent_id instead of agent_name
+
+
+@app.patch(
+    "/v1/agent/{agent_id}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Rename an agent by ID",
+    description="Changes the name of an existing agent using agent ID.",
+    response_model=ResponseMessage,
+)
+async def renameagent_v1(
+    agent_id: str,
+    new_name: AgentNewName,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    rename_agent(agent_name=agent.agent_name, new_name=new_name.new_name, user=user)
+    return ResponseMessage(message="Agent renamed.")
+
+
+@app.put(
+    "/v1/agent/{agent_id}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Update agent settings by ID",
+    description="Updates the settings for an existing agent using agent ID.",
+    response_model=ResponseMessage,
+)
+async def update_agent_settings_v1(
+    agent_id: str,
+    settings: AgentSettings,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    update_config = agent.update_agent_config(
+        new_config=settings.settings, config_key="settings"
+    )
+    config = agent.get_agent_config()
+    logging.info(
+        f"Agent {agent_id} updated. New config: {json.dumps(config, indent=2)}"
+    )
+    return ResponseMessage(message=update_config)
+
+
+@app.put(
+    "/v1/agent/{agent_id}/persona",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Update agent persona by ID",
+    description="Updates the persona settings for an agent using agent ID, optionally within a company context.",
+    response_model=ResponseMessage,
+)
+async def update_persona_v1(
+    agent_id: str,
+    persona: PersonaInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    if persona.company_id is not None:
+        auth = MagicalAuth(token=authorization)
+        if auth.get_user_role(persona.company_id) > 2:
+            raise HTTPException(status_code=403, detail="Access Denied")
+        else:
+            response = auth.set_training_data(
+                training_data=persona.persona, company_id=persona.company_id
+            )
+            return ResponseMessage(message=response)
+    update_config = Agent(
+        agent_id=agent_id, user=user, ApiClient=ApiClient
+    ).update_agent_config(
+        new_config={"persona": persona.persona}, config_key="settings"
+    )
+    return ResponseMessage(message=update_config)
+
+
+@app.get(
+    "/v1/agent/{agent_id}/persona",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent persona by ID",
+    description="Retrieves the current persona settings for an agent using agent ID.",
+    response_model=Dict[str, str],
+)
+async def get_persona_v1(
+    agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    if "persona" not in agent.AGENT_CONFIG["settings"]:
+        if "PERSONA" not in agent.AGENT_CONFIG["settings"]:
+            agent.AGENT_CONFIG["settings"]["persona"] = ""
+        else:
+            agent.AGENT_CONFIG["settings"]["persona"] = agent.AGENT_CONFIG["settings"][
+                "PERSONA"
+            ]
+    return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
+
+
+@app.get(
+    "/v1/agent/{agent_id}/persona/{company_id}",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent persona by ID with company",
+    tags=["Agent"],
+)
+async def get_persona_company_v1(
+    agent_id: str,
+    company_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    user_persona = False
+    if auth.get_user_role(company_id) > 2:
+        user_persona = True
+    if user_persona:
+        ApiClient = get_api_client(authorization=authorization)
+        agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+        return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
+    else:
+        response = auth.get_training_data(id if company_id is None else company_id)
+        return {"message": response}
+
+
+@app.put(
+    "/v1/agent/{agent_id}/persona/{company_id}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Update agent persona by ID with company",
+)
+async def update_persona_company_v1(
+    agent_id: str,
+    company_id: str,
+    persona: PersonaInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    if company_id is not None:
+        auth = MagicalAuth(token=authorization)
+        if auth.get_user_role(company_id) > 2:
+            raise HTTPException(status_code=403, detail="Access Denied")
+        else:
+            response = auth.set_training_data(
+                training_data=persona.persona, company_id=company_id
+            )
+            return ResponseMessage(message=response)
+    update_config = Agent(
+        agent_id=agent_id, user=user, ApiClient=ApiClient
+    ).update_agent_config(
+        new_config={"persona": persona.persona}, config_key="settings"
+    )
+    return ResponseMessage(message=update_config)
+
+
+@app.put(
+    "/v1/agent/{agent_id}/commands",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Update agent commands by ID",
+    description="Updates the available commands for an agent using agent ID.",
+    response_model=ResponseMessage,
+)
+async def update_agent_commands_v1(
+    agent_id: str,
+    commands: AgentCommands,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    update_config = Agent(
+        agent_id=agent_id, user=user, ApiClient=ApiClient
+    ).update_agent_config(new_config=commands.commands, config_key="commands")
+    return ResponseMessage(message=update_config)
+
+
+@app.delete(
+    "/v1/agent/{agent_id}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Delete an agent by ID",
+    description="Deletes an agent and all associated data including memory and configurations using agent ID.",
+    response_model=ResponseMessage,
+)
+async def deleteagent_v1(
+    agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    await Websearch(
+        collection_number="0",
+        agent=agent,
+        user=user,
+        ApiClient=ApiClient,
+    ).agent_memory.wipe_memory()
+    delete_agent(agent_name=agent.agent_name, user=user)
+    return ResponseMessage(message=f"Agent {agent.agent_name} deleted.")
+
+
+@app.get(
+    "/v1/agent/{agent_id}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent configuration by ID",
+    description="Retrieves the complete configuration for a specific agent using agent ID.",
+    response_model=AgentConfigResponse,
+)
+async def get_agentconfig_v1(
+    agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_id=agent_id, user=user, ApiClient=ApiClient
+    ).get_agent_config()
+    for key, value in agent_config["settings"].items():
+        if value.strip() != "":
+            if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
+                agent_config["settings"][key] = "HIDDEN"
+            else:
+                agent_config["settings"][key] = value
+    return {"agent": agent_config}
+
+
+@app.post(
+    "/v1/agent/{agent_id}/prompt",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Prompt an agent by ID",
+    description="Sends a prompt to an agent and receives a response using agent ID. Can include various prompt arguments and conversation context.",
+    response_model=AgentPromptResponse,
+)
+async def prompt_agent_v1(
+    agent_id: str,
+    agent_prompt: AgentPrompt,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        # Get agent name from agent_id
+        ApiClient = get_api_client(authorization=authorization)
+        agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+        agent_name = agent.agent_name
+        
+        if "conversation_name" not in agent_prompt.prompt_args:
+            conversation_name = None
+            agent_prompt.prompt_args["log_user_input"] = False
+            agent_prompt.prompt_args["log_output"] = False
+        else:
+            conversation_name = agent_prompt.prompt_args["conversation_name"]
+            del agent_prompt.prompt_args["conversation_name"]
+        if "user_input" not in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["user_input"] = ""
+        if conversation_name != "-":
+            try:
+                conversation_id = str(uuid.UUID(conversation_name))
+            except:
+                conversation_id = None
+            if conversation_id:
+                auth = MagicalAuth(token=authorization)
+                conversation_name = get_conversation_name_by_id(
+                    conversation_id=conversation_id, user_id=auth.user_id
+                )
+        agixt_agent = AGiXT(
+            user=user,
+            agent_name=agent_name,
+            api_key=authorization,
+            conversation_name=conversation_name,
+        )
+        agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_name
+        if "prompt_category" not in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["prompt_category"] = "Default"
+        if "tts" in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["voice_response"] = (
+                str(agent_prompt.prompt_args["tts"]).lower() == "true"
+            )
+            del agent_prompt.prompt_args["tts"]
+        if "context_results" in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["injected_memories"] = int(
+                agent_prompt.prompt_args["context_results"]
+            )
+            del agent_prompt.prompt_args["context_results"]
+        if "conversation_results" not in agent_prompt.prompt_args:
+            agent_prompt.prompt_args["conversation_results"] = 10
+        prompt_args = agent_prompt.prompt_args.copy()
+        if "user_input" in prompt_args:
+            del prompt_args["user_input"]
+        messages = []
+        if "file_urls" in agent_prompt.prompt_args:
+            file_list = agent_prompt.prompt_args["file_urls"]
+            del agent_prompt.prompt_args["file_urls"]
+            messages.append(
+                {
+                    "role": "user",
+                    **prompt_args,
+                    "prompt_args": prompt_args,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                agent_prompt.prompt_args["user_input"]
+                                if "user_input" in agent_prompt.prompt_args
+                                else ""
+                            ),
+                        },
+                    ],
+                }
+            )
+            for file_url in file_list:
+                messages[0]["content"] += [
+                    {
+                        "type": "file_url",
+                        "file_url": {"url": file_url},
+                    }
+                ]
+        else:
+            messages = [
+                {
+                    "role": "user",
+                    **prompt_args,
+                    "prompt_args": prompt_args,
+                    "content": (
+                        agent_prompt.prompt_args["user_input"]
+                        if "user_input" in agent_prompt.prompt_args
+                        else ""
+                    ),
+                }
+            ]
+        response = await agixt_agent.chat_completions(
+            prompt=ChatCompletions(
+                model=agent_name,
+                user=conversation_name,
+                messages=messages,
+            )
+        )
+        response = response["choices"][0]["message"]["content"]
+        return {"response": str(response)}
+    except Exception as e:
+        logging.error(f"Error prompting agent: {e}")
+        logging.error(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get(
+    "/v1/agent/{agent_id}/command",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent commands by ID",
+    description="Retrieves the list of available commands for an agent using agent ID.",
+    response_model=AgentCommandsResponse,
+)
+async def get_commands_v1(
+    agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    return {"commands": agent.AGENT_CONFIG["commands"]}
+
+
+@app.patch(
+    "/v1/agent/{agent_id}/command",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Toggle agent command by ID",
+    description="Enables or disables a specific command for an agent using agent ID.",
+    response_model=ResponseMessage,
+)
+async def toggle_command_v1(
+    agent_id: str,
+    payload: ToggleCommandPayload,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    update_config = agent.update_agent_config(
+        new_config={payload.command_name: payload.enable}, config_key="commands"
+    )
+    return ResponseMessage(message=update_config)
+
+
+@app.get(
+    "/v1/agent/{agent_id}/browsed_links/{collection_number}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent browsed links by ID",
+    description="Retrieves the list of URLs that have been browsed by the agent in a specific collection using agent ID.",
+    response_model=AgentBrowsedLinksResponse,
+)
+async def get_agent_browsed_links_v1(
+    agent_id: str,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    return {"links": agent.get_browsed_links(conversation_id=collection_number)}
+
+
+@app.delete(
+    "/v1/agent/{agent_id}/browsed_links",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Delete browsed link by ID",
+    description="Removes a specific URL from the agent's browsed links history using agent ID.",
+    response_model=ResponseMessage,
+)
+async def delete_browsed_link_v1(
+    agent_id: str,
+    url: UrlInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    websearch = Websearch(
+        collection_number=str(url.collection_number),
+        agent=agent,
+        user=user,
+        ApiClient=ApiClient,
+    )
+    await websearch.agent_memory.delete_memories_from_external_source(url=url.url)
+    agent.delete_browsed_link(url=url.url, conversation_id=url.collection_number)
+    return {"message": "Browsed links deleted."}
+
+
+@app.post(
+    "/v1/agent/{agent_id}/text_to_speech",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Convert text to speech by ID",
+    description="Converts text to speech using the agent's configured TTS provider using agent ID.",
+    response_model=Dict[str, str],
+)
+async def text_to_speech_v1(
+    agent_id: str,
+    text: TTSInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    AGIXT_URI = getenv("AGIXT_URI")
+    if agent.TTS_PROVIDER != None:
+        tts_response = await agent.text_to_speech(text=text.text)
+    else:
+        tts_response = await DefaultProvider().text_to_speech(text=text.text)
+    if not str(tts_response).startswith("http"):
+        file_type = "wav"
+        file_name = f"{uuid.uuid4().hex}.{file_type}"
+        audio_path = os.path.join(agent.working_directory, file_name)
+        audio_data = base64.b64decode(tts_response)
+        with open(audio_path, "wb") as f:
+            f.write(audio_data)
+        tts_response = f"{AGIXT_URI}/outputs/{agent.agent_id}/{file_name}"
+    return {"url": tts_response}
+
+
+@app.post(
+    "/v1/agent/{agent_id}/plan/task",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Plan a task by ID",
+    description="Creates a task plan for the agent to execute using agent ID, optionally including web search capabilities.",
+    response_model=Dict[str, str],
+)
+async def plan_task_v1(
+    agent_id: str,
+    task: TaskPlanInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    # Get agent name from agent_id
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    agent_name = agent.agent_name
+    
+    agixt_agent = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=task.conversation_name,
+    )
+    planned_task = await agixt_agent.plan_task(
+        user_input=task.user_input,
+        websearch=task.websearch,
+        websearch_depth=task.websearch_depth,
+        log_user_input=task.log_user_input,
+        log_output=task.log_output,
+        enable_new_command=task.enable_new_command,
+    )
+    return {"response": planned_task}
+
+
+@app.get(
+    "/v1/agent/{agent_id}/wallet",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get agent wallet by ID",
+    description="Retrieves the private key and passphrase for the agent's Solana wallet using agent ID. If wallet doesn't exist or is empty, creates a new one automatically.",
+    response_model=WalletResponseModel,
+)
+async def get_agent_wallet_v1(
+    agent_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    agent = Agent(
+        agent_id=agent_id,
+        user=user,
+        ApiClient=get_api_client(authorization=authorization),
+    )
+    wallet_info = agent.get_agent_wallet()
+    return WalletResponseModel(
+        private_key=wallet_info["private_key"],
+        passphrase=wallet_info["passphrase"],
+    )
+
+
 @app.get(
     "/api/agent/{agent_name}/wallet",
-    tags=["Agent"],
+    tags=["Agent-Legacy"],
     dependencies=[Depends(verify_api_key)],
     summary="Get agent wallet",
     description="Retrieves the private key and passphrase for the agent's Solana wallet. If wallet doesn't exist or is empty, creates a new one automatically.",

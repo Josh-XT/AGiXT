@@ -22,7 +22,7 @@ logging.basicConfig(
 
 @app.post(
     "/api/prompt/{prompt_category}",
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     response_model=ResponseMessage,
     summary="Add a new prompt",
     description="Create a new prompt in the specified category. Requires admin privileges.",
@@ -50,7 +50,7 @@ async def add_prompt(
 
 @app.get(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     response_model=CustomPromptModel,
     summary="Get a specific prompt",
     description="Retrieve a prompt by its name and category.",
@@ -72,7 +72,7 @@ async def get_prompt_with_category(
 @app.get(
     "/api/prompt",
     response_model=PromptList,
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     summary="Get all prompts",
     description="Retrieve a list of all available prompts in the default category.",
     dependencies=[Depends(verify_api_key)],
@@ -85,7 +85,7 @@ async def get_prompts(user=Depends(verify_api_key)):
 @app.get(
     "/api/prompt/categories",
     response_model=PromptCategoryList,
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     summary="Get all prompt categories",
     description="Retrieve a list of all available prompt categories.",
     dependencies=[Depends(verify_api_key)],
@@ -98,7 +98,7 @@ async def get_prompt_categories(user=Depends(verify_api_key)):
 @app.get(
     "/api/prompt/{prompt_category}",
     response_model=PromptList,
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     summary="Get prompts by category",
     description="Retrieve all prompts in a specific category.",
     dependencies=[Depends(verify_api_key)],
@@ -110,7 +110,7 @@ async def get_prompts(prompt_category: str = "Default", user=Depends(verify_api_
 
 @app.delete(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     response_model=ResponseMessage,
     summary="Delete a prompt",
     description="Delete a specific prompt from a category. Requires admin privileges.",
@@ -135,7 +135,7 @@ async def delete_prompt(
 
 @app.patch(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     response_model=ResponseMessage,
     summary="Rename a prompt",
     description="Rename an existing prompt in a category. Requires admin privileges.",
@@ -165,7 +165,7 @@ async def rename_prompt(
 
 @app.put(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     response_model=ResponseMessage,
     summary="Update a prompt",
     description="Update the content of an existing prompt. Requires admin privileges.",
@@ -192,7 +192,7 @@ async def update_prompt(
 
 @app.get(
     "/api/prompt/{prompt_category}/{prompt_name}/args",
-    tags=["Prompt"],
+    tags=["Prompt-Legacy"],
     response_model=PromptArgsResponse,
     summary="Get prompt arguments",
     description="Retrieve the arguments required by a specific prompt.",
@@ -208,5 +208,104 @@ async def get_prompt_arg(
             prompt_name=prompt_name, prompt_category=prompt_category
         )
         return {"prompt_args": Prompts(user=user).get_prompt_args(prompt)}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Prompt not found.")
+
+
+# V1 Prompt Endpoints using prompt_id instead of prompt_category/prompt_name
+
+
+@app.get(
+    "/v1/prompt/{prompt_id}",
+    tags=["Prompt"],
+    response_model=CustomPromptModel,
+    summary="Get a specific prompt by ID",
+    description="Retrieve a prompt by its ID.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_prompt_by_id_v1(
+    prompt_id: str, user=Depends(verify_api_key)
+):
+    try:
+        prompt_details = Prompts(user=user).get_prompt_details_by_id(prompt_id=prompt_id)
+        if not prompt_details:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        return {
+            "prompt_name": prompt_details["prompt_name"],
+            "prompt_category": prompt_details["prompt_category"],
+            "prompt": prompt_details["prompt"],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+
+@app.delete(
+    "/v1/prompt/{prompt_id}",
+    tags=["Prompt"],
+    response_model=ResponseMessage,
+    summary="Delete a prompt by ID",
+    description="Delete a specific prompt by its ID. Requires admin privileges.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_prompt_by_id_v1(
+    prompt_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    try:
+        prompt_details = Prompts(user=user).get_prompt_details_by_id(prompt_id=prompt_id)
+        if not prompt_details:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        Prompts(user=user).delete_prompt_by_id(prompt_id=prompt_id)
+        return ResponseMessage(message=f"Prompt '{prompt_details['prompt_name']}' deleted.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.put(
+    "/v1/prompt/{prompt_id}",
+    tags=["Prompt"],
+    response_model=ResponseMessage,
+    summary="Update a prompt by ID",
+    description="Update the content of an existing prompt by its ID. Requires admin privileges.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_prompt_by_id_v1(
+    prompt_id: str,
+    prompt: CustomPromptModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    try:
+        Prompts(user=user).update_prompt_by_id(
+            prompt_id=prompt_id,
+            prompt_name=prompt.prompt_name,
+            prompt=prompt.prompt,
+        )
+        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get(
+    "/v1/prompt/{prompt_id}/args",
+    tags=["Prompt"],
+    response_model=PromptArgsResponse,
+    summary="Get prompt arguments by ID",
+    description="Retrieve the arguments required by a specific prompt by its ID.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_prompt_args_by_id_v1(
+    prompt_id: str, user=Depends(verify_api_key)
+):
+    try:
+        prompt_content = Prompts(user=user).get_prompt_by_id(prompt_id=prompt_id)
+        if not prompt_content:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        return {"prompt_args": Prompts(user=user).get_prompt_args(prompt_content)}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Prompt not found.")
