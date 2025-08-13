@@ -443,11 +443,17 @@ class Agent:
             os.path.join(workspace_root, working_agent_id)
         )
 
-        # Validate path security using CodeQL recommended pattern
-        validated_working_directory = self.validate_safe_path(
-            working_directory, workspace_root
-        )
-        self.working_directory = validated_working_directory
+        # CodeQL security pattern: verify normalized path is within workspace
+        normalized_workspace_root = os.path.normpath(workspace_root)
+        if (
+            not working_directory.startswith(normalized_workspace_root + os.sep)
+            and working_directory != normalized_workspace_root
+        ):
+            raise ValueError(
+                f"Invalid agent_id: path traversal detected in '{working_agent_id}'"
+            )
+
+        self.working_directory = working_directory
         os.makedirs(self.working_directory, exist_ok=True)
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
@@ -893,12 +899,15 @@ class Agent:
                 os.path.join(self.working_directory, filename)
             )
 
-            # Validate path security using CodeQL recommended pattern
-            validated_audio_path = self.validate_safe_path(
-                audio_path, self.working_directory
-            )
+            # CodeQL security pattern: verify normalized path is within working directory
+            normalized_working_dir = os.path.normpath(self.working_directory)
+            if (
+                not audio_path.startswith(normalized_working_dir + os.sep)
+                and audio_path != normalized_working_dir
+            ):
+                raise ValueError(f"Invalid audio path: path traversal detected")
 
-            with open(validated_audio_path, "wb") as f:
+            with open(audio_path, "wb") as f:
                 f.write(base64.b64decode(tts_content))
             agixt_uri = getenv("AGIXT_URI")
             output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{filename}"
@@ -1350,42 +1359,6 @@ class Agent:
 
         return component
 
-    @staticmethod
-    def validate_safe_path(full_path, base_path):
-        """
-        Validate that a full path is safely within a base directory.
-        Implements CodeQL recommended security patterns.
-
-        Args:
-            full_path (str): The full path to validate
-            base_path (str): The base directory that full_path should be within
-
-        Returns:
-            str: The validated full path
-
-        Raises:
-            ValueError: If the path is not safe
-        """
-        import os
-
-        if not full_path or not base_path:
-            raise ValueError("Both full_path and base_path must be provided")
-
-        # Normalize both paths
-        normalized_full = os.path.normpath(os.path.abspath(full_path))
-        normalized_base = os.path.normpath(os.path.abspath(base_path))
-
-        # Security check: ensure the full path is within the base path
-        if (
-            not normalized_full.startswith(normalized_base + os.sep)
-            and normalized_full != normalized_base
-        ):
-            raise ValueError(
-                f"Path traversal detected: '{full_path}' is not within '{base_path}'"
-            )
-
-        return normalized_full
-
     def get_conversation_tasks(self, conversation_id: str) -> str:
         """Get all tasks assigned to an agent"""
         session = None
@@ -1546,10 +1519,13 @@ class Agent:
                 os.path.join(self.working_directory, safe_conversation_id)
             )
 
-            # Validate path security using CodeQL recommended pattern
-            validated_working_directory = self.validate_safe_path(
-                working_directory, self.working_directory
-            )
+            # CodeQL security pattern: verify normalized path is within working directory
+            normalized_working_dir = os.path.normpath(self.working_directory)
+            if (
+                not working_directory.startswith(normalized_working_dir + os.sep)
+                and working_directory != normalized_working_dir
+            ):
+                raise ValueError(f"Invalid conversation_id: path traversal detected")
 
             # Use safe_conversation_id for URL construction as well
             conversation_outputs = f"http://localhost:7437/outputs/{self.sanitize_path_component(self.agent_id) if self.agent_id else 'default'}/{safe_conversation_id}/"
@@ -1605,7 +1581,7 @@ class Agent:
 
 - All inputs are strings and must be appropriately filled in with the correct values.
 - The assistant can execute a command anywhere in the response, and the commands will be executed in the order they appear.
-- If referencing a file path, use the assistant's working directory as the file path. The assistant's working directory is {validated_working_directory}.
+- If referencing a file path, use the assistant's working directory as the file path. The assistant's working directory is {working_directory}.
 - Only reference files in the working directory! The assistant cannot access files outside of the working directory.
 - All files in the working directory will be immediately available to the user and agent in this folder: {conversation_outputs}
 - The assistant will receive the command output before the user does and will be able to reference the output in the response.

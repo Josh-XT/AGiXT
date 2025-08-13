@@ -45,31 +45,6 @@ from Conversations import get_conversation_name_by_id, get_conversation_id_by_na
 from MagicalAuth import MagicalAuth
 import traceback
 
-
-def validate_safe_path(full_path, base_path):
-    """
-    Validate that a full path is safely within a base directory.
-    Implements CodeQL recommended security patterns.
-    """
-    if not full_path or not base_path:
-        raise ValueError("Both full_path and base_path must be provided")
-
-    # Normalize both paths
-    normalized_full = os.path.normpath(os.path.abspath(full_path))
-    normalized_base = os.path.normpath(os.path.abspath(base_path))
-
-    # Security check: ensure the full path is within the base path
-    if (
-        not normalized_full.startswith(normalized_base + os.sep)
-        and normalized_full != normalized_base
-    ):
-        raise ValueError(
-            f"Path traversal detected: '{full_path}' is not within '{base_path}'"
-        )
-
-    return normalized_full
-
-
 app = APIRouter()
 
 
@@ -672,11 +647,16 @@ async def text_to_speech_v1(
         # Use normalized path construction for security (CodeQL requirement)
         audio_path = os.path.normpath(os.path.join(agent.working_directory, file_name))
 
-        # Validate path security using CodeQL recommended pattern
-        validated_audio_path = validate_safe_path(audio_path, agent.working_directory)
+        # CodeQL security pattern: verify normalized path is within working directory
+        normalized_working_dir = os.path.normpath(agent.working_directory)
+        if (
+            not audio_path.startswith(normalized_working_dir + os.sep)
+            and audio_path != normalized_working_dir
+        ):
+            raise ValueError(f"Invalid audio path: path traversal detected")
 
         audio_data = base64.b64decode(tts_response)
-        with open(validated_audio_path, "wb") as f:
+        with open(audio_path, "wb") as f:
             f.write(audio_data)
         tts_response = f"{AGIXT_URI}/outputs/{agent.agent_id}/{file_name}"
     return {"url": tts_response}
