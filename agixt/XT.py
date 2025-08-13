@@ -1015,23 +1015,91 @@ class AGiXT:
         )
         return file_content
 
+    def _is_safe_url(self, url: str) -> bool:
+        """
+        Check if a URL is safe for downloading by validating against SSRF attacks
+        while allowing legitimate public domains.
+
+        Args:
+            url (str): URL to validate
+
+        Returns:
+            bool: True if URL is safe, False otherwise
+        """
+        try:
+            parsed_url = urllib.parse.urlparse(url)
+
+            # Reject non-HTTP(S) schemes
+            if parsed_url.scheme not in ["http", "https"]:
+                return False
+
+            # Extract hostname/IP
+            hostname = parsed_url.hostname
+            if not hostname:
+                return False
+
+            # Block private/internal IP ranges and localhost
+            import ipaddress
+
+            try:
+                ip = ipaddress.ip_address(hostname)
+                # Block private networks, loopback, link-local, multicast
+                if (
+                    ip.is_private
+                    or ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_multicast
+                    or ip.is_reserved
+                ):
+                    logging.error(f"Blocked private/internal IP: {hostname}")
+                    return False
+            except ValueError:
+                # Not an IP address, it's a domain name - continue validation
+                pass
+
+            # Block common internal hostnames
+            blocked_hostnames = {
+                "localhost",
+                "127.0.0.1",
+                "::1",
+                "metadata.google.internal",  # GCP metadata
+                "169.254.169.254",  # AWS/Azure metadata
+                "metadata",
+                "consul",
+                "vault",
+            }
+
+            if hostname.lower() in blocked_hostnames:
+                logging.error(f"Blocked internal hostname: {hostname}")
+                return False
+
+            # Block certain TLDs that are commonly used for internal networks
+            blocked_tlds = {".local", ".internal", ".corp", ".home"}
+            for tld in blocked_tlds:
+                if hostname.lower().endswith(tld):
+                    logging.error(f"Blocked internal TLD: {hostname}")
+                    return False
+
+            # Allow if it passes all checks
+            return True
+
+        except Exception as e:
+            logging.error(f"Error validating URL safety: {e}")
+            return False
+
     async def download_file_to_workspace(
         self, url: str, file_name: str = "", download_headers={}
     ):
-        # Whitelist of allowed domains for file downloads
-        ALLOWED_DOMAINS = [
-            "github.com",
-            # Add other trusted domains here
-        ]
         """
-        Download a file from a URL to the workspace
+        Download a file from a URL to the workspace with SSRF protection
 
         Args:
             url (str): URL of the file
             file_name (str): Name of the file
+            download_headers (dict): Additional headers for the request
 
         Returns:
-            str: URL of the downloaded file
+            dict: Dictionary with file_name and file_url, or empty dict if failed
         """
         if url.startswith("data:"):
             file_type = url.split(",")[0].split("/")[1].split(";")[0]
@@ -1060,20 +1128,50 @@ class AGiXT:
             file_data = base64.b64decode(url.split(",")[1])
         else:
             file_type = file_name.split(".")[-1]
-            # Download the file
+            # Download the file with SSRF protection
             try:
                 if not url.startswith("http"):
                     return {}
                 if url in ["", None]:
                     return {}
-                # SSRF protection: Only allow downloads from whitelisted domains
-                parsed_url = urllib.parse.urlparse(url)
-                domain = parsed_url.netloc.split(":")[0].lower()
-                if domain not in ALLOWED_DOMAINS:
-                    logging.error(f"Attempted download from disallowed domain: {domain}")
+
+                # SSRF protection: Check if URL is safe
+                if not self._is_safe_url(url):
+                    logging.error(f"Blocked unsafe URL for download: {url}")
                     return {}
-                file_download = requests.get(url)
-                file_data = file_download.content
+
+                # Add timeout and size limits to prevent abuse
+                timeout = 30  # 30 second timeout
+                max_size = 100 * 1024 * 1024  # 100MB limit
+
+                # Use stream=True to check content length before downloading
+                response = requests.get(
+                    url, headers=download_headers, timeout=timeout, stream=True
+                )
+                response.raise_for_status()
+
+                # Check content length if provided
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > max_size:
+                    logging.error(f"File too large: {content_length} bytes")
+                    return {}
+
+                # Download with size checking
+                file_data = b""
+                downloaded_size = 0
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        downloaded_size += len(chunk)
+                        if downloaded_size > max_size:
+                            logging.error(
+                                f"Download exceeded size limit: {downloaded_size} bytes"
+                            )
+                            return {}
+                        file_data += chunk
+
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Request error downloading file: {e}")
+                return {}
             except Exception as e:
                 logging.error(f"Error downloading file: {e}")
                 return {}
