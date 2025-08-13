@@ -894,18 +894,32 @@ class Agent:
                 else "default"
             )
             filename = f"{safe_agent_id}_{timestamp}.wav"
-            # Use normalized path construction for security
-            audio_path = os.path.normpath(
-                os.path.join(self.working_directory, filename)
+
+            # CodeQL safe pattern: Use absolute workspace path for audio files
+            workspace_base = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
+            safe_working_dir = os.path.normpath(
+                os.path.join(workspace_base, safe_agent_id)
             )
 
-            # CodeQL security pattern: verify normalized path is within working directory
-            normalized_working_dir = os.path.normpath(self.working_directory)
+            # Validate safe working directory is within workspace
             if (
-                not audio_path.startswith(normalized_working_dir + os.sep)
-                and audio_path != normalized_working_dir
+                not safe_working_dir.startswith(workspace_base + os.sep)
+                and safe_working_dir != workspace_base
             ):
-                raise ValueError(f"Invalid audio path: path traversal detected")
+                raise ValueError("Invalid working directory path")
+
+            # Construct audio path with validated directory
+            audio_path = os.path.normpath(os.path.join(safe_working_dir, filename))
+
+            # Final validation: ensure audio path is within safe working directory
+            if (
+                not audio_path.startswith(safe_working_dir + os.sep)
+                and audio_path != safe_working_dir
+            ):
+                raise ValueError("Invalid audio path: path traversal detected")
+
+            # Ensure directory exists
+            os.makedirs(safe_working_dir, exist_ok=True)
 
             with open(audio_path, "wb") as f:
                 f.write(base64.b64decode(tts_content))

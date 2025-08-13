@@ -45,6 +45,28 @@ from Conversations import get_conversation_name_by_id, get_conversation_id_by_na
 from MagicalAuth import MagicalAuth
 import traceback
 
+
+def sanitize_path_component_local(component):
+    """Local path sanitization for CodeQL compliance"""
+    import re
+
+    if not component or not isinstance(component, str):
+        raise ValueError("Path component must be a non-empty string")
+
+    component = component.strip()
+    if not component:
+        raise ValueError("Path component is empty")
+
+    # Only allow alphanumeric, hyphens, and underscores
+    if not re.match(r"^[a-zA-Z0-9_-]+$", component):
+        raise ValueError(f"Invalid characters in path component: {component}")
+
+    if len(component) > 255:
+        raise ValueError("Path component too long")
+
+    return component
+
+
 app = APIRouter()
 
 
@@ -644,21 +666,38 @@ async def text_to_speech_v1(
     if not str(tts_response).startswith("http"):
         file_type = "wav"
         file_name = f"{uuid.uuid4().hex}.{file_type}"
-        # Use normalized path construction for security (CodeQL requirement)
-        audio_path = os.path.normpath(os.path.join(agent.working_directory, file_name))
 
-        # CodeQL security pattern: verify normalized path is within working directory
-        normalized_working_dir = os.path.normpath(agent.working_directory)
+        # CodeQL safe pattern: Use absolute workspace path instead of agent.working_directory
+        workspace_base = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
+        safe_agent_id = (
+            sanitize_path_component_local(agent_id) if agent_id else "default"
+        )
+        safe_working_dir = os.path.normpath(os.path.join(workspace_base, safe_agent_id))
+
+        # Validate safe working directory is within workspace
         if (
-            not audio_path.startswith(normalized_working_dir + os.sep)
-            and audio_path != normalized_working_dir
+            not safe_working_dir.startswith(workspace_base + os.sep)
+            and safe_working_dir != workspace_base
         ):
-            raise ValueError(f"Invalid audio path: path traversal detected")
+            raise ValueError("Invalid working directory path")
+
+        # Construct audio path with validated directory
+        audio_path = os.path.normpath(os.path.join(safe_working_dir, file_name))
+
+        # Final validation: ensure audio path is within safe working directory
+        if (
+            not audio_path.startswith(safe_working_dir + os.sep)
+            and audio_path != safe_working_dir
+        ):
+            raise ValueError("Invalid audio path: path traversal detected")
+
+        # Ensure directory exists
+        os.makedirs(safe_working_dir, exist_ok=True)
 
         audio_data = base64.b64decode(tts_response)
         with open(audio_path, "wb") as f:
             f.write(audio_data)
-        tts_response = f"{AGIXT_URI}/outputs/{agent.agent_id}/{file_name}"
+        tts_response = f"{AGIXT_URI}/outputs/{safe_agent_id}/{file_name}"
     return {"url": tts_response}
 
 
