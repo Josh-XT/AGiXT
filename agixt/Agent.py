@@ -432,11 +432,17 @@ class Agent:
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
-        # Ensure agent_id is valid before creating working directory
-        working_agent_id = self.agent_id if self.agent_id else "default"
-        self.working_directory = os.path.join(
-            os.getcwd(), "WORKSPACE", working_agent_id
+        # Ensure agent_id is valid and secure before creating working directory
+        working_agent_id = (
+            self.sanitize_path_component(self.agent_id) if self.agent_id else "default"
         )
+        workspace_root = os.path.join(os.getcwd(), "WORKSPACE")
+        self.working_directory = os.path.join(workspace_root, working_agent_id)
+
+        # Security check: ensure the working directory is within the workspace
+        if not self.working_directory.startswith(os.path.abspath(workspace_root)):
+            raise ValueError(f"Invalid agent_id: path traversal detected")
+
         os.makedirs(self.working_directory, exist_ok=True)
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
@@ -1267,6 +1273,43 @@ class Agent:
                 return None
         session.close()
         return agent.id
+
+    @staticmethod
+    def sanitize_path_component(component):
+        """
+        Sanitize a path component to prevent path traversal attacks.
+
+        Args:
+            component (str): The path component to sanitize
+
+        Returns:
+            str: The sanitized path component
+
+        Raises:
+            ValueError: If the component contains invalid characters
+        """
+        import re
+
+        if not component or not isinstance(component, str):
+            raise ValueError("Path component must be a non-empty string")
+
+        # Check for dangerous characters BEFORE sanitization
+        dangerous_chars = ["/", "\\", "..", ".", "~", "\0"]
+        for char in dangerous_chars:
+            if char in component:
+                raise ValueError(
+                    f"Invalid path component contains dangerous character: {repr(char)}"
+                )
+
+        # Only allow alphanumeric characters, hyphens, and underscores
+        if not re.match(r"^[a-zA-Z0-9_-]+$", component):
+            raise ValueError(f"Invalid characters in path component: {component}")
+
+        # Ensure it's not empty after validation
+        if not component:
+            raise ValueError("Path component became empty after sanitization")
+
+        return component
 
     def get_conversation_tasks(self, conversation_id: str) -> str:
         """Get all tasks assigned to an agent"""
