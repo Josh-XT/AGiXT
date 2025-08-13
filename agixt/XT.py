@@ -25,6 +25,7 @@ import subprocess
 import logging
 import asyncio
 import requests
+import urllib.parse
 import inspect
 import base64
 import uuid
@@ -1017,6 +1018,11 @@ class AGiXT:
     async def download_file_to_workspace(
         self, url: str, file_name: str = "", download_headers={}
     ):
+        # Whitelist of allowed domains for file downloads
+        ALLOWED_DOMAINS = [
+            "github.com",
+            # Add other trusted domains here
+        ]
         """
         Download a file from a URL to the workspace
 
@@ -1059,6 +1065,12 @@ class AGiXT:
                 if not url.startswith("http"):
                     return {}
                 if url in ["", None]:
+                    return {}
+                # SSRF protection: Only allow downloads from whitelisted domains
+                parsed_url = urllib.parse.urlparse(url)
+                domain = parsed_url.netloc.split(":")[0].lower()
+                if domain not in ALLOWED_DOMAINS:
+                    logging.error(f"Attempted download from disallowed domain: {domain}")
                     return {}
                 file_download = requests.get(url)
                 file_data = file_download.content
