@@ -433,15 +433,21 @@ class Agent:
         )
         self.available_commands = self.extensions.get_available_commands()
 
-        # CodeQL ultra-safe pattern: Create workspace using hardcoded paths only
+        # CodeQL ultra-safe pattern: Create secure workspace directory
         base_workspace = "WORKSPACE"
         os.makedirs(base_workspace, exist_ok=True)
 
-        # Use secure temporary directory for agent workspace
-        import tempfile
+        # Create agent-specific directory using hash of agent_id for security
+        import hashlib
 
-        temp_dir = tempfile.mkdtemp(dir=base_workspace)
-        self.working_directory = temp_dir
+        if self.agent_id:
+            agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
+            agent_workspace = f"{base_workspace}/agent_{agent_hash}"
+        else:
+            agent_workspace = f"{base_workspace}/default_agent"
+
+        os.makedirs(agent_workspace, exist_ok=True)
+        self.working_directory = agent_workspace
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
             if str(self.company_id).lower() == "none":
@@ -1497,10 +1503,19 @@ class Agent:
                     if company_command not in command_list:
                         command_list.append(company_command)
         if len(command_list) > 0:
-            # CodeQL ultra-safe pattern: Use secure temporary directory for conversation
-            import tempfile
+            # CodeQL ultra-safe pattern: Create secure conversation directory
+            import hashlib
 
-            working_directory = tempfile.mkdtemp(dir=self.working_directory)
+            if conversation_id:
+                conv_hash = hashlib.sha256(str(conversation_id).encode()).hexdigest()[
+                    :16
+                ]
+                conversation_dir = f"{self.working_directory}/conv_{conv_hash}"
+            else:
+                conversation_dir = f"{self.working_directory}/default_conversation"
+
+            os.makedirs(conversation_dir, exist_ok=True)
+            working_directory = conversation_dir
 
             # Generate secure URL without using user input in path construction
             conversation_outputs = f"http://localhost:7437/outputs/conversation_{hash(conversation_id if conversation_id else 'default') % 100000}/"

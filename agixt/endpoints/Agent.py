@@ -322,7 +322,7 @@ async def get_persona_company_v1(
         agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
         return {"message": agent.AGENT_CONFIG["settings"]["persona"]}
     else:
-        response = auth.get_training_data(id if company_id is None else company_id)
+        response = auth.get_training_data(company_id)
         return {"message": response}
 
 
