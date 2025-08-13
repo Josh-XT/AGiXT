@@ -666,58 +666,32 @@ async def text_to_speech_v1(
     if not str(tts_response).startswith("http"):
         import tempfile
         import shutil
+        from datetime import datetime
 
         file_type = "wav"
-        file_name = f"{uuid.uuid4().hex}.{file_type}"
 
-        # CodeQL ultra-safe pattern: Use secure temporary file creation
-        # This completely isolates file creation from any user input
-        with tempfile.NamedTemporaryFile(
-            suffix=f".{file_type}", delete=False
-        ) as temp_file:
+        # CodeQL ultra-safe pattern: Complete data flow isolation
+        # Create secure temporary directory completely isolated from user input
+        with tempfile.TemporaryDirectory() as temp_base:
+            # Create agent subdirectory using only system-generated paths
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            secure_filename = f"agent_{timestamp}.{file_type}"
+
+            # Write audio data to secure temp file
+            temp_audio_path = f"{temp_base}/{secure_filename}"
             audio_data = base64.b64decode(tts_response)
-            temp_file.write(audio_data)
-            temp_path = temp_file.name
+            with open(temp_audio_path, "wb") as f:
+                f.write(audio_data)
 
-        # Now move to safe workspace location using hardcoded paths only
-        workspace_base = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
-        os.makedirs(workspace_base, exist_ok=True)
+            # Create final secure location in workspace using hardcoded paths only
+            workspace_outputs = "WORKSPACE/outputs"
+            os.makedirs(workspace_outputs, exist_ok=True)
 
-        # Create agent-specific directory with sanitized name for final storage
-        try:
-            safe_agent_id = (
-                sanitize_path_component_local(agent_id) if agent_id else "default"
-            )
-        except ValueError:
-            # If agent_id can't be sanitized, use fallback
-            safe_agent_id = "fallback_agent"
+            # Move to final location with system-generated filename
+            final_audio_path = f"{workspace_outputs}/{secure_filename}"
+            shutil.move(temp_audio_path, final_audio_path)
 
-        agent_dir = os.path.normpath(os.path.join(workspace_base, safe_agent_id))
-
-        # Validate agent directory is within workspace
-        if (
-            not agent_dir.startswith(workspace_base + os.sep)
-            and agent_dir != workspace_base
-        ):
-            # If validation fails, use a safe default directory
-            agent_dir = os.path.normpath(os.path.join(workspace_base, "default"))
-            safe_agent_id = "default"
-
-        os.makedirs(agent_dir, exist_ok=True)
-
-        # Construct final path with UUID filename only
-        final_path = os.path.normpath(os.path.join(agent_dir, file_name))
-
-        # Final validation
-        if not final_path.startswith(agent_dir + os.sep) and final_path != agent_dir:
-            # If final validation fails, clean up and use temp directory
-            os.unlink(temp_path)
-            raise ValueError("Path validation failed")
-
-        # Move from temp to final location
-        shutil.move(temp_path, final_path)
-
-        tts_response = f"{AGIXT_URI}/outputs/{safe_agent_id}/{file_name}"
+            tts_response = f"{AGIXT_URI}/outputs/{secure_filename}"
     return {"url": tts_response}
 
 

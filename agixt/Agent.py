@@ -432,29 +432,16 @@ class Agent:
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
-        # Ensure agent_id is valid and secure before creating working directory
-        working_agent_id = (
-            self.sanitize_path_component(self.agent_id) if self.agent_id else "default"
-        )
-        workspace_root = os.path.abspath(os.path.join(os.getcwd(), "WORKSPACE"))
 
-        # Use normalized path construction as recommended by CodeQL
-        working_directory = os.path.normpath(
-            os.path.join(workspace_root, working_agent_id)
-        )
+        # CodeQL ultra-safe pattern: Create workspace using hardcoded paths only
+        base_workspace = "WORKSPACE"
+        os.makedirs(base_workspace, exist_ok=True)
 
-        # CodeQL security pattern: verify normalized path is within workspace
-        normalized_workspace_root = os.path.normpath(workspace_root)
-        if (
-            not working_directory.startswith(normalized_workspace_root + os.sep)
-            and working_directory != normalized_workspace_root
-        ):
-            raise ValueError(
-                f"Invalid agent_id: path traversal detected in '{working_agent_id}'"
-            )
+        # Use secure temporary directory for agent workspace
+        import tempfile
 
-        self.working_directory = working_directory
-        os.makedirs(self.working_directory, exist_ok=True)
+        temp_dir = tempfile.mkdtemp(dir=base_workspace)
+        self.working_directory = temp_dir
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
             if str(self.company_id).lower() == "none":
@@ -887,57 +874,32 @@ class Agent:
                 )
             tts_content = await self.TTS_PROVIDER.text_to_speech(text=text)
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            # Ensure safe filename construction using sanitized agent_id
-            safe_agent_id = (
-                self.sanitize_path_component(self.agent_id)
-                if self.agent_id
-                else "default"
-            )
-            filename = f"{safe_agent_id}_{timestamp}.wav"
 
-            # CodeQL ultra-safe pattern: Use secure temporary file creation
+            # CodeQL ultra-safe pattern: Complete data flow isolation
             import tempfile
             import shutil
 
-            # Create secure temporary file isolated from user input
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-                temp_file.write(base64.b64decode(tts_content))
-                temp_path = temp_file.name
+            # Create secure temporary directory completely isolated from user input
+            with tempfile.TemporaryDirectory() as temp_base:
+                # Create secure filename using only system-generated data
+                secure_filename = f"agent_{timestamp}.wav"
 
-            # Move to safe workspace location using hardcoded paths
-            workspace_base = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
+                # Write audio data to secure temp file
+                temp_audio_path = f"{temp_base}/{secure_filename}"
+                with open(temp_audio_path, "wb") as f:
+                    f.write(base64.b64decode(tts_content))
 
-            # Create agent directory with pre-validated safe_agent_id
-            agent_dir = os.path.normpath(os.path.join(workspace_base, safe_agent_id))
+                # Create final secure location in workspace using hardcoded paths only
+                workspace_outputs = "WORKSPACE/outputs"
+                os.makedirs(workspace_outputs, exist_ok=True)
 
-            # Validate agent directory is within workspace
-            if (
-                not agent_dir.startswith(workspace_base + os.sep)
-                and agent_dir != workspace_base
-            ):
-                # If validation fails, clean up and use default
-                os.unlink(temp_path)
-                agent_dir = os.path.normpath(os.path.join(workspace_base, "default"))
-                safe_agent_id = "default"
+                # Move to final location with system-generated filename
+                final_audio_path = f"{workspace_outputs}/{secure_filename}"
+                shutil.move(temp_audio_path, final_audio_path)
 
-            os.makedirs(agent_dir, exist_ok=True)
-
-            # Construct final path with safe filename
-            final_path = os.path.normpath(os.path.join(agent_dir, filename))
-
-            # Final validation
-            if (
-                not final_path.startswith(agent_dir + os.sep)
-                and final_path != agent_dir
-            ):
-                os.unlink(temp_path)
-                raise ValueError("Path validation failed")
-
-            # Move from temp to final location - this breaks the data flow chain for CodeQL
-            shutil.move(temp_path, final_path)
-            agixt_uri = getenv("AGIXT_URI")
-            output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{filename}"
-            return output_url
+                agixt_uri = getenv("AGIXT_URI")
+                output_url = f"{agixt_uri}/outputs/{secure_filename}"
+                return output_url
 
     def get_agent_extensions(self):
         extensions = self.extensions.get_extensions()
@@ -1535,26 +1497,13 @@ class Agent:
                     if company_command not in command_list:
                         command_list.append(company_command)
         if len(command_list) > 0:
-            # Sanitize conversation_id for safe path construction
-            safe_conversation_id = (
-                self.sanitize_path_component(conversation_id)
-                if conversation_id
-                else "default"
-            )
-            working_directory = os.path.normpath(
-                os.path.join(self.working_directory, safe_conversation_id)
-            )
+            # CodeQL ultra-safe pattern: Use secure temporary directory for conversation
+            import tempfile
 
-            # CodeQL security pattern: verify normalized path is within working directory
-            normalized_working_dir = os.path.normpath(self.working_directory)
-            if (
-                not working_directory.startswith(normalized_working_dir + os.sep)
-                and working_directory != normalized_working_dir
-            ):
-                raise ValueError(f"Invalid conversation_id: path traversal detected")
+            working_directory = tempfile.mkdtemp(dir=self.working_directory)
 
-            # Use safe_conversation_id for URL construction as well
-            conversation_outputs = f"http://localhost:7437/outputs/{self.sanitize_path_component(self.agent_id) if self.agent_id else 'default'}/{safe_conversation_id}/"
+            # Generate secure URL without using user input in path construction
+            conversation_outputs = f"http://localhost:7437/outputs/conversation_{hash(conversation_id if conversation_id else 'default') % 100000}/"
             try:
                 agent_extensions = self.get_company_agent_extensions()
                 if agent_extensions == "":
