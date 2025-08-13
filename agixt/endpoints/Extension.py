@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from Extensions import Extensions
 from ApiClient import Agent, Conversations, verify_api_key, get_api_client, is_admin
 from Models import CommandExecution, CommandArgs, ExtensionsModel, ExtensionSettings
+from XT import AGiXT
 from typing import Dict, Any
-
 
 app = APIRouter()
 
@@ -50,30 +50,30 @@ async def get_extensions(user=Depends(verify_api_key)):
 
 
 @app.get(
-    "/api/agent/{agent_name}/extensions",
-    tags=["Extensions"],
+    "/v1/agent/{agent_id}/extensions",
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
     response_model=ExtensionsModel,
-    summary="Get Agent Extensions",
-    description="Retrieves all extensions and their enabled/disabled status for a specific agent.",
+    summary="Get Agent Extensions by ID",
+    description="Retrieves all extensions and their enabled/disabled status for a specific agent using agent ID.",
 )
-async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
+async def get_agent_extensions_v1(agent_id: str, user=Depends(verify_api_key)):
     ApiClient = get_api_client()
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     extensions = agent.get_agent_extensions()
     return {"extensions": extensions}
 
 
 @app.post(
-    "/api/agent/{agent_name}/command",
-    tags=["Extensions"],
+    "/v1/agent/{agent_id}/command",
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
     response_model=Dict[str, Any],
-    summary="Execute Agent Command",
-    description="Executes a specific command for an agent. This endpoint requires admin privileges.",
+    summary="Execute Agent Command by ID",
+    description="Executes a specific command for an agent using agent ID. This endpoint requires admin privileges.",
 )
-async def run_command(
-    agent_name: str,
+async def run_command_v1(
+    agent_id: str,
     command: CommandExecution,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
@@ -81,20 +81,17 @@ async def run_command(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    agent_config = agent.get_agent_config()
-    c = Conversations(conversation_name=command.conversation_name)
-    command_output = await Extensions(
-        agent_name=agent_name,
-        agent_config=agent_config,
-        agent_id=agent.agent_id,
-        conversation_name=command.conversation_name,
-        conversation_id=c.get_conversation_id(),
-        ApiClient=ApiClient,
-        api_key=authorization,
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    agent_name = agent.agent_name
+
+    command_output = await AGiXT(
         user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=command.conversation_name,
     ).execute_command(
-        command_name=command.command_name, command_args=command.command_args
+        command_name=command.command_name,
+        command_args=command.command_args,
     )
     if (
         command.conversation_name != ""
