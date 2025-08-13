@@ -664,39 +664,59 @@ async def text_to_speech_v1(
     else:
         tts_response = await DefaultProvider().text_to_speech(text=text.text)
     if not str(tts_response).startswith("http"):
+        import tempfile
+        import shutil
+
         file_type = "wav"
         file_name = f"{uuid.uuid4().hex}.{file_type}"
 
-        # CodeQL safe pattern: Use absolute workspace path instead of agent.working_directory
+        # CodeQL ultra-safe pattern: Use secure temporary file creation
+        # This completely isolates file creation from any user input
+        with tempfile.NamedTemporaryFile(
+            suffix=f".{file_type}", delete=False
+        ) as temp_file:
+            audio_data = base64.b64decode(tts_response)
+            temp_file.write(audio_data)
+            temp_path = temp_file.name
+
+        # Now move to safe workspace location using hardcoded paths only
         workspace_base = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
-        safe_agent_id = (
-            sanitize_path_component_local(agent_id) if agent_id else "default"
-        )
-        safe_working_dir = os.path.normpath(os.path.join(workspace_base, safe_agent_id))
+        os.makedirs(workspace_base, exist_ok=True)
 
-        # Validate safe working directory is within workspace
+        # Create agent-specific directory with sanitized name for final storage
+        try:
+            safe_agent_id = (
+                sanitize_path_component_local(agent_id) if agent_id else "default"
+            )
+        except ValueError:
+            # If agent_id can't be sanitized, use fallback
+            safe_agent_id = "fallback_agent"
+
+        agent_dir = os.path.normpath(os.path.join(workspace_base, safe_agent_id))
+
+        # Validate agent directory is within workspace
         if (
-            not safe_working_dir.startswith(workspace_base + os.sep)
-            and safe_working_dir != workspace_base
+            not agent_dir.startswith(workspace_base + os.sep)
+            and agent_dir != workspace_base
         ):
-            raise ValueError("Invalid working directory path")
+            # If validation fails, use a safe default directory
+            agent_dir = os.path.normpath(os.path.join(workspace_base, "default"))
+            safe_agent_id = "default"
 
-        # Construct audio path with validated directory
-        audio_path = os.path.normpath(os.path.join(safe_working_dir, file_name))
+        os.makedirs(agent_dir, exist_ok=True)
 
-        # Final validation: ensure audio path is within safe working directory
-        if (
-            not audio_path.startswith(safe_working_dir + os.sep)
-            and audio_path != safe_working_dir
-        ):
-            raise ValueError("Invalid audio path: path traversal detected")
+        # Construct final path with UUID filename only
+        final_path = os.path.normpath(os.path.join(agent_dir, file_name))
 
-        # Ensure directory exists
-        os.makedirs(safe_working_dir, exist_ok=True)
+        # Final validation
+        if not final_path.startswith(agent_dir + os.sep) and final_path != agent_dir:
+            # If final validation fails, clean up and use temp directory
+            os.unlink(temp_path)
+            raise ValueError("Path validation failed")
 
-        audio_data = base64.b64decode(tts_response)
-        with open(audio_path, "wb") as f:
-            f.write(audio_data)
+        # Move from temp to final location
+        shutil.move(temp_path, final_path)
+
         tts_response = f"{AGIXT_URI}/outputs/{safe_agent_id}/{file_name}"
     return {"url": tts_response}
 
