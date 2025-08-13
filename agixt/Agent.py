@@ -436,13 +436,23 @@ class Agent:
         working_agent_id = (
             self.sanitize_path_component(self.agent_id) if self.agent_id else "default"
         )
-        workspace_root = os.path.join(os.getcwd(), "WORKSPACE")
-        self.working_directory = os.path.join(workspace_root, working_agent_id)
+        workspace_root = os.path.abspath(os.path.join(os.getcwd(), "WORKSPACE"))
 
-        # Security check: ensure the working directory is within the workspace
-        if not self.working_directory.startswith(os.path.abspath(workspace_root)):
-            raise ValueError(f"Invalid agent_id: path traversal detected")
+        # Use normalized path construction as recommended by CodeQL
+        working_directory = os.path.normpath(
+            os.path.join(workspace_root, working_agent_id)
+        )
 
+        # Security check: ensure the working directory is within the workspace (CodeQL recommended pattern)
+        if (
+            not working_directory.startswith(workspace_root + os.sep)
+            and working_directory != workspace_root
+        ):
+            raise ValueError(
+                f"Invalid agent_id: path traversal detected in '{working_agent_id}'"
+            )
+
+        self.working_directory = working_directory
         os.makedirs(self.working_directory, exist_ok=True)
         if "company_id" in self.AGENT_CONFIG["settings"]:
             self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
@@ -876,12 +886,29 @@ class Agent:
                 )
             tts_content = await self.TTS_PROVIDER.text_to_speech(text=text)
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            filename = f"{self.agent_id}_{timestamp}.wav"
-            audio_path = os.path.join(self.working_directory, filename)
+            # Ensure safe filename construction using sanitized agent_id
+            safe_agent_id = (
+                self.sanitize_path_component(self.agent_id)
+                if self.agent_id
+                else "default"
+            )
+            filename = f"{safe_agent_id}_{timestamp}.wav"
+            # Use normalized path construction for security
+            audio_path = os.path.normpath(
+                os.path.join(self.working_directory, filename)
+            )
+
+            # Security check: ensure the audio file is within the working directory
+            if (
+                not audio_path.startswith(self.working_directory + os.sep)
+                and audio_path != self.working_directory
+            ):
+                raise ValueError(f"Invalid audio path: path traversal detected")
+
             with open(audio_path, "wb") as f:
                 f.write(base64.b64decode(tts_content))
             agixt_uri = getenv("AGIXT_URI")
-            output_url = f"{agixt_uri}/outputs/{self.agent_id}/{filename}"
+            output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{filename}"
             return output_url
 
     def get_agent_extensions(self):
@@ -1278,6 +1305,7 @@ class Agent:
     def sanitize_path_component(component):
         """
         Sanitize a path component to prevent path traversal attacks.
+        Implements CodeQL recommended security patterns.
 
         Args:
             component (str): The path component to sanitize
@@ -1289,25 +1317,43 @@ class Agent:
             ValueError: If the component contains invalid characters
         """
         import re
+        import os
 
         if not component or not isinstance(component, str):
             raise ValueError("Path component must be a non-empty string")
 
-        # Check for dangerous characters BEFORE sanitization
-        dangerous_chars = ["/", "\\", "..", ".", "~", "\0"]
-        for char in dangerous_chars:
-            if char in component:
+        # Strip whitespace
+        component = component.strip()
+
+        if not component:
+            raise ValueError("Path component is empty after stripping whitespace")
+
+        # Check for any path separators or dangerous sequences
+        dangerous_patterns = [
+            os.sep,  # OS-specific path separator
+            os.altsep,  # Alternative path separator (Windows)
+            "/",  # Forward slash
+            "\\",  # Backslash
+            "..",  # Parent directory
+            ".",  # Current directory (except single char names)
+            "~",  # Home directory
+            "\0",  # Null byte
+        ]
+
+        for pattern in dangerous_patterns:
+            if pattern and pattern in component:
                 raise ValueError(
-                    f"Invalid path component contains dangerous character: {repr(char)}"
+                    f"Invalid path component contains dangerous pattern: {repr(pattern)}"
                 )
 
-        # Only allow alphanumeric characters, hyphens, and underscores
+        # Use strict allowlist: only alphanumeric, hyphens, and underscores
+        # This follows CodeQL recommendation for allowlist validation
         if not re.match(r"^[a-zA-Z0-9_-]+$", component):
-            raise ValueError(f"Invalid characters in path component: {component}")
+            raise ValueError(f"Path component contains invalid characters: {component}")
 
-        # Ensure it's not empty after validation
-        if not component:
-            raise ValueError("Path component became empty after sanitization")
+        # Additional length check for security
+        if len(component) > 255:
+            raise ValueError("Path component too long")
 
         return component
 
@@ -1461,10 +1507,25 @@ class Agent:
                     if company_command not in command_list:
                         command_list.append(company_command)
         if len(command_list) > 0:
-            working_directory = f"{self.working_directory}/{conversation_id}"
-            conversation_outputs = (
-                f"http://localhost:7437/outputs/{self.agent_id}/{conversation_id}/"
+            # Sanitize conversation_id for safe path construction
+            safe_conversation_id = (
+                self.sanitize_path_component(conversation_id)
+                if conversation_id
+                else "default"
             )
+            working_directory = os.path.normpath(
+                os.path.join(self.working_directory, safe_conversation_id)
+            )
+
+            # Security check: ensure the conversation directory is within the working directory
+            if (
+                not working_directory.startswith(self.working_directory + os.sep)
+                and working_directory != self.working_directory
+            ):
+                raise ValueError(f"Invalid conversation_id: path traversal detected")
+
+            # Use safe_conversation_id for URL construction as well
+            conversation_outputs = f"http://localhost:7437/outputs/{self.sanitize_path_component(self.agent_id) if self.agent_id else 'default'}/{safe_conversation_id}/"
             try:
                 agent_extensions = self.get_company_agent_extensions()
                 if agent_extensions == "":
