@@ -25,7 +25,7 @@ class bags_fm(Extensions):
     ):
         self.BAGS_FM_API_KEY = BAGS_FM_API_KEY
         self.BASE_URL = "https://public-api-v2.bags.fm/api/v1"
-        self.creator_wallet = kwargs.get("SOLANA_WALLET_PASSPHRASE_API_KEY", "")
+        self.creator_wallet = kwargs.get("SOLANA_WALLET_ADDRESS", "")
         # Set up headers with API key authentication
         self.headers = {}
         if self.BAGS_FM_API_KEY:
