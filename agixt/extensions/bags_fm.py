@@ -32,15 +32,11 @@ class bags_fm(Extensions):
             self.headers["x-api-key"] = self.BAGS_FM_API_KEY
 
         self.commands = {
-            "Create Token Info and Metadata": self.create_token_info,
-            "Create Token Launch Configuration": self.create_token_launch_configuration,
-            "Create Token Launch Transaction": self.create_token_launch_transaction,
+            "Launch Token on Bags.fm": self.launch_token_complete,
             "Get Fee Share Wallet": self.get_fee_share_wallet,
-            "Create Fee Share Configuration": self.create_fee_share_configuration,
             "Get Token Lifetime Fees": self.get_token_lifetime_fees,
             "Get Token Launch Creators": self.get_token_launch_creators,
             "Get Claim Transactions": self.get_claim_transactions,
-            "Upload Token Image": self.upload_token_image,
         }
 
     def _make_request(
@@ -456,4 +452,252 @@ class bags_fm(Extensions):
         except Exception as e:
             return json.dumps(
                 {"success": False, "error": f"Failed to upload image: {str(e)}"}
+            )
+
+    async def launch_token_complete(
+        self,
+        creator_wallet: str = "",
+        token_name: str = "",
+        token_symbol: str = "",
+        token_description: str = "",
+        token_image: str = "",
+        twitter: str = "",
+        telegram: str = "",
+        website: str = "",
+        initial_buy_sol: float = 0,
+        token_decimals: int = 6,
+        slippage_bps: int = 500,
+        priority_fee_lamports: int = 100000,
+        is_mutable: bool = False,
+        fee_share_wallet: str = "",
+        fee_share_primary_bps: int = 0,
+        fee_share_secondary_bps: int = 0,
+    ) -> str:
+        """
+        Launch a new token on Bags.fm
+
+        Args:
+            creator_wallet: Creator's Solana wallet address (Base58) who receives royalties - REQUIRED
+                          This is the wallet that will receive creator fees/royalties from the token.
+                          Note: While bags.fm website allows Twitter handles, the API requires a wallet address.
+                          You can specify any Solana wallet address to receive the royalties.
+            token_name: Name of the token (e.g., "My Token") - REQUIRED
+            token_symbol: Token symbol/ticker (e.g., "MTK") - REQUIRED
+            token_description: Description of the token project
+            token_image: URL to an image OR path to a local image file for the token logo
+            twitter: Twitter/X handle or URL for the token's social media (not for royalties)
+            telegram: Telegram group URL (optional)
+            website: Project website URL (optional)
+            initial_buy_sol: Amount of SOL for initial purchase (0 = no initial buy)
+            token_decimals: Number of decimals (default 6, standard for most tokens)
+            slippage_bps: Slippage tolerance in basis points (500 = 5%)
+            priority_fee_lamports: Priority fee for faster transaction processing
+            is_mutable: Whether metadata can be changed after creation (default False for security)
+            fee_share_wallet: Optional second wallet to share fees with (splits royalties)
+            fee_share_primary_bps: Primary wallet's share in basis points (must total 10000 with secondary)
+            fee_share_secondary_bps: Secondary wallet's share in basis points
+
+        Returns:
+            JSON response with complete launch details including transaction and mint address
+
+        Notes:
+        Complete Bags.fm token launch workflow - creates metadata, handles images, and launches token in one command.
+
+        ROYALTY DISTRIBUTION:
+        - The creator_wallet receives the token creator fees/royalties
+        - You can set creator_wallet to ANY Solana wallet address to direct royalties there
+        - The Bags.fm website/SDK can convert Twitter handles to wallet addresses, but this API requires wallet addresses directly
+        - If you want to split royalties, use fee_share_wallet to add a second recipient (also requires wallet address)
+        - To redirect royalties to someone else, simply use their Solana wallet address as creator_wallet
+
+        IMPORTANT: The AI agent should ask the user for any required information that is not provided,
+        unless the user explicitly says to proceed without it. Required fields include:
+        - creator_wallet: The Solana wallet address that will receive royalties/fees
+        - token_name: The name of the token (e.g., "My Amazing Token")
+        - token_symbol: The ticker symbol (e.g., "MAT")
+
+        Optional but commonly desired fields (ask if the user wants to provide these):
+        - token_description: A description of the token project
+        - token_image: URL to an image OR path to a local image file
+        - social links: twitter, telegram, website URLs for the token
+        - initial_buy_sol: Amount of SOL to buy initially (0 means no initial buy)
+        - fee sharing: If they want to split royalties with another wallet
+
+        """
+        if not self.BAGS_FM_API_KEY:
+            return json.dumps({"success": False, "error": "No API key configured"})
+
+        # Validate required fields
+        if not creator_wallet:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "Creator wallet address is required. Please provide your Solana wallet address.",
+                }
+            )
+        if not token_name:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "Token name is required. Please provide a name for your token.",
+                }
+            )
+        if not token_symbol:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "Token symbol is required. Please provide a ticker symbol for your token.",
+                }
+            )
+
+        try:
+            # Step 1: Process image if provided
+            image_uri = ""
+            if token_image:
+                # Check if it's a URL
+                if token_image.startswith(("http://", "https://", "data:")):
+                    image_uri = token_image
+                # Check if it's a file path
+                elif os.path.exists(token_image):
+                    # Upload the image file
+                    upload_result = await self.upload_token_image(token_image)
+                    upload_data = json.loads(upload_result)
+                    if upload_data.get("success"):
+                        if upload_data.get("response", {}).get("imageUri"):
+                            image_uri = upload_data["response"]["imageUri"]
+                        elif upload_data.get("response", {}).get("url"):
+                            image_uri = upload_data["response"]["url"]
+                    else:
+                        return json.dumps(
+                            {
+                                "success": False,
+                                "error": f"Failed to upload image: {upload_data.get('error')}",
+                            }
+                        )
+                else:
+                    # Assume it's a URL even if we can't verify it
+                    image_uri = token_image
+
+            # Step 2: Create token metadata
+            metadata_result = await self.create_token_info(
+                name=token_name,
+                symbol=token_symbol,
+                description=token_description,
+                image=image_uri,
+                twitter=twitter,
+                telegram=telegram,
+                website=website,
+                is_mutable=is_mutable,
+            )
+
+            metadata_data = json.loads(metadata_result)
+            if not metadata_data.get("success"):
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Failed to create token metadata: {metadata_data.get('error')}",
+                    }
+                )
+
+            token_uri = metadata_data.get("response", {}).get("metadataUri", "")
+            if not token_uri:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "Failed to get metadata URI from response",
+                    }
+                )
+
+            # Step 3: Handle fee sharing if requested
+            fee_share_config = ""
+            if fee_share_wallet and (
+                fee_share_primary_bps > 0 or fee_share_secondary_bps > 0
+            ):
+                # Set default 50/50 split if not specified
+                if fee_share_primary_bps == 0 and fee_share_secondary_bps == 0:
+                    fee_share_primary_bps = 5000
+                    fee_share_secondary_bps = 5000
+
+                # Create fee share configuration
+                fee_share_result = await self.create_fee_share_configuration(
+                    primary_wallet=creator_wallet,
+                    secondary_wallet=fee_share_wallet,
+                    primary_share_bps=fee_share_primary_bps,
+                    secondary_share_bps=fee_share_secondary_bps,
+                )
+
+                fee_share_data = json.loads(fee_share_result)
+                if fee_share_data.get("success"):
+                    fee_share_config = fee_share_data.get("response", {}).get(
+                        "feeShareConfig", ""
+                    )
+
+            # Step 4: Create the token launch transaction
+            launch_result = await self.create_token_launch_transaction(
+                creator_wallet=creator_wallet,
+                token_name=token_name,
+                token_symbol=token_symbol,
+                token_uri=token_uri,
+                token_decimals=token_decimals,
+                initial_buy_sol=initial_buy_sol,
+                slippage_bps=slippage_bps,
+                priority_fee_lamports=priority_fee_lamports,
+                fee_share_config=fee_share_config,
+            )
+
+            launch_data = json.loads(launch_result)
+            if not launch_data.get("success"):
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Failed to create launch transaction: {launch_data.get('error')}",
+                    }
+                )
+
+            # Prepare comprehensive response
+            response = {
+                "success": True,
+                "message": f"Token '{token_name}' ({token_symbol}) is ready to launch!",
+                "token_details": {
+                    "name": token_name,
+                    "symbol": token_symbol,
+                    "description": token_description,
+                    "decimals": token_decimals,
+                    "metadata_uri": token_uri,
+                    "image": image_uri if image_uri else "No image provided",
+                    "is_mutable": is_mutable,
+                },
+                "launch_configuration": {
+                    "creator_wallet": creator_wallet,
+                    "initial_buy_sol": initial_buy_sol,
+                    "slippage_bps": slippage_bps,
+                    "priority_fee_lamports": priority_fee_lamports,
+                },
+                "transaction": launch_data.get("response", {}),
+            }
+
+            if fee_share_config:
+                response["fee_sharing"] = {
+                    "enabled": True,
+                    "primary_wallet": creator_wallet,
+                    "secondary_wallet": fee_share_wallet,
+                    "primary_share_bps": fee_share_primary_bps,
+                    "secondary_share_bps": fee_share_secondary_bps,
+                    "fee_share_config": fee_share_config,
+                }
+
+            if twitter or telegram or website:
+                response["social_links"] = {}
+                if twitter:
+                    response["social_links"]["twitter"] = twitter
+                if telegram:
+                    response["social_links"]["telegram"] = telegram
+                if website:
+                    response["social_links"]["website"] = website
+
+            return json.dumps(response, indent=2)
+
+        except Exception as e:
+            return json.dumps(
+                {"success": False, "error": f"Token launch failed: {str(e)}"}
             )
