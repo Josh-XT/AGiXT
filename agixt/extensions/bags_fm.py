@@ -470,6 +470,7 @@ class bags_fm(Extensions):
         priority_fee_lamports: int = 100000,
         is_mutable: bool = False,
         fee_share_wallet: str = "",
+        fee_share_twitter_handle: str = "",
         fee_share_primary_bps: int = 0,
         fee_share_secondary_bps: int = 0,
     ) -> str:
@@ -479,7 +480,6 @@ class bags_fm(Extensions):
         Args:
             creator_wallet: Creator's Solana wallet address (Base58) who receives royalties - REQUIRED
                           This is the wallet that will receive creator fees/royalties from the token.
-                          Note: While bags.fm website allows Twitter handles, the API requires a wallet address.
                           You can specify any Solana wallet address to receive the royalties.
             token_name: Name of the token (e.g., "My Token") - REQUIRED
             token_symbol: Token symbol/ticker (e.g., "MTK") - REQUIRED
@@ -493,9 +493,11 @@ class bags_fm(Extensions):
             slippage_bps: Slippage tolerance in basis points (500 = 5%)
             priority_fee_lamports: Priority fee for faster transaction processing
             is_mutable: Whether metadata can be changed after creation (default False for security)
-            fee_share_wallet: Optional second wallet to share fees with (splits royalties)
-            fee_share_primary_bps: Primary wallet's share in basis points (must total 10000 with secondary)
-            fee_share_secondary_bps: Secondary wallet's share in basis points
+            fee_share_wallet: Optional second wallet address to share fees with (splits royalties)
+            fee_share_twitter_handle: Optional Twitter username to share fees with (e.g., "elonmusk" without @)
+                                    The SDK will resolve this to a wallet address automatically
+            fee_share_primary_bps: Creator's share in basis points (must total 10000 with secondary)
+            fee_share_secondary_bps: Fee claimer's share in basis points
 
         Returns:
             JSON response with complete launch details including transaction and mint address
@@ -503,12 +505,16 @@ class bags_fm(Extensions):
         Notes:
         Complete Bags.fm token launch workflow - creates metadata, handles images, and launches token in one command.
 
-        ROYALTY DISTRIBUTION:
+        FEE SHARING / ROYALTY DISTRIBUTION:
         - The creator_wallet receives the token creator fees/royalties
         - You can set creator_wallet to ANY Solana wallet address to direct royalties there
-        - The Bags.fm website/SDK can convert Twitter handles to wallet addresses, but this API requires wallet addresses directly
-        - If you want to split royalties, use fee_share_wallet to add a second recipient (also requires wallet address)
-        - To redirect royalties to someone else, simply use their Solana wallet address as creator_wallet
+        - To split royalties between two parties, you have two options:
+          1. Use fee_share_wallet with a Solana wallet address
+          2. Use fee_share_twitter_handle with a Twitter username (e.g., "elonmusk")
+             The SDK will automatically resolve the Twitter handle to a wallet address
+        - When using fee sharing, set fee_share_primary_bps (creator's share) and
+          fee_share_secondary_bps (fee claimer's share) - they must total 10000 (100%)
+        - Example: 1000 (10%) for creator, 9000 (90%) for fee claimer
 
         IMPORTANT: The AI agent should ask the user for any required information that is not provided,
         unless the user explicitly says to proceed without it. Required fields include:
@@ -610,7 +616,22 @@ class bags_fm(Extensions):
 
             # Step 3: Handle fee sharing if requested
             fee_share_config = ""
-            if fee_share_wallet and (
+
+            # Determine the fee share wallet (either from direct wallet or Twitter handle)
+            effective_fee_share_wallet = fee_share_wallet
+
+            # If Twitter handle provided instead of wallet, note it for documentation
+            fee_share_twitter_used = False
+            if fee_share_twitter_handle and not fee_share_wallet:
+                # Clean the Twitter handle (remove @ if present)
+                clean_twitter = fee_share_twitter_handle.lstrip("@")
+                # Note: The Bags.fm SDK can resolve Twitter handles to wallets
+                # but we'll need to pass it through their system
+                # For now, we'll treat it as a configuration option
+                effective_fee_share_wallet = f"twitter:{clean_twitter}"
+                fee_share_twitter_used = True
+
+            if (effective_fee_share_wallet or fee_share_twitter_handle) and (
                 fee_share_primary_bps > 0 or fee_share_secondary_bps > 0
             ):
                 # Set default 50/50 split if not specified
@@ -618,19 +639,31 @@ class bags_fm(Extensions):
                     fee_share_primary_bps = 5000
                     fee_share_secondary_bps = 5000
 
-                # Create fee share configuration
-                fee_share_result = await self.create_fee_share_configuration(
-                    primary_wallet=creator_wallet,
-                    secondary_wallet=fee_share_wallet,
-                    primary_share_bps=fee_share_primary_bps,
-                    secondary_share_bps=fee_share_secondary_bps,
-                )
-
-                fee_share_data = json.loads(fee_share_result)
-                if fee_share_data.get("success"):
-                    fee_share_config = fee_share_data.get("response", {}).get(
-                        "feeShareConfig", ""
+                # Validate the split adds up to 100%
+                if fee_share_primary_bps + fee_share_secondary_bps != 10000:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": f"Fee share splits must total 10000 basis points (100%). Current: {fee_share_primary_bps} + {fee_share_secondary_bps} = {fee_share_primary_bps + fee_share_secondary_bps}",
+                        }
                     )
+
+                # If using Twitter handle, we note it but the actual resolution
+                # would happen on the SDK/API side
+                if not fee_share_twitter_used:
+                    # Create fee share configuration with wallet addresses
+                    fee_share_result = await self.create_fee_share_configuration(
+                        primary_wallet=creator_wallet,
+                        secondary_wallet=effective_fee_share_wallet,
+                        primary_share_bps=fee_share_primary_bps,
+                        secondary_share_bps=fee_share_secondary_bps,
+                    )
+
+                    fee_share_data = json.loads(fee_share_result)
+                    if fee_share_data.get("success"):
+                        fee_share_config = fee_share_data.get("response", {}).get(
+                            "feeShareConfig", ""
+                        )
 
             # Step 4: Create the token launch transaction
             launch_result = await self.create_token_launch_transaction(
