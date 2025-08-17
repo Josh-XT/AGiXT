@@ -25,7 +25,7 @@ class bags_fm(Extensions):
     ):
         self.BAGS_FM_API_KEY = BAGS_FM_API_KEY
         self.BASE_URL = "https://public-api-v2.bags.fm/api/v1"
-
+        self.creator_wallet = kwargs.get("SOLANA_WALLET_PASSPHRASE_API_KEY", "")
         # Set up headers with API key authentication
         self.headers = {}
         if self.BAGS_FM_API_KEY:
@@ -139,52 +139,6 @@ class bags_fm(Extensions):
             data["website"] = website
 
         result = self._make_request("POST", "token-launch/create-token-info", data=data)
-        return json.dumps(result, indent=2)
-
-    async def create_token_launch_configuration(
-        self,
-        token_name: str,
-        token_symbol: str,
-        token_decimals: int = 6,
-        initial_buy_sol: float = 0,
-        slippage_bps: int = 500,
-        priority_fee_lamports: int = 100000,
-        creator_wallet: str = "",
-        fee_share_wallet: str = "",
-    ) -> str:
-        """
-        Create a token launch configuration transaction.
-
-        Args:
-            token_name: Name of the token
-            token_symbol: Symbol of the token
-            token_decimals: Number of decimals (default 6)
-            initial_buy_sol: Amount of SOL for initial purchase
-            slippage_bps: Slippage in basis points (100 = 1%)
-            priority_fee_lamports: Priority fee for transaction
-            creator_wallet: Creator's wallet address (Base58)
-            fee_share_wallet: Optional fee share wallet address
-
-        Returns:
-            JSON response with serialized transaction
-        """
-        if not self.BAGS_FM_API_KEY:
-            return json.dumps({"success": False, "error": "No API key configured"})
-
-        data = {
-            "tokenName": token_name,
-            "tokenSymbol": token_symbol,
-            "tokenDecimals": token_decimals,
-            "initialBuySol": initial_buy_sol,
-            "slippageBps": slippage_bps,
-            "priorityFeeLamports": priority_fee_lamports,
-            "creatorWallet": creator_wallet,
-        }
-
-        if fee_share_wallet:
-            data["feeShareWallet"] = fee_share_wallet
-
-        result = self._make_request("POST", "token-launch/create-config", data=data)
         return json.dumps(result, indent=2)
 
     async def create_token_launch_transaction(
@@ -456,7 +410,6 @@ class bags_fm(Extensions):
 
     async def launch_token_complete(
         self,
-        creator_wallet: str = "",
         token_name: str = "",
         token_symbol: str = "",
         token_description: str = "",
@@ -464,6 +417,7 @@ class bags_fm(Extensions):
         twitter: str = "",
         telegram: str = "",
         website: str = "",
+        creator_wallet: str = "",
         initial_buy_sol: float = 0,
         token_decimals: int = 6,
         slippage_bps: int = 500,
@@ -478,16 +432,16 @@ class bags_fm(Extensions):
         Launch a new token on Bags.fm
 
         Args:
-            creator_wallet: Creator's Solana wallet address (Base58) who receives royalties - REQUIRED
-                          This is the wallet that will receive creator fees/royalties from the token.
-                          You can specify any Solana wallet address to receive the royalties.
             token_name: Name of the token (e.g., "My Token") - REQUIRED
             token_symbol: Token symbol/ticker (e.g., "MTK") - REQUIRED
-            token_description: Description of the token project
-            token_image: URL to an image OR path to a local image file for the token logo
-            twitter: Twitter/X handle or URL for the token's social media (not for royalties)
+            token_description: Description of the token project (optional)
+            token_image: URL to an image OR path to a local image file for the token logo (optional)
+            twitter: Twitter/X handle or URL for the token's social media (optional)
             telegram: Telegram group URL (optional)
             website: Project website URL (optional)
+            creator_wallet: Override the agent's default wallet address for royalties (optional)
+                          If not provided, uses the agent's configured Solana wallet.
+                          You can specify any Solana wallet address to receive the royalties.
             initial_buy_sol: Amount of SOL for initial purchase (0 = no initial buy)
             token_decimals: Number of decimals (default 6, standard for most tokens)
             slippage_bps: Slippage tolerance in basis points (500 = 5%)
@@ -518,9 +472,10 @@ class bags_fm(Extensions):
 
         IMPORTANT: The AI agent should ask the user for any required information that is not provided,
         unless the user explicitly says to proceed without it. Required fields include:
-        - creator_wallet: The Solana wallet address that will receive royalties/fees
         - token_name: The name of the token (e.g., "My Amazing Token")
         - token_symbol: The ticker symbol (e.g., "MAT")
+
+        The agent's Solana wallet will be used automatically for royalties unless overridden.
 
         Optional but commonly desired fields (ask if the user wants to provide these):
         - token_description: A description of the token project
@@ -533,12 +488,16 @@ class bags_fm(Extensions):
         if not self.BAGS_FM_API_KEY:
             return json.dumps({"success": False, "error": "No API key configured"})
 
+        # Use agent's wallet if no creator_wallet specified
+        if not creator_wallet:
+            creator_wallet = self.creator_wallet
+
         # Validate required fields
         if not creator_wallet:
             return json.dumps(
                 {
                     "success": False,
-                    "error": "Creator wallet address is required. Please provide your Solana wallet address.",
+                    "error": "No creator wallet configured. Please configure the agent's Solana wallet or provide a wallet address.",
                 }
             )
         if not token_name:
