@@ -2309,7 +2309,9 @@ class MagicalAuth:
                         role_id = int(role_id)
                     except:
                         continue
-                    if role_id < 3:
+                    # Allow users with role_id <= 3 (tenant_admin, company_admin, and regular users) to see company users
+                    # Only restrict child users (role_id > 3) from seeing the full user list
+                    if role_id <= 3:
                         for user_company in company.users:
                             role_name = None
                             for role in default_roles:
