@@ -1,7 +1,6 @@
 import uuid
 import time
 import logging
-import traceback
 from sqlalchemy import (
     create_engine,
     Column,
@@ -15,7 +14,6 @@ from sqlalchemy import (
     or_,
     func,
     text,
-    inspect,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
@@ -132,24 +130,7 @@ class Company(Base):
     status = Column(Boolean, nullable=True, default=True)
     address = Column(String, nullable=True, default=None)
     phone_number = Column(String, nullable=True, default=None)
-    # Additional company contact and address fields
-    email = Column(String, nullable=True)
-    website = Column(String, nullable=True)
-    city = Column(String, nullable=True)
-    state = Column(String, nullable=True)
-    zip_code = Column(String, nullable=True)
-    country = Column(String, nullable=True)
-    notes = Column(Text, nullable=True)
-    parent_company_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("Company.id"),
-        nullable=True,
-    )
     users = relationship("UserCompany", back_populates="company")
-    # Parent company relationship
-    parent_company = relationship(
-        "Company", remote_side=[id], backref="child_companies"
-    )
 
     @classmethod
     def create(cls, session, **kwargs):
@@ -1074,100 +1055,6 @@ def migrate_company_table():
         logging.error(f"Error during Company table migration: {e}")
 
 
-def migrate_company_additional_fields():
-    """
-    Migration function to add additional company contact and address fields if they don't exist.
-    This should be run after migrate_company_table().
-    """
-    with get_session() as session:
-        try:
-            # Check if the new columns exist by trying to access them
-            inspector = inspect(session.get_bind())
-            existing_columns = {col["name"] for col in inspector.get_columns("Company")}
-
-            # List of new company contact fields to add
-            new_fields = [
-                "email",
-                "website",
-                "city",
-                "state",
-                "zip_code",
-                "country",
-                "notes",
-                "parent_company_id",
-            ]
-
-            for field_name in new_fields:
-                if field_name not in existing_columns:
-                    if DATABASE_TYPE == "sqlite":
-                        if field_name == "parent_company_id":
-                            session.execute(
-                                text(
-                                    f"ALTER TABLE Company ADD COLUMN {field_name} TEXT DEFAULT NULL"
-                                )
-                            )
-                        elif field_name == "notes":
-                            session.execute(
-                                text(
-                                    f"ALTER TABLE Company ADD COLUMN {field_name} TEXT DEFAULT NULL"
-                                )
-                            )
-                        else:
-                            session.execute(
-                                text(
-                                    f"ALTER TABLE Company ADD COLUMN {field_name} TEXT DEFAULT NULL"
-                                )
-                            )
-                    else:  # PostgreSQL
-                        if field_name == "parent_company_id":
-                            session.execute(
-                                text(
-                                    f'ALTER TABLE "Company" ADD COLUMN {field_name} UUID DEFAULT NULL'
-                                )
-                            )
-                        elif field_name == "notes":
-                            session.execute(
-                                text(
-                                    f'ALTER TABLE "Company" ADD COLUMN {field_name} TEXT DEFAULT NULL'
-                                )
-                            )
-                        else:
-                            session.execute(
-                                text(
-                                    f'ALTER TABLE "Company" ADD COLUMN {field_name} VARCHAR DEFAULT NULL'
-                                )
-                            )
-
-                    logging.info(f"Added {field_name} column to Company table")
-
-            # For PostgreSQL, add foreign key constraint for parent_company_id if it was just added
-            if (
-                DATABASE_TYPE != "sqlite"
-                and "parent_company_id" not in existing_columns
-            ):
-                try:
-                    session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD CONSTRAINT fk_agixt_parent_company_id FOREIGN KEY (parent_company_id) REFERENCES "Company"(id)'
-                        )
-                    )
-                    logging.info("Added foreign key constraint for parent_company_id")
-                except Exception as fk_error:
-                    if "already exists" not in str(fk_error).lower():
-                        logging.warning(
-                            f"Could not add foreign key constraint: {fk_error}"
-                        )
-
-            session.commit()
-            logging.info("Company additional fields migration completed successfully")
-
-        except Exception as e:
-            session.rollback()
-            logging.error(f"Error during Company additional fields migration: {str(e)}")
-            logging.error(traceback.format_exc())
-            # Don't raise the exception - let the app continue even if migration fails
-
-
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -1193,7 +1080,6 @@ if __name__ == "__main__":
                 time.sleep(5)
     Base.metadata.create_all(engine)
     migrate_company_table()
-    migrate_company_additional_fields()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:

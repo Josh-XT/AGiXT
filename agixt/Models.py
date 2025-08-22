@@ -22,15 +22,6 @@ class CompanyResponse(BaseModel):
     status: Optional[bool] = True
     address: Optional[str] = None
     phone_number: Optional[str] = None
-    # Additional company contact and address fields
-    email: Optional[str] = None
-    website: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    zip_code: Optional[str] = None
-    country: Optional[str] = None
-    notes: Optional[str] = None
-    parent_company_id: Optional[str] = None
     users: List[UserResponse]
     children: List["CompanyResponse"] = []
 
@@ -653,15 +644,6 @@ class UpdateCompanyInput(BaseModel):
     status: Optional[bool] = None
     address: Optional[str] = None
     phone_number: Optional[str] = None
-    # Additional company contact and address fields
-    email: Optional[str] = None
-    website: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    zip_code: Optional[str] = None
-    country: Optional[str] = None
-    notes: Optional[str] = None
-    parent_company_id: Optional[str] = None
 
 
 # Wallet Models
