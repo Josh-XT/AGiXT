@@ -612,6 +612,15 @@ async def update_company(
             status=company_details.status,
             address=company_details.address,
             phone_number=company_details.phone_number,
+            # Additional company contact and address fields
+            email=company_details.email,
+            website=company_details.website,
+            city=company_details.city,
+            state=company_details.state,
+            zip_code=company_details.zip_code,
+            country=company_details.country,
+            notes=company_details.notes,
+            parent_company_id=company_details.parent_company_id,
         )
     except Exception as e:
         logging.error(f"Error in update_company endpoint: {str(e)}")

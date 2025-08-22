@@ -2309,7 +2309,9 @@ class MagicalAuth:
                         role_id = int(role_id)
                     except:
                         continue
-                    if role_id < 3:
+                    # Allow users with role_id <= 3 (tenant_admin, company_admin, and regular users) to see company users
+                    # Only restrict child users (role_id > 3) from seeing the full user list
+                    if role_id <= 3:
                         for user_company in company.users:
                             role_name = None
                             for role in default_roles:
@@ -2583,6 +2585,22 @@ class MagicalAuth:
                     id=str(company.id),
                     name=company.name,
                     company_id=str(company.company_id) if company.company_id else None,
+                    status=getattr(company, "status", True),
+                    address=getattr(company, "address", None),
+                    phone_number=getattr(company, "phone_number", None),
+                    # Additional company contact and address fields
+                    email=getattr(company, "email", None),
+                    website=getattr(company, "website", None),
+                    city=getattr(company, "city", None),
+                    state=getattr(company, "state", None),
+                    zip_code=getattr(company, "zip_code", None),
+                    country=getattr(company, "country", None),
+                    notes=getattr(company, "notes", None),
+                    parent_company_id=(
+                        str(company.parent_company_id)
+                        if company.parent_company_id
+                        else None
+                    ),
                     users=[
                         UserResponse(
                             id=str(uc.user.id),
@@ -3004,6 +3022,19 @@ class MagicalAuth:
                 status=getattr(company, "status", True),
                 address=getattr(company, "address", None),
                 phone_number=getattr(company, "phone_number", None),
+                # Additional company contact and address fields
+                email=getattr(company, "email", None),
+                website=getattr(company, "website", None),
+                city=getattr(company, "city", None),
+                state=getattr(company, "state", None),
+                zip_code=getattr(company, "zip_code", None),
+                country=getattr(company, "country", None),
+                notes=getattr(company, "notes", None),
+                parent_company_id=(
+                    str(company.parent_company_id)
+                    if company.parent_company_id
+                    else None
+                ),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
@@ -3025,6 +3056,15 @@ class MagicalAuth:
         status: Optional[bool] = None,
         address: Optional[str] = None,
         phone_number: Optional[str] = None,
+        # Additional company contact and address fields
+        email: Optional[str] = None,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        notes: Optional[str] = None,
+        parent_company_id: Optional[str] = None,
     ):
         # Check if company is in users companies
         if str(company_id) not in self.get_user_companies():
@@ -3052,6 +3092,23 @@ class MagicalAuth:
                 company.address = address
             if phone_number is not None:
                 company.phone_number = phone_number
+            # Update additional contact and address fields
+            if email is not None:
+                company.email = email
+            if website is not None:
+                company.website = website
+            if city is not None:
+                company.city = city
+            if state is not None:
+                company.state = state
+            if zip_code is not None:
+                company.zip_code = zip_code
+            if country is not None:
+                company.country = country
+            if notes is not None:
+                company.notes = notes
+            if parent_company_id is not None:
+                company.parent_company_id = parent_company_id
 
             db.commit()
             role_name = None
@@ -3068,6 +3125,19 @@ class MagicalAuth:
                 status=getattr(company, "status", True),
                 address=getattr(company, "address", None),
                 phone_number=getattr(company, "phone_number", None),
+                # Additional contact and address fields
+                email=getattr(company, "email", None),
+                website=getattr(company, "website", None),
+                city=getattr(company, "city", None),
+                state=getattr(company, "state", None),
+                zip_code=getattr(company, "zip_code", None),
+                country=getattr(company, "country", None),
+                notes=getattr(company, "notes", None),
+                parent_company_id=(
+                    str(company.parent_company_id)
+                    if company.parent_company_id
+                    else None
+                ),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
