@@ -1088,7 +1088,7 @@ def migrate_company_additional_fields():
             # List of new company contact fields to add
             new_fields = [
                 "email",
-                "website", 
+                "website",
                 "city",
                 "state",
                 "zip_code",

@@ -2596,7 +2596,11 @@ class MagicalAuth:
                     zip_code=getattr(company, "zip_code", None),
                     country=getattr(company, "country", None),
                     notes=getattr(company, "notes", None),
-                    parent_company_id=str(company.parent_company_id) if company.parent_company_id else None,
+                    parent_company_id=(
+                        str(company.parent_company_id)
+                        if company.parent_company_id
+                        else None
+                    ),
                     users=[
                         UserResponse(
                             id=str(uc.user.id),
@@ -3026,7 +3030,11 @@ class MagicalAuth:
                 zip_code=getattr(company, "zip_code", None),
                 country=getattr(company, "country", None),
                 notes=getattr(company, "notes", None),
-                parent_company_id=str(company.parent_company_id) if company.parent_company_id else None,
+                parent_company_id=(
+                    str(company.parent_company_id)
+                    if company.parent_company_id
+                    else None
+                ),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
@@ -3125,7 +3133,11 @@ class MagicalAuth:
                 zip_code=getattr(company, "zip_code", None),
                 country=getattr(company, "country", None),
                 notes=getattr(company, "notes", None),
-                parent_company_id=str(company.parent_company_id) if company.parent_company_id else None,
+                parent_company_id=(
+                    str(company.parent_company_id)
+                    if company.parent_company_id
+                    else None
+                ),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
