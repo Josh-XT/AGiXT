@@ -1085,6 +1085,13 @@ class CompanyInfo:
     status: Optional[bool] = True
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
     agents: List["AgentInfo"]
     role_id: Optional[int]
     primary: bool
@@ -1246,6 +1253,13 @@ class CompanyCreateInput:
     status: Optional[bool] = True
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
 
 
 @strawberry.input
@@ -1256,6 +1270,13 @@ class CompanyUpdateInput:
     status: Optional[bool] = None
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
 
 
 def convert_preferences_to_type(pref_dict: dict) -> UserPreferences:
@@ -1468,6 +1489,13 @@ class Subscription:
                                 status=company.get("status", True),
                                 address=company.get("address"),
                                 phone_number=company.get("phone_number"),
+                                email=company.get("email"),
+                                website=company.get("website"),
+                                city=company.get("city"),
+                                state=company.get("state"),
+                                zip_code=company.get("zip_code"),
+                                country=company.get("country"),
+                                notes=company.get("notes"),
                                 agents=[
                                     AgentInfo(
                                         name=agent["name"],
@@ -2370,6 +2398,13 @@ class Query:
                     status=company.get("status", True),
                     address=company.get("address"),
                     phone_number=company.get("phone_number"),
+                    email=company.get("email"),
+                    website=company.get("website"),
+                    city=company.get("city"),
+                    state=company.get("state"),
+                    zip_code=company.get("zip_code"),
+                    country=company.get("country"),
+                    notes=company.get("notes"),
                     agents=[
                         AgentInfo(
                             name=agent["name"],
@@ -3537,15 +3572,29 @@ class Mutation:
             status=input.status,
             address=input.address,
             phone_number=input.phone_number,
+            email=input.email,
+            website=input.website,
+            city=input.city,
+            state=input.state,
+            zip_code=input.zip_code,
+            country=input.country,
+            notes=input.notes,
         )
 
         return CompanyInfo(
             id=result["id"],
             name=result["name"],
             company_id=None,
-            status=True,
+            status=input.status,
             address=input.address,
             phone_number=input.phone_number,
+            email=input.email,
+            website=input.website,
+            city=input.city,
+            state=input.state,
+            zip_code=input.zip_code,
+            country=input.country,
+            notes=input.notes,
             agents=[],
             role_id=2,  # Company admin by default
             primary=True,
@@ -3564,6 +3613,13 @@ class Mutation:
             status=input.status,
             address=input.address,
             phone_number=input.phone_number,
+            email=input.email,
+            website=input.website,
+            city=input.city,
+            state=input.state,
+            zip_code=input.zip_code,
+            country=input.country,
+            notes=input.notes,
         )
 
         return CompanyInfo(
@@ -3573,6 +3629,13 @@ class Mutation:
             status=result.status,
             address=result.address,
             phone_number=result.phone_number,
+            email=result.email,
+            website=result.website,
+            city=result.city,
+            state=result.state,
+            zip_code=result.zip_code,
+            country=result.country,
+            notes=result.notes,
             agents=[],
             role_id=None,
             primary=False,

@@ -2339,6 +2339,13 @@ class MagicalAuth:
                         "status": getattr(company, "status", True),
                         "address": getattr(company, "address", None),
                         "phone_number": getattr(company, "phone_number", None),
+                        "email": getattr(company, "email", None),
+                        "website": getattr(company, "website", None),
+                        "city": getattr(company, "city", None),
+                        "state": getattr(company, "state", None),
+                        "zip_code": getattr(company, "zip_code", None),
+                        "country": getattr(company, "country", None),
+                        "notes": getattr(company, "notes", None),
                         "users": list(unique_users.values()),
                         "children": [],
                     }
@@ -2385,6 +2392,13 @@ class MagicalAuth:
                                 "status": getattr(child, "status", True),
                                 "address": getattr(child, "address", None),
                                 "phone_number": getattr(child, "phone_number", None),
+                                "email": getattr(child, "email", None),
+                                "website": getattr(child, "website", None),
+                                "city": getattr(child, "city", None),
+                                "state": getattr(child, "state", None),
+                                "zip_code": getattr(child, "zip_code", None),
+                                "country": getattr(child, "country", None),
+                                "notes": getattr(child, "notes", None),
                                 "users": list(child_unique_users.values()),
                             }
                             company_data["children"].append(child_data)
@@ -2433,6 +2447,13 @@ class MagicalAuth:
         status: bool = True,
         address: Optional[str] = None,
         phone_number: Optional[str] = None,
+        email: Optional[str] = None,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        notes: Optional[str] = None,
     ):
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
@@ -2457,6 +2478,13 @@ class MagicalAuth:
                     status=status,
                     address=address,
                     phone_number=phone_number,
+                    email=email,
+                    website=website,
+                    city=city,
+                    state=state,
+                    zip_code=zip_code,
+                    country=country,
+                    notes=notes,
                 )
                 db.add(new_company)
                 db.commit()
@@ -2520,6 +2548,13 @@ class MagicalAuth:
         status: bool = True,
         address: Optional[str] = None,
         phone_number: Optional[str] = None,
+        email: Optional[str] = None,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        notes: Optional[str] = None,
     ):
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
@@ -2530,6 +2565,13 @@ class MagicalAuth:
             status=status,
             address=address,
             phone_number=phone_number,
+            email=email,
+            website=website,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            country=country,
+            notes=notes,
         )
         agixt = self.get_user_agent_session()
         # Just create an agent associated with the company like we do at registration
@@ -2583,6 +2625,16 @@ class MagicalAuth:
                     id=str(company.id),
                     name=company.name,
                     company_id=str(company.company_id) if company.company_id else None,
+                    status=getattr(company, "status", True),
+                    address=getattr(company, "address", None),
+                    phone_number=getattr(company, "phone_number", None),
+                    email=getattr(company, "email", None),
+                    website=getattr(company, "website", None),
+                    city=getattr(company, "city", None),
+                    state=getattr(company, "state", None),
+                    zip_code=getattr(company, "zip_code", None),
+                    country=getattr(company, "country", None),
+                    notes=getattr(company, "notes", None),
                     users=[
                         UserResponse(
                             id=str(uc.user.id),
@@ -3004,6 +3056,13 @@ class MagicalAuth:
                 status=getattr(company, "status", True),
                 address=getattr(company, "address", None),
                 phone_number=getattr(company, "phone_number", None),
+                email=getattr(company, "email", None),
+                website=getattr(company, "website", None),
+                city=getattr(company, "city", None),
+                state=getattr(company, "state", None),
+                zip_code=getattr(company, "zip_code", None),
+                country=getattr(company, "country", None),
+                notes=getattr(company, "notes", None),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
@@ -3025,6 +3084,13 @@ class MagicalAuth:
         status: Optional[bool] = None,
         address: Optional[str] = None,
         phone_number: Optional[str] = None,
+        email: Optional[str] = None,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        notes: Optional[str] = None,
     ):
         # Check if company is in users companies
         if str(company_id) not in self.get_user_companies():
@@ -3052,6 +3118,20 @@ class MagicalAuth:
                 company.address = address
             if phone_number is not None:
                 company.phone_number = phone_number
+            if email is not None:
+                company.email = email
+            if website is not None:
+                company.website = website
+            if city is not None:
+                company.city = city
+            if state is not None:
+                company.state = state
+            if zip_code is not None:
+                company.zip_code = zip_code
+            if country is not None:
+                company.country = country
+            if notes is not None:
+                company.notes = notes
 
             db.commit()
             role_name = None

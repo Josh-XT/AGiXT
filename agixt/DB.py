@@ -130,6 +130,13 @@ class Company(Base):
     status = Column(Boolean, nullable=True, default=True)
     address = Column(String, nullable=True, default=None)
     phone_number = Column(String, nullable=True, default=None)
+    email = Column(String, nullable=True, default=None)
+    website = Column(String, nullable=True, default=None)
+    city = Column(String, nullable=True, default=None)
+    state = Column(String, nullable=True, default=None)
+    zip_code = Column(String, nullable=True, default=None)
+    country = Column(String, nullable=True, default=None)
+    notes = Column(Text, nullable=True, default=None)
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -976,6 +983,13 @@ def migrate_company_table():
                 session.execute(
                     text("SELECT phone_number FROM Company LIMIT 1")
                 ).fetchone()
+                session.execute(text("SELECT email FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT website FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT city FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT state FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT zip_code FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT country FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT notes FROM Company LIMIT 1")).fetchone()
                 logging.info("Company table migration: All columns already exist")
                 return
             except Exception:
@@ -985,68 +999,56 @@ def migrate_company_table():
 
             if DATABASE_TYPE == "sqlite":
                 # SQLite ALTER TABLE syntax
-                try:
-                    session.execute(
-                        text("ALTER TABLE Company ADD COLUMN status BOOLEAN DEFAULT 1")
-                    )
-                    logging.info("Added status column to Company table")
-                except Exception as e:
-                    if "duplicate column name" not in str(e).lower():
-                        logging.error(f"Error adding status column: {e}")
+                columns_to_add = [
+                    ("status", "BOOLEAN DEFAULT 1"),
+                    ("address", "TEXT DEFAULT NULL"),
+                    ("phone_number", "TEXT DEFAULT NULL"),
+                    ("email", "TEXT DEFAULT NULL"),
+                    ("website", "TEXT DEFAULT NULL"),
+                    ("city", "TEXT DEFAULT NULL"),
+                    ("state", "TEXT DEFAULT NULL"),
+                    ("zip_code", "TEXT DEFAULT NULL"),
+                    ("country", "TEXT DEFAULT NULL"),
+                    ("notes", "TEXT DEFAULT NULL"),
+                ]
 
-                try:
-                    session.execute(
-                        text("ALTER TABLE Company ADD COLUMN address TEXT DEFAULT NULL")
-                    )
-                    logging.info("Added address column to Company table")
-                except Exception as e:
-                    if "duplicate column name" not in str(e).lower():
-                        logging.error(f"Error adding address column: {e}")
-
-                try:
-                    session.execute(
-                        text(
-                            "ALTER TABLE Company ADD COLUMN phone_number TEXT DEFAULT NULL"
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE Company ADD COLUMN {column_name} {column_def}"
+                            )
                         )
-                    )
-                    logging.info("Added phone_number column to Company table")
-                except Exception as e:
-                    if "duplicate column name" not in str(e).lower():
-                        logging.error(f"Error adding phone_number column: {e}")
+                        logging.info(f"Added {column_name} column to Company table")
+                    except Exception as e:
+                        if "duplicate column name" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
             else:
                 # PostgreSQL ALTER TABLE syntax
-                try:
-                    session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD COLUMN status BOOLEAN DEFAULT TRUE'
-                        )
-                    )
-                    logging.info("Added status column to Company table")
-                except Exception as e:
-                    if "already exists" not in str(e).lower():
-                        logging.error(f"Error adding status column: {e}")
+                columns_to_add = [
+                    ("status", "BOOLEAN DEFAULT TRUE"),
+                    ("address", "VARCHAR DEFAULT NULL"),
+                    ("phone_number", "VARCHAR DEFAULT NULL"),
+                    ("email", "VARCHAR DEFAULT NULL"),
+                    ("website", "VARCHAR DEFAULT NULL"),
+                    ("city", "VARCHAR DEFAULT NULL"),
+                    ("state", "VARCHAR DEFAULT NULL"),
+                    ("zip_code", "VARCHAR DEFAULT NULL"),
+                    ("country", "VARCHAR DEFAULT NULL"),
+                    ("notes", "TEXT DEFAULT NULL"),
+                ]
 
-                try:
-                    session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD COLUMN address VARCHAR DEFAULT NULL'
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Company" ADD COLUMN {column_name} {column_def}'
+                            )
                         )
-                    )
-                    logging.info("Added address column to Company table")
-                except Exception as e:
-                    if "already exists" not in str(e).lower():
-                        logging.error(f"Error adding address column: {e}")
-
-                try:
-                    session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD COLUMN phone_number VARCHAR DEFAULT NULL'
-                        )
-                    )
-                    logging.info("Added phone_number column to Company table")
-                except Exception as e:
-                    if "already exists" not in str(e).lower():
-                        logging.error(f"Error adding phone_number column: {e}")
+                        logging.info(f"Added {column_name} column to Company table")
+                    except Exception as e:
+                        if "already exists" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
 
             session.commit()
             logging.info("Company table migration completed successfully")

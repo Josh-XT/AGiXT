@@ -473,6 +473,13 @@ async def create_company(
             status=company.status,
             address=company.address,
             phone_number=company.phone_number,
+            email=company.email,
+            website=company.website,
+            city=company.city,
+            state=company.state,
+            zip_code=company.zip_code,
+            country=company.country,
+            notes=company.notes,
         )
         return NewCompanyResponse(**new_company)
     except Exception as e:
@@ -612,6 +619,13 @@ async def update_company(
             status=company_details.status,
             address=company_details.address,
             phone_number=company_details.phone_number,
+            email=company_details.email,
+            website=company_details.website,
+            city=company_details.city,
+            state=company_details.state,
+            zip_code=company_details.zip_code,
+            country=company_details.country,
+            notes=company_details.notes,
         )
     except Exception as e:
         logging.error(f"Error in update_company endpoint: {str(e)}")

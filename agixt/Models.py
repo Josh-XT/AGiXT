@@ -22,6 +22,13 @@ class CompanyResponse(BaseModel):
     status: Optional[bool] = True
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
     users: List[UserResponse]
     children: List["CompanyResponse"] = []
 
@@ -627,6 +634,13 @@ class NewCompanyInput(BaseModel):
     status: Optional[bool] = True
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class UpdateUserRole(BaseModel):
@@ -644,6 +658,13 @@ class UpdateCompanyInput(BaseModel):
     status: Optional[bool] = None
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
 
 
 # Wallet Models
