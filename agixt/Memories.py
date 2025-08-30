@@ -494,12 +494,12 @@ class Memories:
             # Emit webhook event
             await webhook_emitter.emit_event(
                 event_type="memory.wiped",
-                payload={
-                    "agent_id": self.agent_id,
-                    "agent_name": self.agent_name,
+                user_id=self.user,
+                agent_id=self.agent_id,
+                agent_name=self.agent_name,
+                data={
                     "conversation_id": conversation_id,
                     "memory_count": memory_count,
-                    "user": self.user,
                 },
             )
 
@@ -638,12 +638,12 @@ class Memories:
             # Emit webhook event
             await webhook_emitter.emit_event(
                 event_type="memory.deleted",
-                payload={
-                    "agent_id": self.agent_id,
-                    "agent_name": self.agent_name,
+                user_id=self.user,
+                agent_id=self.agent_id,
+                agent_name=self.agent_name,
+                data={
                     "memory_id": key,
                     "conversation_id": self.collection_number,
-                    "user": self.user,
                 },
             )
 
@@ -743,14 +743,14 @@ class Memories:
                 # Emit webhook event for memory creation
                 await webhook_emitter.emit_event(
                     event_type="memory.created",
-                    payload={
-                        "agent_id": self.agent_id,
-                        "agent_name": self.agent_name,
+                    user_id=self.user,
+                    agent_id=self.agent_id,
+                    agent_name=self.agent_name,
+                    data={
                         "conversation_id": conversation_id,
                         "external_source": external_source,
                         "description": user_input,
                         "chunk_count": len(memories_to_add),
-                        "user": self.user,
                     },
                 )
 
@@ -913,12 +913,12 @@ class Memories:
             if result:
                 await webhook_emitter.emit_event(
                     event_type="memory.external_source_deleted",
-                    payload={
-                        "agent_id": self.agent_id,
-                        "agent_name": self.agent_name,
+                    user_id=self.user,
+                    agent_id=self.agent_id,
+                    agent_name=self.agent_name,
+                    data={
                         "external_source": external_source,
                         "deleted_count": result,
-                        "user": self.user,
                     },
                 )
 
@@ -989,12 +989,12 @@ class Memories:
             # Emit webhook event for YouTube caption storage
             await webhook_emitter.emit_event(
                 event_type="memory.youtube_captions_stored",
-                payload={
-                    "agent_id": self.agent_id,
-                    "agent_name": self.agent_name,
+                user_id=self.user,
+                agent_id=self.agent_id,
+                agent_name=self.agent_name,
+                data={
                     "video_id": video_id,
                     "content_length": len(content),
-                    "user": self.user,
                 },
             )
 

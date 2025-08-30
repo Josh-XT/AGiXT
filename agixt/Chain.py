@@ -221,11 +221,11 @@ class Chain:
         asyncio.create_task(
             webhook_emitter.emit_event(
                 event_type="chain.created",
-                payload={
+                user_id=self.user,
+                data={
                     "chain_id": str(chain.id),
                     "chain_name": chain_name,
                     "description": description,
-                    "user": self.user,
                 },
             )
         )
@@ -248,11 +248,11 @@ class Chain:
             asyncio.create_task(
                 webhook_emitter.emit_event(
                     event_type="chain.updated",
-                    payload={
+                    user_id=self.user,
+                    data={
                         "chain_id": str(chain.id),
                         "old_name": old_name,
                         "new_name": new_name,
-                        "user": self.user,
                     },
                 )
             )
@@ -721,10 +721,10 @@ class Chain:
             asyncio.create_task(
                 webhook_emitter.emit_event(
                     event_type="chain.deleted",
-                    payload={
+                    user_id=self.user,
+                    data={
                         "chain_id": chain_id,
                         "chain_name": chain_name,
-                        "user": self.user,
                     },
                 )
             )
@@ -892,11 +892,11 @@ class Chain:
             asyncio.create_task(
                 webhook_emitter.emit_event(
                     event_type="chain.updated",
-                    payload={
+                    user_id=self.user,
+                    data={
                         "chain_id": str(chain.id),
                         "chain_name": chain_name,
                         "description": description,
-                        "user": self.user,
                     },
                 )
             )
@@ -1202,7 +1202,8 @@ class Chain:
             # Emit webhook event for chain step completion
             await webhook_emitter.emit_event(
                 event_type="chain.step.completed",
-                payload={
+                user_id=self.user,
+                data={
                     "chain_name": chain_name,
                     "chain_run_id": str(chain_run_id),
                     "step_number": step_number,
@@ -1211,7 +1212,6 @@ class Chain:
                         if isinstance(response, (str, int, float, bool))
                         else str(response)[:500]
                     ),
-                    "user": self.user,
                 },
             )
 
@@ -1231,11 +1231,11 @@ class Chain:
         # Emit webhook event for chain execution started
         await webhook_emitter.emit_event(
             event_type="chain.execution.started",
-            payload={
+            user_id=self.user,
+            data={
                 "chain_id": str(chain_data["id"]),
                 "chain_name": chain_name,
                 "chain_run_id": str(chain_run_id),
-                "user": self.user,
             },
         )
 
@@ -1417,10 +1417,10 @@ class Chain:
         asyncio.create_task(
             webhook_emitter.emit_event(
                 event_type="chain.deleted",
-                payload={
+                user_id=self.user,
+                data={
                     "chain_id": str(chain_id),
                     "chain_name": chain_name,
-                    "user": self.user,
                 },
             )
         )
@@ -1452,12 +1452,12 @@ class Chain:
         asyncio.create_task(
             webhook_emitter.emit_event(
                 event_type="chain.updated",
-                payload={
+                user_id=self.user,
+                data={
                     "chain_id": str(chain_id),
                     "old_name": old_name,
                     "new_name": chain_name,
                     "description": description,
-                    "user": self.user,
                 },
             )
         )
