@@ -642,3 +642,6 @@ WEBHOOK_EVENT_TYPES = [
     {"type": "training.started", "description": "Triggered when training starts"},
     {"type": "training.completed", "description": "Triggered when training completes"},
 ]
+
+# Create singleton instance for import
+webhook_emitter = WebhookEventEmitter()
