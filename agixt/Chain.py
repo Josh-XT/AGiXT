@@ -19,6 +19,7 @@ from Extensions import Extensions
 from MagicalAuth import get_user_id
 import logging
 import asyncio
+from WebhookManager import webhook_emitter
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -215,6 +216,20 @@ class Chain:
         chain = ChainDB(name=chain_name, user_id=self.user_id, description=description)
         session.add(chain)
         session.commit()
+
+        # Emit webhook event
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="chain.created",
+                payload={
+                    "chain_id": str(chain.id),
+                    "chain_name": chain_name,
+                    "description": description,
+                    "user": self.user,
+                },
+            )
+        )
+
         session.close()
 
     def rename_chain(self, chain_name, new_name):
@@ -225,8 +240,22 @@ class Chain:
             .first()
         )
         if chain:
+            old_name = chain.name
             chain.name = new_name
             session.commit()
+
+            # Emit webhook event
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="chain.updated",
+                    payload={
+                        "chain_id": str(chain.id),
+                        "old_name": old_name,
+                        "new_name": new_name,
+                        "user": self.user,
+                    },
+                )
+            )
         session.close()
 
     def add_chain_step(
@@ -682,8 +711,24 @@ class Chain:
             .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
             .first()
         )
-        session.delete(chain)
-        session.commit()
+
+        if chain:
+            chain_id = str(chain.id)
+            session.delete(chain)
+            session.commit()
+
+            # Emit webhook event
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="chain.deleted",
+                    payload={
+                        "chain_id": chain_id,
+                        "chain_name": chain_name,
+                        "user": self.user,
+                    },
+                )
+            )
+
         session.close()
 
     def get_steps(self, chain_name):
@@ -842,6 +887,19 @@ class Chain:
         if chain:
             chain.description = description
             session.commit()
+
+            # Emit webhook event
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="chain.updated",
+                    payload={
+                        "chain_id": str(chain.id),
+                        "chain_name": chain_name,
+                        "description": description,
+                        "user": self.user,
+                    },
+                )
+            )
         session.close()
         return chain
 
@@ -1140,19 +1198,49 @@ class Chain:
                 )
                 session.add(chain_step_response)
                 session.commit()
+
+            # Emit webhook event for chain step completion
+            await webhook_emitter.emit_event(
+                event_type="chain.step.completed",
+                payload={
+                    "chain_name": chain_name,
+                    "chain_run_id": str(chain_run_id),
+                    "step_number": step_number,
+                    "response": (
+                        response
+                        if isinstance(response, (str, int, float, bool))
+                        else str(response)[:500]
+                    ),
+                    "user": self.user,
+                },
+            )
+
             session.close()
 
     async def get_chain_run_id(self, chain_name):
         session = get_session()
+        chain_data = self.get_chain(chain_name=chain_name)
         chain_run = ChainRun(
-            chain_id=self.get_chain(chain_name=chain_name)["id"],
+            chain_id=chain_data["id"],
             user_id=self.user_id,
         )
         session.add(chain_run)
         session.commit()
-        chain_id = chain_run.id
+        chain_run_id = chain_run.id
+
+        # Emit webhook event for chain execution started
+        await webhook_emitter.emit_event(
+            event_type="chain.execution.started",
+            payload={
+                "chain_id": str(chain_data["id"]),
+                "chain_name": chain_name,
+                "chain_run_id": str(chain_run_id),
+                "user": self.user,
+            },
+        )
+
         session.close()
-        return chain_id
+        return chain_run_id
 
     async def get_last_chain_run_id(self, chain_name):
         chain_data = self.get_chain(chain_name=chain_name)
@@ -1321,8 +1409,22 @@ class Chain:
             session.close()
             raise Exception("Chain not found")
 
+        chain_name = chain.name
         session.delete(chain)
         session.commit()
+
+        # Emit webhook event
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="chain.deleted",
+                payload={
+                    "chain_id": str(chain_id),
+                    "chain_name": chain_name,
+                    "user": self.user,
+                },
+            )
+        )
+
         session.close()
 
     def update_chain_by_id(self, chain_id, chain_name, description=""):
@@ -1341,9 +1443,25 @@ class Chain:
             session.close()
             raise Exception("Chain not found")
 
+        old_name = chain.name
         chain.name = chain_name
         chain.description = description
         session.commit()
+
+        # Emit webhook event
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="chain.updated",
+                payload={
+                    "chain_id": str(chain_id),
+                    "old_name": old_name,
+                    "new_name": chain_name,
+                    "description": description,
+                    "user": self.user,
+                },
+            )
+        )
+
         session.close()
 
     def get_chain_args_by_id(self, chain_id):

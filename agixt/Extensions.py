@@ -19,6 +19,7 @@ from DB import (
     Command,
     User,
 )
+from WebhookManager import webhook_emitter
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -368,12 +369,47 @@ class Extensions:
         if "activity_id" in command_args:
             injection_variables["activity_id"] = command_args["activity_id"]
             del command_args["activity_id"]
+
+        # Emit webhook event for command execution started
+        import asyncio
+
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="command.execution.started",
+                user_id=self.user_id,
+                agent_id=self.agent_id,
+                data={
+                    "command_name": command_name,
+                    "command_args": command_args,
+                    "agent_name": self.agent_name,
+                    "conversation_id": self.conversation_id,
+                },
+            )
+        )
+
         command_function, module, params = self.find_command(command_name=command_name)
         logging.info(
             f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
         )
         if command_function is None:
             logging.error(f"Command {command_name} not found")
+
+            # Emit webhook event for command execution failed
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="command.execution.failed",
+                    user_id=self.user_id,
+                    agent_id=self.agent_id,
+                    data={
+                        "command_name": command_name,
+                        "command_args": command_args,
+                        "agent_name": self.agent_name,
+                        "conversation_id": self.conversation_id,
+                        "error": f"Command {command_name} not found",
+                    },
+                )
+            )
+
             return f"Command {command_name} not found"
 
         if command_args is None:
@@ -389,9 +425,51 @@ class Extensions:
                 del args[param]
 
         if module is None:  # It's a chain
-            return await command_function(
-                chain_name=command_name, user_input="", **args
-            )
+            try:
+                result = await command_function(
+                    chain_name=command_name, user_input="", **args
+                )
+
+                # Emit webhook event for command execution completed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.completed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "response": (
+                                str(result)[:1000] if result else None
+                            ),  # Limit response size
+                        },
+                    )
+                )
+
+                return result
+            except Exception as e:
+                # Emit webhook event for command execution failed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.failed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "error": str(e),
+                        },
+                    )
+                )
+                raise
         else:  # It's a regular command
             extension_instance = None
             try:
@@ -399,7 +477,47 @@ class Extensions:
                 result = await getattr(extension_instance, command_function.__name__)(
                     **args
                 )
+
+                # Emit webhook event for command execution completed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.completed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "response": (
+                                str(result)[:1000] if result else None
+                            ),  # Limit response size
+                        },
+                    )
+                )
+
                 return result
+            except Exception as e:
+                # Emit webhook event for command execution failed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.failed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "error": str(e),
+                        },
+                    )
+                )
+                raise
             finally:
                 # Ensure cleanup for extensions that support it
                 if extension_instance and hasattr(extension_instance, "ensure_cleanup"):

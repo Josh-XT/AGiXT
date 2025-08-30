@@ -21,11 +21,15 @@ from ApiClient import (
 )
 from MagicalAuth import MagicalAuth, impersonate_user
 from Globals import getenv, DEFAULT_USER, get_tokens
+from WebhookManager import WebhookEventEmitter
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+# Initialize webhook event emitter
+webhook_emitter = WebhookEventEmitter()
 
 
 class Interactions:
@@ -811,6 +815,20 @@ class Interactions:
                 role="USER",
                 message=log_message,
             )
+            # Emit webhook event for user message
+            await webhook_emitter.emit_event(
+                event_type="conversation.message.received",
+                data={
+                    "conversation_id": c.get_conversation_id(),
+                    "conversation_name": conversation_name,
+                    "agent_name": self.agent_name,
+                    "user": self.user,
+                    "message": log_message,
+                    "role": "USER",
+                    "timestamp": datetime.now().isoformat(),
+                },
+                user_id=self.user,
+            )
         try:
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, use_smartest=use_smartest
@@ -1149,6 +1167,37 @@ class Interactions:
                     role=self.agent_name,
                     message=self.response,
                 )
+                # Emit webhook event for agent response
+                await webhook_emitter.emit_event(
+                    event_type="conversation.message.sent",
+                    data={
+                        "conversation_id": c.get_conversation_id(),
+                        "conversation_name": conversation_name,
+                        "agent_name": self.agent_name,
+                        "user": self.user,
+                        "message": self.response,
+                        "role": self.agent_name,
+                        "timestamp": datetime.now().isoformat(),
+                        "prompt_tokens": tokens if "tokens" in locals() else 0,
+                    },
+                    user_id=self.user,
+                )
+
+                # Also emit chat completion event
+                await webhook_emitter.emit_event(
+                    event_type="chat.completion.completed",
+                    data={
+                        "conversation_id": c.get_conversation_id(),
+                        "conversation_name": conversation_name,
+                        "agent_name": self.agent_name,
+                        "user": self.user,
+                        "user_input": user_input,
+                        "response": self.response,
+                        "timestamp": datetime.now().isoformat(),
+                        "prompt_tokens": tokens if "tokens" in locals() else 0,
+                    },
+                    user_id=self.user,
+                )
         else:
             logging.info(f"{self.agent_name} Response: {self.response}")
         if shots > 1:
@@ -1291,6 +1340,23 @@ class Interactions:
                             message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] `{command_name}` was executed successfully.\n{command_output}",
                         )
                         logging.info(f"Command output: {command_output}")
+
+                        # Emit webhook event for successful command execution
+                        await webhook_emitter.emit_event(
+                            event_type="command.execution.completed",
+                            data={
+                                "conversation_id": c.get_conversation_id(),
+                                "conversation_name": conversation_name,
+                                "agent_name": self.agent_name,
+                                "user": self.user,
+                                "command_name": command_name,
+                                "command_args": command_args,
+                                "output": command_output,
+                                "status": "success",
+                                "timestamp": datetime.now().isoformat(),
+                            },
+                            user_id=self.user,
+                        )
                     except Exception as e:
                         error_message = f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
                         logging.error(error_message)
@@ -1299,6 +1365,22 @@ class Interactions:
                             message=f"[SUBACTIVITY][{thinking_id}][ERROR] Failed to execute command `{command_name}`.\n{error_message}",
                         )
                         command_output = error_message
+
+                        # Emit webhook event for failed command execution
+                        await webhook_emitter.emit_event(
+                            event_type="command.execution.failed",
+                            data={
+                                "conversation_id": c.get_conversation_id(),
+                                "conversation_name": conversation_name,
+                                "agent_name": self.agent_name,
+                                "user": self.user,
+                                "command_name": command_name,
+                                "command_args": command_args,
+                                "error": str(e),
+                                "timestamp": datetime.now().isoformat(),
+                            },
+                            user_id=self.user,
+                        )
                 # Format the command execution and output
                 formatted_execution = (
                     f"<execute>\n"

@@ -754,6 +754,92 @@ class TaskItem(Base):
     user = relationship("User", backref="task_item")
 
 
+class WebhookIncoming(Base):
+    __tablename__ = "webhook_incoming"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    webhook_id = Column(String, unique=True, nullable=False)  # URL path identifier
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    api_key = Column(String, nullable=False)  # For authentication
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    agent = relationship("Agent", backref="incoming_webhooks")
+    user = relationship("User", backref="incoming_webhooks")
+
+
+class WebhookOutgoing(Base):
+    __tablename__ = "webhook_outgoing"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=True,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=True,
+    )
+    event_types = Column(Text)  # JSON array stored as text
+    target_url = Column(String, nullable=False)
+    headers = Column(Text)  # JSON object stored as text
+    retry_count = Column(Integer, default=3)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", backref="outgoing_webhooks")
+    company = relationship("Company", backref="outgoing_webhooks")
+    agent = relationship("Agent", backref="outgoing_webhooks")
+
+
+class WebhookLog(Base):
+    __tablename__ = "webhook_log"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    webhook_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        nullable=False,
+    )
+    direction = Column(String, nullable=False)  # 'incoming' or 'outgoing'
+    payload = Column(Text)  # JSON payload
+    response = Column(Text, nullable=True)  # Response data
+    status_code = Column(Integer, nullable=True)
+    timestamp = Column(DateTime, server_default=func.now())
+    retry_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+
+
 class Prompt(Base):
     __tablename__ = "prompt"
     id = Column(

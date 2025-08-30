@@ -24,6 +24,7 @@ from numpy import array, linalg, ndarray
 import numpy as np
 from datetime import datetime
 from uuid import UUID
+from WebhookManager import webhook_emitter
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -483,8 +484,25 @@ class Memories:
             query = session.query(Memory).filter_by(agent_id=self.agent_id)
             if conversation_id:
                 query = query.filter_by(conversation_id=conversation_id)
+
+            # Count memories before deletion for webhook event
+            memory_count = query.count()
+
             query.delete()
             session.commit()
+
+            # Emit webhook event
+            await webhook_emitter.emit_event(
+                event_type="memory.wiped",
+                payload={
+                    "agent_id": self.agent_id,
+                    "agent_name": self.agent_name,
+                    "conversation_id": conversation_id,
+                    "memory_count": memory_count,
+                    "user": self.user,
+                },
+            )
+
             return True
         except Exception as e:
             session.rollback()
@@ -616,6 +634,19 @@ class Memories:
         collection = await self.get_collection()
         try:
             collection.delete(ids=key)
+
+            # Emit webhook event
+            await webhook_emitter.emit_event(
+                event_type="memory.deleted",
+                payload={
+                    "agent_id": self.agent_id,
+                    "agent_name": self.agent_name,
+                    "memory_id": key,
+                    "conversation_id": self.collection_number,
+                    "user": self.user,
+                },
+            )
+
             return True
         except:
             return False
@@ -708,6 +739,21 @@ class Memories:
             if memories_to_add:
                 session.bulk_save_objects(memories_to_add)
                 session.commit()
+
+                # Emit webhook event for memory creation
+                await webhook_emitter.emit_event(
+                    event_type="memory.created",
+                    payload={
+                        "agent_id": self.agent_id,
+                        "agent_name": self.agent_name,
+                        "conversation_id": conversation_id,
+                        "external_source": external_source,
+                        "description": user_input,
+                        "chunk_count": len(memories_to_add),
+                        "user": self.user,
+                    },
+                )
+
                 return True
             else:
                 logging.warning("No valid memories to add")
@@ -862,6 +908,20 @@ class Memories:
             )
 
             session.commit()
+
+            # Emit webhook event
+            if result:
+                await webhook_emitter.emit_event(
+                    event_type="memory.external_source_deleted",
+                    payload={
+                        "agent_id": self.agent_id,
+                        "agent_name": self.agent_name,
+                        "external_source": external_source,
+                        "deleted_count": result,
+                        "user": self.user,
+                    },
+                )
+
             return bool(result)
         except Exception as e:
             session.rollback()
@@ -925,5 +985,18 @@ class Memories:
                 text=stored_content,
                 external_source=f"From YouTube video: {video_id}",
             )
+
+            # Emit webhook event for YouTube caption storage
+            await webhook_emitter.emit_event(
+                event_type="memory.youtube_captions_stored",
+                payload={
+                    "agent_id": self.agent_id,
+                    "agent_name": self.agent_name,
+                    "video_id": video_id,
+                    "content_length": len(content),
+                    "user": self.user,
+                },
+            )
+
             return True
         return False
