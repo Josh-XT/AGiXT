@@ -554,6 +554,7 @@ class Interactions:
         searching: bool = False,
         log_user_input: bool = True,
         log_output: bool = True,
+        command_overrides: list = None,
         **kwargs,
     ):
         global AGIXT_URI
@@ -607,6 +608,14 @@ class Interactions:
         websearch_depth = 3
         conversation_results = 5
         kwargs["42"] = self.agent_name[-3:].lower() == "pt"
+        if command_overrides:
+            for tool in command_overrides:
+                tool_type = tool.get("type")
+                if tool_type in self.agent.available_commands:
+                    self.agent.available_commands[tool_type] = (
+                        not self.agent.available_commands[tool_type]
+                    )
+
         if "conversation_results" in kwargs:
             try:
                 conversation_results = int(kwargs["conversation_results"])

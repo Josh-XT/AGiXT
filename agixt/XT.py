@@ -195,6 +195,7 @@ class AGiXT:
         log_user_input: bool = True,
         log_output: bool = True,
         language: str = "en",
+        command_overrides: list = None,
         **kwargs,
     ):
         """
@@ -213,6 +214,7 @@ class AGiXT:
             log_user_input (bool): Whether to log the user input
             log_output (bool): Whether to log the output
             language (str): Language of the response
+            command_overrides (list): List of command overrides for the agent
             **kwargs: Additional keyword arguments
 
         Returns:
@@ -248,6 +250,7 @@ class AGiXT:
             tts=voice_response,
             log_user_input=log_user_input,
             log_output=log_output,
+            command_overrides=command_overrides,
             **kwargs,
         )
         if language == "en":
@@ -1309,6 +1312,9 @@ class AGiXT:
         language = "en"
         log_output = True
         log_user_input = True
+        command_overrides = None
+        if prompt.tools:
+            command_overrides = prompt.tools
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
@@ -1801,6 +1807,7 @@ class AGiXT:
                 language=language,
                 include_sources=include_sources,
                 context=additional_context,
+                command_overrides=command_overrides,
                 **prompt_args,
             )
             if response.startswith(f"{self.agent_name}:"):
@@ -2037,6 +2044,9 @@ class AGiXT:
         language = "en"
         log_output = True
         log_user_input = True
+        command_overrides = None
+        if prompt.tools:
+            command_overrides = prompt.tools
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
@@ -2352,6 +2362,7 @@ class AGiXT:
                     log_user_input=False,
                     log_output=False,
                     language=language,
+                    command_overrides=command_overrides,
                     **prompt_args,
                 )
 
