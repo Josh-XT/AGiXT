@@ -73,7 +73,7 @@ class file_system(Extensions):
 
     async def execute_shell(self, command_line: str) -> str:
         """
-        Execute a shell command
+        Execute a shell command in a sandboxed environment
 
         Args:
         command_line (str): The shell command to execute
@@ -81,17 +81,46 @@ class file_system(Extensions):
         Returns:
         str: The output of the shell command
         """
-        current_dir = os.getcwd()
-        os.chdir(current_dir)
-        logging.info(
-            f"Executing command '{command_line}' in working directory '{os.getcwd()}'"
-        )
-        result = subprocess.run(command_line, capture_output=True, shell=True)
-        output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        # Create Python code that will execute the shell command in a sandboxed environment
+        sandboxed_code = f"""
+import subprocess
+import os
 
-        os.chdir(current_dir)
+# Execute the command
+result = subprocess.run(
+    {repr(command_line)}, 
+    capture_output=True, 
+    shell=True,
+    text=True,
+    timeout=30  # Add timeout for safety
+)
 
-        return output
+# Format output
+output = "STDOUT:\\n"
+if result.stdout:
+    output += result.stdout
+else:
+    output += "(no output)"
+    
+output += "\\nSTDERR:\\n"
+if result.stderr:
+    output += result.stderr
+else:
+    output += "(no errors)"
+
+output += f"\\nReturn Code: {{result.returncode}}"
+
+print(output)
+"""
+
+        # Execute the code in a sandboxed environment
+        try:
+            result = execute_python_code(
+                code=sandboxed_code, working_directory=self.WORKING_DIRECTORY
+            )
+            return result
+        except Exception as e:
+            return f"Error executing shell command in sandbox: {str(e)}"
 
     @staticmethod
     def we_are_running_in_a_docker_container() -> bool:
