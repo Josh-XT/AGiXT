@@ -120,12 +120,13 @@ class WebhookEventEmitter:
 
         try:
             # Find all active webhooks subscribed to this event type
+            # Use string matching for SQLite compatibility
             webhooks = (
                 session.query(WebhookOutgoing)
                 .filter(
                     and_(
                         WebhookOutgoing.active == True,
-                        WebhookOutgoing.event_types.contains([event.event_type]),
+                        WebhookOutgoing.event_types.like(f'%"{event.event_type}"%'),
                     )
                 )
                 .all()

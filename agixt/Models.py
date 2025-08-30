@@ -38,9 +38,6 @@ class NewCompanyResponse(BaseModel):
     name: str
 
 
-CompanyResponse.model_rebuild()
-
-
 class InvitationCreate(BaseModel):
     email: str
     company_id: Optional[str] = None
