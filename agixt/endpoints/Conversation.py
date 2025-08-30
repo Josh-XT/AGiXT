@@ -31,6 +31,7 @@ import asyncio
 import logging
 from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
+from WorkerRegistry import worker_registry
 
 app = APIRouter()
 
@@ -521,6 +522,111 @@ async def get_tts(
     )
     c.update_message_by_id(message_id=message_id, new_message=new_message)
     return {"message": new_message}
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/stop",
+    response_model=ResponseMessage,
+    summary="Stop Active Conversation",
+    description="Stops an active conversation and cancels any running AI process.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def stop_conversation(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    """
+    Stop an active conversation by cancelling its task
+    """
+    auth = MagicalAuth(token=authorization)
+
+    # Handle special case of "-" conversation ID
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name(
+            conversation_name="-", user_id=auth.user_id
+        )
+
+    # Validate that the conversation exists and user has access
+    try:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+    except Exception as e:
+        logging.error(f"Error getting conversation name for {conversation_id}: {e}")
+        return ResponseMessage(
+            message=f"Conversation {conversation_id} not found or access denied."
+        )
+
+    # Attempt to stop the conversation
+    success = await worker_registry.stop_conversation(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+
+    if success:
+        # Log the stop action to the conversation
+        c = Conversations(conversation_name=conversation_name, user=user)
+        c.log_interaction(
+            message="[ACTIVITY][INFO] Conversation stopped by user.",
+            role="SYSTEM",
+        )
+        return ResponseMessage(
+            message=f"Successfully stopped conversation {conversation_id}."
+        )
+    else:
+        return ResponseMessage(
+            message=f"Conversation {conversation_id} was not active or could not be stopped."
+        )
+
+
+@app.post(
+    "/v1/conversations/stop",
+    response_model=ResponseMessage,
+    summary="Stop All User Conversations",
+    description="Stops all active conversations for the authenticated user.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def stop_all_conversations(
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    """
+    Stop all active conversations for a user
+    """
+    auth = MagicalAuth(token=authorization)
+
+    stopped_count = await worker_registry.stop_user_conversations(user_id=auth.user_id)
+
+    return ResponseMessage(message=f"Stopped {stopped_count} active conversation(s).")
+
+
+@app.get(
+    "/v1/conversations/active",
+    response_model=Dict[str, Dict],
+    summary="Get Active Conversations",
+    description="Retrieves all active conversations for the authenticated user.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_active_conversations(
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Get all active conversations for a user
+    """
+    auth = MagicalAuth(token=authorization)
+
+    active_conversations = worker_registry.get_user_conversations(user_id=auth.user_id)
+
+    # Remove the task object from the response as it's not serializable
+    for conversation_id, info in active_conversations.items():
+        if "task" in info:
+            del info["task"]
+
+    return {"active_conversations": active_conversations}
 
 
 # WebSocket endpoint for streaming conversation updates
