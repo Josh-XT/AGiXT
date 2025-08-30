@@ -15,6 +15,7 @@ from typing import (
     get_type_hints,
 )
 from MagicalAuth import MagicalAuth
+from WorkerRegistry import worker_registry
 from enum import Enum
 from pydantic import BaseModel
 import pdfplumber
@@ -1301,6 +1302,36 @@ class AGiXT:
             dict: Chat completion response
         """
         # conversation_name = prompt.user
+        c = self.conversation
+        conversation_id = self.conversation_id
+
+        # Register this conversation as active
+        worker_registry.register_conversation(
+            conversation_id=conversation_id,
+            user_id=self.auth.user_id,
+            agent_name=self.agent_name,
+        )
+
+        try:
+            return await self._execute_chat_completions(prompt)
+        except asyncio.CancelledError:
+            logging.info(
+                f"Chat completion cancelled for conversation {conversation_id}"
+            )
+            raise
+        except Exception as e:
+            logging.error(
+                f"Error in chat completions for conversation {conversation_id}: {e}"
+            )
+            raise
+        finally:
+            # Always unregister when done
+            worker_registry.unregister_conversation(conversation_id)
+
+    async def _execute_chat_completions(self, prompt: ChatCompletions):
+        """
+        Internal method that does the actual chat completion processing
+        """
         c = self.conversation
         conversation_id = self.conversation_id
         urls = []
