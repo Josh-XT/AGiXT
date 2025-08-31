@@ -124,6 +124,22 @@ app.include_router(health_endpoints)
 app.include_router(legacy_endpoints)
 app.include_router(webhook_endpoints)
 
+# Register extension endpoints
+from Extensions import Extensions
+
+try:
+    ext = Extensions()
+    extension_routers = ext.get_extension_routers()
+    for extension_router in extension_routers:
+        extension_name = extension_router["extension_name"]
+        router = extension_router["router"]
+        app.include_router(router, prefix=f"/api/extensions/{extension_name}")
+        logging.info(
+            f"Registered extension endpoints for '{extension_name}' at /api/extensions/{extension_name}"
+        )
+except Exception as e:
+    logging.error(f"Error registering extension endpoints: {e}")
+
 
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
 @app.get("/outputs/{agent_id}/{filename:path}", tags=["Workspace"])

@@ -1012,4 +1012,343 @@ class weather_api(Extensions):
             return f"Error getting weather data: {str(e)}"
 ```
 
-This comprehensive guide provides all the patterns and best practices needed to create robust, secure, and maintainable AGiXT extensions with proper authentication, error handling, and OAuth integration.
+## API Endpoint-Enabled Extensions
+
+AGiXT supports extensions that can expose their own REST API endpoints, allowing direct HTTP access to extension functionality beyond agent commands. This feature enables:
+
+- Building web UIs that interact directly with extension data
+- Creating webhooks and integrations with external systems
+- Providing RESTful APIs for extension resources
+- Enabling CRUD operations on extension-managed data
+- Direct API access without going through an AI agent
+
+### How Endpoint Extensions Work
+
+1. **Extension defines a FastAPI router** (optional feature)
+2. **AGiXT automatically discovers** extensions with routers during startup
+3. **Routes are registered** at `/api/extensions/{extension_name}/`
+4. **Authentication is enforced** using AGiXT's existing auth system
+5. **User isolation is maintained** automatically
+
+### Creating an Endpoint-Enabled Extension
+
+#### Step 1: Import Required Dependencies
+
+```python
+from fastapi import APIRouter, HTTPException, Depends, Query
+from pydantic import BaseModel
+from MagicalAuth import verify_api_key
+from typing import List, Optional
+```
+
+#### Step 2: Define Pydantic Models for API
+
+```python
+class ItemCreate(BaseModel):
+    name: str
+    description: str
+    tags: Optional[List[str]] = []
+
+class ItemUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class ItemResponse(BaseModel):
+    id: int
+    user_id: str
+    name: str
+    description: str
+    tags: List[str]
+    created_at: str
+    updated_at: str
+```
+
+#### Step 3: Set Up Router in Extension __init__
+
+```python
+class my_extension(Extensions):
+    def __init__(self, **kwargs):
+        # Standard extension initialization
+        self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
+        
+        # Define agent commands
+        self.commands = {
+            "Create Item": self.create_item,
+            "Get Item": self.get_item,
+        }
+        
+        # Set up FastAPI router for REST endpoints
+        self.router = APIRouter(prefix="/items", tags=["My Extension"])
+        self._setup_routes()
+    
+    def _setup_routes(self):
+        """Set up FastAPI routes for the extension"""
+        
+        @self.router.post("/", response_model=ItemResponse)
+        async def create_item_endpoint(
+            item_data: ItemCreate, 
+            user=Depends(verify_api_key)
+        ):
+            """Create a new item via REST API"""
+            result = await self.create_item(
+                name=item_data.name,
+                description=item_data.description,
+                tags=item_data.tags or []
+            )
+            result_data = json.loads(result)
+            if not result_data.get("success"):
+                raise HTTPException(status_code=400, detail=result_data.get("error"))
+            return result_data["item"]
+        
+        @self.router.get("/{item_id}", response_model=ItemResponse)
+        async def get_item_endpoint(
+            item_id: int, 
+            user=Depends(verify_api_key)
+        ):
+            """Get a specific item by ID via REST API"""
+            result = await self.get_item(item_id=item_id)
+            result_data = json.loads(result)
+            if not result_data.get("success"):
+                raise HTTPException(status_code=404, detail=result_data.get("error"))
+            return result_data["item"]
+```
+
+#### Step 4: Implement Both Agent Commands and API Logic
+
+```python
+    # Agent command methods (for AI agent interaction)
+    async def create_item(self, name: str, description: str, tags: List[str] = None) -> str:
+        """Create item - used by both agent commands and API endpoints"""
+        try:
+            # Implementation logic
+            item = MyItem(
+                user_id=self.user_id,
+                name=name,
+                description=description,
+                tags=json.dumps(tags or [])
+            )
+            session.add(item)
+            session.commit()
+            
+            return json.dumps({
+                "success": True,
+                "message": f"Item '{name}' created successfully",
+                "item": item.to_dict()
+            })
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+```
+
+### Complete Working Example: Notes Extension
+
+The `notes.py` extension demonstrates a complete implementation:
+
+**Database Models:**
+```python
+class Note(Base):
+    __tablename__ = "notes" 
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=False, index=True)
+    title = Column(String(500), nullable=False)
+    content = Column(Text, nullable=False)
+    tags = Column(Text, default="")  # JSON string
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+```
+
+**Agent Commands:** (for AI agents)
+- `Create Note` - Create a new note
+- `Get Note` - Retrieve a specific note
+- `Update Note` - Modify an existing note  
+- `Delete Note` - Remove a note
+- `List Notes` - List all notes with pagination
+- `Search Notes` - Search notes by content/tags
+
+**REST API Endpoints:** (for direct HTTP access)
+- `POST /api/extensions/notes/` - Create note
+- `GET /api/extensions/notes/{id}` - Get note
+- `PUT /api/extensions/notes/{id}` - Update note
+- `DELETE /api/extensions/notes/{id}` - Delete note
+- `GET /api/extensions/notes/` - List notes (with pagination)
+- `GET /api/extensions/notes/search/` - Search notes
+
+### Endpoint Registration Process
+
+AGiXT automatically handles endpoint registration:
+
+1. **During startup**, `app.py` calls `Extensions().get_extension_routers()`
+2. **Each extension** is checked for a `router` attribute
+3. **Found routers** are registered with FastAPI using the pattern `/api/extensions/{extension_name}/`
+4. **Routes become available** immediately at startup
+
+### Authentication and Security
+
+All extension endpoints automatically use AGiXT's authentication:
+
+```python
+# Every endpoint must include this dependency
+user=Depends(verify_api_key)
+
+# This ensures:
+# - Valid API key is required
+# - User context is available 
+# - User isolation is enforced
+# - Existing AGiXT auth flows work
+```
+
+### Best Practices for Endpoint Extensions
+
+#### 1. **Dual Interface Pattern**
+Provide both agent commands and REST endpoints that share the same underlying logic:
+
+```python
+class my_extension(Extensions):
+    def __init__(self, **kwargs):
+        # Agent commands (for AI interaction)
+        self.commands = {
+            "Create Item": self.create_item,
+        }
+        
+        # REST API (for direct HTTP access)
+        self.router = APIRouter(prefix="/items", tags=["Items"])
+        self._setup_routes()
+    
+    async def create_item(self, name: str, description: str) -> str:
+        """Shared logic used by both agent commands and API"""
+        # Implementation that both interfaces can use
+```
+
+#### 2. **Consistent Response Format**
+Use JSON responses for agent commands that can be easily parsed by API endpoints:
+
+```python
+# Agent command returns JSON string
+async def create_item(self, name: str) -> str:
+    return json.dumps({
+        "success": True,
+        "item": item.to_dict(),
+        "message": "Item created successfully"
+    })
+
+# API endpoint parses and returns appropriate response
+@router.post("/")
+async def create_item_endpoint(item_data: ItemCreate, user=Depends(verify_api_key)):
+    result = await self.create_item(name=item_data.name)
+    result_data = json.loads(result)
+    if not result_data.get("success"):
+        raise HTTPException(status_code=400, detail=result_data.get("error"))
+    return result_data["item"]  # Return just the item data for API
+```
+
+#### 3. **Proper Error Handling**
+Convert extension errors to appropriate HTTP status codes:
+
+```python
+@router.get("/{item_id}")
+async def get_item_endpoint(item_id: int, user=Depends(verify_api_key)):
+    result = await self.get_item(item_id=item_id)
+    result_data = json.loads(result)
+    
+    if not result_data.get("success"):
+        error = result_data.get("error", "Unknown error")
+        if "not found" in error.lower():
+            raise HTTPException(status_code=404, detail=error)
+        else:
+            raise HTTPException(status_code=400, detail=error)
+    
+    return result_data["item"]
+```
+
+#### 4. **Input Validation**
+Use Pydantic models for request validation:
+
+```python
+class NoteCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    content: str = Field(..., min_length=1)
+    tags: Optional[List[str]] = Field(default=[], max_items=10)
+    
+    @validator('tags')
+    def validate_tags(cls, v):
+        if v:
+            for tag in v:
+                if len(tag) > 50:
+                    raise ValueError('Tag too long')
+        return v
+```
+
+#### 5. **Database Integration**
+For extensions with databases, ensure proper session management:
+
+```python
+@router.post("/")
+async def create_item_endpoint(item_data: ItemCreate, user=Depends(verify_api_key)):
+    # Let the agent command handle database operations
+    result = await self.create_item(
+        title=item_data.title,
+        content=item_data.content
+    )
+    # Agent command already handles session management
+    result_data = json.loads(result)
+    if not result_data.get("success"):
+        raise HTTPException(status_code=400, detail=result_data.get("error"))
+    return result_data["item"]
+```
+
+### Testing Extension Endpoints
+
+Once your extension is created and AGiXT is started, you can test the endpoints:
+
+**Using curl:**
+```bash
+# Create a note
+curl -X POST "http://localhost:7437/api/extensions/notes/" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "My First Note",
+    "content": "This is the content of my note",
+    "tags": ["important", "work"]
+  }'
+
+# Get a note  
+curl -X GET "http://localhost:7437/api/extensions/notes/1" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# List notes
+curl -X GET "http://localhost:7437/api/extensions/notes/?limit=5&offset=0" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+**Using Python requests:**
+```python
+import requests
+
+headers = {"Authorization": "Bearer YOUR_API_KEY"}
+
+# Create note
+response = requests.post(
+    "http://localhost:7437/api/extensions/notes/",
+    headers=headers,
+    json={
+        "title": "My Note",
+        "content": "Note content",
+        "tags": ["test"]
+    }
+)
+print(response.json())
+```
+
+### Extension Endpoint Benefits
+
+1. **Direct API Access**: External systems can integrate without going through AI agents
+2. **Web UI Support**: Build rich web interfaces that interact directly with extension data  
+3. **Webhook Integration**: Extensions can receive webhooks from external services
+4. **Mobile App Support**: Mobile applications can use REST APIs directly
+5. **Microservice Architecture**: Extensions can act as specialized microservices
+6. **Testing and Development**: Easier to test and debug with direct HTTP access
+
+This feature transforms AGiXT extensions from simple agent tools into full-featured microservices while maintaining the existing agent command interface for AI interactions.
+
+This comprehensive guide provides all the patterns and best practices needed to create robust, secure, and maintainable AGiXT extensions with proper authentication, error handling, OAuth integration, and REST API endpoints.
