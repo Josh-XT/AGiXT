@@ -37,43 +37,29 @@ class meta_ads(Extensions):
     - api_key: AGiXT API key for MagicalAuth integration
     """
 
-    def __init__(
-        self,
-        META_APP_ID: str = None,
-        META_APP_SECRET: str = None,
-        META_BUSINESS_ID: str = None,
-        **kwargs,
-    ):
+    def __init__(self, **kwargs):
         """
         Initialize Meta Ads extension with required credentials
 
-        Args:
-            META_APP_ID (str): Meta application ID for API access
-            META_APP_SECRET (str): Meta application secret for OAuth
-            META_BUSINESS_ID (str): Meta Business Account ID for ad management
-            **kwargs: Additional optional parameters including api_key and access_token
+        The extension requires the user to be authenticated with Meta through OAuth.
+        AI agents should use this when they need to interact with a user's Meta advertising account
+        for tasks like managing campaigns, creating audiences, or analyzing ad performance.
         """
-        # Get credentials from parameters or environment variables
-        self.app_id = META_APP_ID or kwargs.get("META_APP_ID") or getenv("META_APP_ID")
-        self.app_secret = (
-            META_APP_SECRET
-            or kwargs.get("META_APP_SECRET")
-            or getenv("META_APP_SECRET")
-        )
-        self.business_id = (
-            META_BUSINESS_ID
-            or kwargs.get("META_BUSINESS_ID")
-            or getenv("META_BUSINESS_ID")
-        )
-        self.access_token = kwargs.get("META_ACCESS_TOKEN", None)
         self.api_key = kwargs.get("api_key")
+        self.access_token = kwargs.get("META_ACCESS_TOKEN", None)
+        meta_app_id = getenv("META_APP_ID")
+        meta_app_secret = getenv("META_APP_SECRET")
+        meta_business_id = getenv("META_BUSINESS_ID")
         self.auth = None
 
         # Base URL for Meta Marketing API
         self.base_url = "https://graph.facebook.com/v18.0"
 
+        # Store business ID for API calls
+        self.business_id = meta_business_id
+
         # Initialize commands dictionary only if we have required credentials
-        if self.app_id and self.app_secret and self.business_id:
+        if meta_app_id and meta_app_secret and meta_business_id:
             self.commands = {
                 "Meta Ads - Get Ad Accounts": self.get_ad_accounts,
                 "Meta Ads - Create Campaign": self.create_campaign,
@@ -103,15 +89,14 @@ class meta_ads(Extensions):
                 "Meta Ads - Get Conversions": self.get_conversions,
                 "Meta Ads - Create Conversion Event": self.create_conversion_event,
             }
+
+            if self.api_key:
+                try:
+                    self.auth = MagicalAuth(token=self.api_key)
+                except Exception as e:
+                    logging.error(f"Error initializing Meta extension: {str(e)}")
         else:
             self.commands = {}
-            logging.warning(
-                "Meta Ads extension disabled: Missing required credentials (META_APP_ID, META_APP_SECRET, META_BUSINESS_ID)"
-            )
-
-        # Initialize MagicalAuth for OAuth token management
-        if self.api_key:
-            self.auth = MagicalAuth(token=self.api_key)
 
         # Initialize session for API requests
         self.session = requests.Session()
