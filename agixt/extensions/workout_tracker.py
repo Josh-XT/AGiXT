@@ -227,8 +227,8 @@ class workout_tracker(Extensions, ExtensionDatabaseMixin):
         DailyCompletion,
     ]
 
-    def __init__(self, AGENT, **kwargs):
-        self.AGENT = AGENT if AGENT else None
+    def __init__(self, **kwargs):
+        self.AGENT = kwargs
         self.user_id = (
             self.AGENT["user"] if self.AGENT and "user" in self.AGENT else "default"
         )
