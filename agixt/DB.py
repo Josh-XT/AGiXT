@@ -30,13 +30,17 @@ class ExtensionDatabaseMixin:
     """
 
     extension_models = []  # Extensions should override this with their models
+    _registered_models = set()  # Track which models have been logged
 
     @classmethod
     def register_models(cls):
         """Register extension models with SQLAlchemy"""
         if hasattr(cls, "extension_models"):
             for model in cls.extension_models:
-                logging.info(f"Registered model: {model.__tablename__}")
+                # Only log once per model to avoid spam
+                if model.__tablename__ not in cls._registered_models:
+                    logging.info(f"Registered model: {model.__tablename__}")
+                    cls._registered_models.add(model.__tablename__)
 
     @classmethod
     def create_tables(cls):
