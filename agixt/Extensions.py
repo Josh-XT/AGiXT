@@ -89,15 +89,18 @@ class Extensions:
             if friendly_name not in self.agent_config["commands"]:
                 self.agent_config["commands"][friendly_name] = "false"
 
-            if str(self.agent_config["commands"][friendly_name]).lower() == "true":
-                available_commands.append(
-                    {
-                        "friendly_name": friendly_name,
-                        "name": command_name,
-                        "args": command_args,
-                        "enabled": True,
-                    }
-                )
+            # Return all commands with their enabled status, don't filter here
+            enabled = (
+                str(self.agent_config["commands"][friendly_name]).lower() == "true"
+            )
+            available_commands.append(
+                {
+                    "friendly_name": friendly_name,
+                    "name": command_name,
+                    "args": command_args,
+                    "enabled": enabled,
+                }
+            )
         return available_commands
 
     def get_enabled_commands(self):
