@@ -32,6 +32,34 @@ logging.basicConfig(
 )
 DISABLED_EXTENSIONS = getenv("DISABLED_EXTENSIONS").replace(" ", "").split(",")
 
+# Cache for extension modules to prevent multiple imports
+_extension_module_cache = {}
+_extension_discovery_cache = None
+
+
+def _get_cached_extension_module(command_file):
+    """Get extension module from cache or import if not cached"""
+    global _extension_module_cache
+
+    if command_file in _extension_module_cache:
+        return _extension_module_cache[command_file]
+
+    module = import_extension_module(command_file)
+    if module is not None:
+        _extension_module_cache[command_file] = module
+
+    return module
+
+
+def _get_cached_extension_files():
+    """Get extension files from cache or discover if not cached"""
+    global _extension_discovery_cache
+
+    if _extension_discovery_cache is None:
+        _extension_discovery_cache = find_extension_files()
+
+    return _extension_discovery_cache
+
 
 class Extensions:
     # Class attribute for defining webhook events - extensions can override this
@@ -271,11 +299,11 @@ class Extensions:
         except:
             settings = {}
         commands = []
-        # Use recursive discovery to find all extension files
-        command_files = find_extension_files()
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
         for command_file in command_files:
-            # Import the module using the helper function
-            module = import_extension_module(command_file)
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
             if module is None:
                 continue
 
@@ -338,11 +366,11 @@ class Extensions:
 
     def get_extension_settings(self):
         settings = {}
-        # Use recursive discovery to find all extension files
-        command_files = find_extension_files()
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
         for command_file in command_files:
-            # Import the module using the helper function
-            module = import_extension_module(command_file)
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
             if module is None:
                 continue
 
@@ -585,11 +613,11 @@ class Extensions:
 
     def get_extensions(self):
         commands = []
-        # Use recursive discovery to find all extension files
-        command_files = find_extension_files()
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
         for command_file in command_files:
-            # Import the module using the helper function
-            module = import_extension_module(command_file)
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
             if module is None:
                 continue
 
@@ -692,11 +720,11 @@ class Extensions:
         except:
             settings = {}
 
-        # Use recursive discovery to find all extension files
-        command_files = find_extension_files()
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
         for command_file in command_files:
-            # Import the module using the helper function
-            module = import_extension_module(command_file)
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
             if module is None:
                 continue
 
@@ -732,12 +760,12 @@ class Extensions:
     def get_extension_webhook_events():
         """Collect webhook events from all extensions"""
         extension_events = []
-        # Use recursive discovery to find all extension files
-        command_files = find_extension_files()
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
 
         for command_file in command_files:
-            # Import the module using the helper function
-            module = import_extension_module(command_file)
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
             if module is None:
                 continue
 

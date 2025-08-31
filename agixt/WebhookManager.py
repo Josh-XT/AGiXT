@@ -647,7 +647,8 @@ CORE_WEBHOOK_EVENT_TYPES = [
 
 def get_all_webhook_event_types():
     """Get all webhook event types including core events and extension events"""
-    # Import here to avoid circular imports
+    # Import here to avoid circular imports during module initialization
+    # This function will be called on-demand rather than at import time
     try:
         from Extensions import Extensions
 
@@ -663,8 +664,14 @@ def get_all_webhook_event_types():
     return all_events
 
 
-# For backward compatibility, maintain WEBHOOK_EVENT_TYPES
-WEBHOOK_EVENT_TYPES = get_all_webhook_event_types()
+def get_webhook_event_types():
+    """Get webhook event types - called on demand to avoid circular imports"""
+    return get_all_webhook_event_types()
+
+
+# Initialize with just core events to avoid circular import at module load time
+# Extension events will be loaded on-demand when get_all_webhook_event_types() is called
+WEBHOOK_EVENT_TYPES = CORE_WEBHOOK_EVENT_TYPES.copy()
 
 # Create singleton instance for import
 webhook_emitter = WebhookEventEmitter()
