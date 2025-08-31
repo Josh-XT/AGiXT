@@ -7,6 +7,7 @@ Supports creating, reading, updating, and deleting natural language notes with t
 import json
 import logging
 import asyncio
+import warnings
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from sqlalchemy import (
@@ -20,12 +21,20 @@ from sqlalchemy import (
     or_,
 )
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.exc import SAWarning
 from Extensions import Extensions
 from DB import get_session, ExtensionDatabaseMixin, Base
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from MagicalAuth import verify_api_key
 from WebhookManager import webhook_emitter
+
+# Suppress the specific SQLAlchemy warning about duplicate class registration
+warnings.filterwarnings(
+    "ignore",
+    message=".*This declarative base already contains a class with the same class name.*",
+    category=SAWarning,
+)
 
 
 # Pydantic models for API requests/responses

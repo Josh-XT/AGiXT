@@ -5,6 +5,7 @@ This extension provides workout tracking capabilities with database persistence.
 
 import json
 import logging
+import warnings
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Any, Optional
 from sqlalchemy import (
@@ -22,8 +23,16 @@ from sqlalchemy import (
     and_,
 )
 from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.exc import SAWarning
 from Extensions import Extensions
 from DB import get_session, ExtensionDatabaseMixin, Base  # Import Base from DB.py
+
+# Suppress the specific SQLAlchemy warning about duplicate class registration
+warnings.filterwarnings(
+    "ignore",
+    message=".*This declarative base already contains a class with the same class name.*",
+    category=SAWarning,
+)
 
 
 # Database Models for Workout Tracker
