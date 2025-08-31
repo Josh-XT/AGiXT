@@ -19,7 +19,8 @@ class ExtensionsHub:
     """Manages external extension repositories"""
 
     def __init__(self):
-        self.extensions_dir = "extensions"
+        # Ensure we're cloning to the same directory that Extensions.py looks in
+        self.extensions_dir = "agixt/extensions"
         self.hub_urls = getenv("EXTENSIONS_HUB")
         self.hub_token = getenv("EXTENSIONS_HUB_TOKEN")
 
