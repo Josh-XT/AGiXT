@@ -28,6 +28,7 @@ from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
+from ExtensionsHub import ExtensionsHub
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -47,6 +48,16 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        # Initialize Extensions Hub if configured
+        extensions_hub_url = getenv("EXTENSIONS_HUB")
+        if extensions_hub_url:
+            try:
+                extensions_hub = ExtensionsHub()
+                await extensions_hub.clone_or_update_hub()
+                logging.info("Extensions Hub initialized successfully")
+            except Exception as e:
+                logging.error(f"Error initializing Extensions Hub: {e}")
+
         workspace_manager.start_file_watcher()
         await task_monitor.start()
         logging.info("AGiXT services started successfully")

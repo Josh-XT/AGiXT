@@ -20,6 +20,11 @@ from DB import (
     User,
 )
 from WebhookManager import webhook_emitter
+from ExtensionsHub import (
+    find_extension_files,
+    import_extension_module,
+    get_extension_class_name,
+)
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -266,14 +271,26 @@ class Extensions:
         except:
             settings = {}
         commands = []
-        command_files = glob.glob("extensions/*.py")
+        # Use recursive discovery to find all extension files
+        command_files = find_extension_files()
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using the helper function
+            module = import_extension_module(command_file)
+            if module is None:
                 continue
-            module = importlib.import_module(f"extensions.{module_name}")
-            if issubclass(getattr(module, module_name), Extensions):
-                command_class = getattr(module, module_name)(**settings)
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            # Check if the class exists and is a subclass of Extensions
+            if hasattr(module, class_name) and issubclass(
+                getattr(module, class_name), Extensions
+            ):
+                command_class = getattr(module, class_name)(**settings)
                 if hasattr(command_class, "commands"):
                     for (
                         command_name,
@@ -283,7 +300,7 @@ class Extensions:
                         commands.append(
                             (
                                 command_name,
-                                getattr(module, module_name),
+                                getattr(module, class_name),
                                 command_function.__name__,
                                 params,
                             )
@@ -321,14 +338,26 @@ class Extensions:
 
     def get_extension_settings(self):
         settings = {}
-        command_files = glob.glob("extensions/*.py")
+        # Use recursive discovery to find all extension files
+        command_files = find_extension_files()
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using the helper function
+            module = import_extension_module(command_file)
+            if module is None:
                 continue
-            module = importlib.import_module(f"extensions.{module_name}")
-            if issubclass(getattr(module, module_name), Extensions):
-                command_class = getattr(module, module_name)()
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            # Check if the class exists and is a subclass of Extensions
+            if hasattr(module, class_name) and issubclass(
+                getattr(module, class_name), Extensions
+            ):
+                command_class = getattr(module, class_name)()
                 params = self.get_command_params(command_class.__init__)
                 # Remove self and kwargs from params
                 if "self" in params:
@@ -336,7 +365,7 @@ class Extensions:
                 if "kwargs" in params:
                     del params["kwargs"]
                 if params != {}:
-                    settings[module_name] = params
+                    settings[class_name] = params
 
         # Use self.chains_with_args instead of iterating over self.chains
         if self.chains_with_args:
@@ -556,56 +585,76 @@ class Extensions:
 
     def get_extensions(self):
         commands = []
-        command_files = glob.glob("extensions/*.py")
+        # Use recursive discovery to find all extension files
+        command_files = find_extension_files()
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using the helper function
+            module = import_extension_module(command_file)
+            if module is None:
                 continue
-            module = importlib.import_module(f"extensions.{module_name}")
-            command_class = getattr(module, module_name.lower())()
-            extension_name = command_file.split("/")[-1].split(".")[0]
-            extension_name = extension_name.replace("_", " ").title()
-            try:
-                extension_description = inspect.getdoc(command_class)
-            except:
-                extension_description = extension_name
-            constructor = inspect.signature(command_class.__init__)
-            params = constructor.parameters
-            extension_settings = [
-                name for name in params if name != "self" and name != "kwargs"
-            ]
-            extension_commands = []
-            if hasattr(command_class, "commands"):
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            # Check if the class exists and is a subclass of Extensions
+            if hasattr(module, class_name) and issubclass(
+                getattr(module, class_name), Extensions
+            ):
                 try:
-                    for (
-                        command_name,
-                        command_function,
-                    ) in command_class.commands.items():
-                        params = self.get_command_params(command_function)
-                        try:
-                            command_description = inspect.getdoc(command_function)
-                        except:
-                            command_description = command_name
-                        extension_commands.append(
-                            {
-                                "friendly_name": command_name,
-                                "description": command_description,
-                                "command_name": command_function.__name__,
-                                "command_args": params,
-                            }
-                        )
+                    command_class = getattr(module, class_name)()
                 except Exception as e:
-                    logging.error(f"Error getting commands: {e}")
-            if extension_name == "Agixt Actions":
-                extension_name = "AGiXT Actions"
-            commands.append(
-                {
-                    "extension_name": extension_name,
-                    "description": extension_description,
-                    "settings": extension_settings,
-                    "commands": extension_commands,
-                }
-            )
+                    logging.error(
+                        f"Error instantiating extension class {class_name}: {e}"
+                    )
+                    continue
+
+                extension_name = os.path.basename(command_file).split(".")[0]
+                extension_name = extension_name.replace("_", " ").title()
+                try:
+                    extension_description = inspect.getdoc(command_class)
+                except:
+                    extension_description = extension_name
+                constructor = inspect.signature(command_class.__init__)
+                params = constructor.parameters
+                extension_settings = [
+                    name for name in params if name != "self" and name != "kwargs"
+                ]
+                extension_commands = []
+                if hasattr(command_class, "commands"):
+                    try:
+                        for (
+                            command_name,
+                            command_function,
+                        ) in command_class.commands.items():
+                            params = self.get_command_params(command_function)
+                            try:
+                                command_description = inspect.getdoc(command_function)
+                            except:
+                                command_description = command_name
+                            extension_commands.append(
+                                {
+                                    "friendly_name": command_name,
+                                    "description": command_description,
+                                    "command_name": command_function.__name__,
+                                    "command_args": params,
+                                }
+                            )
+                    except Exception as e:
+                        logging.error(f"Error getting commands: {e}")
+                if extension_name == "Agixt Actions":
+                    extension_name = "AGiXT Actions"
+                commands.append(
+                    {
+                        "extension_name": extension_name,
+                        "description": extension_description,
+                        "settings": extension_settings,
+                        "commands": extension_commands,
+                    }
+                )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -643,28 +692,38 @@ class Extensions:
         except:
             settings = {}
 
-        command_files = glob.glob("extensions/*.py")
+        # Use recursive discovery to find all extension files
+        command_files = find_extension_files()
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using the helper function
+            module = import_extension_module(command_file)
+            if module is None:
                 continue
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
             try:
-                module = importlib.import_module(f"extensions.{module_name}")
-                if hasattr(module, module_name) and issubclass(
-                    getattr(module, module_name), Extensions
+                # Check if the class exists and is a subclass of Extensions
+                if hasattr(module, class_name) and issubclass(
+                    getattr(module, class_name), Extensions
                 ):
-                    command_class = getattr(module, module_name)(**settings)
+                    command_class = getattr(module, class_name)(**settings)
                     # Check if the extension has a router attribute
                     if hasattr(command_class, "router"):
                         routers.append(
                             {
-                                "extension_name": module_name,
+                                "extension_name": class_name,
                                 "router": command_class.router,
                             }
                         )
-                        logging.info(f"Found router for extension: {module_name}")
+                        logging.info(f"Found router for extension: {class_name}")
             except Exception as e:
-                logging.error(f"Error loading router from extension {module_name}: {e}")
+                logging.error(f"Error loading router from extension {class_name}: {e}")
                 continue
 
         return routers
@@ -673,19 +732,28 @@ class Extensions:
     def get_extension_webhook_events():
         """Collect webhook events from all extensions"""
         extension_events = []
-        command_files = glob.glob("extensions/*.py")
+        # Use recursive discovery to find all extension files
+        command_files = find_extension_files()
 
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using the helper function
+            module = import_extension_module(command_file)
+            if module is None:
+                continue
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
                 continue
 
             try:
-                module = importlib.import_module(f"extensions.{module_name}")
-                if hasattr(module, module_name) and issubclass(
-                    getattr(module, module_name), Extensions
+                # Check if the class exists and is a subclass of Extensions
+                if hasattr(module, class_name) and issubclass(
+                    getattr(module, class_name), Extensions
                 ):
-                    extension_class = getattr(module, module_name)
+                    extension_class = getattr(module, class_name)
                     # Check if the extension defines webhook events
                     if (
                         hasattr(extension_class, "webhook_events")
@@ -694,14 +762,14 @@ class Extensions:
                         # Add extension name to each event for context
                         for event in extension_class.webhook_events:
                             event_with_extension = event.copy()
-                            event_with_extension["extension"] = module_name
+                            event_with_extension["extension"] = class_name
                             extension_events.append(event_with_extension)
                         logging.info(
-                            f"Found {len(extension_class.webhook_events)} webhook events for extension: {module_name}"
+                            f"Found {len(extension_class.webhook_events)} webhook events for extension: {class_name}"
                         )
             except Exception as e:
                 logging.error(
-                    f"Error loading webhook events from extension {module_name}: {e}"
+                    f"Error loading webhook events from extension {class_name}: {e}"
                 )
                 continue
 
