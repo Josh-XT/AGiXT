@@ -144,7 +144,7 @@ class AGiXT:
         Returns:
             list: List of available commands
         """
-        return self.agent.available_commands()
+        return self.agent.available_commands
 
     async def browsed_links(self):
         """
