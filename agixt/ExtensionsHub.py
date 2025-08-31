@@ -77,6 +77,45 @@ class ExtensionsHub:
 
         return f"hub_{hashlib.md5(url.encode()).hexdigest()[:8]}"
 
+    def _remove_sensitive_files(self, hub_path: str) -> None:
+        """Remove sensitive configuration files from cloned hub for safety"""
+        sensitive_files = [
+            "docker-compose.yml",
+            "docker-compose.yaml",
+            ".env",
+            ".env.example",
+            ".env.local",
+            ".env.production",
+            ".env.development",
+            "config.ini",
+            "config.yaml",
+            "config.yml",
+            "secrets.json",
+            "credentials.json",
+            ".secrets",
+            "Dockerfile",
+            ".dockerignore",
+        ]
+
+        removed_files = []
+
+        # Walk through all subdirectories to find and remove sensitive files
+        for root, dirs, files in os.walk(hub_path):
+            for file in files:
+                if file in sensitive_files or file.startswith(".env"):
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.remove(file_path)
+                        removed_files.append(file)
+                        logging.info(f"Removed sensitive file: {file}")
+                    except Exception as e:
+                        logging.warning(f"Could not remove sensitive file {file}: {e}")
+
+        if removed_files:
+            logging.info(
+                f"Removed {len(removed_files)} sensitive files from {hub_path}"
+            )
+
     def _parse_hub_urls(self) -> List[str]:
         """Parse comma-separated URLs from EXTENSIONS_HUB"""
         if not self.hub_urls:
@@ -86,7 +125,7 @@ class ExtensionsHub:
         urls = [url.strip() for url in self.hub_urls.split(",")]
         return [url for url in urls if url]  # Remove empty strings
 
-    def clone_or_update_hub(self) -> bool:
+    async def clone_or_update_hub(self) -> bool:
         """Clone or update all extensions hub repositories"""
         hub_urls = self._parse_hub_urls()
 
@@ -111,17 +150,16 @@ class ExtensionsHub:
                 hub_dir_name = self._get_hub_directory_name(url)
                 hub_path = os.path.join(self.extensions_dir, hub_dir_name)
 
-                # Check if hub directory already exists
+                # Always remove and re-clone for simplicity and security
+                # This ensures we get the latest version and avoid git state issues
                 if os.path.exists(hub_path):
-                    # Try to update existing repository
-                    logging.info(f"Updating extensions hub from {url}")
-                    if self._update_repository(url, hub_path):
-                        success_count += 1
-                else:
-                    # Clone new repository
-                    logging.info(f"Cloning extensions hub from {url}")
-                    if self._clone_repository(url, hub_path):
-                        success_count += 1
+                    logging.info(f"Removing existing hub directory {hub_path}")
+                    shutil.rmtree(hub_path)
+
+                # Clone repository
+                logging.info(f"Cloning extensions hub from {url}")
+                if self._clone_repository(url, hub_path):
+                    success_count += 1
 
             except Exception as e:
                 logging.error(f"Error managing extensions hub {url}: {e}")
@@ -145,10 +183,15 @@ class ExtensionsHub:
 
             if result.returncode == 0:
                 logging.info(f"Successfully cloned extensions hub to {hub_path}")
+
                 # Remove .git directory to prevent accidental commits
                 git_dir = os.path.join(hub_path, ".git")
                 if os.path.exists(git_dir):
                     shutil.rmtree(git_dir)
+
+                # Remove sensitive files for safety
+                self._remove_sensitive_files(hub_path)
+
                 return True
             else:
                 # Log error without exposing token
@@ -165,70 +208,6 @@ class ExtensionsHub:
             return False
         except Exception as e:
             logging.error(f"Error cloning extensions hub {url}: {e}")
-            return False
-
-    def _update_repository(self, url: str, hub_path: str) -> bool:
-        """Update a specific existing extensions hub repository"""
-        try:
-            # Check if it's a git repository
-            git_dir = os.path.join(hub_path, ".git")
-            if not os.path.exists(git_dir):
-                # Not a git repo, remove and re-clone
-                logging.info(
-                    f"Hub directory {hub_path} exists but is not a git repository, re-cloning..."
-                )
-                shutil.rmtree(hub_path)
-                return self._clone_repository(url, hub_path)
-
-            authenticated_url = self._get_authenticated_url(url)
-
-            # Set the remote URL (in case token changed)
-            subprocess.run(
-                ["git", "remote", "set-url", "origin", authenticated_url],
-                cwd=hub_path,
-                capture_output=True,
-            )
-
-            # Fetch and reset to latest
-            result = subprocess.run(
-                ["git", "fetch", "origin"],
-                cwd=hub_path,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            if result.returncode != 0:
-                error_msg = (
-                    result.stderr.replace(self.hub_token, "***")
-                    if self.hub_token
-                    else result.stderr
-                )
-                logging.error(f"Failed to fetch updates for {url}: {error_msg}")
-                return False
-
-            # Reset to origin/main or origin/master
-            for branch in ["main", "master"]:
-                result = subprocess.run(
-                    ["git", "reset", "--hard", f"origin/{branch}"],
-                    cwd=hub_path,
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode == 0:
-                    logging.info(
-                        f"Successfully updated extensions hub {url} from branch {branch}"
-                    )
-                    return True
-
-            logging.error(f"Could not find main or master branch for {url}")
-            return False
-
-        except subprocess.TimeoutExpired:
-            logging.error(f"Timeout while updating extensions hub {url}")
-            return False
-        except Exception as e:
-            logging.error(f"Error updating extensions hub {url}: {e}")
             return False
 
 
