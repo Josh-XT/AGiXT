@@ -229,9 +229,7 @@ class workout_tracker(Extensions, ExtensionDatabaseMixin):
 
     def __init__(self, **kwargs):
         self.AGENT = kwargs
-        self.user_id = (
-            self.AGENT["user"] if self.AGENT and "user" in self.AGENT else "default"
-        )
+        self.user_id = kwargs.get("user_id", None)
         self.ApiClient = kwargs.get("ApiClient", None)
 
         # Register models with ExtensionDatabaseMixin
