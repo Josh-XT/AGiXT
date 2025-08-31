@@ -117,12 +117,12 @@ def is_admin(email: str = "USER", api_key: str = None):
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
-    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
-    files = os.listdir(sso_dir)
+    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+    files = os.listdir(extensions_dir)
     for file in files:
         if not file.endswith(".py"):
             continue
-        file_path = os.path.join(sso_dir, file)
+        file_path = os.path.join(extensions_dir, file)
         spec = importlib.util.spec_from_file_location(file, file_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -142,13 +142,13 @@ def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None)
 
 
 def get_oauth_providers():
-    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
-    files = os.listdir(sso_dir)
+    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+    files = os.listdir(extensions_dir)
     providers = []
     for file in files:
         if not file.endswith(".py"):
             continue
-        file_path = os.path.join(sso_dir, file)
+        file_path = os.path.join(extensions_dir, file)
         spec = importlib.util.spec_from_file_location(file, file_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -170,14 +170,14 @@ def get_oauth_providers():
 
 
 def get_sso_instance(provider: str):
-    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
-    files = os.listdir(sso_dir)
+    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+    files = os.listdir(extensions_dir)
     for file in files:
         if not file.endswith(".py"):
             continue
-        file_path = os.path.join(sso_dir, file)
+        file_path = os.path.join(extensions_dir, file)
         if file.replace(".py", "") == provider:
-            module = importlib.import_module(f"sso.{provider}")
+            module = importlib.import_module(f"extensions.{provider}")
             provider_class = getattr(module, f"{provider.capitalize()}SSO")
             return provider_class
     return get_sso_instance(provider="microsoft")
@@ -2731,9 +2731,9 @@ class MagicalAuth:
         if not referrer:
             app_uri = getenv("APP_URI")
             referrer = f"{app_uri}/user/close/{provider}"
-        # Check if one of the providers in the sso folder
+        # Check if one of the providers in the extensions folder
         provider = str(provider).lower()
-        files = os.listdir("sso")
+        files = os.listdir("extensions")
         if f"{provider}.py" not in files:
             provider = "microsoft"
         sso_data = get_sso_provider(

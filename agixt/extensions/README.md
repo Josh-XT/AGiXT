@@ -259,21 +259,33 @@ class oauth_service(Extensions):
 
 ## OAuth Integration
 
-For OAuth-enabled extensions, you need both an extension file and an SSO provider file.
+AGiXT uses a **consolidated OAuth approach** where SSO authentication code is integrated directly into extension files. This approach provides several key advantages:
 
-### Step 1: Create Extension File
+- ✅ **Single File per Service**: Authentication and functionality in one place
+- ✅ **Easier Development**: No need to manage separate SSO files
+- ✅ **Reduced Complexity**: Simplified import and dependency management
+- ✅ **Better Maintainability**: All related code is co-located
+- ✅ **Consistent Patterns**: Unified approach across all OAuth providers
 
-Create your extension in `/agixt/extensions/your_service.py` using the OAuth pattern above.
+### Complete OAuth Extension Structure
 
-### Step 2: Create SSO Provider File
-
-Create `/agixt/sso/your_service.py` with the OAuth implementation:
+Create your OAuth-enabled extension in `/agixt/extensions/your_service.py` with both SSO and functionality code:
 
 ```python
-import requests
 import logging
-from fastapi import HTTPException
+import requests
+import asyncio
+from datetime import datetime, timedelta
+from Extensions import Extensions
 from Globals import getenv
+from MagicalAuth import MagicalAuth
+from typing import Dict, List, Any
+from fastapi import HTTPException
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 """
 Required environment variables:
@@ -282,11 +294,14 @@ Required environment variables:
 - YOUR_SERVICE_CLIENT_SECRET: OAuth client secret
 """
 
+# OAuth Configuration (placed at module level)
 SCOPES = ["scope1", "scope2", "scope3"]  # Define required OAuth scopes
 AUTHORIZE = "https://auth.service.com/oauth/authorize"
 PKCE_REQUIRED = False  # Set to True if service requires PKCE
 
+
 class YourServiceSSO:
+    """SSO class for OAuth authentication"""
     def __init__(self, access_token=None, refresh_token=None):
         self.access_token = access_token
         self.refresh_token = refresh_token
@@ -359,6 +374,7 @@ class YourServiceSSO:
                 status_code=400, detail=f"Error getting user info: {str(e)}"
             )
 
+
 def sso(code, redirect_uri=None):
     """Handle OAuth authorization code exchange"""
     if not redirect_uri:
@@ -387,6 +403,7 @@ def sso(code, redirect_uri=None):
         refresh_token=data.get("refresh_token")
     )
 
+
 def get_authorization_url(state=None):
     """Generate OAuth authorization URL"""
     client_id = getenv("YOUR_SERVICE_CLIENT_ID")
@@ -404,9 +421,108 @@ def get_authorization_url(state=None):
 
     query = "&".join([f"{k}={v}" for k, v in params.items()])
     return f"https://auth.service.com/oauth/authorize?{query}"
+
+
+# Main Extension Class (placed after SSO components)
+class your_service(Extensions):
+    """
+    Your Service extension with integrated OAuth authentication
+    
+    This extension provides comprehensive integration with Your Service including:
+    - Feature 1 description
+    - Feature 2 description
+    - Feature 3 description
+
+    Required parameters:
+    - YOUR_SERVICE_CLIENT_ID: OAuth client ID
+    - YOUR_SERVICE_CLIENT_SECRET: OAuth client secret
+    """
+
+    def __init__(self, YOUR_SERVICE_CLIENT_ID: str, YOUR_SERVICE_CLIENT_SECRET: str, api_key: str = None, access_token: str = None, **kwargs):
+        """Initialize with required OAuth credentials"""
+        self.client_id = YOUR_SERVICE_CLIENT_ID
+        self.client_secret = YOUR_SERVICE_CLIENT_SECRET
+        self.api_key = api_key
+        self.access_token = access_token
+        self.base_url = "https://api.service.com"
+        
+        # Always initialize commands (no conditional logic)
+        self.commands = {
+            "Get User Data": self.get_user_data,
+            "Send Message": self.send_message,
+        }
+        
+        # Initialize MagicalAuth for OAuth token management
+        if self.api_key:
+            self.auth = MagicalAuth(token=self.api_key)
+        
+        self.session = requests.Session()
+        if self.access_token:
+            self.session.headers.update({
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            })
+
+    def verify_user(self):
+        """Verify and refresh OAuth token using MagicalAuth"""
+        if not self.auth:
+            raise Exception("Authentication context not initialized.")
+
+        try:
+            # AGiXT's centralized OAuth token refresh
+            refreshed_token = self.auth.refresh_oauth_token(provider="your_service")
+            if refreshed_token:
+                self.access_token = refreshed_token
+                self.session.headers.update({
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json",
+                })
+            else:
+                logging.error("Failed to refresh OAuth token")
+                raise Exception("Failed to refresh OAuth token")
+        except Exception as e:
+            logging.error(f"Error refreshing token: {str(e)}")
+            raise
+
+    async def get_user_data(self, data_type: str = "profile") -> str:
+        """Get user data from the service"""
+        try:
+            self.verify_user()
+            
+            url = f"{self.base_url}/user/{data_type}"
+            response = self.session.get(url)
+            response.raise_for_status()
+            
+            data = response.json()
+            return f"Successfully retrieved {data_type} data: {data}"
+            
+        except Exception as e:
+            logging.error(f"Error getting user data: {str(e)}")
+            return f"Error retrieving {data_type} data: {str(e)}"
 ```
 
-### Step 3: Add Dependencies
+### Key Components of OAuth Extensions
+
+**1. OAuth Constants** (at module level):
+- `SCOPES`: List of required OAuth permissions
+- `AUTHORIZE`: OAuth authorization endpoint URL  
+- `PKCE_REQUIRED`: Boolean indicating if PKCE flow is required
+
+**2. SSO Class** (e.g., `YourServiceSSO`):
+- Handles token refresh logic
+- Manages user info retrieval
+- Stores OAuth credentials
+
+**3. SSO Functions**:
+- `sso()`: Exchanges authorization code for tokens
+- `get_authorization_url()`: Generates OAuth authorization URLs
+
+**4. Extension Class**:
+- Integrates with MagicalAuth for token management
+- Implements `verify_user()` method for token refresh
+- Contains all service functionality commands
+
+### Add Dependencies
 
 If your extension requires additional packages, add them to `requirements.txt`:
 
