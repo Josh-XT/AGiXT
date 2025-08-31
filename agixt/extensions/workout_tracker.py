@@ -29,6 +29,7 @@ class WorkoutRoutine(Base):
     """Model for workout routines"""
 
     __tablename__ = "workout_routines"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String, nullable=False, index=True)
@@ -66,6 +67,7 @@ class WorkoutExercise(Base):
     """Model for exercises within a routine"""
 
     __tablename__ = "workout_exercises"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     routine_id = Column(Integer, ForeignKey("workout_routines.id"), nullable=False)
@@ -102,6 +104,7 @@ class WorkoutSession(Base):
     """Model for workout sessions (completed workouts)"""
 
     __tablename__ = "workout_sessions"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String, nullable=False, index=True)
@@ -152,6 +155,7 @@ class DailyGoal(Base):
     # Unique constraint to prevent duplicate goals for same exercise
     __table_args__ = (
         UniqueConstraint("user_id", "exercise_name", name="unique_user_exercise_goal"),
+        {"extend_existing": True},
     )
 
     def to_dict(self):
@@ -194,6 +198,7 @@ class DailyCompletion(Base):
             "completion_date",
             name="unique_daily_completion",
         ),
+        {"extend_existing": True},
     )
 
     def to_dict(self):

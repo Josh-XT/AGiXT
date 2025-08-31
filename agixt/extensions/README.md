@@ -670,6 +670,7 @@ from DB import get_session, ExtensionDatabaseMixin, Base
 class UserGoal(Base):
     """Database model for user goals"""
     __tablename__ = "user_goals"
+    __table_args__ = {"extend_existing": True}  # Prevents table redefinition errors
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String, nullable=False, index=True)  # Required for user isolation
