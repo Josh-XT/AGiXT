@@ -523,6 +523,32 @@ class WorkspaceManager(SecurityValidationMixin):
                 self.container = self.driver.create_container(container_name)
             except Exception as e:
                 logging.error(f"Failed to create container {container_name}: {e}")
+
+                # Fallback: If we're using local storage and the directory exists,
+                # try to use it directly despite the libcloud error
+                backend = getenv("STORAGE_BACKEND", "local").lower()
+                if backend == "local":
+                    container_path = Path(self.workspace_dir, container_name)
+                    if container_path.exists() and container_path.is_dir():
+                        logging.warning(
+                            f"Container directory exists at {container_path}, attempting to use it directly"
+                        )
+                        # Force libcloud to recognize the existing directory
+                        try:
+                            # For local driver, we can force the container to be recognized
+                            from libcloud.storage.base import Container
+
+                            self.container = Container(
+                                name=container_name, extra={}, driver=self.driver
+                            )
+                            logging.info(
+                                f"Successfully using existing container directory"
+                            )
+                            return
+                        except Exception as fallback_error:
+                            logging.error(f"Fallback failed: {fallback_error}")
+
+                # If fallback didn't work or not local storage, re-raise original error
                 raise
 
     def _validate_mode(self, mode: str) -> None:

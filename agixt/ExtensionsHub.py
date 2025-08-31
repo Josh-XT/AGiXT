@@ -154,7 +154,38 @@ class ExtensionsHub:
                 # This ensures we get the latest version and avoid git state issues
                 if os.path.exists(hub_path):
                     logging.info(f"Removing existing hub directory {hub_path}")
-                    shutil.rmtree(hub_path)
+                    try:
+                        # More robust removal with retry logic
+                        import time
+
+                        max_retries = 3
+                        for attempt in range(max_retries):
+                            try:
+                                shutil.rmtree(hub_path)
+                                # Verify the directory is really gone
+                                if not os.path.exists(hub_path):
+                                    break
+                                else:
+                                    time.sleep(0.5)  # Small delay between retries
+                            except Exception as rm_error:
+                                if attempt == max_retries - 1:
+                                    # Last attempt failed, try alternative approach
+                                    logging.warning(
+                                        f"shutil.rmtree failed, trying os.system: {rm_error}"
+                                    )
+                                    os.system(f"rm -rf {hub_path}")
+                                    time.sleep(0.5)
+
+                        # Final check that directory is removed
+                        if os.path.exists(hub_path):
+                            logging.error(
+                                f"Failed to completely remove {hub_path}, skipping"
+                            )
+                            continue
+
+                    except Exception as e:
+                        logging.error(f"Error removing hub directory {hub_path}: {e}")
+                        continue
 
                 # Clone repository
                 logging.info(f"Cloning extensions hub from {url}")
