@@ -632,4 +632,15 @@ def import_all_data():
     # import_agents()
     # logging.info("Importing chains...")
     # import_chains()
+
+    # Register extension routers after all extensions are imported
+    # This ensures hub extensions are available for router registration
+    logging.info("Registering extension routers...")
+    try:
+        from app import register_extension_routers
+
+        register_extension_routers()
+    except Exception as e:
+        logging.warning(f"Failed to register extension routers: {e}")
+
     logging.info("Imports complete.")

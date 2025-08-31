@@ -128,21 +128,44 @@ app.include_router(health_endpoints)
 app.include_router(legacy_endpoints)
 app.include_router(webhook_endpoints)
 
-# Register extension endpoints
-from Extensions import Extensions
+# Extension router registration will be handled after seed import
+# to ensure hub extensions are available before registration
+_extension_routers_registered = False
 
-try:
-    ext = Extensions()
-    extension_routers = ext.get_extension_routers()
-    for extension_router in extension_routers:
-        extension_name = extension_router["extension_name"]
-        router = extension_router["router"]
-        app.include_router(router, prefix=f"/api/extensions/{extension_name}")
+
+def register_extension_routers():
+    """Register extension routers - called after seed import to include hub extensions"""
+    global _extension_routers_registered
+
+    if _extension_routers_registered:
+        logging.info("Extension routers already registered, skipping")
+        return
+
+    try:
+        from Extensions import Extensions
+
+        ext = Extensions()
+        extension_routers = ext.get_extension_routers()
+
+        for extension_router in extension_routers:
+            extension_name = extension_router["extension_name"]
+            router = extension_router["router"]
+            app.include_router(router, prefix=f"/api/extensions/{extension_name}")
+            logging.info(
+                f"Registered extension endpoints for '{extension_name}' at /api/extensions/{extension_name}"
+            )
+
+        _extension_routers_registered = True
         logging.info(
-            f"Registered extension endpoints for '{extension_name}' at /api/extensions/{extension_name}"
+            f"Successfully registered {len(extension_routers)} extension routers"
         )
-except Exception as e:
-    logging.error(f"Error registering extension endpoints: {e}")
+
+    except Exception as e:
+        logging.error(f"Error registering extension endpoints: {e}")
+
+
+# Initial registration for local extensions (hub extensions will be registered after seed import)
+register_extension_routers()
 
 
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
