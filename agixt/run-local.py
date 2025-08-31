@@ -115,9 +115,10 @@ async def start_service(is_restart=False):
             str(getenv("UVICORN_WORKERS")),
             "--proxy-headers",
         ]
-
-        # Working directory should be /agixt (from Dockerfile WORKDIR)
-        work_dir = "/agixt"
+        work_dir = os.getcwd()
+        # Working directory should be /agixt when running in Docker
+        if os.path.exists("/.dockerenv"):
+            work_dir = "/agixt"
         logger.info(f"Starting uvicorn in directory: {work_dir}")
         logger.info(f"Current working directory is: {os.getcwd()}")
         logger.info(
