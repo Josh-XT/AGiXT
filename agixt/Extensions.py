@@ -351,6 +351,7 @@ class Extensions:
         agixt_server = getenv("AGIXT_URI")
         injection_variables = {
             "user": self.user,
+            "user_id": self.user_id,
             "agent_name": self.agent_name,
             "command_name": command_name,
             "conversation_name": self.conversation_name,
