@@ -100,6 +100,9 @@ services:
       EZLOCALAI_URI: ${EZLOCALAI_URI}
       ROTATION_EXCLUSIONS: ${ROTATION_EXCLUSIONS}
       GRAPHIQL: ${GRAPHIQL:-true}
+      # Extensions Hub configuration
+      EXTENSIONS_HUB: ${EXTENSIONS_HUB:-}
+      EXTENSIONS_HUB_TOKEN: ${EXTENSIONS_HUB_TOKEN:-}
       TZ: ${TZ:-America/New_York}
     ports:
       - "${AGIXT_PORT:-7437}:7437"
