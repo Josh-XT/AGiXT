@@ -29,6 +29,9 @@ DISABLED_EXTENSIONS = getenv("DISABLED_EXTENSIONS").replace(" ", "").split(",")
 
 
 class Extensions:
+    # Class attribute for defining webhook events - extensions can override this
+    webhook_events = []
+
     def __init__(
         self,
         agent_name="",
@@ -665,3 +668,41 @@ class Extensions:
                 continue
 
         return routers
+
+    @staticmethod
+    def get_extension_webhook_events():
+        """Collect webhook events from all extensions"""
+        extension_events = []
+        command_files = glob.glob("extensions/*.py")
+
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            if module_name in DISABLED_EXTENSIONS:
+                continue
+
+            try:
+                module = importlib.import_module(f"extensions.{module_name}")
+                if hasattr(module, module_name) and issubclass(
+                    getattr(module, module_name), Extensions
+                ):
+                    extension_class = getattr(module, module_name)
+                    # Check if the extension defines webhook events
+                    if (
+                        hasattr(extension_class, "webhook_events")
+                        and extension_class.webhook_events
+                    ):
+                        # Add extension name to each event for context
+                        for event in extension_class.webhook_events:
+                            event_with_extension = event.copy()
+                            event_with_extension["extension"] = module_name
+                            extension_events.append(event_with_extension)
+                        logging.info(
+                            f"Found {len(extension_class.webhook_events)} webhook events for extension: {module_name}"
+                        )
+            except Exception as e:
+                logging.error(
+                    f"Error loading webhook events from extension {module_name}: {e}"
+                )
+                continue
+
+        return extension_events

@@ -12,8 +12,9 @@ Extensions are the way to extend AGiXT's functionality with external APIs, servi
 6. [Command Implementation](#command-implementation)
 7. [Error Handling](#error-handling)
 8. [Database-Enabled Extensions](#database-enabled-extensions)
-9. [Best Practices](#best-practices)
-10. [Examples](#examples)
+9. [Webhook Support for Extensions](#webhook-support-for-extensions)
+10. [Best Practices](#best-practices)
+11. [Examples](#examples)
 
 ## Extension Types
 
@@ -888,6 +889,428 @@ The `workout_tracker.py` extension demonstrates a complete database-enabled exte
 - **Analytics**: Generate insights from historical data
 - **Multi-User Support**: Automatic data isolation
 - **Easy Development**: No database setup required - tables created automatically
+
+## Webhook Support for Extensions
+
+AGiXT supports extensions that can define and emit their own webhook events, allowing external systems to be notified when specific actions occur within extensions. This powerful feature enables:
+
+- Real-time notifications for extension activities
+- Integration with external monitoring systems
+- Custom business logic triggers based on extension events
+- Building reactive workflows around extension operations
+- Third-party system integration and automation
+
+### How Extension Webhooks Work
+
+1. **Extensions define webhook events** using the `webhook_events` class attribute
+2. **AGiXT automatically discovers** extension webhook events during startup
+3. **Events are combined** with core AGiXT events in the `/api/webhooks/event-types` endpoint
+4. **Extensions emit events** using the `webhook_emitter` when operations occur
+5. **Subscribers receive notifications** based on their configured webhook subscriptions
+
+### Creating Webhook-Enabled Extensions
+
+#### Step 1: Define Webhook Events
+
+Extensions can define custom webhook events by setting the `webhook_events` class attribute:
+
+```python
+import asyncio
+from Extensions import Extensions
+from WebhookManager import webhook_emitter
+
+class my_extension(Extensions):
+    """Extension with webhook support"""
+    
+    # Define webhook events for this extension
+    webhook_events = [
+        {
+            "type": "my_extension.item_created",
+            "description": "Triggered when a new item is created"
+        },
+        {
+            "type": "my_extension.item_updated", 
+            "description": "Triggered when an item is updated"
+        },
+        {
+            "type": "my_extension.item_deleted",
+            "description": "Triggered when an item is deleted"
+        },
+        {
+            "type": "my_extension.batch_processed",
+            "description": "Triggered when a batch operation completes"
+        }
+    ]
+    
+    def __init__(self, **kwargs):
+        self.user_id = kwargs.get("user_id", "default")
+        
+        # Define commands
+        self.commands = {
+            "Create Item": self.create_item,
+            "Update Item": self.update_item,
+            "Delete Item": self.delete_item,
+        }
+```
+
+#### Step 2: Import Webhook Emitter
+
+Import the webhook emitter to emit events from your extension:
+
+```python
+import asyncio
+from WebhookManager import webhook_emitter
+```
+
+#### Step 3: Emit Webhook Events
+
+Emit webhook events when significant operations occur in your extension:
+
+```python
+async def create_item(self, name: str, description: str) -> str:
+    """Create a new item and emit webhook event"""
+    try:
+        # Perform the operation
+        item = Item(
+            user_id=self.user_id,
+            name=name,
+            description=description,
+            created_at=datetime.utcnow()
+        )
+        session.add(item)
+        session.commit()
+        
+        # Emit webhook event after successful operation
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="my_extension.item_created",
+                user_id=self.user_id,
+                data={
+                    "item_id": item.id,
+                    "name": item.name,
+                    "description": item.description,
+                    "created_at": item.created_at.isoformat(),
+                },
+                metadata={
+                    "operation": "create",
+                    "item_id": item.id,
+                    "extension": "my_extension"
+                }
+            )
+        )
+        
+        return json.dumps({
+            "success": True,
+            "message": f"Item '{name}' created successfully",
+            "item": item.to_dict()
+        })
+        
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+```
+
+### Webhook Event Data Structure
+
+When emitting webhook events, include relevant data and metadata:
+
+#### Data Field
+The `data` field should contain the primary information about the event:
+
+```python
+data = {
+    "item_id": item.id,           # Primary entity identifier
+    "name": item.name,            # Entity name/title
+    "description": item.description,  # Entity content/description
+    "created_at": item.created_at.isoformat(),  # Timestamp
+    "tags": item.tags,            # Additional attributes
+    "status": "active"            # Current state
+}
+```
+
+#### Metadata Field
+The `metadata` field should contain contextual information:
+
+```python
+metadata = {
+    "operation": "create",        # Type of operation performed
+    "extension": "my_extension",  # Source extension name
+    "item_id": item.id,          # Reference ID for tracking
+    "batch_id": "batch_123",     # Batch operation identifier (if applicable)
+    "user_action": True          # Whether triggered by direct user action
+}
+```
+
+### Real-World Example: Notes Extension
+
+The `notes.py` extension demonstrates comprehensive webhook integration:
+
+#### Defined Events
+```python
+webhook_events = [
+    {
+        "type": "notes.created",
+        "description": "Triggered when a new note is created",
+    },
+    {"type": "notes.updated", "description": "Triggered when a note is updated"},
+    {"type": "notes.deleted", "description": "Triggered when a note is deleted"},
+    {
+        "type": "notes.retrieved", 
+        "description": "Triggered when a note is retrieved",
+    },
+    {"type": "notes.searched", "description": "Triggered when notes are searched"},
+    {"type": "notes.listed", "description": "Triggered when notes are listed"},
+]
+```
+
+#### Event Emission Examples
+
+**Create Event:**
+```python
+# Emit webhook event for note creation
+asyncio.create_task(
+    webhook_emitter.emit_event(
+        event_type="notes.created",
+        user_id=self.user_id,
+        data={
+            "note_id": note.id,
+            "title": note.title,
+            "content": note.content[:100] + "..." if len(note.content) > 100 else note.content,
+            "tags": json.loads(note.tags) if note.tags else [],
+            "created_at": note.created_at.isoformat() if note.created_at else None,
+        },
+        metadata={"operation": "create", "note_id": note.id}
+    )
+)
+```
+
+**Update Event:**
+```python
+# Emit webhook event for note update
+asyncio.create_task(
+    webhook_emitter.emit_event(
+        event_type="notes.updated",
+        user_id=self.user_id,
+        data={
+            "note_id": note.id,
+            "title": note.title,
+            "content": note.content[:100] + "..." if len(note.content) > 100 else note.content,
+            "tags": json.loads(note.tags) if note.tags else [],
+            "updated_at": note.updated_at.isoformat() if note.updated_at else None,
+        },
+        metadata={"operation": "update", "note_id": note.id}
+    )
+)
+```
+
+**Search Event:**
+```python
+# Emit webhook event for searching notes
+asyncio.create_task(
+    webhook_emitter.emit_event(
+        event_type="notes.searched",
+        user_id=self.user_id,
+        data={
+            "query": query,
+            "results_count": len(notes),
+            "limit": limit,
+        },
+        metadata={
+            "operation": "search",
+            "query": query,
+            "results": len(notes),
+        }
+    )
+)
+```
+
+### Webhook Event Naming Conventions
+
+Follow these conventions for consistent webhook event naming:
+
+#### Format: `{extension_name}.{action}`
+
+**Good Examples:**
+- `notes.created` - Note was created
+- `workout.session_completed` - Workout session finished
+- `calendar.event_scheduled` - Calendar event was scheduled
+- `email.sent` - Email was sent
+- `file.uploaded` - File was uploaded
+
+**Action Types:**
+- **CRUD Operations**: `created`, `updated`, `deleted`, `retrieved`
+- **Process Events**: `started`, `completed`, `failed`, `paused`
+- **State Changes**: `activated`, `deactivated`, `expired`, `renewed`
+- **User Actions**: `shared`, `liked`, `commented`, `rated`
+- **System Events**: `synchronized`, `backed_up`, `archived`, `restored`
+
+### Best Practices for Extension Webhooks
+
+#### 1. **Event Timing**
+Emit events **after** successful operations, not before:
+
+```python
+async def create_item(self, name: str) -> str:
+    try:
+        # Perform operation first
+        item = Item(name=name)
+        session.add(item)
+        session.commit()
+        
+        # Emit event only after success
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="my_extension.item_created",
+                user_id=self.user_id,
+                data={"item_id": item.id, "name": item.name}
+            )
+        )
+        
+        return json.dumps({"success": True, "item": item.to_dict()})
+        
+    except Exception as e:
+        # No webhook emission on failure
+        return json.dumps({"success": False, "error": str(e)})
+```
+
+#### 2. **Data Sensitivity**
+Be mindful of sensitive information in webhook payloads:
+
+```python
+# ✅ Good - Include safe summary data
+data = {
+    "note_id": note.id,
+    "title": note.title,
+    "content_preview": note.content[:100] + "...",  # Truncated preview
+    "created_at": note.created_at.isoformat(),
+    "tag_count": len(note.tags)
+}
+
+# ❌ Avoid - Don't include sensitive full content
+data = {
+    "note_id": note.id,
+    "full_content": note.content,  # Could be sensitive
+    "private_notes": note.private_data  # Definitely sensitive
+}
+```
+
+#### 3. **Async Event Emission**
+Always emit events asynchronously to avoid blocking operations:
+
+```python
+# ✅ Correct - Non-blocking async emission
+asyncio.create_task(
+    webhook_emitter.emit_event(
+        event_type="notes.created",
+        user_id=self.user_id,
+        data=event_data
+    )
+)
+
+# ❌ Incorrect - Blocking synchronous call
+await webhook_emitter.emit_event(...)  # This blocks the operation
+```
+
+#### 4. **Error Handling**
+Webhook emission errors should not fail the main operation:
+
+```python
+async def create_item(self, name: str) -> str:
+    try:
+        # Perform main operation
+        item = Item(name=name)
+        session.add(item)
+        session.commit()
+        
+        # Emit webhook in background (errors won't affect main operation)
+        try:
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="my_extension.item_created",
+                    user_id=self.user_id,
+                    data={"item_id": item.id}
+                )
+            )
+        except Exception as webhook_error:
+            logging.warning(f"Failed to emit webhook: {webhook_error}")
+            # Don't let webhook errors affect the main operation
+        
+        return json.dumps({"success": True, "item": item.to_dict()})
+        
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+```
+
+#### 5. **Meaningful Events Only**
+Only emit webhooks for significant operations that external systems would care about:
+
+```python
+# ✅ Meaningful events
+- Item creation, modification, deletion
+- Process completion or failure  
+- State changes
+- User interactions
+- Data synchronization
+
+# ❌ Avoid noisy events
+- Internal cache updates
+- Temporary state changes
+- Debug information
+- Health checks
+- Routine maintenance
+```
+
+### Event Discovery and Registration
+
+AGiXT automatically discovers and registers extension webhook events:
+
+1. **During startup**, `Extensions.get_extension_webhook_events()` scans all extensions
+2. **Extensions with webhook_events** have their events collected
+3. **Events are combined** with core AGiXT events 
+4. **Available in API** at `/api/webhooks/event-types` for webhook subscription
+
+### Testing Extension Webhooks
+
+#### 1. **Verify Event Registration**
+
+Check that your events appear in the event types endpoint:
+
+```bash
+curl -X GET "http://localhost:7437/api/webhooks/event-types" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+Look for your extension's events in the response.
+
+#### 2. **Create Test Webhook**
+
+Set up a webhook subscription to test event delivery:
+
+```bash
+curl -X POST "http://localhost:7437/api/webhooks/outgoing" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Test Extension Webhook",
+    "target_url": "https://webhook.site/YOUR_UNIQUE_URL",
+    "event_types": ["my_extension.item_created"],
+    "active": true
+  }'
+```
+
+#### 3. **Trigger Extension Operations**
+
+Perform operations in your extension that should trigger webhook events, then check your webhook endpoint for received events.
+
+### Extension Webhook Benefits
+
+1. **Real-time Integration**: External systems get immediate notifications
+2. **Decoupled Architecture**: Extensions remain independent while providing integration hooks
+3. **Custom Workflows**: Build reactive systems that respond to extension events
+4. **Monitoring and Analytics**: Track extension usage and performance
+5. **Business Logic**: Trigger custom processes based on extension activities
+6. **Third-party Integration**: Connect AGiXT extensions to external services seamlessly
+
+Extension webhook support transforms AGiXT extensions from isolated tools into integral parts of larger workflows and systems, enabling rich integrations and reactive architectures.
 
 ## Best Practices
 
