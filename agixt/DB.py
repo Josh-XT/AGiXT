@@ -71,6 +71,12 @@ try:
             LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}?sslmode={DATABASE_SSL}"
         DATABASE_URI = f"postgresql://{LOGIN_URI}"
     else:
+        import os
+
+        if "/" in DATABASE_NAME:
+            db_folder = os.path.dirname(DATABASE_NAME)
+            if not os.path.exists(db_folder):
+                os.makedirs(db_folder)
         DATABASE_URI = f"sqlite:///{DATABASE_NAME}.db"
 
     # Database connection pool settings
