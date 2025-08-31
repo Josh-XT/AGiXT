@@ -603,12 +603,11 @@ def import_all_data():
     # Initialize extensions hub first to clone external extensions
     logging.info("Initializing extensions hub...")
     try:
-        import asyncio
         from ExtensionsHub import ExtensionsHub
 
         hub = ExtensionsHub()
-        # Run the async clone_or_update_hub function
-        asyncio.run(hub.clone_or_update_hub())
+        # Use the synchronous version to avoid event loop conflicts
+        hub.clone_or_update_hub_sync()
     except Exception as e:
         logging.warning(f"Failed to initialize extensions hub: {e}")
 

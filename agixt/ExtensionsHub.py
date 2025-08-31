@@ -125,6 +125,82 @@ class ExtensionsHub:
         urls = [url.strip() for url in self.hub_urls.split(",")]
         return [url for url in urls if url]  # Remove empty strings
 
+    def clone_or_update_hub_sync(self) -> bool:
+        """Synchronous version of clone_or_update_hub to avoid event loop conflicts"""
+        hub_urls = self._parse_hub_urls()
+
+        if not hub_urls:
+            logging.info(
+                "No EXTENSIONS_HUB URLs configured, skipping hub initialization"
+            )
+            return False
+
+        # Ensure extensions directory exists
+        os.makedirs(self.extensions_dir, exist_ok=True)
+
+        success_count = 0
+        total_count = len(hub_urls)
+
+        for url in hub_urls:
+            if not self._validate_github_url(url):
+                logging.error(f"Invalid GitHub URL: {url}")
+                continue
+
+            try:
+                hub_dir_name = self._get_hub_directory_name(url)
+                hub_path = os.path.join(self.extensions_dir, hub_dir_name)
+
+                # Always remove and re-clone for simplicity and security
+                # This ensures we get the latest version and avoid git state issues
+                if os.path.exists(hub_path):
+                    logging.info(f"Removing existing hub directory {hub_path}")
+                    try:
+                        # More robust removal with retry logic
+                        import time
+
+                        max_retries = 3
+                        for attempt in range(max_retries):
+                            try:
+                                shutil.rmtree(hub_path)
+                                # Verify the directory is really gone
+                                if not os.path.exists(hub_path):
+                                    break
+                                else:
+                                    time.sleep(0.5)  # Small delay between retries
+                            except Exception as rm_error:
+                                if attempt == max_retries - 1:
+                                    # Last attempt failed, try alternative approach
+                                    logging.warning(
+                                        f"shutil.rmtree failed, trying os.system: {rm_error}"
+                                    )
+                                    os.system(f"rm -rf {hub_path}")
+                                    time.sleep(0.5)
+
+                        # Final check that directory is removed
+                        if os.path.exists(hub_path):
+                            logging.error(
+                                f"Failed to completely remove {hub_path}, skipping"
+                            )
+                            continue
+
+                    except Exception as e:
+                        logging.error(f"Error removing hub directory {hub_path}: {e}")
+                        continue
+
+                # Clone repository
+                logging.info(f"Cloning extensions hub from {url}")
+                if self._clone_repository(url, hub_path):
+                    success_count += 1
+
+            except Exception as e:
+                logging.error(f"Error managing extensions hub {url}: {e}")
+                continue
+
+        logging.info(
+            f"Extensions Hub: {success_count}/{total_count} repositories processed successfully"
+        )
+        return success_count > 0
+
     async def clone_or_update_hub(self) -> bool:
         """Clone or update all extensions hub repositories"""
         hub_urls = self._parse_hub_urls()
