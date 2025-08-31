@@ -947,6 +947,26 @@ def process_embedding_for_storage(embedding):
     return None
 
 
+class TokenBlacklist(Base):
+    __tablename__ = "token_blacklist"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    token = Column(String, nullable=False, unique=True)
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    blacklisted_at = Column(DateTime, server_default=func.now())
+    expires_at = Column(DateTime, nullable=False)  # JWT expiration time
+
+    # Relationships
+    user = relationship("User", backref="blacklisted_tokens")
+
+
 class Memory(Base):
     __tablename__ = "memory"
     id = Column(
