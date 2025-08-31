@@ -23,6 +23,30 @@ from cryptography.fernet import Fernet
 from Globals import getenv
 import numpy as np
 
+
+class ExtensionDatabaseMixin:
+    """
+    Mixin class for extensions that need database tables
+    """
+
+    extension_models = []  # Extensions should override this with their models
+
+    @classmethod
+    def register_models(cls):
+        """Register extension models with SQLAlchemy"""
+        if hasattr(cls, "extension_models"):
+            for model in cls.extension_models:
+                logging.info(f"Registered model: {model.__tablename__}")
+
+    @classmethod
+    def create_tables(cls):
+        """Create database tables for this extension"""
+        if hasattr(cls, "extension_models"):
+            for model in cls.extension_models:
+                model.__table__.create(engine, checkfirst=True)
+                logging.info(f"Created table: {model.__tablename__}")
+
+
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
@@ -1143,6 +1167,52 @@ def migrate_company_table():
         logging.error(f"Error during Company table migration: {e}")
 
 
+def discover_extension_models():
+    """
+    Discover and register all extension models
+    """
+    import importlib
+    import glob
+    import os
+
+    extension_models = []
+    command_files = glob.glob("extensions/*.py")
+
+    for command_file in command_files:
+        module_name = os.path.splitext(os.path.basename(command_file))[0]
+        try:
+            module = importlib.import_module(f"extensions.{module_name}")
+
+            # Check if the module has any classes that inherit from ExtensionDatabaseMixin
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if isinstance(attr, type) and issubclass(attr, ExtensionDatabaseMixin):
+                    if attr is not ExtensionDatabaseMixin and hasattr(
+                        attr, "extension_models"
+                    ):
+                        extension_models.extend(attr.extension_models)
+                        logging.info(f"Found extension models in {module_name}")
+        except Exception as e:
+            logging.debug(
+                f"Could not import extension {module_name} for model discovery: {e}"
+            )
+
+    return extension_models
+
+
+def initialize_extension_tables():
+    """
+    Initialize all extension database tables
+    """
+    models = discover_extension_models()
+    for model in models:
+        try:
+            model.__table__.create(engine, checkfirst=True)
+            logging.info(f"Initialized extension table: {model.__tablename__}")
+        except Exception as e:
+            logging.error(f"Error creating extension table {model.__tablename__}: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -1167,6 +1237,8 @@ if __name__ == "__main__":
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
     Base.metadata.create_all(engine)
+    # Initialize extension tables after core tables
+    initialize_extension_tables()
     migrate_company_table()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"

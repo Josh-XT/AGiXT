@@ -11,8 +11,9 @@ Extensions are the way to extend AGiXT's functionality with external APIs, servi
 5. [OAuth Integration](#oauth-integration)
 6. [Command Implementation](#command-implementation)
 7. [Error Handling](#error-handling)
-8. [Best Practices](#best-practices)
-9. [Examples](#examples)
+8. [Database-Enabled Extensions](#database-enabled-extensions)
+9. [Best Practices](#best-practices)
+10. [Examples](#examples)
 
 ## Extension Types
 
@@ -644,6 +645,249 @@ async def get_data(self) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 ```
+
+## Database-Enabled Extensions
+
+AGiXT supports extensions that can create and manage their own database tables, allowing for persistent data storage and advanced functionality like user tracking, progress monitoring, and data analytics.
+
+### Overview
+
+Database-enabled extensions inherit from both `Extensions` and `ExtensionDatabaseMixin`, which provides:
+- Automatic database table creation on AGiXT startup
+- Multi-user data isolation
+- Support for both SQLite and PostgreSQL
+- Seamless integration with AGiXT's database system
+
+### Creating a Database Extension
+
+#### Step 1: Define Database Models
+
+```python
+from datetime import datetime, date
+from sqlalchemy import Column, String, Integer, DateTime, Boolean, Date, UniqueConstraint
+from agixt.DB import get_session, ExtensionDatabaseMixin, Base
+
+class UserGoal(Base):
+    """Database model for user goals"""
+    __tablename__ = "user_goals"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=False, index=True)  # Required for user isolation
+    goal_name = Column(String(255), nullable=False)
+    target_value = Column(Integer, nullable=False)
+    current_value = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    active = Column(Boolean, default=True)
+    
+    # Prevent duplicate goals per user
+    __table_args__ = (UniqueConstraint("user_id", "goal_name", name="unique_user_goal"),)
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "goal_name": self.goal_name,
+            "target_value": self.target_value,
+            "current_value": self.current_value,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "active": self.active,
+        }
+
+class DailyProgress(Base):
+    """Database model for daily progress tracking"""
+    __tablename__ = "daily_progress"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=False, index=True)
+    goal_name = Column(String(255), nullable=False)
+    progress_date = Column(Date, nullable=False, default=date.today)
+    completed_value = Column(Integer, nullable=False)
+    completed_at = Column(DateTime, default=datetime.utcnow)
+    
+    # One progress entry per goal per day
+    __table_args__ = (UniqueConstraint("user_id", "goal_name", "progress_date", name="unique_daily_progress"),)
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "goal_name": self.goal_name,
+            "progress_date": self.progress_date.isoformat() if self.progress_date else None,
+            "completed_value": self.completed_value,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+```
+
+#### Step 2: Create Extension Class with Database Support
+
+```python
+import json
+import logging
+from Extensions import Extensions
+from agixt.DB import ExtensionDatabaseMixin
+
+class goal_tracker(Extensions, ExtensionDatabaseMixin):
+    """
+    Goal tracking extension with database persistence
+    
+    This extension allows users to set daily goals and track their progress.
+    Examples: "Do 10 push-ups daily", "Read 30 minutes daily"
+    """
+    
+    # Register models for automatic table creation
+    extension_models = [UserGoal, DailyProgress]
+    
+    def __init__(self, **kwargs):
+        """Initialize the goal tracker extension"""
+        # Get user ID for data isolation
+        AGENT = kwargs.get("AGENT", {})
+        self.user_id = AGENT.get("user", "default") if AGENT else "default"
+        
+        # Register models with the database system
+        self.register_models()
+        
+        # Define available commands
+        self.commands = {
+            "Set Daily Goal": self.set_daily_goal,
+            "Mark Goal Complete": self.mark_goal_complete,
+            "Get Daily Progress": self.get_daily_progress,
+            "Get Goal Statistics": self.get_statistics,
+        }
+    
+    async def set_daily_goal(self, goal_name: str, target_value: int) -> str:
+        """Set a daily goal for the user"""
+        session = get_session()
+        try:
+            # Check if goal already exists
+            existing_goal = session.query(UserGoal).filter_by(
+                user_id=self.user_id,
+                goal_name=goal_name
+            ).first()
+            
+            if existing_goal:
+                existing_goal.target_value = target_value
+                existing_goal.active = True
+                existing_goal.updated_at = datetime.utcnow()
+                message = f"Updated daily goal for '{goal_name}' to {target_value}"
+            else:
+                goal = UserGoal(
+                    user_id=self.user_id,
+                    goal_name=goal_name,
+                    target_value=target_value
+                )
+                session.add(goal)
+                message = f"Set daily goal for '{goal_name}' to {target_value}"
+            
+            session.commit()
+            return json.dumps({"success": True, "message": message})
+            
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error setting goal: {e}")
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+    
+    async def mark_goal_complete(self, goal_name: str, completed_value: int) -> str:
+        """Mark progress on a daily goal"""
+        session = get_session()
+        try:
+            today = date.today()
+            
+            # Check if already marked complete today
+            existing_progress = session.query(DailyProgress).filter_by(
+                user_id=self.user_id,
+                goal_name=goal_name,
+                progress_date=today
+            ).first()
+            
+            if existing_progress:
+                existing_progress.completed_value = completed_value
+                existing_progress.completed_at = datetime.utcnow()
+                message = f"Updated progress for '{goal_name}' to {completed_value}"
+            else:
+                progress = DailyProgress(
+                    user_id=self.user_id,
+                    goal_name=goal_name,
+                    progress_date=today,
+                    completed_value=completed_value
+                )
+                session.add(progress)
+                message = f"Marked '{goal_name}' complete with {completed_value}"
+            
+            session.commit()
+            return json.dumps({"success": True, "message": message})
+            
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error marking progress: {e}")
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+```
+
+### Key Database Extension Concepts
+
+#### 1. **ExtensionDatabaseMixin**
+- Inherit from this mixin along with `Extensions`
+- Provides `register_models()` and `create_tables()` methods
+- Automatically discovers and creates extension tables
+
+#### 2. **Model Registration**
+- Define `extension_models` list with your SQLAlchemy models
+- Call `self.register_models()` in `__init__`
+- Tables are created automatically when AGiXT starts
+
+#### 3. **User Isolation**
+- Always include `user_id` field in your models
+- Filter all queries by `self.user_id`
+- Ensures data separation in multi-user environments
+
+#### 4. **Database Session Management**
+```python
+session = get_session()
+try:
+    # Database operations
+    session.add(model)
+    session.commit()
+    return json.dumps({"success": True, "data": model.to_dict()})
+except Exception as e:
+    session.rollback()
+    return json.dumps({"success": False, "error": str(e)})
+finally:
+    session.close()
+```
+
+### Real-World Example: Workout Tracker
+
+The `workout_tracker.py` extension demonstrates a complete database-enabled extension with:
+
+**Models:**
+- `DailyGoal`: Store exercise targets (e.g., "10 curls daily")
+- `DailyCompletion`: Track when exercises are completed
+- `WorkoutRoutine`, `WorkoutExercise`, `WorkoutSession`: Full workout management
+
+**Commands:**
+- `Set Daily Goal` - Set exercise targets
+- `Mark Exercise Complete` - Record completed exercises  
+- `Get Daily Progress` - Show today's completed vs missed exercises
+- `Get Weekly Progress` - 7-day completion patterns
+- `Get Monthly Progress` - Monthly statistics
+
+**Usage Example:**
+1. User: "I want to do 10 curls daily"
+   - AI uses `Set Daily Goal` → Sets curls target to 10 reps
+2. User: "I finished my curls today"  
+   - AI uses `Mark Exercise Complete` → Records 10 curls completed
+3. AI shows progress: "✅ Curls (10/10), ❌ Push-ups (0/20)"
+
+### Database Extension Benefits
+
+- **Persistent Data**: Information survives AGiXT restarts
+- **User Tracking**: Track progress, habits, and long-term goals
+- **Analytics**: Generate insights from historical data
+- **Multi-User Support**: Automatic data isolation
+- **Easy Development**: No database setup required - tables created automatically
 
 ## Best Practices
 
