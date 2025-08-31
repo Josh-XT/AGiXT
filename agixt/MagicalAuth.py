@@ -9,6 +9,7 @@ from DB import (
     UserCompany,
     Invitation,
     default_roles,
+    TokenBlacklist,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -242,13 +243,30 @@ def verify_api_key(authorization: str = Header(None)):
         try:
             if authorization == AGIXT_API_KEY:
                 return get_admin_user()
+
+            # Check if token is blacklisted before validating
+            db = get_session()
+            blacklisted_token = (
+                db.query(TokenBlacklist)
+                .filter(TokenBlacklist.token == authorization)
+                .first()
+            )
+            if blacklisted_token:
+                db.close()
+                logging.info(
+                    f"Blocked blacklisted token for user {blacklisted_token.user_id}"
+                )
+                raise HTTPException(
+                    status_code=401,
+                    detail="Token has been revoked. Please log in again.",
+                )
+
             token = jwt.decode(
                 jwt=authorization,
                 key=AGIXT_API_KEY,
                 algorithms=["HS256"],
                 leeway=timedelta(hours=5),
             )
-            db = get_session()
             user = db.query(User).filter(User.id == token["sub"]).first()
             # return user dict
             user_dict = user.__dict__
@@ -640,6 +658,23 @@ class MagicalAuth:
                 detail="Too many failed login attempts today. Please try again tomorrow.",
             )
         session = get_session()
+
+        # Check if token is blacklisted before validation
+        blacklisted_token = (
+            session.query(TokenBlacklist)
+            .filter(TokenBlacklist.token == self.token)
+            .first()
+        )
+        if blacklisted_token:
+            session.close()
+            logging.info(
+                f"Blocked blacklisted token for user {blacklisted_token.user_id}"
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Token has been revoked. Please log in again.",
+            )
+
         try:
             user_info = jwt.decode(
                 jwt=self.token,
@@ -3188,3 +3223,32 @@ def convert_time(utc_time, user_id):
     gmt = pytz.timezone("GMT")
     local_tz = pytz.timezone(get_user_timezone(user_id))
     return gmt.localize(utc_time).astimezone(local_tz)
+
+
+def cleanup_expired_tokens():
+    """
+    Utility function to remove expired tokens from the blacklist.
+    This can be called periodically to keep the blacklist table clean.
+    """
+    session = get_session()
+    try:
+        expired_tokens = (
+            session.query(TokenBlacklist)
+            .filter(TokenBlacklist.expires_at < datetime.now())
+            .all()
+        )
+
+        count = len(expired_tokens)
+        for token in expired_tokens:
+            session.delete(token)
+
+        session.commit()
+        logging.info(f"Cleaned up {count} expired tokens from blacklist.")
+        return count
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error cleaning up expired tokens: {str(e)}")
+        return 0
+    finally:
+        session.close()
