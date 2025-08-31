@@ -42,6 +42,11 @@ import jwt
 import json
 import uuid
 import os
+from ExtensionsHub import (
+    find_extension_files,
+    import_extension_module,
+    get_extension_class_name,
+)
 
 
 logging.basicConfig(
@@ -118,16 +123,19 @@ def is_admin(email: str = "USER", api_key: str = None):
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
-    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
-    files = os.listdir(extensions_dir)
-    for file in files:
-        if not file.endswith(".py"):
+    # Use recursive discovery to find all extension files
+    extension_files = find_extension_files()
+    for extension_file in extension_files:
+        # Import the module using the helper function
+        module = import_extension_module(extension_file)
+        if module is None:
             continue
-        file_path = os.path.join(extensions_dir, file)
-        spec = importlib.util.spec_from_file_location(file, file_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        if file.replace(".py", "") == provider:
+
+        # Get the expected class name from the module
+        class_name = get_extension_class_name(os.path.basename(extension_file))
+
+        # Check if this matches the provider we're looking for
+        if os.path.basename(extension_file).replace(".py", "") == provider:
             if getattr(module, "PKCE_REQUIRED", False):
                 if not code_verifier:
                     raise HTTPException(
@@ -143,22 +151,24 @@ def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None)
 
 
 def get_oauth_providers():
-    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
-    files = os.listdir(extensions_dir)
     providers = []
-    for file in files:
-        if not file.endswith(".py"):
+    # Use recursive discovery to find all extension files
+    extension_files = find_extension_files()
+    for extension_file in extension_files:
+        # Import the module using the helper function
+        module = import_extension_module(extension_file)
+        if module is None:
             continue
-        file_path = os.path.join(extensions_dir, file)
-        spec = importlib.util.spec_from_file_location(file, file_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+
+        filename = os.path.basename(extension_file)
+        module_name = filename.replace(".py", "")
+
         try:
-            client_id = os.getenv(f"{file.replace('.py', '').upper()}_CLIENT_ID")
+            client_id = os.getenv(f"{module_name.upper()}_CLIENT_ID")
             if client_id:
                 providers.append(
                     {
-                        "name": file.replace(".py", ""),
+                        "name": module_name,
                         "scopes": " ".join(module.SCOPES),
                         "authorize": module.AUTHORIZE,
                         "client_id": client_id,
@@ -171,16 +181,26 @@ def get_oauth_providers():
 
 
 def get_sso_instance(provider: str):
-    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
-    files = os.listdir(extensions_dir)
-    for file in files:
-        if not file.endswith(".py"):
+    # Use recursive discovery to find all extension files
+    extension_files = find_extension_files()
+    for extension_file in extension_files:
+        # Import the module using the helper function
+        module = import_extension_module(extension_file)
+        if module is None:
             continue
-        file_path = os.path.join(extensions_dir, file)
-        if file.replace(".py", "") == provider:
-            module = importlib.import_module(f"extensions.{provider}")
+
+        filename = os.path.basename(extension_file)
+        module_name = filename.replace(".py", "")
+
+        if module_name == provider:
             provider_class = getattr(module, f"{provider.capitalize()}SSO")
             return provider_class
+
+    # Prevent infinite recursion - if we're already looking for microsoft and can't find it,
+    # return None instead of recursing
+    if provider == "microsoft":
+        return None
+
     return get_sso_instance(provider="microsoft")
 
 
@@ -2766,10 +2786,15 @@ class MagicalAuth:
         if not referrer:
             app_uri = getenv("APP_URI")
             referrer = f"{app_uri}/user/close/{provider}"
-        # Check if one of the providers in the extensions folder
+        # Check if one of the providers in the extensions folder using recursive discovery
         provider = str(provider).lower()
-        files = os.listdir("extensions")
-        if f"{provider}.py" not in files:
+        extension_files = find_extension_files()
+        provider_found = False
+        for extension_file in extension_files:
+            if os.path.basename(extension_file).replace(".py", "") == provider:
+                provider_found = True
+                break
+        if not provider_found:
             provider = "microsoft"
         sso_data = get_sso_provider(
             provider=provider,
