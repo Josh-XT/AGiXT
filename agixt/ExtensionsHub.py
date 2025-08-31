@@ -176,10 +176,25 @@ class ExtensionsHub:
             authenticated_url = self._get_authenticated_url(url)
 
             # Use git clone with depth 1 for faster cloning
-            cmd = ["git", "clone", "--depth", "1", authenticated_url, hub_path]
+            # Add --template="" to skip git template copying which can cause issues in containers
+            cmd = [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--template=",
+                authenticated_url,
+                hub_path,
+            ]
+
+            # Set environment to avoid git template issues
+            env = os.environ.copy()
+            env["GIT_TEMPLATE_DIR"] = ""
 
             # Run git clone, hiding the URL with token from logs
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=60, env=env
+            )
 
             if result.returncode == 0:
                 logging.info(f"Successfully cloned extensions hub to {hub_path}")
