@@ -1032,11 +1032,39 @@ class Agent:
         )
         user = session.query(User).filter(User.id == self.user_id).first()
         sso_providers = {}
-        # Get py files in sso folder
-        sso_files = os.listdir("sso")
-        for sso_file in sso_files:
-            if sso_file.endswith(".py"):
-                sso_providers[sso_file.replace(".py", "")] = False
+        # Get OAuth-enabled extensions by scanning for SSO components
+        import importlib.util
+
+        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        extension_files = os.listdir(extensions_dir)
+        for extension_file in extension_files:
+            if extension_file.endswith(".py") and not extension_file.startswith("__"):
+                try:
+                    # Load the extension module to check for OAuth components
+                    extension_name = extension_file.replace(".py", "")
+                    file_path = os.path.join(extensions_dir, extension_file)
+                    spec = importlib.util.spec_from_file_location(
+                        extension_name, file_path
+                    )
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+
+                    # Check if the extension has OAuth components (SSO class or sso function)
+                    has_sso_class = any(
+                        hasattr(module, f"{extension_name.capitalize()}SSO")
+                        for extension_name in [extension_name]
+                    )
+                    has_sso_function = hasattr(module, "sso")
+                    has_oauth_scopes = hasattr(module, "SCOPES")
+
+                    if has_sso_class or has_sso_function or has_oauth_scopes:
+                        sso_providers[extension_name] = False
+                except Exception as e:
+                    # Skip extensions that can't be loaded or don't have OAuth components
+                    logging.debug(
+                        f"Extension {extension_file} does not have OAuth components: {str(e)}"
+                    )
+                    continue
         if user_oauth:
             for oauth in user_oauth:
                 provider = (
