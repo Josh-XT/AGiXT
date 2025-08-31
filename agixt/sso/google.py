@@ -26,6 +26,13 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar.events.owned",
     "https://www.googleapis.com/auth/contacts.readonly",
     "https://www.googleapis.com/auth/gmail.modify",
+    # Marketing scopes for Google Ads, Analytics, and Tag Manager
+    "https://www.googleapis.com/auth/adwords",  # Google Ads management
+    "https://www.googleapis.com/auth/analytics.readonly",  # GA4 data read
+    "https://www.googleapis.com/auth/analytics.edit",  # GA4 configuration
+    "https://www.googleapis.com/auth/tagmanager.edit.containers",  # GTM containers
+    "https://www.googleapis.com/auth/tagmanager.publish",  # GTM publishing
+    "https://www.googleapis.com/auth/content",  # Merchant Center (optional)
 ]
 AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 PKCE_REQUIRED = False
