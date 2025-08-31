@@ -631,3 +631,37 @@ class Extensions:
             )
 
         return commands
+
+    def get_extension_routers(self):
+        """Collect FastAPI routers from extensions that define them"""
+        routers = []
+        try:
+            settings = self.agent_config["settings"]
+        except:
+            settings = {}
+
+        command_files = glob.glob("extensions/*.py")
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            if module_name in DISABLED_EXTENSIONS:
+                continue
+            try:
+                module = importlib.import_module(f"extensions.{module_name}")
+                if hasattr(module, module_name) and issubclass(
+                    getattr(module, module_name), Extensions
+                ):
+                    command_class = getattr(module, module_name)(**settings)
+                    # Check if the extension has a router attribute
+                    if hasattr(command_class, "router"):
+                        routers.append(
+                            {
+                                "extension_name": module_name,
+                                "router": command_class.router,
+                            }
+                        )
+                        logging.info(f"Found router for extension: {module_name}")
+            except Exception as e:
+                logging.error(f"Error loading router from extension {module_name}: {e}")
+                continue
+
+        return routers
