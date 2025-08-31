@@ -39,11 +39,9 @@ class meta_ads(Extensions):
 
     def __init__(
         self,
-        META_APP_ID: str,
-        META_APP_SECRET: str,
-        META_BUSINESS_ID: str,
-        access_token: str = None,
-        api_key: str = None,
+        META_APP_ID: str = None,
+        META_APP_SECRET: str = None,
+        META_BUSINESS_ID: str = None,
         **kwargs,
     ):
         """
@@ -53,49 +51,63 @@ class meta_ads(Extensions):
             META_APP_ID (str): Meta application ID for API access
             META_APP_SECRET (str): Meta application secret for OAuth
             META_BUSINESS_ID (str): Meta Business Account ID for ad management
-            access_token (str): OAuth access token for authenticated requests
-            api_key (str): AGiXT API key for MagicalAuth integration
-            **kwargs: Additional optional parameters
+            **kwargs: Additional optional parameters including api_key and access_token
         """
-        self.app_id = META_APP_ID
-        self.app_secret = META_APP_SECRET
-        self.business_id = META_BUSINESS_ID
-        self.access_token = access_token
-        self.api_key = api_key
+        # Get credentials from parameters or environment variables
+        self.app_id = META_APP_ID or kwargs.get("META_APP_ID") or getenv("META_APP_ID")
+        self.app_secret = (
+            META_APP_SECRET
+            or kwargs.get("META_APP_SECRET")
+            or getenv("META_APP_SECRET")
+        )
+        self.business_id = (
+            META_BUSINESS_ID
+            or kwargs.get("META_BUSINESS_ID")
+            or getenv("META_BUSINESS_ID")
+        )
+        self.access_token = kwargs.get("META_ACCESS_TOKEN", None)
+        self.api_key = kwargs.get("api_key")
+        self.auth = None
 
         # Base URL for Meta Marketing API
         self.base_url = "https://graph.facebook.com/v18.0"
 
-        # Always initialize commands dictionary
-        self.commands = {
-            "Meta Ads - Get Ad Accounts": self.get_ad_accounts,
-            "Meta Ads - Create Campaign": self.create_campaign,
-            "Meta Ads - Get Campaigns": self.get_campaigns,
-            "Meta Ads - Update Campaign": self.update_campaign,
-            "Meta Ads - Delete Campaign": self.delete_campaign,
-            "Meta Ads - Create Ad Set": self.create_ad_set,
-            "Meta Ads - Get Ad Sets": self.get_ad_sets,
-            "Meta Ads - Update Ad Set": self.update_ad_set,
-            "Meta Ads - Create Ad": self.create_ad,
-            "Meta Ads - Get Ads": self.get_ads,
-            "Meta Ads - Update Ad": self.update_ad,
-            "Meta Ads - Get Campaign Insights": self.get_campaign_insights,
-            "Meta Ads - Get Ad Set Insights": self.get_ad_set_insights,
-            "Meta Ads - Get Ad Insights": self.get_ad_insights,
-            "Meta Ads - Create Custom Audience": self.create_custom_audience,
-            "Meta Ads - Get Custom Audiences": self.get_custom_audiences,
-            "Meta Ads - Upload Audience Data": self.upload_audience_data,
-            "Meta Ads - Create Lookalike Audience": self.create_lookalike_audience,
-            "Meta Ads - Create Ad Creative": self.create_ad_creative,
-            "Meta Ads - Get Ad Creatives": self.get_ad_creatives,
-            "Meta Ads - Get Pages": self.get_pages,
-            "Meta Ads - Get Targeting Options": self.get_targeting_options,
-            "Meta Ads - Set Campaign Budget": self.set_campaign_budget,
-            "Meta Ads - Pause Campaign": self.pause_campaign,
-            "Meta Ads - Resume Campaign": self.resume_campaign,
-            "Meta Ads - Get Conversions": self.get_conversions,
-            "Meta Ads - Create Conversion Event": self.create_conversion_event,
-        }
+        # Initialize commands dictionary only if we have required credentials
+        if self.app_id and self.app_secret and self.business_id:
+            self.commands = {
+                "Meta Ads - Get Ad Accounts": self.get_ad_accounts,
+                "Meta Ads - Create Campaign": self.create_campaign,
+                "Meta Ads - Get Campaigns": self.get_campaigns,
+                "Meta Ads - Update Campaign": self.update_campaign,
+                "Meta Ads - Delete Campaign": self.delete_campaign,
+                "Meta Ads - Create Ad Set": self.create_ad_set,
+                "Meta Ads - Get Ad Sets": self.get_ad_sets,
+                "Meta Ads - Update Ad Set": self.update_ad_set,
+                "Meta Ads - Create Ad": self.create_ad,
+                "Meta Ads - Get Ads": self.get_ads,
+                "Meta Ads - Update Ad": self.update_ad,
+                "Meta Ads - Get Campaign Insights": self.get_campaign_insights,
+                "Meta Ads - Get Ad Set Insights": self.get_ad_set_insights,
+                "Meta Ads - Get Ad Insights": self.get_ad_insights,
+                "Meta Ads - Create Custom Audience": self.create_custom_audience,
+                "Meta Ads - Get Custom Audiences": self.get_custom_audiences,
+                "Meta Ads - Upload Audience Data": self.upload_audience_data,
+                "Meta Ads - Create Lookalike Audience": self.create_lookalike_audience,
+                "Meta Ads - Create Ad Creative": self.create_ad_creative,
+                "Meta Ads - Get Ad Creatives": self.get_ad_creatives,
+                "Meta Ads - Get Pages": self.get_pages,
+                "Meta Ads - Get Targeting Options": self.get_targeting_options,
+                "Meta Ads - Set Campaign Budget": self.set_campaign_budget,
+                "Meta Ads - Pause Campaign": self.pause_campaign,
+                "Meta Ads - Resume Campaign": self.resume_campaign,
+                "Meta Ads - Get Conversions": self.get_conversions,
+                "Meta Ads - Create Conversion Event": self.create_conversion_event,
+            }
+        else:
+            self.commands = {}
+            logging.warning(
+                "Meta Ads extension disabled: Missing required credentials (META_APP_ID, META_APP_SECRET, META_BUSINESS_ID)"
+            )
 
         # Initialize MagicalAuth for OAuth token management
         if self.api_key:
