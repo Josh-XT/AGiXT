@@ -582,15 +582,30 @@ class agixt_actions(Extensions):
         schemas = data.get("components", {}).get(
             "schemas", {}
         )  # get the global schemas
+        parameters = data.get("components", {}).get(
+            "parameters", {}
+        )  # get the global parameters
 
         def resolve_schema(ref):
             # remove the '#/components/schemas/' part
             schema_name = ref.replace("#/components/schemas/", "")
             return schemas.get(schema_name, {})
 
+        def resolve_parameter(ref):
+            # remove the '#/components/parameters/' part
+            param_name = ref.replace("#/components/parameters/", "")
+            return parameters.get(param_name, {})
+
         if "paths" in data:
             for path, path_info in data["paths"].items():
+                # Get path-level parameters if they exist
+                path_level_parameters = path_info.get("parameters", [])
+
                 for method, method_info in path_info.items():
+                    # Skip the path-level parameters key
+                    if method == "parameters":
+                        continue
+
                     endpoint_info = {
                         "endpoint": path,
                         "method": method.upper(),
@@ -599,8 +614,33 @@ class agixt_actions(Extensions):
                         "responses": [],
                         "requestBody": {},
                     }
+
+                    # Process path-level parameters first
+                    for param in path_level_parameters:
+                        # Resolve $ref parameters
+                        if "$ref" in param:
+                            param = resolve_parameter(param["$ref"])
+
+                        param_info = {
+                            "name": param.get("name", ""),
+                            "in": param.get("in", ""),
+                            "description": param.get("description", ""),
+                            "required": param.get("required", False),
+                            "type": (
+                                param.get("schema", {}).get("type", "")
+                                if "schema" in param
+                                else ""
+                            ),
+                        }
+                        endpoint_info["parameters"].append(param_info)
+
+                    # Process method-level parameters
                     if "parameters" in method_info:
                         for param in method_info["parameters"]:
+                            # Resolve $ref parameters
+                            if "$ref" in param:
+                                param = resolve_parameter(param["$ref"])
+
                             param_info = {
                                 "name": param.get("name", ""),
                                 "in": param.get("in", ""),
@@ -628,10 +668,12 @@ class agixt_actions(Extensions):
                             "content": content,
                         }
                     if "responses" in method_info:
-                        for response, response_info in method_info["responses"].items():
+                        for response_code, response_details in method_info[
+                            "responses"
+                        ].items():
                             response_info = {
-                                "code": response,
-                                "description": response_info.get("description", ""),
+                                "code": response_code,
+                                "description": response_details.get("description", ""),
                             }
                             endpoint_info["responses"].append(response_info)
                     endpoints.append(endpoint_info)
