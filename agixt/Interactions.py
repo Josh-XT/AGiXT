@@ -615,10 +615,11 @@ class Interactions:
         if command_overrides:
             for tool in command_overrides:
                 tool_type = tool.get("type")
-                if tool_type in self.agent.available_commands:
-                    self.agent.available_commands[tool_type] = (
-                        not self.agent.available_commands[tool_type]
-                    )
+                # Find the command in available_commands list and toggle its enabled status
+                for available_command in self.agent.available_commands:
+                    if available_command["friendly_name"] == tool_type:
+                        available_command["enabled"] = not available_command["enabled"]
+                        break
 
         if "conversation_results" in kwargs:
             try:
