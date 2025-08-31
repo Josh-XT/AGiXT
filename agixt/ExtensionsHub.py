@@ -20,10 +20,8 @@ class ExtensionsHub:
 
     def __init__(self):
         self.extensions_dir = "extensions"
-        self.hub_url = getenv("EXTENSIONS_HUB")
+        self.hub_urls = getenv("EXTENSIONS_HUB")
         self.hub_token = getenv("EXTENSIONS_HUB_TOKEN")
-        self.hub_dir_name = "hub"
-        self.hub_path = os.path.join(self.extensions_dir, self.hub_dir_name)
 
     def _validate_github_url(self, url: str) -> bool:
         """Validate that the URL is a valid GitHub repository URL"""
@@ -49,51 +47,95 @@ class ExtensionsHub:
 
         return url
 
+    def _get_hub_directory_name(self, url: str) -> str:
+        """Generate a unique directory name from GitHub URL"""
+        # Extract repo name from GitHub URL
+        # e.g., "https://github.com/user/repo.git" -> "user_repo"
+        url = url.strip()
+        if url.endswith(".git"):
+            url = url[:-4]
+
+        # Extract the path after github.com
+        if "github.com/" in url:
+            path = url.split("github.com/")[1]
+            # Replace slashes with underscores to create safe directory name
+            return path.replace("/", "_").replace("-", "_")
+
+        # Fallback - use hash of URL
+        import hashlib
+
+        return f"hub_{hashlib.md5(url.encode()).hexdigest()[:8]}"
+
+    def _parse_hub_urls(self) -> List[str]:
+        """Parse comma-separated URLs from EXTENSIONS_HUB"""
+        if not self.hub_urls:
+            return []
+
+        # Split by comma and clean up URLs
+        urls = [url.strip() for url in self.hub_urls.split(",")]
+        return [url for url in urls if url]  # Remove empty strings
+
     def clone_or_update_hub(self) -> bool:
-        """Clone or update the extensions hub repository"""
-        if not self.hub_url:
+        """Clone or update all extensions hub repositories"""
+        hub_urls = self._parse_hub_urls()
+
+        if not hub_urls:
             logging.info(
-                "No EXTENSIONS_HUB URL configured, skipping hub initialization"
+                "No EXTENSIONS_HUB URLs configured, skipping hub initialization"
             )
             return False
 
-        if not self._validate_github_url(self.hub_url):
-            logging.error(f"Invalid GitHub URL: {self.hub_url}")
-            return False
+        # Ensure extensions directory exists
+        os.makedirs(self.extensions_dir, exist_ok=True)
 
+        success_count = 0
+        total_count = len(hub_urls)
+
+        for url in hub_urls:
+            if not self._validate_github_url(url):
+                logging.error(f"Invalid GitHub URL: {url}")
+                continue
+
+            try:
+                hub_dir_name = self._get_hub_directory_name(url)
+                hub_path = os.path.join(self.extensions_dir, hub_dir_name)
+
+                # Check if hub directory already exists
+                if os.path.exists(hub_path):
+                    # Try to update existing repository
+                    logging.info(f"Updating extensions hub from {url}")
+                    if self._update_repository(url, hub_path):
+                        success_count += 1
+                else:
+                    # Clone new repository
+                    logging.info(f"Cloning extensions hub from {url}")
+                    if self._clone_repository(url, hub_path):
+                        success_count += 1
+
+            except Exception as e:
+                logging.error(f"Error managing extensions hub {url}: {e}")
+                continue
+
+        logging.info(
+            f"Extensions Hub: {success_count}/{total_count} repositories processed successfully"
+        )
+        return success_count > 0
+
+    def _clone_repository(self, url: str, hub_path: str) -> bool:
+        """Clone a specific extensions hub repository"""
         try:
-            # Ensure extensions directory exists
-            os.makedirs(self.extensions_dir, exist_ok=True)
-
-            # Check if hub directory already exists
-            if os.path.exists(self.hub_path):
-                # Try to update existing repository
-                logging.info(f"Updating extensions hub from {self.hub_url}")
-                return self._update_repository()
-            else:
-                # Clone new repository
-                logging.info(f"Cloning extensions hub from {self.hub_url}")
-                return self._clone_repository()
-
-        except Exception as e:
-            logging.error(f"Error managing extensions hub: {e}")
-            return False
-
-    def _clone_repository(self) -> bool:
-        """Clone the extensions hub repository"""
-        try:
-            authenticated_url = self._get_authenticated_url(self.hub_url)
+            authenticated_url = self._get_authenticated_url(url)
 
             # Use git clone with depth 1 for faster cloning
-            cmd = ["git", "clone", "--depth", "1", authenticated_url, self.hub_path]
+            cmd = ["git", "clone", "--depth", "1", authenticated_url, hub_path]
 
             # Run git clone, hiding the URL with token from logs
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
             if result.returncode == 0:
-                logging.info(f"Successfully cloned extensions hub to {self.hub_path}")
+                logging.info(f"Successfully cloned extensions hub to {hub_path}")
                 # Remove .git directory to prevent accidental commits
-                git_dir = os.path.join(self.hub_path, ".git")
+                git_dir = os.path.join(hub_path, ".git")
                 if os.path.exists(git_dir):
                     shutil.rmtree(git_dir)
                 return True
@@ -104,42 +146,42 @@ class ExtensionsHub:
                     if self.hub_token
                     else result.stderr
                 )
-                logging.error(f"Failed to clone extensions hub: {error_msg}")
+                logging.error(f"Failed to clone extensions hub {url}: {error_msg}")
                 return False
 
         except subprocess.TimeoutExpired:
-            logging.error("Timeout while cloning extensions hub")
+            logging.error(f"Timeout while cloning extensions hub {url}")
             return False
         except Exception as e:
-            logging.error(f"Error cloning extensions hub: {e}")
+            logging.error(f"Error cloning extensions hub {url}: {e}")
             return False
 
-    def _update_repository(self) -> bool:
-        """Update the existing extensions hub repository"""
+    def _update_repository(self, url: str, hub_path: str) -> bool:
+        """Update a specific existing extensions hub repository"""
         try:
             # Check if it's a git repository
-            git_dir = os.path.join(self.hub_path, ".git")
+            git_dir = os.path.join(hub_path, ".git")
             if not os.path.exists(git_dir):
                 # Not a git repo, remove and re-clone
                 logging.info(
-                    "Hub directory exists but is not a git repository, re-cloning..."
+                    f"Hub directory {hub_path} exists but is not a git repository, re-cloning..."
                 )
-                shutil.rmtree(self.hub_path)
-                return self._clone_repository()
+                shutil.rmtree(hub_path)
+                return self._clone_repository(url, hub_path)
 
-            authenticated_url = self._get_authenticated_url(self.hub_url)
+            authenticated_url = self._get_authenticated_url(url)
 
             # Set the remote URL (in case token changed)
             subprocess.run(
                 ["git", "remote", "set-url", "origin", authenticated_url],
-                cwd=self.hub_path,
+                cwd=hub_path,
                 capture_output=True,
             )
 
             # Fetch and reset to latest
             result = subprocess.run(
                 ["git", "fetch", "origin"],
-                cwd=self.hub_path,
+                cwd=hub_path,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -151,31 +193,31 @@ class ExtensionsHub:
                     if self.hub_token
                     else result.stderr
                 )
-                logging.error(f"Failed to fetch updates: {error_msg}")
+                logging.error(f"Failed to fetch updates for {url}: {error_msg}")
                 return False
 
             # Reset to origin/main or origin/master
             for branch in ["main", "master"]:
                 result = subprocess.run(
                     ["git", "reset", "--hard", f"origin/{branch}"],
-                    cwd=self.hub_path,
+                    cwd=hub_path,
                     capture_output=True,
                     text=True,
                 )
                 if result.returncode == 0:
                     logging.info(
-                        f"Successfully updated extensions hub from branch {branch}"
+                        f"Successfully updated extensions hub {url} from branch {branch}"
                     )
                     return True
 
-            logging.error("Could not find main or master branch")
+            logging.error(f"Could not find main or master branch for {url}")
             return False
 
         except subprocess.TimeoutExpired:
-            logging.error("Timeout while updating extensions hub")
+            logging.error(f"Timeout while updating extensions hub {url}")
             return False
         except Exception as e:
-            logging.error(f"Error updating extensions hub: {e}")
+            logging.error(f"Error updating extensions hub {url}: {e}")
             return False
 
 
