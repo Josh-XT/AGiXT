@@ -49,17 +49,28 @@ class ExtensionsHub:
 
     def _get_hub_directory_name(self, url: str) -> str:
         """Generate a unique directory name from GitHub URL"""
+        from urllib.parse import urlparse
+
         # Extract repo name from GitHub URL
         # e.g., "https://github.com/user/repo.git" -> "user_repo"
         url = url.strip()
         if url.endswith(".git"):
             url = url[:-4]
 
-        # Extract the path after github.com
-        if "github.com/" in url:
-            path = url.split("github.com/")[1]
-            # Replace slashes with underscores to create safe directory name
-            return path.replace("/", "_").replace("-", "_")
+        try:
+            # Parse the URL properly to validate hostname
+            parsed = urlparse(url)
+
+            # Only process if hostname is exactly github.com
+            if parsed.hostname == "github.com" and parsed.path:
+                # Remove leading slash and extract path
+                path = parsed.path.lstrip("/")
+                if path:
+                    # Replace slashes and hyphens with underscores to create safe directory name
+                    return path.replace("/", "_").replace("-", "_")
+        except Exception:
+            # Fall through to fallback if URL parsing fails
+            pass
 
         # Fallback - use hash of URL
         import hashlib
