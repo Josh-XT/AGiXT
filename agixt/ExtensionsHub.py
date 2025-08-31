@@ -429,8 +429,5 @@ def get_extension_class_name(filename: str) -> str:
     return filename.replace(".py", "").lower()
 
 
-# Initialize extensions hub on module import if configured
-def initialize_hub():
-    """Initialize the extensions hub if configured"""
-    hub = ExtensionsHub()
-    hub.clone_or_update_hub()
+# Note: ExtensionsHub should only be initialized from SeedImports.py during startup
+# to avoid multiple workers trying to clone the same repositories

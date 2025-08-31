@@ -48,15 +48,8 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        # Initialize Extensions Hub if configured
-        extensions_hub_url = getenv("EXTENSIONS_HUB")
-        if extensions_hub_url:
-            try:
-                extensions_hub = ExtensionsHub()
-                await extensions_hub.clone_or_update_hub()
-                logging.info("Extensions Hub initialized successfully")
-            except Exception as e:
-                logging.error(f"Error initializing Extensions Hub: {e}")
+        # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
+        # to avoid multiple workers trying to clone the same repositories
 
         workspace_manager.start_file_watcher()
         await task_monitor.start()
