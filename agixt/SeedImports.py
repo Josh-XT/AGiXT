@@ -607,7 +607,14 @@ def import_all_data():
 
         hub = ExtensionsHub()
         # Use the synchronous version to avoid event loop conflicts
-        hub.clone_or_update_hub_sync()
+        hub_success = hub.clone_or_update_hub_sync()
+
+        # If hub was successful, invalidate extension cache to force rediscovery
+        if hub_success:
+            from Extensions import invalidate_extension_cache
+
+            invalidate_extension_cache()
+            logging.info("Extension cache invalidated after hub update")
     except Exception as e:
         logging.warning(f"Failed to initialize extensions hub: {e}")
 

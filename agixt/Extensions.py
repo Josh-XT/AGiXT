@@ -61,6 +61,14 @@ def _get_cached_extension_files():
     return _extension_discovery_cache
 
 
+def invalidate_extension_cache():
+    """Invalidate the extension discovery cache to force rediscovery"""
+    global _extension_discovery_cache, _extension_module_cache
+    _extension_discovery_cache = None
+    _extension_module_cache.clear()
+    logging.info("Extension cache invalidated - will rediscover extensions")
+
+
 class Extensions:
     # Class attribute for defining webhook events - extensions can override this
     webhook_events = []
