@@ -35,6 +35,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
       - [Windows and Mac Prerequisites](#windows-and-mac-prerequisites)
       - [Linux Prerequisites](#linux-prerequisites)
   - [Installation](#installation)
+  - [Local Installation (Without Docker)](#local-installation-without-docker)
   - [Usage](#usage)
     - [Command-line Options](#command-line-options)
   - [Docker Deployment](#docker-deployment)
@@ -105,6 +106,48 @@ The script will check for Docker and Docker Compose installation:
 
 - On Linux, it will attempt to install them if missing (requires sudo privileges).
 - On macOS and Windows, it will provide instructions to download and install Docker Desktop.
+
+## Local Installation (Without Docker)
+
+If you prefer to run AGiXT locally without Docker, follow these steps:
+
+1. **Clone the repository** (if not already done):
+
+   ```bash
+   git clone https://github.com/Josh-XT/AGiXT
+   cd AGiXT
+   ```
+
+2. **Install Python dependencies**:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+   
+   On some Linux systems, you may need to use `pip3` instead of `pip`:
+
+   ```bash
+   pip3 install -r requirements.txt
+   ```
+
+3. **Navigate to the AGiXT directory and run the local server**:
+
+   ```bash
+   cd agixt
+   python run-local.py
+   ```
+   
+   On some Linux systems, you may need to use `python3` instead of `python`:
+
+   ```bash
+   python3 run-local.py
+   ```
+
+4. **Access AGiXT**:
+   - The AGiXT API will be available at <http://localhost:7437>
+   - The API documentation will be available at <http://localhost:7437>
+
+**Note**: When running locally, you'll need to install and set up the AGiXT Interactive UI separately if you want a web interface. The local installation only starts the core AGiXT API server.
 
 ## Usage
 

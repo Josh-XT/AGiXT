@@ -32,21 +32,14 @@ Version: 1.0.0
 
 import asyncio
 import logging
-import os
-import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
-import tempfile
-import base64
+from datetime import datetime
 
 try:
-    import axis
     from axis import AxisDevice
 
     AXIS_AVAILABLE = True
 except ImportError:
     AXIS_AVAILABLE = False
-    logging.warning("axis library not available. Install with: pip install axis")
 
 
 class axis_camera:

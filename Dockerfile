@@ -6,4 +6,4 @@ COPY . .
 WORKDIR /agixt
 EXPOSE 7437
 ENV RUNNING_IN_DOCKER=true
-ENTRYPOINT ["python3", "healthcheck.py"]
+ENTRYPOINT ["python3", "run-local.py"]
