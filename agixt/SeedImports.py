@@ -600,11 +600,26 @@ def import_all_data():
     # Ensure default user exists
     ensure_default_user()
 
-    # Import all data types
-    logging.info("Importing providers...")
-    import_providers()
+    # Initialize extensions hub first to clone external extensions
+    logging.info("Initializing extensions hub...")
+    try:
+        import asyncio
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        # Run the async clone_or_update_hub function
+        asyncio.run(hub.clone_or_update_hub())
+    except Exception as e:
+        logging.warning(f"Failed to initialize extensions hub: {e}")
+
+    # Import extensions BEFORE providers to ensure all extensions are available
     logging.info("Importing extensions...")
     import_extensions()
+
+    # Import providers after extensions
+    logging.info("Importing providers...")
+    import_providers()
+
     logging.info("Importing prompts...")
     import_prompts()
     # logging.info("Importing agents...")
