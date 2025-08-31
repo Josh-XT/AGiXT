@@ -740,8 +740,7 @@ class goal_tracker(Extensions, ExtensionDatabaseMixin):
     def __init__(self, **kwargs):
         """Initialize the goal tracker extension"""
         # Get user ID for data isolation
-        AGENT = kwargs.get("AGENT", {})
-        self.user_id = AGENT.get("user", "default") if AGENT else "default"
+        self.user_id = kwargs.get("user_id", None)
         
         # Register models with the database system
         self.register_models()
