@@ -20,8 +20,8 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship, declarative_base
-from agixt.Extensions import Extensions
-from agixt.DB import get_session, ExtensionDatabaseMixin, Base  # Import Base from DB.py
+from Extensions import Extensions
+from DB import get_session, ExtensionDatabaseMixin, Base  # Import Base from DB.py
 
 
 # Database Models for Workout Tracker

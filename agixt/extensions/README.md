@@ -665,7 +665,7 @@ Database-enabled extensions inherit from both `Extensions` and `ExtensionDatabas
 ```python
 from datetime import datetime, date
 from sqlalchemy import Column, String, Integer, DateTime, Boolean, Date, UniqueConstraint
-from agixt.DB import get_session, ExtensionDatabaseMixin, Base
+from DB import get_session, ExtensionDatabaseMixin, Base
 
 class UserGoal(Base):
     """Database model for user goals"""
@@ -724,7 +724,7 @@ class DailyProgress(Base):
 import json
 import logging
 from Extensions import Extensions
-from agixt.DB import ExtensionDatabaseMixin
+from DB import ExtensionDatabaseMixin
 
 class goal_tracker(Extensions, ExtensionDatabaseMixin):
     """
