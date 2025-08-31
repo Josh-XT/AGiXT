@@ -6,6 +6,7 @@ Supports creating, reading, updating, and deleting natural language notes with t
 
 import json
 import logging
+import asyncio
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from sqlalchemy import (
@@ -24,6 +25,7 @@ from DB import get_session, ExtensionDatabaseMixin, Base
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from MagicalAuth import verify_api_key
+from WebhookManager import webhook_emitter
 
 
 # Pydantic models for API requests/responses
@@ -81,6 +83,22 @@ class notes(Extensions, ExtensionDatabaseMixin):
 
     # Register extension models for automatic table creation
     extension_models = [Note]
+
+    # Define webhook events for this extension
+    webhook_events = [
+        {
+            "type": "notes.created",
+            "description": "Triggered when a new note is created",
+        },
+        {"type": "notes.updated", "description": "Triggered when a note is updated"},
+        {"type": "notes.deleted", "description": "Triggered when a note is deleted"},
+        {
+            "type": "notes.retrieved",
+            "description": "Triggered when a note is retrieved",
+        },
+        {"type": "notes.searched", "description": "Triggered when notes are searched"},
+        {"type": "notes.listed", "description": "Triggered when notes are listed"},
+    ]
 
     def __init__(self, **kwargs):
         self.AGENT = kwargs
@@ -212,11 +230,34 @@ class notes(Extensions, ExtensionDatabaseMixin):
             session.add(note)
             session.commit()
 
+            # Emit webhook event for note creation
+            note_data = note.to_dict()
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="notes.created",
+                    user_id=self.user_id,
+                    data={
+                        "note_id": note.id,
+                        "title": note.title,
+                        "content": (
+                            note.content[:100] + "..."
+                            if len(note.content) > 100
+                            else note.content
+                        ),
+                        "tags": json.loads(note.tags) if note.tags else [],
+                        "created_at": (
+                            note.created_at.isoformat() if note.created_at else None
+                        ),
+                    },
+                    metadata={"operation": "create", "note_id": note.id},
+                )
+            )
+
             return json.dumps(
                 {
                     "success": True,
                     "message": f"Note '{title}' created successfully",
-                    "note": note.to_dict(),
+                    "note": note_data,
                 }
             )
         except Exception as e:
@@ -236,6 +277,24 @@ class notes(Extensions, ExtensionDatabaseMixin):
 
             if not note:
                 return json.dumps({"success": False, "error": "Note not found"})
+
+            # Emit webhook event for note retrieval
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="notes.retrieved",
+                    user_id=self.user_id,
+                    data={
+                        "note_id": note.id,
+                        "title": note.title,
+                        "content": (
+                            note.content[:100] + "..."
+                            if len(note.content) > 100
+                            else note.content
+                        ),
+                    },
+                    metadata={"operation": "retrieve", "note_id": note.id},
+                )
+            )
 
             return json.dumps({"success": True, "note": note.to_dict()})
         except Exception as e:
@@ -281,11 +340,34 @@ class notes(Extensions, ExtensionDatabaseMixin):
             note.updated_at = datetime.utcnow()
             session.commit()
 
+            # Emit webhook event for note update
+            note_data = note.to_dict()
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="notes.updated",
+                    user_id=self.user_id,
+                    data={
+                        "note_id": note.id,
+                        "title": note.title,
+                        "content": (
+                            note.content[:100] + "..."
+                            if len(note.content) > 100
+                            else note.content
+                        ),
+                        "tags": json.loads(note.tags) if note.tags else [],
+                        "updated_at": (
+                            note.updated_at.isoformat() if note.updated_at else None
+                        ),
+                    },
+                    metadata={"operation": "update", "note_id": note.id},
+                )
+            )
+
             return json.dumps(
                 {
                     "success": True,
                     "message": f"Note '{note.title}' updated successfully",
-                    "note": note.to_dict(),
+                    "note": note_data,
                 }
             )
         except Exception as e:
@@ -307,8 +389,22 @@ class notes(Extensions, ExtensionDatabaseMixin):
                 return json.dumps({"success": False, "error": "Note not found"})
 
             title = note.title
+            note_id = note.id
             session.delete(note)
             session.commit()
+
+            # Emit webhook event for note deletion
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="notes.deleted",
+                    user_id=self.user_id,
+                    data={
+                        "note_id": note_id,
+                        "title": title,
+                    },
+                    metadata={"operation": "delete", "note_id": note_id},
+                )
+            )
 
             return json.dumps(
                 {
@@ -337,6 +433,21 @@ class notes(Extensions, ExtensionDatabaseMixin):
             )
 
             total_count = session.query(Note).filter_by(user_id=self.user_id).count()
+
+            # Emit webhook event for listing notes
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="notes.listed",
+                    user_id=self.user_id,
+                    data={
+                        "total_notes": len(notes),
+                        "total_count": total_count,
+                        "limit": limit,
+                        "offset": offset,
+                    },
+                    metadata={"operation": "list", "count": len(notes)},
+                )
+            )
 
             return json.dumps(
                 {
@@ -371,6 +482,24 @@ class notes(Extensions, ExtensionDatabaseMixin):
                 .order_by(Note.updated_at.desc())
                 .limit(limit)
                 .all()
+            )
+
+            # Emit webhook event for searching notes
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="notes.searched",
+                    user_id=self.user_id,
+                    data={
+                        "query": query,
+                        "results_count": len(notes),
+                        "limit": limit,
+                    },
+                    metadata={
+                        "operation": "search",
+                        "query": query,
+                        "results": len(notes),
+                    },
+                )
             )
 
             return json.dumps(

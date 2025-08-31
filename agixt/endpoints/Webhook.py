@@ -24,7 +24,11 @@ from Models import (
     WebhookLogResponse,
     Detail,
 )
-from WebhookManager import WebhookManager, WebhookEventEmitter, WEBHOOK_EVENT_TYPES
+from WebhookManager import (
+    WebhookManager,
+    WebhookEventEmitter,
+    get_all_webhook_event_types,
+)
 from DB import (
     WebhookIncoming,
     WebhookOutgoing,
@@ -354,7 +358,7 @@ async def create_outgoing_webhook(
         session.close()
 
         # Validate event types
-        valid_event_types = [et["type"] for et in WEBHOOK_EVENT_TYPES]
+        valid_event_types = [et["type"] for et in get_all_webhook_event_types()]
         for event_type in webhook_data.event_types:
             if event_type not in valid_event_types:
                 raise HTTPException(
@@ -488,7 +492,7 @@ async def update_outgoing_webhook(
 
         # Validate event types if provided
         if webhook_update.event_types is not None:
-            valid_event_types = [et["type"] for et in WEBHOOK_EVENT_TYPES]
+            valid_event_types = [et["type"] for et in get_all_webhook_event_types()]
             for event_type in webhook_update.event_types:
                 if event_type not in valid_event_types:
                     raise HTTPException(
@@ -601,7 +605,7 @@ async def list_webhook_event_types():
     """
     Get a list of all available webhook event types
     """
-    return WebhookEventTypeList(event_types=WEBHOOK_EVENT_TYPES)
+    return WebhookEventTypeList(event_types=get_all_webhook_event_types())
 
 
 @app.post(

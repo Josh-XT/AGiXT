@@ -586,8 +586,8 @@ class WebhookManager:
             session.close()
 
 
-# Define available webhook event types
-WEBHOOK_EVENT_TYPES = [
+# Define available core webhook event types
+CORE_WEBHOOK_EVENT_TYPES = [
     {"type": "command.executed", "description": "Triggered when a command is executed"},
     {
         "type": "command.failed",
@@ -643,6 +643,28 @@ WEBHOOK_EVENT_TYPES = [
     {"type": "training.started", "description": "Triggered when training starts"},
     {"type": "training.completed", "description": "Triggered when training completes"},
 ]
+
+
+def get_all_webhook_event_types():
+    """Get all webhook event types including core events and extension events"""
+    # Import here to avoid circular imports
+    try:
+        from Extensions import Extensions
+
+        extension_events = Extensions.get_extension_webhook_events()
+    except Exception as e:
+        logging.error(f"Error loading extension webhook events: {e}")
+        extension_events = []
+
+    # Combine core events with extension events
+    all_events = CORE_WEBHOOK_EVENT_TYPES.copy()
+    all_events.extend(extension_events)
+
+    return all_events
+
+
+# For backward compatibility, maintain WEBHOOK_EVENT_TYPES
+WEBHOOK_EVENT_TYPES = get_all_webhook_event_types()
 
 # Create singleton instance for import
 webhook_emitter = WebhookEventEmitter()
