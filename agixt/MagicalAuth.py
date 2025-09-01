@@ -555,6 +555,11 @@ class MagicalAuth:
         if user is None:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Clear the current token and user_id to ensure fresh generation
+        self.token = None
+        self.user_id = None
+
         if not pyotp.TOTP(user.mfa_token).verify(login.token, valid_window=60):
             self.add_failed_login(ip_address=ip_address)
             session.close()
@@ -608,16 +613,23 @@ class MagicalAuth:
         )
         # --- End Calculation ---
 
-        self.token = jwt.encode(
+        # Generate a completely new JWT token for the user
+        # Include 'iat' (issued at) to ensure each token is unique
+        new_token = jwt.encode(
             {
                 "sub": str(user.id),
                 "email": self.email,
                 "admin": user.admin,
                 "exp": expiration,
+                "iat": datetime.now().timestamp(),  # This makes each token unique
             },
             self.encryption_key,
             algorithm="HS256",
         )
+
+        # Set the new token as the current token
+        self.token = new_token
+        self.user_id = str(user.id)
         token = (
             self.token.replace("+", "%2B")
             .replace("/", "%2F")
