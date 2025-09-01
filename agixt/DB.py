@@ -31,6 +31,7 @@ class ExtensionDatabaseMixin:
 
     extension_models = []  # Extensions should override this with their models
     _registered_models = set()  # Track which models have been logged
+    _created_tables = set()  # Track which tables have been created
 
     @classmethod
     def register_models(cls):
@@ -42,13 +43,45 @@ class ExtensionDatabaseMixin:
                     logging.info(f"Registered model: {model.__tablename__}")
                     cls._registered_models.add(model.__tablename__)
 
+                # Create table if not already created
+                if model.__tablename__ not in cls._created_tables:
+                    try:
+                        model.__table__.create(engine, checkfirst=True)
+                        cls._created_tables.add(model.__tablename__)
+                        logging.info(f"Created table: {model.__tablename__}")
+                    except Exception as e:
+                        # Check if error is about existing index - this is expected behavior
+                        if "already exists" in str(e).lower():
+                            logging.debug(
+                                f"Table/index already exists for {model.__tablename__}: {e}"
+                            )
+                            cls._created_tables.add(model.__tablename__)
+                        else:
+                            logging.error(
+                                f"Error creating table {model.__tablename__}: {e}"
+                            )
+
     @classmethod
     def create_tables(cls):
         """Create database tables for this extension"""
         if hasattr(cls, "extension_models"):
             for model in cls.extension_models:
-                model.__table__.create(engine, checkfirst=True)
-                logging.info(f"Created table: {model.__tablename__}")
+                if model.__tablename__ not in cls._created_tables:
+                    try:
+                        model.__table__.create(engine, checkfirst=True)
+                        cls._created_tables.add(model.__tablename__)
+                        logging.info(f"Created table: {model.__tablename__}")
+                    except Exception as e:
+                        # Check if error is about existing index - this is expected behavior
+                        if "already exists" in str(e).lower():
+                            logging.debug(
+                                f"Table/index already exists for {model.__tablename__}: {e}"
+                            )
+                            cls._created_tables.add(model.__tablename__)
+                        else:
+                            logging.error(
+                                f"Error creating table {model.__tablename__}: {e}"
+                            )
 
 
 logging.basicConfig(
@@ -1236,11 +1269,25 @@ def initialize_extension_tables():
     """
     models = discover_extension_models()
     for model in models:
-        try:
-            model.__table__.create(engine, checkfirst=True)
-            logging.info(f"Initialized extension table: {model.__tablename__}")
-        except Exception as e:
-            logging.error(f"Error creating extension table {model.__tablename__}: {e}")
+        # Check if table has already been created by ExtensionDatabaseMixin
+        if model.__tablename__ not in ExtensionDatabaseMixin._created_tables:
+            try:
+                model.__table__.create(engine, checkfirst=True)
+                ExtensionDatabaseMixin._created_tables.add(model.__tablename__)
+                logging.info(f"Initialized extension table: {model.__tablename__}")
+            except Exception as e:
+                # Check if error is about existing index - this is expected behavior
+                if "already exists" in str(e).lower():
+                    logging.debug(
+                        f"Table/index already exists for {model.__tablename__}: {e}"
+                    )
+                    ExtensionDatabaseMixin._created_tables.add(model.__tablename__)
+                else:
+                    logging.error(
+                        f"Error creating extension table {model.__tablename__}: {e}"
+                    )
+        else:
+            logging.debug(f"Table {model.__tablename__} already created, skipping")
 
 
 def setup_default_roles():
