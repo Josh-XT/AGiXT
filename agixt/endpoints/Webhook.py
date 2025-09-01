@@ -112,14 +112,25 @@ async def create_incoming_webhook(
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
 
-        # Get user's company ID
+        # Get user's company ID through UserCompany relationship
         session = get_session()
         user = auth.get_user_by_id(session, user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        company_id = user.company_id
+        # Get the user's primary company through UserCompany relationship
+        from DB import UserCompany
+
+        user_company = (
+            session.query(UserCompany).filter(UserCompany.user_id == user_id).first()
+        )
+        company_id = user_company.company_id if user_company else None
         session.close()
+
+        if not company_id:
+            raise HTTPException(
+                status_code=400, detail="User has no associated company"
+            )
 
         # Create webhook
         webhook_info = webhook_manager.create_incoming_webhook(
@@ -180,14 +191,12 @@ async def list_incoming_webhooks(
 
         session = get_session()
 
-        # Get user's company ID
+        # Get user to verify they exist
         user = auth.get_user_by_id(session, user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        company_id = user.company_id
-
-        # Build query
+        # Build query - no need for company_id since we're filtering by user_id
         query = session.query(WebhookIncoming).filter(
             WebhookIncoming.user_id == user_id
         )
@@ -373,14 +382,25 @@ async def create_outgoing_webhook(
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
 
-        # Get user's company ID
+        # Get user's company ID through UserCompany relationship
         session = get_session()
         user = auth.get_user_by_id(session, user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        company_id = user.company_id
+        # Get the user's primary company through UserCompany relationship
+        from DB import UserCompany
+
+        user_company = (
+            session.query(UserCompany).filter(UserCompany.user_id == user_id).first()
+        )
+        company_id = user_company.company_id if user_company else None
         session.close()
+
+        if not company_id:
+            raise HTTPException(
+                status_code=400, detail="User has no associated company"
+            )
 
         # Validate event types
         valid_event_types = [et["type"] for et in get_all_webhook_event_types()]
