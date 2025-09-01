@@ -56,7 +56,7 @@ def _get_cached_extension_files():
     global _extension_discovery_cache
 
     if _extension_discovery_cache is None:
-        _extension_discovery_cache = find_extension_files()
+        _extension_discovery_cache = find_extension_files("agixt/extensions")
 
     return _extension_discovery_cache
 
