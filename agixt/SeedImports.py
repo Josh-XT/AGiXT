@@ -80,6 +80,10 @@ def import_extensions():
     if "Custom Automation" in extensions_data:
         del extensions_data["Custom Automation"]
     extension_settings_data = Extensions().get_extension_settings()
+
+    # Create extension database tables during seed import
+    create_extension_tables()
+
     session = get_session()
 
     # Get existing extensions
@@ -217,6 +221,81 @@ def import_extensions():
         raise
     finally:
         session.close()
+
+
+def create_extension_tables():
+    """Create database tables for extensions that have them"""
+    import importlib
+    import os
+    import glob
+    from DB import ExtensionDatabaseMixin, engine
+    from ExtensionsHub import (
+        find_extension_files,
+        import_extension_module,
+        get_extension_class_name,
+    )
+    from Extensions import Extensions
+
+    logging.info("Creating extension database tables...")
+
+    # Get all extension files
+    try:
+        extension_files = find_extension_files()
+    except Exception as e:
+        logging.error(f"Error finding extension files: {e}")
+        return
+
+    created_tables = []
+    for extension_file in extension_files:
+        try:
+            # Import the extension module
+            module = import_extension_module(extension_file)
+            if module is None:
+                continue
+
+            # Get the expected class name
+            class_name = get_extension_class_name(os.path.basename(extension_file))
+
+            # Check if the class exists and inherits from both Extensions and ExtensionDatabaseMixin
+            if (
+                hasattr(module, class_name)
+                and issubclass(getattr(module, class_name), Extensions)
+                and issubclass(getattr(module, class_name), ExtensionDatabaseMixin)
+            ):
+
+                extension_class = getattr(module, class_name)
+
+                # Check if the extension has database models
+                if (
+                    hasattr(extension_class, "extension_models")
+                    and extension_class.extension_models
+                ):
+                    logging.info(f"Creating tables for extension: {class_name}")
+
+                    # Create tables for this extension
+                    for model in extension_class.extension_models:
+                        try:
+                            model.__table__.create(engine, checkfirst=True)
+                            table_name = model.__tablename__
+                            created_tables.append(table_name)
+                            logging.info(f"Created table: {table_name}")
+                        except Exception as e:
+                            logging.error(
+                                f"Error creating table {model.__tablename__}: {e}"
+                            )
+
+                    # Register the models
+                    extension_class.register_models()
+
+        except Exception as e:
+            logging.debug(f"Could not process extension {extension_file}: {e}")
+
+    if created_tables:
+        logging.info(
+            f"Successfully created {len(created_tables)} extension tables: {', '.join(created_tables)}"
+        )
+    else:
+        logging.info("No extension tables needed to be created")
 
 
 def check_and_import_chain_steps(chain_name, chain_data, session, user_id=None):
