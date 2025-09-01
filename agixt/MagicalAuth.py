@@ -2756,6 +2756,15 @@ class MagicalAuth:
             db.commit()
             return training_data
 
+    def get_user_by_id(self, session, user_id):
+        """Get a user by ID from the database"""
+        try:
+            user = session.query(User).filter(User.id == user_id).first()
+            return user
+        except Exception as e:
+            logging.error(f"Error getting user by ID {user_id}: {str(e)}")
+            return None
+
     def get_user_agent_session(self) -> AGiXTSDK:
         session = get_session()
         user_details = session.query(User).filter(User.id == self.user_id).first()

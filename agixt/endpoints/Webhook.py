@@ -98,7 +98,7 @@ async def process_webhook(
 )
 async def create_incoming_webhook(
     webhook_data: WebhookIncomingCreate,
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Create a new incoming webhook
@@ -107,6 +107,11 @@ async def create_incoming_webhook(
     and route it to the specified agent for processing.
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         # Get user's company ID
         session = get_session()
         user = auth.get_user_by_id(session, user_id)
@@ -160,7 +165,7 @@ async def create_incoming_webhook(
     summary="List incoming webhooks",
 )
 async def list_incoming_webhooks(
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     active: Optional[bool] = Query(None, description="Filter by active status"),
 ):
@@ -168,6 +173,11 @@ async def list_incoming_webhooks(
     List all incoming webhooks for the user
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Get user's company ID
@@ -228,12 +238,17 @@ async def list_incoming_webhooks(
 async def update_incoming_webhook(
     webhook_id: str,
     webhook_update: WebhookIncomingUpdate,
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Update an existing incoming webhook
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Find webhook
@@ -300,12 +315,17 @@ async def update_incoming_webhook(
 )
 async def delete_incoming_webhook(
     webhook_id: str,
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Delete an incoming webhook
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Find webhook
@@ -340,7 +360,7 @@ async def delete_incoming_webhook(
 )
 async def create_outgoing_webhook(
     webhook_data: WebhookOutgoingCreate,
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Create a new outgoing webhook subscription
@@ -348,6 +368,11 @@ async def create_outgoing_webhook(
     This creates a webhook that will be triggered when specified events occur in AGiXT.
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         # Get user's company ID
         session = get_session()
         user = auth.get_user_by_id(session, user_id)
@@ -409,7 +434,7 @@ async def create_outgoing_webhook(
     summary="List outgoing webhooks",
 )
 async def list_outgoing_webhooks(
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
     event_type: Optional[str] = Query(None, description="Filter by event type"),
     active: Optional[bool] = Query(None, description="Filter by active status"),
 ):
@@ -417,6 +442,11 @@ async def list_outgoing_webhooks(
     List all outgoing webhook subscriptions for the user
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Build query
@@ -472,12 +502,17 @@ async def list_outgoing_webhooks(
 async def update_outgoing_webhook(
     webhook_id: str,
     webhook_update: WebhookOutgoingUpdate,
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Update an existing outgoing webhook subscription
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Find webhook
@@ -563,12 +598,17 @@ async def update_outgoing_webhook(
 )
 async def delete_outgoing_webhook(
     webhook_id: str,
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Delete an outgoing webhook subscription
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Find webhook
@@ -617,13 +657,18 @@ async def list_webhook_event_types():
 async def test_webhook(
     webhook_id: str,
     test_payload: WebhookTestPayload,
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """
     Send a test payload to an outgoing webhook
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Find webhook
@@ -670,12 +715,17 @@ async def get_webhook_statistics(
     webhook_type: str = Query(
         "incoming", description="Type of webhook (incoming or outgoing)"
     ),
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Get statistics for a specific webhook
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         stats = webhook_manager.get_webhook_statistics(webhook_id, webhook_type)
 
         if not stats:
@@ -796,12 +846,17 @@ async def get_webhook_logs(
     ),
     limit: int = Query(100, description="Maximum number of logs to return"),
     offset: int = Query(0, description="Number of logs to skip"),
-    user_id: str = Depends(verify_api_key),
+    user_data: dict = Depends(verify_api_key),
 ):
     """
     Get logs for a specific webhook
     """
     try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
         session = get_session()
 
         # Verify webhook ownership
