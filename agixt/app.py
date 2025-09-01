@@ -150,9 +150,10 @@ def register_extension_routers():
         for extension_router in extension_routers:
             extension_name = extension_router["extension_name"]
             router = extension_router["router"]
-            app.include_router(router, prefix=f"/api/extensions/{extension_name}")
+            # Don't add prefix - let extensions define their own full paths
+            app.include_router(router)
             logging.info(
-                f"Registered extension endpoints for '{extension_name}' at /api/extensions/{extension_name}"
+                f"Registered extension endpoints for '{extension_name}' with extension-defined paths"
             )
 
         _extension_routers_registered = True
