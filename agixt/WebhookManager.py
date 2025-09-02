@@ -211,6 +211,20 @@ class WebhookEventEmitter:
             payload = event.model_dump()
             payload["timestamp"] = payload["timestamp"].isoformat()
 
+            # Transform payload for specific platforms
+            original_payload = payload.copy()
+            payload = self._transform_payload_for_platform(webhook.target_url, payload)
+
+            # Log payload transformation for Discord webhooks
+            if "discord.com/api/webhooks" in webhook.target_url:
+                logger.info(
+                    f"Discord webhook payload transformed from {original_payload['event_type']} event"
+                )
+                logger.debug(
+                    f"Original payload: {json.dumps(original_payload, default=str)}"
+                )
+                logger.debug(f"Discord payload: {json.dumps(payload, default=str)}")
+
             # Add signature if secret is configured
             headers = safe_json_loads(webhook.headers, {})
 
@@ -417,6 +431,87 @@ class WebhookManager:
     def _generate_api_key(self) -> str:
         """Generate a secure API key"""
         return str(uuid.uuid4()).replace("-", "") + str(uuid.uuid4()).replace("-", "")
+
+    def _transform_payload_for_platform(
+        self, target_url: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Transform payload based on the target platform"""
+        # Discord webhook detection
+        if "discord.com/api/webhooks" in target_url:
+            return self._transform_for_discord(payload)
+
+        # Add other platform transformations here in the future
+        # elif "slack.com" in target_url:
+        #     return self._transform_for_slack(payload)
+        # elif "teams.microsoft.com" in target_url:
+        #     return self._transform_for_teams(payload)
+
+        return payload
+
+    def _transform_for_discord(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Transform payload for Discord webhook format"""
+        try:
+            event_type = payload.get("event_type", "Unknown Event")
+            agent_name = payload.get("agent_name", "AGiXT Agent")
+            timestamp = payload.get("timestamp", "")
+            data = payload.get("data", {})
+
+            # Create a readable message
+            if event_type == "command.executed":
+                content = f"🤖 **{agent_name}** executed a command"
+                if "command" in data:
+                    content += f": `{data['command']}`"
+            elif event_type == "chat.completed":
+                content = f"💬 **{agent_name}** completed a chat"
+                if "message" in data:
+                    content += f"\n> {data['message'][:100]}{'...' if len(data.get('message', '')) > 100 else ''}"
+            elif event_type == "task.completed":
+                content = f"✅ **{agent_name}** completed a task"
+                if "task_name" in data:
+                    content += f": {data['task_name']}"
+            else:
+                content = f"ℹ️ **{agent_name}** triggered event: {event_type}"
+
+            # Create Discord-compatible payload
+            discord_payload = {
+                "content": content,
+                "embeds": [
+                    {
+                        "title": f"AGiXT Event: {event_type}",
+                        "color": 3447003,  # Blue color
+                        "fields": [
+                            {"name": "Agent", "value": agent_name, "inline": True},
+                            {"name": "Time", "value": timestamp, "inline": True},
+                        ],
+                        "footer": {"text": "AGiXT Webhook System"},
+                    }
+                ],
+            }
+
+            # Add additional fields from data
+            if data:
+                embed_fields = discord_payload["embeds"][0]["fields"]
+                for key, value in data.items():
+                    if (
+                        key not in ["command", "message", "task_name"]
+                        and len(embed_fields) < 25
+                    ):  # Discord limit
+                        embed_fields.append(
+                            {
+                                "name": key.replace("_", " ").title(),
+                                "value": str(value)[:1024],  # Discord field value limit
+                                "inline": True,
+                            }
+                        )
+
+            return discord_payload
+
+        except Exception as e:
+            logger.error(f"Error transforming payload for Discord: {e}")
+            # Fallback to simple message if transformation fails
+            return {
+                "content": f"AGiXT Event: {payload.get('event_type', 'Unknown')} from {payload.get('agent_name', 'Unknown Agent')}"
+            }
 
     def _process_with_agent(
         self, webhook: WebhookIncoming, payload: Dict[str, Any]
