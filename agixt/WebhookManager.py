@@ -231,16 +231,12 @@ class WebhookEventEmitter:
             # Log successful delivery
             log_entry = WebhookLog(
                 id=str(uuid.uuid4()),
-                webhook_type="outgoing",
                 webhook_id=webhook.id,
-                event_type=event.event_type,
-                request_payload=payload,
-                request_headers=headers,
-                response_status=response.status_code,
-                response_body=response.text[:1000],  # Limit response size
-                retry_count=retry_count,
-                processing_time_ms=processing_time,
-                created_at=datetime.utcnow(),
+                direction="outgoing",
+                payload=json.dumps(payload),
+                response=response.text[:1000],  # Limit response size
+                status_code=response.status_code,
+                retry_count=0,
             )
             session.add(log_entry)
 
@@ -262,18 +258,15 @@ class WebhookEventEmitter:
             # Log failed delivery
             log_entry = WebhookLog(
                 id=str(uuid.uuid4()),
-                webhook_type="outgoing",
                 webhook_id=webhook.id,
-                event_type=event.event_type,
-                request_payload=(
+                direction="outgoing",
+                payload=json.dumps(
                     payload if "payload" in locals() else event.model_dump()
                 ),
-                request_headers=headers if "headers" in locals() else {},
-                response_status=None,
-                error_message=str(e),
+                response=None,
+                status_code=None,
                 retry_count=retry_count,
-                processing_time_ms=processing_time,
-                created_at=datetime.utcnow(),
+                error_message=str(e),
             )
             session.add(log_entry)
 
@@ -385,15 +378,12 @@ class WebhookManager:
             # Log successful processing
             log_entry = WebhookLog(
                 id=str(uuid.uuid4()),
-                webhook_type="incoming",
                 webhook_id=webhook.id,
-                request_payload=payload,
-                request_headers=headers,
-                response_status=200,
-                response_body=json.dumps(result)[:1000],
+                direction="incoming",
+                payload=json.dumps(payload),
+                response=json.dumps(result)[:1000],
+                status_code=200,
                 retry_count=0,
-                processing_time_ms=processing_time,
-                created_at=datetime.utcnow(),
             )
             session.add(log_entry)
 
@@ -407,15 +397,13 @@ class WebhookManager:
                 processing_time = int((time.time() - start_time) * 1000)
                 log_entry = WebhookLog(
                     id=str(uuid.uuid4()),
-                    webhook_type="incoming",
                     webhook_id=webhook.id if webhook else webhook_id,
-                    request_payload=payload,
-                    request_headers=headers,
-                    response_status=500,
-                    error_message=str(e),
+                    direction="incoming",
+                    payload=json.dumps(payload),
+                    response=None,
+                    status_code=500,
                     retry_count=0,
-                    processing_time_ms=processing_time,
-                    created_at=datetime.utcnow(),
+                    error_message=str(e),
                 )
                 session.add(log_entry)
 

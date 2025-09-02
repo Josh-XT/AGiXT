@@ -743,7 +743,7 @@ async def get_webhook_statistics(
 
             logs = (
                 session.query(WebhookLog)
-                .filter_by(webhook_id=webhook.id, webhook_type="incoming")
+                .filter_by(webhook_id=webhook.id, direction="incoming")
                 .all()
             )
         else:
@@ -760,24 +760,21 @@ async def get_webhook_statistics(
 
             logs = (
                 session.query(WebhookLog)
-                .filter_by(webhook_id=webhook_id, webhook_type="outgoing")
+                .filter_by(webhook_id=webhook_id, direction="outgoing")
                 .all()
             )
 
-        # Calculate average processing time
-        total_time = sum(
-            log.processing_time_ms for log in logs if log.processing_time_ms
-        )
-        avg_time = total_time / len(logs) if logs else 0
+        # Calculate average processing time (not available in current model)
+        avg_time = 0.0
 
         # Get last request and error info
         last_log = (
             session.query(WebhookLog)
             .filter_by(
                 webhook_id=webhook.id if webhook_type == "incoming" else webhook_id,
-                webhook_type=webhook_type,
+                direction=webhook_type,
             )
-            .order_by(desc(WebhookLog.created_at))
+            .order_by(desc(WebhookLog.timestamp))
             .first()
         )
 
@@ -787,11 +784,11 @@ async def get_webhook_statistics(
                 and_(
                     WebhookLog.webhook_id
                     == (webhook.id if webhook_type == "incoming" else webhook_id),
-                    WebhookLog.webhook_type == webhook_type,
+                    WebhookLog.direction == webhook_type,
                     WebhookLog.error_message.isnot(None),
                 )
             )
-            .order_by(desc(WebhookLog.created_at))
+            .order_by(desc(WebhookLog.timestamp))
             .first()
         )
 
@@ -806,9 +803,7 @@ async def get_webhook_statistics(
         )
 
         total_requests = log_query.count()
-        successful_requests = log_query.filter(
-            WebhookLog.response_status == 200
-        ).count()
+        successful_requests = log_query.filter(WebhookLog.status_code == 200).count()
         failed_requests = total_requests - successful_requests
 
         return WebhookStatistics(
@@ -818,8 +813,8 @@ async def get_webhook_statistics(
             successful_requests=successful_requests,
             failed_requests=failed_requests,
             average_processing_time_ms=avg_time,
-            last_request_at=last_log.created_at if last_log else None,
-            last_error_at=last_error.created_at if last_error else None,
+            last_request_at=last_log.timestamp if last_log else None,
+            last_error_at=last_error.timestamp if last_error else None,
             last_error_message=last_error.error_message if last_error else None,
         )
 
@@ -903,17 +898,14 @@ async def get_webhook_logs(
             result.append(
                 WebhookLogResponse(
                     id=log.id,
-                    webhook_type=log.webhook_type,
+                    direction=log.direction,
                     webhook_id=log.webhook_id,
-                    event_type=log.event_type,
-                    request_payload=log.request_payload,
-                    request_headers=log.request_headers,
-                    response_status=log.response_status,
-                    response_body=log.response_body,
+                    payload=log.payload,
+                    response=log.response,
+                    status_code=log.status_code,
                     error_message=log.error_message,
                     retry_count=log.retry_count,
-                    processing_time_ms=log.processing_time_ms,
-                    created_at=log.created_at,
+                    timestamp=log.timestamp,
                 )
             )
 

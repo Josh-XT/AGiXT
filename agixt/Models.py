@@ -778,17 +778,14 @@ class WebhookLogResponse(BaseModel):
     """Response model for webhook log entries"""
 
     id: str
-    webhook_type: str  # "incoming" or "outgoing"
+    direction: str  # "incoming" or "outgoing"
     webhook_id: str
-    event_type: Optional[str] = None  # For outgoing webhooks
-    request_payload: Dict[str, Any]
-    request_headers: Dict[str, str]
-    response_status: Optional[int] = None
-    response_body: Optional[str] = None
+    payload: Optional[str] = None  # JSON payload as string
+    response: Optional[str] = None  # Response data as string
+    status_code: Optional[int] = None
     error_message: Optional[str] = None
     retry_count: int
-    processing_time_ms: Optional[int] = None
-    created_at: datetime
+    timestamp: datetime
 
     class Config:
         from_attributes = True
