@@ -647,16 +647,28 @@ class Extensions:
                 continue
 
             # Check if the class exists and is a subclass of Extensions
-            if hasattr(module, class_name) and issubclass(
-                getattr(module, class_name), Extensions
-            ):
+            if hasattr(module, class_name):
+                ext_class = getattr(module, class_name)
+                # Use the module's Extensions class reference for comparison
+                # since extensions import "from Extensions import Extensions"
                 try:
-                    command_class = getattr(module, class_name)()
-                except Exception as e:
-                    logging.error(
-                        f"Error instantiating extension class {class_name}: {e}"
-                    )
-                    continue
+                    extensions_base = getattr(module, "Extensions", None)
+                    if extensions_base and issubclass(ext_class, extensions_base):
+                        is_extensions_subclass = True
+                    else:
+                        # Fallback: check if it's a subclass of the current Extensions class
+                        is_extensions_subclass = issubclass(ext_class, Extensions)
+                except (TypeError, AttributeError):
+                    is_extensions_subclass = False
+
+                if is_extensions_subclass:
+                    try:
+                        command_class = getattr(module, class_name)()
+                    except Exception as e:
+                        logging.error(
+                            f"Error instantiating extension class {class_name}: {e}"
+                        )
+                        continue
 
                 extension_name = os.path.basename(command_file).split(".")[0]
                 extension_name = extension_name.replace("_", " ").title()

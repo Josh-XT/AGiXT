@@ -470,7 +470,7 @@ class Command(Base):
     name = Column(Text, nullable=False)
     extension_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("extension.id"),
+        ForeignKey("extension.id", ondelete="CASCADE"),
     )
     extension = relationship("Extension", backref="commands")
 

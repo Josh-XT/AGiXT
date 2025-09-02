@@ -155,15 +155,33 @@ def import_extensions():
                                 f"Imported argument: {arg_name} for command: {command_name}"
                             )
 
-        # Delete commands that no longer exist
+        # Only delete commands that are truly obsolete
+        # Commands should only be deleted if their extension no longer exists
+        # or if we're certain the extension no longer provides this command
         imported_command_names = [
             command_data["friendly_name"]
             for command_data in extension_data.get("commands", [])
         ]
-        for existing_command in existing_commands:
-            if existing_command.name not in imported_command_names:
-                session.delete(existing_command)
-                logging.info(f"Deleted command: {existing_command.name}")
+
+        # We should be very conservative about deleting commands since agents depend on them
+        # Only delete if we have a confident list of current commands AND the command is missing
+        if (
+            len(imported_command_names) > 0
+        ):  # Only if we successfully discovered commands
+            for existing_command in existing_commands:
+                if existing_command.name not in imported_command_names:
+                    # Log but don't auto-delete - require manual intervention for safety
+                    logging.warning(
+                        f"Command '{existing_command.name}' exists in DB but not found in extension '{extension_name}' - preserving for agent compatibility"
+                    )
+                    # Uncomment the next lines only if you want to enable deletion:
+                    # session.delete(existing_command)
+                    # logging.info(f"Deleted obsolete command: {existing_command.name}")
+        else:
+            # If no commands were discovered, preserve all existing ones
+            logging.info(
+                f"No commands discovered for extension '{extension_name}', preserving {len(existing_commands)} existing commands"
+            )
 
     # Process extension settings
     for extension_name, settings in extension_settings_data.items():
@@ -204,14 +222,28 @@ def import_extensions():
                     f"Imported setting: {setting_name} for extension: {extension_name}"
                 )
 
-    # Delete extensions that no longer exist
+    # Only delete extensions that we're certain no longer exist
+    # Be very conservative about extension deletion since commands depend on them
     imported_extension_names = [
         extension_data["extension_name"] for extension_data in extensions_data
     ]
-    for existing_extension in existing_extensions:
-        if existing_extension.name not in imported_extension_names:
-            session.delete(existing_extension)
-            logging.info(f"Deleted extension: {existing_extension.name}")
+
+    if (
+        len(imported_extension_names) > 0
+    ):  # Only if we successfully discovered extensions
+        for existing_extension in existing_extensions:
+            if existing_extension.name not in imported_extension_names:
+                # Log but don't auto-delete extensions - they may be from hub imports
+                logging.warning(
+                    f"Extension '{existing_extension.name}' exists in DB but not found in current scan - preserving for safety"
+                )
+                # Uncomment the next lines only if you want to enable deletion:
+                # session.delete(existing_extension)
+                # logging.info(f"Deleted extension: {existing_extension.name}")
+    else:
+        logging.warning(
+            "No extensions discovered during import - preserving all existing extensions"
+        )
 
     try:
         session.commit()
@@ -673,6 +705,72 @@ def import_providers():
 
     session.commit()
     session.close()
+
+
+def cleanup_orphaned_data():
+    """
+    Manually clean up truly orphaned commands and extensions.
+    This should be called manually when you're certain that extensions/commands
+    should be removed (e.g., after permanently removing extension files).
+    """
+    import os
+    from Extensions import Extensions
+    from ExtensionsHub import find_extension_files, get_extension_class_name
+
+    session = get_session()
+
+    try:
+        # Get currently available extensions
+        ext = Extensions()
+        available_extensions_data = ext.get_extensions()
+        available_extension_names = {
+            ext_data["extension_name"] for ext_data in available_extensions_data
+        }
+
+        if not available_extension_names:
+            logging.warning(
+                "No extensions discovered - aborting cleanup to prevent accidental deletion"
+            )
+            return
+
+        # Find truly orphaned extensions (those not found in file system)
+        orphaned_extensions = []
+        all_extensions = session.query(Extension).all()
+
+        for db_extension in all_extensions:
+            if db_extension.name not in available_extension_names:
+                # Double-check by trying to find the extension file
+                extension_files = find_extension_files()
+                found = False
+                for file_path in extension_files:
+                    expected_name = get_extension_class_name(
+                        os.path.basename(file_path)
+                    )
+                    if (
+                        expected_name.lower().replace("_", " ")
+                        == db_extension.name.lower()
+                    ):
+                        found = True
+                        break
+
+                if not found:
+                    orphaned_extensions.append(db_extension)
+
+        if orphaned_extensions:
+            logging.info(f"Found {len(orphaned_extensions)} truly orphaned extensions")
+            for ext in orphaned_extensions:
+                # This will cascade delete commands due to foreign key relationships
+                session.delete(ext)
+                logging.info(f"Deleted orphaned extension: {ext.name}")
+
+        session.commit()
+        logging.info("Orphaned data cleanup completed")
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error during orphaned data cleanup: {e}")
+    finally:
+        session.close()
 
 
 def import_all_data():
