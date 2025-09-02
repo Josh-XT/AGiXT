@@ -316,7 +316,7 @@ class WebhookManager:
         self.event_emitter = WebhookEventEmitter()
 
     def create_incoming_webhook(
-        self, user_id: str, company_id: str, webhook_data: WebhookIncomingCreate
+        self, user_id: str, webhook_data: WebhookIncomingCreate
     ) -> Dict[str, Any]:
         """Create a new incoming webhook"""
         session = get_session()
@@ -331,18 +331,9 @@ class WebhookManager:
                 name=webhook_data.name,
                 agent_id=webhook_data.agent_id,
                 user_id=user_id,
-                company_id=company_id,
                 api_key=api_key,
                 description=webhook_data.description,
-                payload_transformation=webhook_data.payload_transformation,
-                rate_limit=webhook_data.rate_limit,
-                allowed_ips=webhook_data.allowed_ips,
                 active=webhook_data.active,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-                total_requests=0,
-                successful_requests=0,
-                failed_requests=0,
             )
 
             session.add(webhook)
@@ -386,20 +377,6 @@ class WebhookManager:
             if not webhook.active:
                 raise ValueError("Webhook is not active")
 
-            # Check IP whitelist
-            if webhook.allowed_ips and source_ip not in webhook.allowed_ips:
-                raise ValueError(f"IP {source_ip} not allowed")
-
-            # Check rate limit
-            if not self._check_rate_limit(webhook_id, webhook.rate_limit):
-                raise ValueError("Rate limit exceeded")
-
-            # Transform payload if configured
-            if webhook.payload_transformation:
-                payload = self._transform_payload(
-                    payload, webhook.payload_transformation
-                )
-
             # Process webhook (integrate with agent)
             result = self._process_with_agent(webhook, payload)
 
@@ -419,11 +396,6 @@ class WebhookManager:
                 created_at=datetime.utcnow(),
             )
             session.add(log_entry)
-
-            # Update statistics
-            webhook.total_requests += 1
-            webhook.successful_requests += 1
-            webhook.updated_at = datetime.utcnow()
 
             session.commit()
 
@@ -447,11 +419,6 @@ class WebhookManager:
                 )
                 session.add(log_entry)
 
-                if webhook:
-                    webhook.total_requests += 1
-                    webhook.failed_requests += 1
-                    webhook.updated_at = datetime.utcnow()
-
                 session.commit()
 
             raise e
@@ -462,40 +429,6 @@ class WebhookManager:
     def _generate_api_key(self) -> str:
         """Generate a secure API key"""
         return str(uuid.uuid4()).replace("-", "") + str(uuid.uuid4()).replace("-", "")
-
-    def _check_rate_limit(self, webhook_id: str, limit: int) -> bool:
-        """Check if request exceeds rate limit"""
-        current_time = time.time()
-        rate_info = self.event_emitter._rate_limits[webhook_id]
-
-        # Reset counter if minute has passed
-        if current_time - rate_info["reset_time"] > 60:
-            rate_info["count"] = 0
-            rate_info["reset_time"] = current_time
-
-        rate_info["count"] += 1
-        return rate_info["count"] <= limit
-
-    def _transform_payload(
-        self, payload: Dict[str, Any], transformation: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Transform incoming payload based on mapping configuration"""
-        result = {}
-
-        for target_key, source_path in transformation.items():
-            # Support nested path extraction (e.g., "data.user.name")
-            value = payload
-            for key in source_path.split("."):
-                if isinstance(value, dict) and key in value:
-                    value = value[key]
-                else:
-                    value = None
-                    break
-
-            if value is not None:
-                result[target_key] = value
-
-        return result
 
     def _process_with_agent(
         self, webhook: WebhookIncoming, payload: Dict[str, Any]
@@ -578,9 +511,6 @@ class WebhookManager:
                     return {
                         "webhook_id": webhook.webhook_id,
                         "webhook_type": "incoming",
-                        "total_requests": webhook.total_requests,
-                        "successful_requests": webhook.successful_requests,
-                        "failed_requests": webhook.failed_requests,
                         "created_at": webhook.created_at.isoformat(),
                         "updated_at": webhook.updated_at.isoformat(),
                     }

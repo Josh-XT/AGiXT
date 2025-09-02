@@ -125,29 +125,17 @@ async def create_incoming_webhook(
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
 
-        # Get user's company ID through UserCompany relationship
+        # Get user to verify existence
         session = get_session()
         user = auth.get_user_by_id(session, user_id)
         if not user:
+            session.close()
             raise HTTPException(status_code=404, detail="User not found")
-
-        # Get the user's primary company through UserCompany relationship
-        from DB import UserCompany
-
-        user_company = (
-            session.query(UserCompany).filter(UserCompany.user_id == user_id).first()
-        )
-        company_id = user_company.company_id if user_company else None
         session.close()
-
-        if not company_id:
-            raise HTTPException(
-                status_code=400, detail="User has no associated company"
-            )
 
         # Create webhook
         webhook_info = webhook_manager.create_incoming_webhook(
-            user_id=user_id, company_id=company_id, webhook_data=webhook_data
+            user_id=user_id, webhook_data=webhook_data
         )
 
         # Get full webhook details for response
@@ -166,15 +154,9 @@ async def create_incoming_webhook(
             api_key=webhook_info["api_key"],
             webhook_url=webhook_info["webhook_url"],
             description=webhook.description,
-            payload_transformation=webhook.payload_transformation,
-            rate_limit=webhook.rate_limit,
-            allowed_ips=webhook.allowed_ips,
             active=webhook.active,
             created_at=webhook.created_at,
             updated_at=webhook.updated_at,
-            total_requests=webhook.total_requests,
-            successful_requests=webhook.successful_requests,
-            failed_requests=webhook.failed_requests,
         )
 
     except Exception as e:
@@ -231,15 +213,9 @@ async def list_incoming_webhooks(
                     api_key=webhook.api_key,
                     webhook_url=f"/api/webhook/{webhook.webhook_id}",
                     description=webhook.description,
-                    payload_transformation=webhook.payload_transformation,
-                    rate_limit=webhook.rate_limit,
-                    allowed_ips=webhook.allowed_ips,
                     active=webhook.active,
                     created_at=webhook.created_at,
                     updated_at=webhook.updated_at,
-                    total_requests=webhook.total_requests,
-                    successful_requests=webhook.successful_requests,
-                    failed_requests=webhook.failed_requests,
                 )
             )
 
@@ -288,16 +264,8 @@ async def update_incoming_webhook(
             webhook.name = webhook_update.name
         if webhook_update.description is not None:
             webhook.description = webhook_update.description
-        if webhook_update.payload_transformation is not None:
-            webhook.payload_transformation = webhook_update.payload_transformation
-        if webhook_update.rate_limit is not None:
-            webhook.rate_limit = webhook_update.rate_limit
-        if webhook_update.allowed_ips is not None:
-            webhook.allowed_ips = webhook_update.allowed_ips
         if webhook_update.active is not None:
             webhook.active = webhook_update.active
-
-        webhook.updated_at = datetime.utcnow()
 
         session.commit()
 
@@ -308,15 +276,9 @@ async def update_incoming_webhook(
             api_key=webhook.api_key,
             webhook_url=f"/api/webhook/{webhook.webhook_id}",
             description=webhook.description,
-            payload_transformation=webhook.payload_transformation,
-            rate_limit=webhook.rate_limit,
-            allowed_ips=webhook.allowed_ips,
             active=webhook.active,
             created_at=webhook.created_at,
             updated_at=webhook.updated_at,
-            total_requests=webhook.total_requests,
-            successful_requests=webhook.successful_requests,
-            failed_requests=webhook.failed_requests,
         )
 
         session.close()
@@ -835,24 +797,26 @@ async def get_webhook_statistics(
 
         session.close()
 
+        # Since the webhook models don't have statistics fields,
+        # we need to calculate them from the logs
+        log_query = session.query(WebhookLog).filter(
+            WebhookLog.webhook_id == webhook_id
+            if webhook_type == "incoming"
+            else WebhookLog.webhook_id == webhook_id
+        )
+
+        total_requests = log_query.count()
+        successful_requests = log_query.filter(
+            WebhookLog.response_status == 200
+        ).count()
+        failed_requests = total_requests - successful_requests
+
         return WebhookStatistics(
             webhook_id=webhook_id,
             webhook_type=webhook_type,
-            total_requests=(
-                stats.get("total_requests", 0)
-                if webhook_type == "incoming"
-                else stats.get("total_events_sent", 0)
-            ),
-            successful_requests=(
-                stats.get("successful_requests", 0)
-                if webhook_type == "incoming"
-                else stats.get("successful_deliveries", 0)
-            ),
-            failed_requests=(
-                stats.get("failed_requests", 0)
-                if webhook_type == "incoming"
-                else stats.get("failed_deliveries", 0)
-            ),
+            total_requests=total_requests,
+            successful_requests=successful_requests,
+            failed_requests=failed_requests,
             average_processing_time_ms=avg_time,
             last_request_at=last_log.created_at if last_log else None,
             last_error_at=last_error.created_at if last_error else None,

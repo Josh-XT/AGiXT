@@ -677,11 +677,6 @@ class WebhookIncomingCreate(BaseModel):
     name: str
     agent_id: str
     description: Optional[str] = None
-    payload_transformation: Optional[Dict[str, Any]] = (
-        None  # JSON mapping for transforming incoming payloads
-    )
-    rate_limit: Optional[int] = 100  # Requests per minute
-    allowed_ips: Optional[List[str]] = []  # IP whitelist, empty means all allowed
     active: Optional[bool] = True
 
 
@@ -690,9 +685,6 @@ class WebhookIncomingUpdate(BaseModel):
 
     name: Optional[str] = None
     description: Optional[str] = None
-    payload_transformation: Optional[Dict[str, Any]] = None
-    rate_limit: Optional[int] = None
-    allowed_ips: Optional[List[str]] = None
     active: Optional[bool] = None
 
 
@@ -705,15 +697,9 @@ class WebhookIncomingResponse(BaseModel):
     api_key: str
     webhook_url: str  # Full URL for the webhook endpoint
     description: Optional[str] = None
-    payload_transformation: Optional[Dict[str, Any]] = None
-    rate_limit: int
-    allowed_ips: List[str]
     active: bool
     created_at: datetime
     updated_at: datetime
-    total_requests: int
-    successful_requests: int
-    failed_requests: int
 
     class Config:
         from_attributes = True
