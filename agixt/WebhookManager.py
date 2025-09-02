@@ -90,6 +90,7 @@ class WebhookEventEmitter:
         Returns:
             Event ID for tracking
         """
+        logger.info(f"Emitting webhook event: {event_type} for user: {user_id}")
         event_id = str(uuid.uuid4())
 
         event_payload = WebhookEventPayload(
@@ -127,31 +128,59 @@ class WebhookEventEmitter:
     async def _send_to_subscribers(self, event: WebhookEventPayload):
         """Send event to all matching webhook subscribers"""
         session = get_session()
+        logger.info(
+            f"Looking for webhooks subscribed to event type: {event.event_type}"
+        )
 
         try:
-            # Find all active webhooks subscribed to this event type
-            # Use string matching for SQLite compatibility
-            webhooks = (
+            # First, get all active webhooks to see what's available
+            all_webhooks = (
                 session.query(WebhookOutgoing)
-                .filter(
-                    and_(
-                        WebhookOutgoing.active == True,
-                        WebhookOutgoing.event_types.like(f'%"{event.event_type}"%'),
-                    )
+                .filter(WebhookOutgoing.active == True)
+                .all()
+            )
+            logger.info(f"Total active webhooks: {len(all_webhooks)}")
+            for wh in all_webhooks:
+                logger.info(
+                    f"  Webhook {wh.id} ({wh.name}): event_types={wh.event_types}, target={wh.target_url}"
                 )
+
+            # Find all active webhooks subscribed to this event type
+            # First get all active webhooks, then filter in Python for better compatibility
+            all_active_webhooks = (
+                session.query(WebhookOutgoing)
+                .filter(WebhookOutgoing.active == True)
                 .all()
             )
 
+            webhooks = []
+            for webhook in all_active_webhooks:
+                if self._webhook_subscribes_to_event(webhook, event.event_type):
+                    webhooks.append(webhook)
+
+            logger.info(
+                f"Found {len(webhooks)} active webhooks for event type {event.event_type}"
+            )
+
             for webhook in webhooks:
+                logger.info(
+                    f"Checking webhook {webhook.id} ({webhook.name}) with event_types: {webhook.event_types}"
+                )
                 # Check if webhook matches filters
                 if self._matches_filters(webhook, event):
+                    logger.info(
+                        f"Webhook {webhook.id} matches filters, checking circuit breaker"
+                    )
                     # Check circuit breaker
                     if self._is_circuit_open(webhook.id):
                         logger.warning(f"Circuit breaker open for webhook {webhook.id}")
                         continue
 
                     # Send webhook
+                    logger.info(f"Sending webhook {webhook.id} to {webhook.target_url}")
                     asyncio.create_task(self._send_webhook(webhook, event))
+                else:
+                    logger.info(f"Webhook {webhook.id} does not match filters")
 
         except Exception as e:
             logger.error(f"Error sending webhooks: {e}")
@@ -163,19 +192,30 @@ class WebhookEventEmitter:
     ) -> bool:
         """Check if event matches webhook filters"""
         if not webhook.filters:
+            logger.debug(f"Webhook {webhook.id} has no filters, allowing all events")
             return True
 
         # Deserialize filters from JSON
         filters = safe_json_loads(webhook.filters, {})
+        logger.debug(f"Webhook {webhook.id} filters: {filters}")
 
         # Check agent filter
         if "agent_id" in filters and event.agent_id != filters["agent_id"]:
+            logger.debug(
+                f"Agent ID filter mismatch: {event.agent_id} != {filters['agent_id']}"
+            )
             return False
         if "agent_name" in filters and event.agent_name != filters["agent_name"]:
+            logger.debug(
+                f"Agent name filter mismatch: {event.agent_name} != {filters['agent_name']}"
+            )
             return False
 
         # Check user filter
         if "user_id" in filters and event.user_id != filters["user_id"]:
+            logger.debug(
+                f"User ID filter mismatch: {event.user_id} != {filters['user_id']}"
+            )
             return False
 
         # Check company filter
@@ -183,6 +223,93 @@ class WebhookEventEmitter:
             return False
 
         return True
+
+    def debug_webhook_subscription(
+        self, webhook_id: str, event_type: str
+    ) -> Dict[str, Any]:
+        """Debug method to check if a webhook would receive a specific event type"""
+        session = get_session()
+        try:
+            webhook = session.query(WebhookOutgoing).filter_by(id=webhook_id).first()
+            if not webhook:
+                return {"error": "Webhook not found"}
+
+            result = {
+                "webhook_id": webhook_id,
+                "webhook_name": webhook.name,
+                "active": webhook.active,
+                "event_types": webhook.event_types,
+                "filters": webhook.filters,
+                "target_url": webhook.target_url,
+                "would_match": False,
+                "reasons": [],
+            }
+
+            # Check if webhook is active
+            if not webhook.active:
+                result["reasons"].append("Webhook is inactive")
+                return result
+
+            # Check event type subscription using the same logic as the main system
+            if not self._webhook_subscribes_to_event(webhook, event_type):
+                result["reasons"].append(
+                    f"Event type '{event_type}' not subscribed. Configured event_types: {webhook.event_types}"
+                )
+                return result
+
+            result["would_match"] = True
+            result["reasons"].append("Webhook would receive this event")
+            return result
+
+        finally:
+            session.close()
+
+    def _webhook_subscribes_to_event(
+        self, webhook: WebhookOutgoing, event_type: str
+    ) -> bool:
+        """Check if webhook subscribes to the given event type"""
+        if not webhook.event_types:
+            # Empty/null event_types means subscribe to all events
+            logger.debug(
+                f"Webhook {webhook.id} has no event_types specified - subscribing to all events"
+            )
+            return True
+
+        event_types_str = webhook.event_types.strip()
+        if not event_types_str:
+            logger.debug(
+                f"Webhook {webhook.id} has empty event_types - subscribing to all events"
+            )
+            return True
+
+        # Try to parse as JSON array first
+        try:
+            if event_types_str.startswith("[") and event_types_str.endswith("]"):
+                event_types_list = json.loads(event_types_str)
+                if isinstance(event_types_list, list):
+                    logger.debug(
+                        f"Webhook {webhook.id} event_types parsed as JSON array: {event_types_list}"
+                    )
+                    return event_type in event_types_list or "*" in event_types_list
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Try comma-separated format
+        if "," in event_types_str:
+            event_types_list = [
+                et.strip().strip("\"'") for et in event_types_str.split(",")
+            ]
+            logger.debug(
+                f"Webhook {webhook.id} event_types parsed as comma-separated: {event_types_list}"
+            )
+            return event_type in event_types_list or "*" in event_types_list
+
+        # Single event type (remove quotes if present)
+        single_event = event_types_str.strip("\"'")
+        logger.debug(
+            f"Webhook {webhook.id} event_types parsed as single event: '{single_event}'"
+        )
+        return single_event == event_type or single_event == "*"
 
     def _is_circuit_open(self, webhook_id: str) -> bool:
         """Check if circuit breaker is open for webhook"""
@@ -449,28 +576,69 @@ class WebhookManager:
         return payload
 
     def _transform_for_discord(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Transform payload for Discord webhook format"""
+        """Transform payload for Discord webhook format - handles any event type"""
         try:
             event_type = payload.get("event_type", "Unknown Event")
             agent_name = payload.get("agent_name", "AGiXT Agent")
             timestamp = payload.get("timestamp", "")
             data = payload.get("data", {})
+            user_id = payload.get("user_id", "Unknown User")
 
-            # Create a readable message
+            # Create emoji and message based on event type
+            emoji_map = {
+                "command.executed": "🤖",
+                "chat.completed": "💬",
+                "task.completed": "✅",
+                "task.started": "🚀",
+                "training.completed": "🎓",
+                "training.started": "📚",
+                "agent.created": "👤",
+                "agent.updated": "🔄",
+                "error.occurred": "❌",
+                "webhook.test": "🧪",
+                "conversation.started": "💭",
+                "conversation.ended": "🏁",
+                "file.processed": "📁",
+                "memory.stored": "🧠",
+                "extension.executed": "🔧",
+            }
+
+            emoji = emoji_map.get(event_type, "ℹ️")
+
+            # Create content message
             if event_type == "command.executed":
-                content = f"🤖 **{agent_name}** executed a command"
+                content = f"{emoji} **{agent_name}** executed a command"
                 if "command" in data:
                     content += f": `{data['command']}`"
             elif event_type == "chat.completed":
-                content = f"💬 **{agent_name}** completed a chat"
+                content = f"{emoji} **{agent_name}** completed a chat"
                 if "message" in data:
-                    content += f"\n> {data['message'][:100]}{'...' if len(data.get('message', '')) > 100 else ''}"
+                    message = str(data["message"])[:100]
+                    if len(str(data.get("message", ""))) > 100:
+                        message += "..."
+                    content += f"\n> {message}"
             elif event_type == "task.completed":
-                content = f"✅ **{agent_name}** completed a task"
+                content = f"{emoji} **{agent_name}** completed a task"
                 if "task_name" in data:
                     content += f": {data['task_name']}"
+            elif event_type == "webhook.test":
+                content = f"{emoji} **Test webhook** from **{agent_name}**"
+                if "message" in data:
+                    content += f"\n> {data['message']}"
             else:
-                content = f"ℹ️ **{agent_name}** triggered event: {event_type}"
+                content = f"{emoji} **{agent_name}** triggered event: **{event_type}**"
+                # Add any key data fields to the message
+                if data and isinstance(data, dict):
+                    key_fields = ["message", "task_name", "command", "status", "result"]
+                    for field in key_fields:
+                        if field in data and data[field]:
+                            value = str(data[field])[:100]
+                            if len(str(data[field])) > 100:
+                                value += "..."
+                            content += (
+                                f"\n**{field.replace('_', ' ').title()}:** {value}"
+                            )
+                            break  # Only show the first key field found
 
             # Create Discord-compatible payload
             discord_payload = {
