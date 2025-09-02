@@ -877,8 +877,16 @@ class WebhookOutgoing(Base):
     event_types = Column(Text)  # JSON array stored as text
     target_url = Column(String, nullable=False)
     headers = Column(Text)  # JSON object stored as text
+    secret = Column(String, nullable=True)  # Secret for HMAC signature verification
     retry_count = Column(Integer, default=3)
+    retry_delay = Column(Integer, default=60)  # Seconds between retries
+    timeout = Column(Integer, default=30)  # Request timeout in seconds
     active = Column(Boolean, default=True)
+    filters = Column(Text)  # JSON object stored as text for event filters
+    consecutive_failures = Column(Integer, default=0)
+    total_events_sent = Column(Integer, default=0)
+    successful_deliveries = Column(Integer, default=0)
+    failed_deliveries = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -1230,6 +1238,108 @@ def migrate_company_table():
         logging.error(f"Error during Company table migration: {e}")
 
 
+def migrate_webhook_outgoing_table():
+    """
+    Migration function to add missing fields to the WebhookOutgoing table if they don't exist.
+    """
+    try:
+        with get_session() as session:
+            # Check if we need to add the new columns
+            try:
+                # Try to access the new columns to see if they exist
+                session.execute(
+                    text("SELECT secret FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT retry_delay FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT timeout FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT filters FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT consecutive_failures FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT total_events_sent FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT successful_deliveries FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT failed_deliveries FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                logging.info(
+                    "WebhookOutgoing table migration: All columns already exist"
+                )
+                return
+            except Exception:
+                # Columns don't exist, we need to add them
+                logging.info("WebhookOutgoing table migration: Adding new columns")
+                pass
+
+            if DATABASE_TYPE == "sqlite":
+                # SQLite ALTER TABLE syntax
+                columns_to_add = [
+                    ("secret", "TEXT DEFAULT NULL"),
+                    ("retry_delay", "INTEGER DEFAULT 60"),
+                    ("timeout", "INTEGER DEFAULT 30"),
+                    ("filters", "TEXT DEFAULT NULL"),
+                    ("consecutive_failures", "INTEGER DEFAULT 0"),
+                    ("total_events_sent", "INTEGER DEFAULT 0"),
+                    ("successful_deliveries", "INTEGER DEFAULT 0"),
+                    ("failed_deliveries", "INTEGER DEFAULT 0"),
+                ]
+
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE webhook_outgoing ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        logging.info(
+                            f"Added {column_name} column to webhook_outgoing table"
+                        )
+                    except Exception as e:
+                        if "duplicate column name" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
+            else:
+                # PostgreSQL ALTER TABLE syntax
+                columns_to_add = [
+                    ("secret", "VARCHAR DEFAULT NULL"),
+                    ("retry_delay", "INTEGER DEFAULT 60"),
+                    ("timeout", "INTEGER DEFAULT 30"),
+                    ("filters", "TEXT DEFAULT NULL"),
+                    ("consecutive_failures", "INTEGER DEFAULT 0"),
+                    ("total_events_sent", "INTEGER DEFAULT 0"),
+                    ("successful_deliveries", "INTEGER DEFAULT 0"),
+                    ("failed_deliveries", "INTEGER DEFAULT 0"),
+                ]
+
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE webhook_outgoing ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        logging.info(
+                            f"Added {column_name} column to webhook_outgoing table"
+                        )
+                    except Exception as e:
+                        if "already exists" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
+
+            session.commit()
+            logging.info("WebhookOutgoing table migration completed successfully")
+
+    except Exception as e:
+        logging.error(f"Error during WebhookOutgoing table migration: {e}")
+
+
 def discover_extension_models():
     """
     Discover and register all extension models
@@ -1317,6 +1427,7 @@ if __name__ == "__main__":
     # Initialize extension tables after core tables
     initialize_extension_tables()
     migrate_company_table()
+    migrate_webhook_outgoing_table()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:

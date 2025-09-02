@@ -52,3 +52,8 @@ responses.json
 josh.yml
 ezlocalai
 pull_request.md
+secrets.py
+tickets.py
+contacts.py
+activity_log.py
+assets.py

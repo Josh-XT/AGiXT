@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from typing import Dict, Any, List, Optional
 import logging
 import asyncio
+import json
 from datetime import datetime
 
 from MagicalAuth import MagicalAuth, verify_api_key
@@ -41,6 +42,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = APIRouter()
+
+
+def safe_json_loads(json_str, default=None):
+    """Safely load JSON string, returning default value on error"""
+    if not json_str:
+        return default
+    try:
+        return json.loads(json_str)
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
 auth = MagicalAuth()
 webhook_manager = WebhookManager()
 event_emitter = WebhookEventEmitter()
@@ -424,14 +437,14 @@ async def create_outgoing_webhook(
             id=webhook.id,
             name=webhook.name,
             target_url=webhook.target_url,
-            event_types=webhook.event_types,
-            headers=webhook.headers,
+            event_types=safe_json_loads(webhook.event_types, []),
+            headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,
             retry_delay=webhook.retry_delay,
             timeout=webhook.timeout,
             active=webhook.active,
-            filters=webhook.filters,
+            filters=safe_json_loads(webhook.filters, {}),
             created_at=webhook.created_at,
             updated_at=webhook.updated_at,
             consecutive_failures=webhook.consecutive_failures,
@@ -488,14 +501,14 @@ async def list_outgoing_webhooks(
                     id=webhook.id,
                     name=webhook.name,
                     target_url=webhook.target_url,
-                    event_types=webhook.event_types,
-                    headers=webhook.headers,
+                    event_types=safe_json_loads(webhook.event_types, []),
+                    headers=safe_json_loads(webhook.headers, {}),
                     secret=webhook.secret,
                     retry_count=webhook.retry_count,
                     retry_delay=webhook.retry_delay,
                     timeout=webhook.timeout,
                     active=webhook.active,
-                    filters=webhook.filters,
+                    filters=safe_json_loads(webhook.filters, {}),
                     created_at=webhook.created_at,
                     updated_at=webhook.updated_at,
                     consecutive_failures=webhook.consecutive_failures,
@@ -560,9 +573,9 @@ async def update_outgoing_webhook(
         if webhook_update.target_url is not None:
             webhook.target_url = webhook_update.target_url
         if webhook_update.event_types is not None:
-            webhook.event_types = webhook_update.event_types
+            webhook.event_types = json.dumps(webhook_update.event_types)
         if webhook_update.headers is not None:
-            webhook.headers = webhook_update.headers
+            webhook.headers = json.dumps(webhook_update.headers)
         if webhook_update.secret is not None:
             webhook.secret = webhook_update.secret
         if webhook_update.retry_count is not None:
@@ -574,7 +587,7 @@ async def update_outgoing_webhook(
         if webhook_update.active is not None:
             webhook.active = webhook_update.active
         if webhook_update.filters is not None:
-            webhook.filters = webhook_update.filters
+            webhook.filters = json.dumps(webhook_update.filters)
 
         webhook.updated_at = datetime.utcnow()
 
@@ -584,14 +597,14 @@ async def update_outgoing_webhook(
             id=webhook.id,
             name=webhook.name,
             target_url=webhook.target_url,
-            event_types=webhook.event_types,
-            headers=webhook.headers,
+            event_types=safe_json_loads(webhook.event_types, []),
+            headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,
             retry_delay=webhook.retry_delay,
             timeout=webhook.timeout,
             active=webhook.active,
-            filters=webhook.filters,
+            filters=safe_json_loads(webhook.filters, {}),
             created_at=webhook.created_at,
             updated_at=webhook.updated_at,
             consecutive_failures=webhook.consecutive_failures,

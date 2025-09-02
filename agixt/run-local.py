@@ -25,6 +25,7 @@ async def initialize_database(is_restart=False):
         # Create tables
         DB.Base.metadata.create_all(DB.engine)
         DB.migrate_company_table()
+        DB.migrate_webhook_outgoing_table()
         DB.setup_default_roles()
 
         # Handle seed data - only on initial boot, not on restarts

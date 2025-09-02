@@ -29,6 +29,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def safe_json_loads(json_str, default=None):
+    """Safely load JSON string, returning default value on error"""
+    if not json_str:
+        return default
+    try:
+        return json.loads(json_str)
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
 class WebhookEventEmitter:
     """
     Singleton class responsible for emitting webhook events to registered subscribers
@@ -155,7 +165,8 @@ class WebhookEventEmitter:
         if not webhook.filters:
             return True
 
-        filters = webhook.filters
+        # Deserialize filters from JSON
+        filters = safe_json_loads(webhook.filters, {})
 
         # Check agent filter
         if "agent_id" in filters and event.agent_id != filters["agent_id"]:
@@ -201,7 +212,8 @@ class WebhookEventEmitter:
             payload["timestamp"] = payload["timestamp"].isoformat()
 
             # Add signature if secret is configured
-            headers = webhook.headers.copy() if webhook.headers else {}
+            headers = safe_json_loads(webhook.headers, {})
+
             if webhook.secret:
                 signature = self._generate_signature(
                     webhook.secret, json.dumps(payload)
@@ -514,14 +526,22 @@ class WebhookManager:
                 user_id=user_id,
                 company_id=company_id,
                 target_url=webhook_data.target_url,
-                event_types=webhook_data.event_types,
-                headers=webhook_data.headers,
+                event_types=(
+                    json.dumps(webhook_data.event_types)
+                    if webhook_data.event_types
+                    else "[]"
+                ),
+                headers=(
+                    json.dumps(webhook_data.headers) if webhook_data.headers else "{}"
+                ),
                 secret=webhook_data.secret,
                 retry_count=webhook_data.retry_count,
                 retry_delay=webhook_data.retry_delay,
                 timeout=webhook_data.timeout,
                 active=webhook_data.active,
-                filters=webhook_data.filters,
+                filters=(
+                    json.dumps(webhook_data.filters) if webhook_data.filters else "{}"
+                ),
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
                 consecutive_failures=0,
