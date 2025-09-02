@@ -188,7 +188,8 @@ class WebhookEventEmitter:
 
                     # Send webhook
                     logger.info(f"Sending webhook {webhook.id} to {webhook.target_url}")
-                    asyncio.create_task(self._send_webhook(webhook, event))
+                    task = asyncio.create_task(self._send_webhook(webhook, event))
+                    logger.info(f"Async task created for webhook {webhook.id}: {task}")
                 else:
                     logger.info(f"Webhook {webhook.id} does not match filters")
 
@@ -353,6 +354,9 @@ class WebhookEventEmitter:
         self, webhook: WebhookOutgoing, event: WebhookEventPayload, retry_count: int = 0
     ):
         """Send webhook with retry logic"""
+        logger.info(
+            f"Starting _send_webhook for webhook {webhook.id} (attempt {retry_count + 1})"
+        )
         session = get_session()
         start_time = time.time()
 
@@ -385,14 +389,22 @@ class WebhookEventEmitter:
                 headers["X-Webhook-Signature"] = signature
 
             # Send HTTP request
+            logger.info(f"Sending HTTP POST request to {webhook.target_url}")
             async with httpx.AsyncClient(timeout=webhook.timeout) as client:
+                logger.info(
+                    f"Making HTTP request with payload: {json.dumps(payload, default=str)[:200]}..."
+                )
                 response = await client.post(
                     webhook.target_url, json=payload, headers=headers
                 )
+                logger.info(f"HTTP response received: status={response.status_code}")
 
             processing_time = int((time.time() - start_time) * 1000)
 
             # Log successful delivery
+            logger.info(
+                f"Webhook {webhook.id} delivered successfully with status {response.status_code}"
+            )
             log_entry = WebhookLog(
                 id=str(uuid.uuid4()),
                 webhook_id=webhook.id,
@@ -417,6 +429,7 @@ class WebhookEventEmitter:
 
         except Exception as e:
             # Handle failure
+            logger.error(f"Webhook {webhook.id} delivery failed: {e}")
             processing_time = int((time.time() - start_time) * 1000)
 
             # Log failed delivery
