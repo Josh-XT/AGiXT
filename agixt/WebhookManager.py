@@ -155,8 +155,18 @@ class WebhookEventEmitter:
 
             webhooks = []
             for webhook in all_active_webhooks:
+                logger.info(
+                    f"Checking if webhook {webhook.id} ({webhook.name}) subscribes to event {event.event_type}"
+                )
                 if self._webhook_subscribes_to_event(webhook, event.event_type):
+                    logger.info(
+                        f"✓ Webhook {webhook.id} subscribes to {event.event_type}"
+                    )
                     webhooks.append(webhook)
+                else:
+                    logger.info(
+                        f"✗ Webhook {webhook.id} does not subscribe to {event.event_type}"
+                    )
 
             logger.info(
                 f"Found {len(webhooks)} active webhooks for event type {event.event_type}"
@@ -270,14 +280,14 @@ class WebhookEventEmitter:
         """Check if webhook subscribes to the given event type"""
         if not webhook.event_types:
             # Empty/null event_types means subscribe to all events
-            logger.debug(
+            logger.info(
                 f"Webhook {webhook.id} has no event_types specified - subscribing to all events"
             )
             return True
 
         event_types_str = webhook.event_types.strip()
         if not event_types_str:
-            logger.debug(
+            logger.info(
                 f"Webhook {webhook.id} has empty event_types - subscribing to all events"
             )
             return True
@@ -287,11 +297,16 @@ class WebhookEventEmitter:
             if event_types_str.startswith("[") and event_types_str.endswith("]"):
                 event_types_list = json.loads(event_types_str)
                 if isinstance(event_types_list, list):
-                    logger.debug(
+                    logger.info(
                         f"Webhook {webhook.id} event_types parsed as JSON array: {event_types_list}"
                     )
-                    return event_type in event_types_list or "*" in event_types_list
-        except (json.JSONDecodeError, TypeError):
+                    result = event_type in event_types_list or "*" in event_types_list
+                    logger.info(
+                        f"Webhook {webhook.id}: '{event_type}' in {event_types_list} = {result}"
+                    )
+                    return result
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.info(f"Webhook {webhook.id}: Failed to parse as JSON: {e}")
             pass
 
         # Try comma-separated format
@@ -299,17 +314,25 @@ class WebhookEventEmitter:
             event_types_list = [
                 et.strip().strip("\"'") for et in event_types_str.split(",")
             ]
-            logger.debug(
+            logger.info(
                 f"Webhook {webhook.id} event_types parsed as comma-separated: {event_types_list}"
             )
-            return event_type in event_types_list or "*" in event_types_list
+            result = event_type in event_types_list or "*" in event_types_list
+            logger.info(
+                f"Webhook {webhook.id}: '{event_type}' in {event_types_list} = {result}"
+            )
+            return result
 
         # Single event type (remove quotes if present)
         single_event = event_types_str.strip("\"'")
-        logger.debug(
+        logger.info(
             f"Webhook {webhook.id} event_types parsed as single event: '{single_event}'"
         )
-        return single_event == event_type or single_event == "*"
+        result = single_event == event_type or single_event == "*"
+        logger.info(
+            f"Webhook {webhook.id}: '{event_type}' == '{single_event}' = {result}"
+        )
+        return result
 
     def _is_circuit_open(self, webhook_id: str) -> bool:
         """Check if circuit breaker is open for webhook"""
