@@ -670,49 +670,51 @@ class Extensions:
                         )
                         continue
 
-                extension_name = os.path.basename(command_file).split(".")[0]
-                extension_name = extension_name.replace("_", " ").title()
-                try:
-                    extension_description = inspect.getdoc(command_class)
-                except:
-                    extension_description = extension_name
-                constructor = inspect.signature(command_class.__init__)
-                params = constructor.parameters
-                extension_settings = [
-                    name for name in params if name != "self" and name != "kwargs"
-                ]
-                extension_commands = []
-                if hasattr(command_class, "commands"):
+                    extension_name = os.path.basename(command_file).split(".")[0]
+                    extension_name = extension_name.replace("_", " ").title()
                     try:
-                        for (
-                            command_name,
-                            command_function,
-                        ) in command_class.commands.items():
-                            params = self.get_command_params(command_function)
-                            try:
-                                command_description = inspect.getdoc(command_function)
-                            except:
-                                command_description = command_name
-                            extension_commands.append(
-                                {
-                                    "friendly_name": command_name,
-                                    "description": command_description,
-                                    "command_name": command_function.__name__,
-                                    "command_args": params,
-                                }
-                            )
-                    except Exception as e:
-                        logging.error(f"Error getting commands: {e}")
-                if extension_name == "Agixt Actions":
-                    extension_name = "AGiXT Actions"
-                commands.append(
-                    {
-                        "extension_name": extension_name,
-                        "description": extension_description,
-                        "settings": extension_settings,
-                        "commands": extension_commands,
-                    }
-                )
+                        extension_description = inspect.getdoc(command_class)
+                    except:
+                        extension_description = extension_name
+                    constructor = inspect.signature(command_class.__init__)
+                    params = constructor.parameters
+                    extension_settings = [
+                        name for name in params if name != "self" and name != "kwargs"
+                    ]
+                    extension_commands = []
+                    if hasattr(command_class, "commands"):
+                        try:
+                            for (
+                                command_name,
+                                command_function,
+                            ) in command_class.commands.items():
+                                params = self.get_command_params(command_function)
+                                try:
+                                    command_description = inspect.getdoc(
+                                        command_function
+                                    )
+                                except:
+                                    command_description = command_name
+                                extension_commands.append(
+                                    {
+                                        "friendly_name": command_name,
+                                        "description": command_description,
+                                        "command_name": command_function.__name__,
+                                        "command_args": params,
+                                    }
+                                )
+                        except Exception as e:
+                            logging.error(f"Error getting commands: {e}")
+                    if extension_name == "Agixt Actions":
+                        extension_name = "AGiXT Actions"
+                    commands.append(
+                        {
+                            "extension_name": extension_name,
+                            "description": extension_description,
+                            "settings": extension_settings,
+                            "commands": extension_commands,
+                        }
+                    )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
