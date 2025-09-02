@@ -795,6 +795,7 @@ class WebhookTestPayload(BaseModel):
     """Model for testing webhook endpoints"""
 
     webhook_id: str
+    event_type: Optional[str] = "webhook.test"  # Allow custom event type
     test_payload: Optional[Dict[str, Any]] = {
         "test": True,
         "message": "Test webhook payload",

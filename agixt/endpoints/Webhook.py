@@ -681,7 +681,7 @@ async def test_webhook(
         # Create test event
         async def send_test_event():
             await event_emitter.emit_event(
-                event_type="webhook.test",
+                event_type=test_payload.event_type,
                 user_id=user_id,
                 data=test_payload.test_payload,
                 metadata={"webhook_id": webhook_id, "test": True},
