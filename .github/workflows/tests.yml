@@ -81,22 +81,22 @@ jobs:
           fetch-depth: 1
 
       - name: Install Python dependencies
-        run: pip3 install jupyter nbconvert[webpdf] ${{ inputs.additional-python-dependencies }}
+        run: pip3 install jupyter nbconvert ${{ inputs.additional-python-dependencies }}
 
       - name: Update package lists and install jupyter output generation dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic curl ffmpeg
+          sudo apt-get install --fix-missing -y pandoc curl ffmpeg
 
       - name: Set notebook and artifact files
         run: |
           notebook="${{ inputs.notebook }}"
           if ${{ endsWith( inputs.notebook, 'ipynb' ) }} ; then
             echo "notebook-file=${notebook}" >> "$GITHUB_ENV"
-            echo "artifact-file=${notebook%.*}.pdf"  >> "$GITHUB_ENV"
+            echo "artifact-file=${notebook%.*}.md"  >> "$GITHUB_ENV"
           else 
             echo "notebook-file=${notebook}/*.ipynb" >> "$GITHUB_ENV"
-            echo "artifact-file=${notebook}/*.pdf"  >> "$GITHUB_ENV"
+            echo "artifact-file=${notebook}/*.md"  >> "$GITHUB_ENV"
           fi
 
       - name: Check AGiXT logs
@@ -109,15 +109,15 @@ jobs:
         run: |
           echo "Executing notebook with strict error checking..."
           
-          # First try to execute and generate PDF
-          python3 -m nbconvert --execute --log-level INFO --to pdf ${{ env.notebook-file }}
+          # First try to execute and generate markdown
+          python3 -m nbconvert --execute --log-level INFO --to markdown ${{ env.notebook-file }}
           STRICT_STATUS=$?
           echo "strict_status=${STRICT_STATUS}" >> $GITHUB_ENV
       - name: Rerun allowing errors if strict status is not 0
         if: env.strict_status != '0'
         run: |
           echo "Executing notebook with error tolerance..."
-          python3 -m nbconvert --execute --allow-errors --log-level INFO --to pdf ${{ env.notebook-file }}
+          python3 -m nbconvert --execute --allow-errors --log-level INFO --to markdown ${{ env.notebook-file }}
       - name: Send Report to Discord
         if: always()
         run: |
@@ -143,7 +143,7 @@ jobs:
             MESSAGE="✅ Test passed: **${{ inputs.report-name }}** on repository **${{ github.repository }}** branch **$BRANCH_NAME** commit **${{ github.sha }}** by **${{ github.actor }}**"
           fi
           FILE_TO_SEND="tests/report.mp4"
-          # If it doesn't exist, send the PDF
+          # If it doesn't exist, send the markdown
           if [ ! -f $FILE_TO_SEND ]; then
             FILE_TO_SEND="${{ env.artifact-file }}"
           fi
