@@ -84,7 +84,7 @@ class WebhookEventEmitter:
             data: Event-specific data payload
             agent_id: Optional agent ID if event is agent-related
             agent_name: Optional agent name
-            company_id: Optional company ID
+            company_id: Optional company ID - if not provided, will resolve user's default company
             metadata: Optional additional metadata
 
         Returns:
@@ -92,6 +92,12 @@ class WebhookEventEmitter:
         """
         logger.info(f"Emitting webhook event: {event_type} for user: {user_id}")
         event_id = str(uuid.uuid4())
+
+        # Resolve company_id if not provided
+        if not company_id:
+            company_id = self._get_user_company_id(user_id)
+            if company_id:
+                logger.debug(f"Resolved company_id {company_id} for user {user_id}")
 
         event_payload = WebhookEventPayload(
             event_id=event_id,
@@ -114,6 +120,25 @@ class WebhookEventEmitter:
 
         return event_id
 
+    def _get_user_company_id(self, user_id: str) -> Optional[str]:
+        """Get user's default company_id"""
+        try:
+            session = get_session()
+            from DB import UserCompany
+
+            user_company = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == user_id)
+                .first()
+            )
+
+            company_id = user_company.company_id if user_company else None
+            session.close()
+            return company_id
+        except Exception as e:
+            logger.warning(f"Could not resolve company_id for user {user_id}: {e}")
+            return None
+
     async def _process_events(self):
         """Process queued events and send to webhook subscribers"""
         self._processing = True
@@ -133,23 +158,34 @@ class WebhookEventEmitter:
         )
 
         try:
+            # If no company_id in the event, log warning and skip webhook processing
+            if not event.company_id:
+                logger.warning(
+                    f"Event {event.event_type} has no company_id, skipping webhook processing"
+                )
+                return
+
             # First, get all active webhooks to see what's available
             all_webhooks = (
                 session.query(WebhookOutgoing)
                 .filter(WebhookOutgoing.active == True)
+                .filter(WebhookOutgoing.company_id == event.company_id)
                 .all()
             )
-            logger.info(f"Total active webhooks: {len(all_webhooks)}")
+            logger.info(
+                f"Total active webhooks for company {event.company_id}: {len(all_webhooks)}"
+            )
             for wh in all_webhooks:
                 logger.info(
                     f"  Webhook {wh.id} ({wh.name}): event_types={wh.event_types}, target={wh.target_url}"
                 )
 
             # Find all active webhooks subscribed to this event type
-            # First get all active webhooks, then filter in Python for better compatibility
+            # First get all active webhooks for this company, then filter in Python for better compatibility
             all_active_webhooks = (
                 session.query(WebhookOutgoing)
                 .filter(WebhookOutgoing.active == True)
+                .filter(WebhookOutgoing.company_id == event.company_id)
                 .all()
             )
 

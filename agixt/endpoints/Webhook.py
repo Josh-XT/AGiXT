@@ -363,19 +363,28 @@ async def create_outgoing_webhook(
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Get the user's primary company through UserCompany relationship
-        from DB import UserCompany
-
-        user_company = (
-            session.query(UserCompany).filter(UserCompany.user_id == user_id).first()
-        )
-        company_id = user_company.company_id if user_company else None
-        session.close()
+        # Determine company_id - use provided value or user's default
+        company_id = webhook_data.company_id
 
         if not company_id:
-            raise HTTPException(
-                status_code=400, detail="User has no associated company"
+            # Get the user's primary company through UserCompany relationship
+            from DB import UserCompany
+
+            user_company = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == user_id)
+                .first()
             )
+            company_id = user_company.company_id if user_company else None
+
+            if not company_id:
+                session.close()
+                raise HTTPException(
+                    status_code=400,
+                    detail="User has no associated company and no company_id provided",
+                )
+
+        session.close()
 
         # Validate event types
         valid_event_types = [et["type"] for et in get_all_webhook_event_types()]
@@ -400,6 +409,7 @@ async def create_outgoing_webhook(
             name=webhook.name,
             target_url=webhook.target_url,
             event_types=safe_json_loads(webhook.event_types, []),
+            company_id=webhook.company_id,
             headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,
@@ -464,6 +474,7 @@ async def list_outgoing_webhooks(
                     name=webhook.name,
                     target_url=webhook.target_url,
                     event_types=safe_json_loads(webhook.event_types, []),
+                    company_id=webhook.company_id,
                     headers=safe_json_loads(webhook.headers, {}),
                     secret=webhook.secret,
                     retry_count=webhook.retry_count,
@@ -536,6 +547,8 @@ async def update_outgoing_webhook(
             webhook.target_url = webhook_update.target_url
         if webhook_update.event_types is not None:
             webhook.event_types = json.dumps(webhook_update.event_types)
+        if webhook_update.company_id is not None:
+            webhook.company_id = webhook_update.company_id
         if webhook_update.headers is not None:
             webhook.headers = json.dumps(webhook_update.headers)
         if webhook_update.secret is not None:
@@ -560,6 +573,7 @@ async def update_outgoing_webhook(
             name=webhook.name,
             target_url=webhook.target_url,
             event_types=safe_json_loads(webhook.event_types, []),
+            company_id=webhook.company_id,
             headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,

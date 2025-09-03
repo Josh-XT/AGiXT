@@ -711,6 +711,9 @@ class WebhookOutgoingCreate(BaseModel):
     name: str
     target_url: str
     event_types: List[str]  # List of event types to subscribe to
+    company_id: Optional[str] = (
+        None  # Company ID - if not provided, uses user's default company
+    )
     headers: Optional[Dict[str, str]] = {}  # Custom headers to include
     secret: Optional[str] = None  # Secret for webhook signature verification
     retry_count: Optional[int] = 3
@@ -726,6 +729,7 @@ class WebhookOutgoingUpdate(BaseModel):
     name: Optional[str] = None
     target_url: Optional[str] = None
     event_types: Optional[List[str]] = None
+    company_id: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
     secret: Optional[str] = None
     retry_count: Optional[int] = None
@@ -742,6 +746,7 @@ class WebhookOutgoingResponse(BaseModel):
     name: str
     target_url: str
     event_types: List[str]
+    company_id: str
     headers: Dict[str, str]
     secret: Optional[str] = None
     retry_count: int
