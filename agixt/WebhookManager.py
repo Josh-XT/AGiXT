@@ -91,13 +91,30 @@ class WebhookEventEmitter:
             Event ID for tracking
         """
         logger.info(f"Emitting webhook event: {event_type} for user: {user_id}")
+        logger.debug(
+            f"emit_event parameters: event_type={event_type}, user_id={user_id}, company_id={company_id} (type: {type(company_id)}), agent_id={agent_id}, agent_name={agent_name}"
+        )
         event_id = str(uuid.uuid4())
+
+        # Ensure company_id is a string if provided (handle case where UUID object is passed)
+        if company_id:
+            logger.debug(
+                f"Converting initial company_id {company_id} (type: {type(company_id)}) to string"
+            )
+            company_id = str(company_id)
 
         # Resolve company_id if not provided
         if not company_id:
             company_id = self._get_user_company_id(user_id)
             if company_id:
                 logger.debug(f"Resolved company_id {company_id} for user {user_id}")
+
+        # Ensure company_id is a string (convert UUID objects to string)
+        if company_id:
+            logger.debug(
+                f"Converting company_id {company_id} (type: {type(company_id)}) to string"
+            )
+            company_id = str(company_id)
 
         event_payload = WebhookEventPayload(
             event_id=event_id,
@@ -123,6 +140,18 @@ class WebhookEventEmitter:
     def _get_user_company_id(self, user_id: str) -> Optional[str]:
         """Get user's default company_id"""
         try:
+            # Check if user_id is a valid UUID format
+            import uuid as uuid_lib
+
+            try:
+                uuid_lib.UUID(user_id)
+            except ValueError:
+                # user_id is not a valid UUID (e.g., email address), skip company lookup
+                logger.debug(
+                    f"User ID {user_id} is not a valid UUID, skipping company lookup"
+                )
+                return None
+
             session = get_session()
             from DB import UserCompany
 
@@ -134,7 +163,10 @@ class WebhookEventEmitter:
 
             company_id = user_company.company_id if user_company else None
             session.close()
-            return company_id
+
+            # Ensure we return a string
+            return str(company_id) if company_id else None
+
         except Exception as e:
             logger.warning(f"Could not resolve company_id for user {user_id}: {e}")
             return None
