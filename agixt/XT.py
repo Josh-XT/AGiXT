@@ -1306,10 +1306,12 @@ class AGiXT:
         conversation_id = self.conversation_id
 
         # Register this conversation as active
+        task = asyncio.current_task()
         worker_registry.register_conversation(
             conversation_id=conversation_id,
             user_id=self.auth.user_id,
             agent_name=self.agent_name,
+            task=task,
         )
 
         try:
@@ -2055,6 +2057,61 @@ class AGiXT:
 
         Yields:
             str: Server-Sent Events formatted streaming response chunks
+        """
+        import json
+        import time
+        import asyncio
+
+        conversation_id = self.conversation_id
+        chunk_id = conversation_id  # Use conversation_id as the chunk ID
+        created_time = int(time.time())
+
+        # Register this conversation as active
+        task = asyncio.current_task()
+        worker_registry.register_conversation(
+            conversation_id=conversation_id,
+            user_id=self.auth.user_id,
+            agent_name=self.agent_name,
+            task=task,
+        )
+
+        try:
+            # Execute the streaming chat completion
+            async for chunk in self._execute_chat_completions_stream(prompt):
+                yield chunk
+        except asyncio.CancelledError:
+            # Handle graceful stop
+            final_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created_time,
+                "model": self.agent_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "[Conversation stopped by user]"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+            logging.info(
+                f"Streaming chat completion cancelled for conversation {conversation_id}"
+            )
+            raise
+        except Exception as e:
+            logging.error(
+                f"Error in streaming chat completions for conversation {conversation_id}: {e}"
+            )
+            raise
+        finally:
+            # Always unregister when done
+            worker_registry.unregister_conversation(conversation_id)
+
+    async def _execute_chat_completions_stream(self, prompt: ChatCompletions):
+        """
+        Internal method that does the actual streaming chat completion processing
         """
         import json
         import time
