@@ -25,9 +25,86 @@ AGiXT is not just another AI framework—it's a complete automation platform tha
 
 **🏥 Health & Fitness**: *"Sync data from all my fitness devices, analyze my sleep trends, and schedule optimal workout times"*
 
----
+## 🚀 Quick Start Guide
 
-*Ready to get started? Check out our [Quick Start Guide](https://github.com/Josh-XT/AGiXT#getting-started)
+### ⚡ Prerequisites
+
+**Windows and Mac:**
+
+- [Git](https://git-scm.com/downloads)
+- [Docker Desktop](https://docs.docker.com/docker-for-windows/install/)
+- [Python 3.10+](https://www.python.org/downloads/)
+
+**Linux:**
+
+- [Git](https://git-scm.com/downloads)
+- [Docker](https://docs.docker.com/get-docker/)
+- [Docker Compose](https://docs.docker.com/compose/install/)
+- [Python 3.10+](https://www.python.org/downloads/)
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) *(for local GPU models)*
+
+### 📥 Installation
+
+#### Option 1: Docker Installation (Recommended)
+
+```bash
+git clone https://github.com/Josh-XT/AGiXT
+cd AGiXT
+python start.py
+```
+
+The script automatically handles Docker setup and starts all services.
+
+#### Option 2: Local Installation (Without Docker)
+
+```bash
+git clone https://github.com/Josh-XT/AGiXT
+cd AGiXT
+pip install -r requirements.txt
+cd agixt
+python run-local.py
+```
+
+### 🎯 Access AGiXT
+
+After installation, access these interfaces:
+
+- **🌐 Management Interface**: [http://localhost:8501](http://localhost:8501) - Create and manage agents, prompts, chains
+- **💬 Interactive Chat**: [http://localhost:3437](http://localhost:3437) - Chat with your configured agents  
+- **📚 API Documentation**: [http://localhost:7437](http://localhost:7437) - Complete API reference
+
+### ⚙️ Advanced Options
+
+**Run with ezLocalAI (Local AI Models):**
+
+```bash
+python start.py --with-ezlocalai true
+```
+
+**Development Mode with Auto-Updates:**
+
+```bash
+python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai true
+```
+
+**Key Command-Line Options:**
+
+- `--agixt-branch`: Choose `stable` or `dev` 
+- `--auth-provider`: Set to `magicalauth` for OAuth (GitHub/Google/Microsoft)
+- `--with-ezlocalai`: Run local AI models
+- `--agixt-auto-update`: Enable automatic updates
+- `--help`: See all available options
+
+### ⚠️ Important Notes
+
+- **Monitor Usage**: AI providers like OpenAI can be expensive - track your usage!
+- **API Key Security**: Keep your generated `AGIXT_API_KEY` secure
+- **Port Availability**: Ensure ports 3437, 7437, and 8501 are available
+- **Linux Users**: May need to prefix commands with `sudo`
+
+### 🎥 Getting Started Videos
+
+Check out our video tutorials in the [documentation](https://josh-xt.github.io/AGiXT) to see AGiXT in action!
 
 ---
 
@@ -37,6 +114,15 @@ AGiXT is not just another AI framework—it's a complete automation platform tha
   - [🌟 Overview](#-overview)
     - [🚀 What Makes AGiXT Unique](#-what-makes-agixt-unique)
     - [📈 Use Cases \& Impact](#-use-cases--impact)
+  - [🚀 Quick Start Guide](#-quick-start-guide)
+    - [⚡ Prerequisites](#-prerequisites)
+    - [📥 Installation](#-installation)
+      - [Option 1: Docker Installation (Recommended)](#option-1-docker-installation-recommended)
+      - [Option 2: Local Installation (Without Docker)](#option-2-local-installation-without-docker)
+    - [🎯 Access AGiXT](#-access-agixt)
+    - [⚙️ Advanced Options](#️-advanced-options)
+    - [⚠️ Important Notes](#️-important-notes)
+    - [🎥 Getting Started Videos](#-getting-started-videos)
   - [Table of Contents 📖](#table-of-contents-)
   - [🔮 Advanced AI Capabilities](#-advanced-ai-capabilities)
     - [Intelligent Task Planning](#intelligent-task-planning)
