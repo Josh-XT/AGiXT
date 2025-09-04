@@ -1,5 +1,22 @@
 # AGiXT Framework - Core Features
 
+[![GitHub](https://img.shields.io/badge/GitHub-Sponsor%20Josh%20XT-blue?logo=github&style=plastic)](https://github.com/sponsors/Josh-XT) [![PayPal](https://img.shields.io/badge/PayPal-Sponsor%20Josh%20XT-blue.svg?logo=paypal&style=plastic)](https://paypal.me/joshxt) [![Ko-Fi](https://img.shields.io/badge/Kofi-Sponsor%20Josh%20XT-blue.svg?logo=kofi&style=plastic)](https://ko-fi.com/joshxt)
+
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Core-blue?logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Interactive%20UI-blue?logo=github&style=plastic)](https://github.com/AGiXT/Interactive)
+
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Python%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/python-sdk) [![pypi](https://img.shields.io/badge/pypi-AGiXT%20Python%20SDK-blue?logo=pypi&style=plastic)](https://pypi.org/project/agixtsdk/)
+
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20TypeScript%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/typescript-sdk) [![npm](https://img.shields.io/badge/npm-AGiXT%20TypeScript%20SDK-blue?logo=npm&style=plastic)](https://www.npmjs.com/package/agixt)
+
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Dart%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/dart-sdk) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Rust%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Rust-Dev) 
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Zig%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Zig-SDK)
+
+[![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD)
+[![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT)
+[![Pump.fun](https://img.shields.io/badge/Pump.fun-AGiXT-blue)](https://pump.fun/coin/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump)
+
+![AGiXT_New](https://github.com/user-attachments/assets/14a5c1ae-6af8-4de8-a82e-f24ea52da23f)
+
 > **AGiXT is a comprehensive AI automation platform that transforms how you interact with artificial intelligence. With 40+ built-in extensions, multi-provider support, and enterprise-grade features, AGiXT serves as the central nervous system for your digital and physical environments.**
 
 ## 🌟 Overview
@@ -69,8 +86,7 @@ python run-local.py
 
 After installation, access these interfaces:
 
-- **🌐 Management Interface**: [http://localhost:8501](http://localhost:8501) - Create and manage agents, prompts, chains
-- **💬 Interactive Chat**: [http://localhost:3437](http://localhost:3437) - Chat with your configured agents  
+- **🌐 AGiXT Interface**: [http://localhost:3437](http://localhost:3437) - Complete management and chat interface
 - **📚 API Documentation**: [http://localhost:7437](http://localhost:7437) - Complete API reference
 
 ### ⚙️ Advanced Options
@@ -89,7 +105,7 @@ python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai tru
 
 **Key Command-Line Options:**
 
-- `--agixt-branch`: Choose `stable` or `dev` 
+- `--agixt-branch`: Choose `stable` or `dev`
 - `--auth-provider`: Set to `magicalauth` for OAuth (GitHub/Google/Microsoft)
 - `--with-ezlocalai`: Run local AI models
 - `--agixt-auto-update`: Enable automatic updates
@@ -99,14 +115,8 @@ python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai tru
 
 - **Monitor Usage**: AI providers like OpenAI can be expensive - track your usage!
 - **API Key Security**: Keep your generated `AGIXT_API_KEY` secure
-- **Port Availability**: Ensure ports 3437, 7437, and 8501 are available
+- **Port Availability**: Ensure ports 3437 and 7437 are available
 - **Linux Users**: May need to prefix commands with `sudo`
-
-### 🎥 Getting Started Videos
-
-Check out our video tutorials in the [documentation](https://josh-xt.github.io/AGiXT) to see AGiXT in action!
-
----
 
 ## Table of Contents 📖
 
@@ -122,7 +132,6 @@ Check out our video tutorials in the [documentation](https://josh-xt.github.io/A
     - [🎯 Access AGiXT](#-access-agixt)
     - [⚙️ Advanced Options](#️-advanced-options)
     - [⚠️ Important Notes](#️-important-notes)
-    - [🎥 Getting Started Videos](#-getting-started-videos)
   - [Table of Contents 📖](#table-of-contents-)
   - [🔮 Advanced AI Capabilities](#-advanced-ai-capabilities)
     - [Intelligent Task Planning](#intelligent-task-planning)
@@ -297,6 +306,10 @@ Check out our video tutorials in the [documentation](https://josh-xt.github.io/A
     - [For Developers](#for-developers)
     - [For Enterprises](#for-enterprises)
     - [For Users](#for-users)
+  - [Videos](#videos)
+  - [Other Repositories](#other-repositories)
+  - [History](#history)
+  - [Workflow](#workflow)
 
 ## 🔮 Advanced AI Capabilities
 
@@ -1483,3 +1496,172 @@ AGiXT's comprehensive authentication system provides enterprise-grade security w
 ---
 
 *AGiXT provides a complete framework for building sophisticated AI agent systems with enterprise-grade features, extensibility, and scalability. Whether you're building simple chatbots or complex multi-agent workflows, AGiXT provides the tools and infrastructure needed to succeed.*
+
+## Videos
+
+<https://github.com/user-attachments/assets/5dceb1b2-dfbc-4c2d-b648-974882eff08d>
+
+<https://github.com/user-attachments/assets/2111009a-17e0-42e5-bcbc-843d127495e0>
+
+## Other Repositories
+
+Check out the other AGiXT repositories at <https://github.com/orgs/AGiXT/repositories> - these include the AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, AGiXT Dart SDK, AGiXT C# SDK, and more!
+
+## History
+
+![Star History Chart](https://api.star-history.com/svg?repos=Josh-XT/AGiXT&type=Dat)
+
+## Workflow
+
+```mermaid
+graph TD
+    Start[Start] --> IA[Initialize Agent]
+    IA --> IM[Initialize Memories]
+    IM --> A[User Input]
+    A --> B[Multi-modal Input Handler]
+    B --> B1{Input Type?}
+    B1 -->|Text| C[Process Text Input]
+    B1 -->|Voice| STT[Speech-to-Text Conversion]
+    B1 -->|Image| VIS[Vision Processing]
+    B1 -->|File Upload| F[Handle file uploads]
+    STT --> C
+    VIS --> C
+    F --> C
+    C --> S[Log user input]
+    C --> T[Log agent activities]
+    C --> E[Override Agent settings if applicable]
+    E --> G[Handle URLs and Websearch if applicable]
+    G --> H[Data Analysis if applicable]
+    H --> K{Agent Mode?}
+    K -->|Command| EC[Execute Command]
+    K -->|Chain| EX[Execute Chain]
+    K -->|Prompt| RI[Run Inference]
+    
+    EC --> O[Prepare response]
+    EX --> O
+    RI --> O
+    
+    O --> Q[Format response]
+    Q --> R[Text Response]
+    R --> P[Calculate tokens]
+    P --> U[Log final response]
+    Q --> TTS[Text-to-Speech Conversion]
+    TTS --> VAudio[Voice Audio Response]
+    Q --> IMG_GEN[Image Generation]
+    IMG_GEN --> GImg[Generated Image]
+    
+    subgraph HF[Handle File Uploads]
+        F1[Download files to workspace]
+        F2[Learn from files]
+        F3[Update Memories]
+        F1 --> F2 --> F3
+    end
+    
+    subgraph HU[Handle URLs in User Input]
+        G1[Learn from websites]
+        G2[Handle GitHub Repositories if applicable]
+        G3[Update Memories]
+        G1 --> G2 --> G3
+    end
+    
+    subgraph AC[Data Analysis]
+        H1[Identify CSV content in agent workspace or user input]
+        H2[Determine files or content to analyze]
+        H3[Generate and verify Python code for analysis]
+        H4[Execute Python code]
+        H5{Execution successful?}
+        H6[Update memories with results from data analysis]
+        H7[Attempt code fix]
+        H1 --> H2 --> H3 --> H4 --> H5
+        H5 -->|Yes| H6
+        H5 -->|No| H7
+        H7 --> H4
+    end
+    
+    subgraph IA[Agent Initialization]
+        I1[Load agent config]
+        I2[Initialize providers]
+        I3[Load available commands]
+        I4[Initialize Conversation]
+        I5[Initialize agent workspace]
+        I1 --> I2 --> I3 --> I4 --> I5
+    end
+    
+    subgraph IM[Initialize Memories]
+        J1[Initialize vector database]
+        J2[Initialize embedding provider]
+        J3[Initialize relevant memory collections]
+        J1 --> J2 --> J3
+    end
+    
+    subgraph EC[Execute Command]
+        L1[Inject user settings]
+        L2[Inject agent extensions settings]
+        L3[Run command]
+        L1 --> L2 --> L3
+    end
+    
+    subgraph EX[Execute Chain]
+        M1[Load chain data]
+        M2[Inject user settings]
+        M3[Inject agent extension settings]
+        M4[Execute chain steps]
+        M5[Handle dependencies]
+        M6[Update chain responses]
+        M1 --> M2 --> M3 --> M4 --> M5 --> M6
+    end
+    
+    subgraph RI[Run Inference]
+        N1[Get prompt template]
+        N2[Format prompt]
+        N3[Inject relevant memories]
+        N4[Inject conversation history]
+        N5[Inject recent activities]
+        N6[Call inference method to LLM provider]
+        N1 --> N2 --> N3 --> N4 --> N5 --> N6
+    end
+
+    subgraph WS[Websearch]
+        W1[Initiate web search]
+        W2[Perform search query]
+        W3[Scrape websites]
+        W4[Recursive browsing]
+        W5[Summarize content]
+        W6[Update agent memories]
+        W1 --> W2 --> W3 --> W4 --> W5 --> W6
+    end
+
+    subgraph PR[Providers]
+        P1[LLM Provider]
+        P2[TTS Provider]
+        P3[STT Provider]
+        P4[Vision Provider]
+        P5[Image Generation Provider]
+        P6[Embedding Provider]
+    end
+
+    subgraph CL[Conversation Logging]
+        S[Log user input]
+        T[Log agent activities]
+    end
+
+    F --> HF
+    G --> HU
+    G --> WS
+    H --> AC
+    TTS --> P2
+    STT --> P3
+    VIS --> P4
+    IMG_GEN --> P5
+    J2 --> P6
+    N6 --> P1
+
+    F --> T
+    G --> T
+    H --> T
+    L3 --> T
+    M4 --> T
+    N6 --> T
+
+    style U fill:#0000FF,stroke:#333,stroke-width:4px
+```
