@@ -1,4 +1,4 @@
-# AGiXT Framework - Core Features
+# AGiXT
 
 [![GitHub](https://img.shields.io/badge/GitHub-Sponsor%20Josh%20XT-blue?logo=github&style=plastic)](https://github.com/sponsors/Josh-XT) [![PayPal](https://img.shields.io/badge/PayPal-Sponsor%20Josh%20XT-blue.svg?logo=paypal&style=plastic)](https://paypal.me/joshxt) [![Ko-Fi](https://img.shields.io/badge/Kofi-Sponsor%20Josh%20XT-blue.svg?logo=kofi&style=plastic)](https://ko-fi.com/joshxt)
 
@@ -8,7 +8,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20TypeScript%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/typescript-sdk) [![npm](https://img.shields.io/badge/npm-AGiXT%20TypeScript%20SDK-blue?logo=npm&style=plastic)](https://www.npmjs.com/package/agixt)
 
-[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Dart%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/dart-sdk) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Rust%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Rust-Dev) 
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Dart%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/dart-sdk) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Rust%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Rust-Dev)
 [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Zig%20SDK-blue?logo=github&style=plastic)](https://github.com/birdup000/AGiXT-Zig-SDK)
 
 [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD)
@@ -120,7 +120,7 @@ python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai tru
 
 ## Table of Contents 📖
 
-- [AGiXT Framework - Core Features](#agixt-framework---core-features)
+- [AGiXT](#agixt)
   - [🌟 Overview](#-overview)
     - [🚀 What Makes AGiXT Unique](#-what-makes-agixt-unique)
     - [📈 Use Cases \& Impact](#-use-cases--impact)
