@@ -1893,6 +1893,7 @@ class agixt_actions(Extensions):
                 "transport": "stdio",
                 "command": uvx_path,
                 "args": ["browser-use[cli]", "--mcp"],
+                "agent_name": self.agent_name,  # Pass agent name to be used as model
             }
 
             server_id = f"browser_use_{self.user}_{uuid.uuid4().hex[:8]}"

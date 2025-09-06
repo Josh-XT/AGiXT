@@ -457,33 +457,22 @@ class AGiXTMCPAdapter:
                 from Globals import getenv
 
                 agixt_uri = getenv("AGIXT_URI", "http://localhost:7437")
+                agent_name = server_config.get("agent_name", "gpt-4o")
 
                 # Configure browser-use to use AGiXT as OpenAI-compatible provider
                 env["OPENAI_API_KEY"] = self.user_api_key
                 env["OPENAI_BASE_URL"] = f"{agixt_uri}/v1"
-                env.setdefault(
-                    "BROWSER_USE_MODEL", getenv("BROWSER_USE_MODEL", "gpt-4o")
-                )
+                env["BROWSER_USE_MODEL"] = agent_name  # Use agent name as model
 
-                # Additional browser-use configuration
-                env.setdefault(
-                    "BROWSER_USE_HEADLESS", getenv("BROWSER_USE_HEADLESS", "true")
-                )
-                env.setdefault(
-                    "BROWSER_USE_VIEWPORT_WIDTH",
-                    getenv("BROWSER_USE_VIEWPORT_WIDTH", "1280"),
-                )
-                env.setdefault(
-                    "BROWSER_USE_VIEWPORT_HEIGHT",
-                    getenv("BROWSER_USE_VIEWPORT_HEIGHT", "720"),
-                )
+                # Optimal defaults for vision models
+                env["BROWSER_USE_HEADLESS"] = "true"
+                env["BROWSER_USE_VIEWPORT_WIDTH"] = "1280"
+                env["BROWSER_USE_VIEWPORT_HEIGHT"] = "720"
 
                 logger.info(f"Configured browser-use MCP server to use AGiXT:")
                 logger.info(f"  - Base URL: {env['OPENAI_BASE_URL']}")
-                logger.info(f"  - Model: {env.get('BROWSER_USE_MODEL')}")
-                logger.info(
-                    f"  - User API Key: {'*' * 8 if self.user_api_key else 'None'}"
-                )
+                logger.info(f"  - Model (Agent): {agent_name}")
+                logger.info(f"  - Headless: true, Viewport: 1280x720")
 
             client = MCPClient(
                 transport_type,
