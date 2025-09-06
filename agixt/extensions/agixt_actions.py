@@ -1851,6 +1851,7 @@ class agixt_actions(Extensions):
         try:
             # Import the MCP client
             from mcp_client import AGiXTMCPAdapter
+            import subprocess
 
             # Prepare the arguments for the MCP tool call
             tool_arguments = {
@@ -1867,17 +1868,34 @@ class agixt_actions(Extensions):
             # Add headless mode preference
             tool_arguments["headless"] = headless
 
-            # Create adapter for stdio-based browser-use MCP server
-            adapter = AGiXTMCPAdapter()
+            # Create adapter with user's API key for AGiXT integration
+            adapter = AGiXTMCPAdapter(user_api_key=self.api_key)
 
-            # Configure connection to browser-use MCP server running via uvx
+            # Find uvx path
+            uvx_path = None
+            for path in ["/root/.local/bin/uvx", "/usr/local/bin/uvx", "uvx"]:
+                try:
+                    result = subprocess.run(
+                        [path, "--version"], capture_output=True, timeout=5
+                    )
+                    if result.returncode == 0:
+                        uvx_path = path
+                        break
+                except:
+                    continue
+
+            if not uvx_path:
+                return "❌ Error: uvx not found. Please ensure uv is installed: curl -LsSf https://astral.sh/uv/install.sh | sh"
+
+            # Configure connection to browser-use MCP server
+            # The adapter will automatically configure AGiXT integration
             server_config = {
                 "transport": "stdio",
-                "command": "/home/josh/snap/code/205/.local/share/../bin/uvx",
+                "command": uvx_path,
                 "args": ["browser-use[cli]", "--mcp"],
             }
 
-            server_id = f"browser_use_{uuid.uuid4().hex[:8]}"
+            server_id = f"browser_use_{self.user}_{uuid.uuid4().hex[:8]}"
             client = await adapter.connect_to_server(server_id, server_config)
 
             try:

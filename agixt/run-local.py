@@ -105,14 +105,48 @@ async def start_browser_use_mcp():
 
         logger.info("Starting browser-use MCP server...")
 
-        # Start browser-use MCP server
+        # Prepare environment with LLM configuration
+        browser_env = os.environ.copy()
+
+        # Configure browser-use to use AGiXT as OpenAI-compatible provider
+        # This makes browser-use think it's using OpenAI but routes through AGiXT
+        agixt_uri = getenv("AGIXT_URI", "http://localhost:7437")
+
+        # Set up OpenAI-compatible configuration pointing to AGiXT
+        browser_env["OPENAI_API_KEY"] = (
+            "agixt-browser-automation"  # Placeholder API key
+        )
+        browser_env["OPENAI_BASE_URL"] = (
+            f"{agixt_uri}/v1"  # AGiXT's OpenAI-compatible endpoint
+        )
+        browser_env["BROWSER_USE_MODEL"] = getenv(
+            "BROWSER_USE_MODEL", "gpt-4o"
+        )  # Model name for AGiXT
+
+        logger.info(f"Configured browser-use to use AGiXT as LLM provider:")
+        logger.info(f"  - Base URL: {browser_env['OPENAI_BASE_URL']}")
+        logger.info(f"  - Model: {browser_env['BROWSER_USE_MODEL']}")
+        logger.info("  - Browser-use will route all LLM requests through AGiXT")
+
+        # Additional browser-use specific configuration
+        browser_env.setdefault(
+            "BROWSER_USE_HEADLESS", getenv("BROWSER_USE_HEADLESS", "true")
+        )
+        browser_env.setdefault(
+            "BROWSER_USE_VIEWPORT_WIDTH", getenv("BROWSER_USE_VIEWPORT_WIDTH", "1280")
+        )
+        browser_env.setdefault(
+            "BROWSER_USE_VIEWPORT_HEIGHT", getenv("BROWSER_USE_VIEWPORT_HEIGHT", "720")
+        )
+
+        # Start browser-use MCP server with configured environment
         cmd = [uvx_path, "browser-use[cli]", "--mcp"]
 
         browser_use_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=os.environ.copy(),
+            env=browser_env,
         )
 
         logger.info(
