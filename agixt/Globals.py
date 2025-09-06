@@ -69,6 +69,8 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "HEALTH_CHECK_MAX_FAILURES": "3",
         "RESTART_COOLDOWN": "60",
         "INITIAL_STARTUP_DELAY": "180",
+        "EXTENSIONS_HUB": "",
+        "EXTENSIONS_HUB_TOKEN": "",
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"

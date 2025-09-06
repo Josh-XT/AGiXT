@@ -16,6 +16,7 @@ from Models import (
     UpdateCompanyInput,
     UpdateUserRole,
 )
+from DB import TokenBlacklist, get_session
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from MagicalAuth import (
     MagicalAuth,
@@ -30,6 +31,8 @@ from typing import List
 from Globals import getenv
 import logging
 import pyotp
+import jwt
+from datetime import datetime
 
 
 app = APIRouter()
@@ -218,6 +221,90 @@ async def delete_user(
 ):
     MagicalAuth(token=authorization).delete_user()
     return Detail(detail="User deleted successfully.")
+
+
+@app.post(
+    "/v1/logout",
+    dependencies=[Depends(verify_api_key)],
+    response_model=Detail,
+    summary="Logout user and blacklist JWT token",
+    tags=["Auth"],
+)
+async def logout_user(
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Logout user by blacklisting their JWT token until its natural expiration.
+    This immediately invalidates the token across all sessions.
+    """
+    if not authorization:
+        raise HTTPException(status_code=400, detail="Authorization token is required.")
+
+    # Clean the token
+    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+
+    # Decode token to get expiration time
+    try:
+        AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+        decoded = jwt.decode(
+            jwt=token,
+            key=AGIXT_API_KEY,
+            algorithms=["HS256"],
+            options={"verify_exp": False},  # Don't verify expiration for blacklisting
+        )
+        user_id = decoded["sub"]
+        expires_at = datetime.fromtimestamp(decoded["exp"])
+
+    except jwt.InvalidTokenError as e:
+        logging.error(f"Invalid token for blacklisting: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid token.")
+
+    # Add token to blacklist
+    session = get_session()
+    try:
+        # Check if token is already blacklisted
+        existing_blacklist = (
+            session.query(TokenBlacklist).filter(TokenBlacklist.token == token).first()
+        )
+
+        if existing_blacklist:
+            session.close()
+            return Detail(detail="User logged out successfully.")
+
+        # Add new blacklist entry
+        blacklist_entry = TokenBlacklist(
+            token=token, user_id=user_id, expires_at=expires_at
+        )
+        session.add(blacklist_entry)
+        session.commit()
+
+        # Cleanup expired tokens (optional - can be done periodically)
+        expired_tokens = (
+            session.query(TokenBlacklist)
+            .filter(TokenBlacklist.expires_at < datetime.now())
+            .all()
+        )
+
+        for expired_token in expired_tokens:
+            session.delete(expired_token)
+
+        session.commit()
+
+        logging.info(
+            f"Token blacklisted for user {user_id}. Cleaned up {len(expired_tokens)} expired tokens."
+        )
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error blacklisting token: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"An error occurred during logout: {str(e)}"
+        )
+    finally:
+        session.close()
+
+    return Detail(detail="User logged out successfully.")
 
 
 @app.post("/v1/invitations", response_model=InvitationResponse, tags=["Companies"])
@@ -473,6 +560,13 @@ async def create_company(
             status=company.status,
             address=company.address,
             phone_number=company.phone_number,
+            email=company.email,
+            website=company.website,
+            city=company.city,
+            state=company.state,
+            zip_code=company.zip_code,
+            country=company.country,
+            notes=company.notes,
         )
         return NewCompanyResponse(**new_company)
     except Exception as e:
@@ -612,6 +706,13 @@ async def update_company(
             status=company_details.status,
             address=company_details.address,
             phone_number=company_details.phone_number,
+            email=company_details.email,
+            website=company_details.website,
+            city=company_details.city,
+            state=company_details.state,
+            zip_code=company_details.zip_code,
+            country=company_details.country,
+            notes=company_details.notes,
         )
     except Exception as e:
         logging.error(f"Error in update_company endpoint: {str(e)}")

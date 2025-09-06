@@ -9,6 +9,7 @@ from DB import (
     UserCompany,
     Invitation,
     default_roles,
+    TokenBlacklist,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -41,6 +42,11 @@ import jwt
 import json
 import uuid
 import os
+from ExtensionsHub import (
+    find_extension_files,
+    import_extension_module,
+    get_extension_class_name,
+)
 
 
 logging.basicConfig(
@@ -117,16 +123,19 @@ def is_admin(email: str = "USER", api_key: str = None):
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
-    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
-    files = os.listdir(sso_dir)
-    for file in files:
-        if not file.endswith(".py"):
+    # Use recursive discovery to find all extension files
+    extension_files = find_extension_files()
+    for extension_file in extension_files:
+        # Import the module using the helper function
+        module = import_extension_module(extension_file)
+        if module is None:
             continue
-        file_path = os.path.join(sso_dir, file)
-        spec = importlib.util.spec_from_file_location(file, file_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        if file.replace(".py", "") == provider:
+
+        # Get the expected class name from the module
+        class_name = get_extension_class_name(os.path.basename(extension_file))
+
+        # Check if this matches the provider we're looking for
+        if os.path.basename(extension_file).replace(".py", "") == provider:
             if getattr(module, "PKCE_REQUIRED", False):
                 if not code_verifier:
                     raise HTTPException(
@@ -142,22 +151,24 @@ def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None)
 
 
 def get_oauth_providers():
-    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
-    files = os.listdir(sso_dir)
     providers = []
-    for file in files:
-        if not file.endswith(".py"):
+    # Use recursive discovery to find all extension files
+    extension_files = find_extension_files()
+    for extension_file in extension_files:
+        # Import the module using the helper function
+        module = import_extension_module(extension_file)
+        if module is None:
             continue
-        file_path = os.path.join(sso_dir, file)
-        spec = importlib.util.spec_from_file_location(file, file_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+
+        filename = os.path.basename(extension_file)
+        module_name = filename.replace(".py", "")
+
         try:
-            client_id = os.getenv(f"{file.replace('.py', '').upper()}_CLIENT_ID")
+            client_id = os.getenv(f"{module_name.upper()}_CLIENT_ID")
             if client_id:
                 providers.append(
                     {
-                        "name": file.replace(".py", ""),
+                        "name": module_name,
                         "scopes": " ".join(module.SCOPES),
                         "authorize": module.AUTHORIZE,
                         "client_id": client_id,
@@ -170,16 +181,26 @@ def get_oauth_providers():
 
 
 def get_sso_instance(provider: str):
-    sso_dir = os.path.join(os.path.dirname(__file__), "sso")
-    files = os.listdir(sso_dir)
-    for file in files:
-        if not file.endswith(".py"):
+    # Use recursive discovery to find all extension files
+    extension_files = find_extension_files()
+    for extension_file in extension_files:
+        # Import the module using the helper function
+        module = import_extension_module(extension_file)
+        if module is None:
             continue
-        file_path = os.path.join(sso_dir, file)
-        if file.replace(".py", "") == provider:
-            module = importlib.import_module(f"sso.{provider}")
+
+        filename = os.path.basename(extension_file)
+        module_name = filename.replace(".py", "")
+
+        if module_name == provider:
             provider_class = getattr(module, f"{provider.capitalize()}SSO")
             return provider_class
+
+    # Prevent infinite recursion - if we're already looking for microsoft and can't find it,
+    # return None instead of recursing
+    if provider == "microsoft":
+        return None
+
     return get_sso_instance(provider="microsoft")
 
 
@@ -242,13 +263,30 @@ def verify_api_key(authorization: str = Header(None)):
         try:
             if authorization == AGIXT_API_KEY:
                 return get_admin_user()
+
+            # Check if token is blacklisted before validating
+            db = get_session()
+            blacklisted_token = (
+                db.query(TokenBlacklist)
+                .filter(TokenBlacklist.token == authorization)
+                .first()
+            )
+            if blacklisted_token:
+                db.close()
+                logging.info(
+                    f"Blocked blacklisted token for user {blacklisted_token.user_id}"
+                )
+                raise HTTPException(
+                    status_code=401,
+                    detail="Token has been revoked. Please log in again.",
+                )
+
             token = jwt.decode(
                 jwt=authorization,
                 key=AGIXT_API_KEY,
                 algorithms=["HS256"],
                 leeway=timedelta(hours=5),
             )
-            db = get_session()
             user = db.query(User).filter(User.id == token["sub"]).first()
             # return user dict
             user_dict = user.__dict__
@@ -517,6 +555,11 @@ class MagicalAuth:
         if user is None:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Clear the current token and user_id to ensure fresh generation
+        self.token = None
+        self.user_id = None
+
         if not pyotp.TOTP(user.mfa_token).verify(login.token, valid_window=60):
             self.add_failed_login(ip_address=ip_address)
             session.close()
@@ -570,16 +613,23 @@ class MagicalAuth:
         )
         # --- End Calculation ---
 
-        self.token = jwt.encode(
+        # Generate a completely new JWT token for the user
+        # Include 'iat' (issued at) to ensure each token is unique
+        new_token = jwt.encode(
             {
                 "sub": str(user.id),
                 "email": self.email,
                 "admin": user.admin,
                 "exp": expiration,
+                "iat": datetime.now().timestamp(),  # This makes each token unique
             },
             self.encryption_key,
             algorithm="HS256",
         )
+
+        # Set the new token as the current token
+        self.token = new_token
+        self.user_id = str(user.id)
         token = (
             self.token.replace("+", "%2B")
             .replace("/", "%2F")
@@ -640,6 +690,23 @@ class MagicalAuth:
                 detail="Too many failed login attempts today. Please try again tomorrow.",
             )
         session = get_session()
+
+        # Check if token is blacklisted before validation
+        blacklisted_token = (
+            session.query(TokenBlacklist)
+            .filter(TokenBlacklist.token == self.token)
+            .first()
+        )
+        if blacklisted_token:
+            session.close()
+            logging.info(
+                f"Blocked blacklisted token for user {blacklisted_token.user_id}"
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Token has been revoked. Please log in again.",
+            )
+
         try:
             user_info = jwt.decode(
                 jwt=self.token,
@@ -2339,6 +2406,13 @@ class MagicalAuth:
                         "status": getattr(company, "status", True),
                         "address": getattr(company, "address", None),
                         "phone_number": getattr(company, "phone_number", None),
+                        "email": getattr(company, "email", None),
+                        "website": getattr(company, "website", None),
+                        "city": getattr(company, "city", None),
+                        "state": getattr(company, "state", None),
+                        "zip_code": getattr(company, "zip_code", None),
+                        "country": getattr(company, "country", None),
+                        "notes": getattr(company, "notes", None),
                         "users": list(unique_users.values()),
                         "children": [],
                     }
@@ -2385,6 +2459,13 @@ class MagicalAuth:
                                 "status": getattr(child, "status", True),
                                 "address": getattr(child, "address", None),
                                 "phone_number": getattr(child, "phone_number", None),
+                                "email": getattr(child, "email", None),
+                                "website": getattr(child, "website", None),
+                                "city": getattr(child, "city", None),
+                                "state": getattr(child, "state", None),
+                                "zip_code": getattr(child, "zip_code", None),
+                                "country": getattr(child, "country", None),
+                                "notes": getattr(child, "notes", None),
                                 "users": list(child_unique_users.values()),
                             }
                             company_data["children"].append(child_data)
@@ -2433,6 +2514,13 @@ class MagicalAuth:
         status: bool = True,
         address: Optional[str] = None,
         phone_number: Optional[str] = None,
+        email: Optional[str] = None,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        notes: Optional[str] = None,
     ):
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
@@ -2457,6 +2545,13 @@ class MagicalAuth:
                     status=status,
                     address=address,
                     phone_number=phone_number,
+                    email=email,
+                    website=website,
+                    city=city,
+                    state=state,
+                    zip_code=zip_code,
+                    country=country,
+                    notes=notes,
                 )
                 db.add(new_company)
                 db.commit()
@@ -2520,6 +2615,13 @@ class MagicalAuth:
         status: bool = True,
         address: Optional[str] = None,
         phone_number: Optional[str] = None,
+        email: Optional[str] = None,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        notes: Optional[str] = None,
     ):
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
@@ -2530,6 +2632,13 @@ class MagicalAuth:
             status=status,
             address=address,
             phone_number=phone_number,
+            email=email,
+            website=website,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            country=country,
+            notes=notes,
         )
         agixt = self.get_user_agent_session()
         # Just create an agent associated with the company like we do at registration
@@ -2583,6 +2692,16 @@ class MagicalAuth:
                     id=str(company.id),
                     name=company.name,
                     company_id=str(company.company_id) if company.company_id else None,
+                    status=getattr(company, "status", True),
+                    address=getattr(company, "address", None),
+                    phone_number=getattr(company, "phone_number", None),
+                    email=getattr(company, "email", None),
+                    website=getattr(company, "website", None),
+                    city=getattr(company, "city", None),
+                    state=getattr(company, "state", None),
+                    zip_code=getattr(company, "zip_code", None),
+                    country=getattr(company, "country", None),
+                    notes=getattr(company, "notes", None),
                     users=[
                         UserResponse(
                             id=str(uc.user.id),
@@ -2637,6 +2756,15 @@ class MagicalAuth:
             db.commit()
             return training_data
 
+    def get_user_by_id(self, session, user_id):
+        """Get a user by ID from the database"""
+        try:
+            user = session.query(User).filter(User.id == user_id).first()
+            return user
+        except Exception as e:
+            logging.error(f"Error getting user by ID {user_id}: {str(e)}")
+            return None
+
     def get_user_agent_session(self) -> AGiXTSDK:
         session = get_session()
         user_details = session.query(User).filter(User.id == self.user_id).first()
@@ -2679,10 +2807,15 @@ class MagicalAuth:
         if not referrer:
             app_uri = getenv("APP_URI")
             referrer = f"{app_uri}/user/close/{provider}"
-        # Check if one of the providers in the sso folder
+        # Check if one of the providers in the extensions folder using recursive discovery
         provider = str(provider).lower()
-        files = os.listdir("sso")
-        if f"{provider}.py" not in files:
+        extension_files = find_extension_files()
+        provider_found = False
+        for extension_file in extension_files:
+            if os.path.basename(extension_file).replace(".py", "") == provider:
+                provider_found = True
+                break
+        if not provider_found:
             provider = "microsoft"
         sso_data = get_sso_provider(
             provider=provider,
@@ -3004,6 +3137,13 @@ class MagicalAuth:
                 status=getattr(company, "status", True),
                 address=getattr(company, "address", None),
                 phone_number=getattr(company, "phone_number", None),
+                email=getattr(company, "email", None),
+                website=getattr(company, "website", None),
+                city=getattr(company, "city", None),
+                state=getattr(company, "state", None),
+                zip_code=getattr(company, "zip_code", None),
+                country=getattr(company, "country", None),
+                notes=getattr(company, "notes", None),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
@@ -3025,6 +3165,13 @@ class MagicalAuth:
         status: Optional[bool] = None,
         address: Optional[str] = None,
         phone_number: Optional[str] = None,
+        email: Optional[str] = None,
+        website: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        country: Optional[str] = None,
+        notes: Optional[str] = None,
     ):
         # Check if company is in users companies
         if str(company_id) not in self.get_user_companies():
@@ -3052,6 +3199,20 @@ class MagicalAuth:
                 company.address = address
             if phone_number is not None:
                 company.phone_number = phone_number
+            if email is not None:
+                company.email = email
+            if website is not None:
+                company.website = website
+            if city is not None:
+                company.city = city
+            if state is not None:
+                company.state = state
+            if zip_code is not None:
+                company.zip_code = zip_code
+            if country is not None:
+                company.country = country
+            if notes is not None:
+                company.notes = notes
 
             db.commit()
             role_name = None
@@ -3108,3 +3269,32 @@ def convert_time(utc_time, user_id):
     gmt = pytz.timezone("GMT")
     local_tz = pytz.timezone(get_user_timezone(user_id))
     return gmt.localize(utc_time).astimezone(local_tz)
+
+
+def cleanup_expired_tokens():
+    """
+    Utility function to remove expired tokens from the blacklist.
+    This can be called periodically to keep the blacklist table clean.
+    """
+    session = get_session()
+    try:
+        expired_tokens = (
+            session.query(TokenBlacklist)
+            .filter(TokenBlacklist.expires_at < datetime.now())
+            .all()
+        )
+
+        count = len(expired_tokens)
+        for token in expired_tokens:
+            session.delete(token)
+
+        session.commit()
+        logging.info(f"Cleaned up {count} expired tokens from blacklist.")
+        return count
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error cleaning up expired tokens: {str(e)}")
+        return 0
+    finally:
+        session.close()

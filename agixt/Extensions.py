@@ -19,6 +19,12 @@ from DB import (
     Command,
     User,
 )
+from WebhookManager import webhook_emitter
+from ExtensionsHub import (
+    find_extension_files,
+    import_extension_module,
+    get_extension_class_name,
+)
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -26,8 +32,57 @@ logging.basicConfig(
 )
 DISABLED_EXTENSIONS = getenv("DISABLED_EXTENSIONS").replace(" ", "").split(",")
 
+# Cache for extension modules to prevent multiple imports
+_extension_module_cache = {}
+_extension_discovery_cache = None
+
+
+def _get_cached_extension_module(command_file):
+    """Get extension module from cache or import if not cached"""
+    global _extension_module_cache
+
+    if command_file in _extension_module_cache:
+        return _extension_module_cache[command_file]
+
+    module = import_extension_module(command_file)
+    if module is not None:
+        _extension_module_cache[command_file] = module
+
+    return module
+
+
+def _get_cached_extension_files():
+    """Get extension files from cache or discover if not cached"""
+    global _extension_discovery_cache
+
+    if _extension_discovery_cache is None:
+        _extension_discovery_cache = find_extension_files()
+
+    return _extension_discovery_cache
+
+
+def invalidate_extension_cache():
+    """Invalidate the extension discovery cache to force rediscovery"""
+    global _extension_discovery_cache, _extension_module_cache
+    _extension_discovery_cache = None
+    _extension_module_cache.clear()
+
+    # Reset router registration flag to force re-registration with hub extensions
+    try:
+        import app
+
+        app._extension_routers_registered = False
+        logging.info("Extension router registration flag reset")
+    except Exception as e:
+        logging.debug(f"Could not reset router registration flag: {e}")
+
+    logging.info("Extension cache invalidated - will rediscover extensions")
+
 
 class Extensions:
+    # Class attribute for defining webhook events - extensions can override this
+    webhook_events = []
+
     def __init__(
         self,
         agent_name="",
@@ -88,15 +143,18 @@ class Extensions:
             if friendly_name not in self.agent_config["commands"]:
                 self.agent_config["commands"][friendly_name] = "false"
 
-            if str(self.agent_config["commands"][friendly_name]).lower() == "true":
-                available_commands.append(
-                    {
-                        "friendly_name": friendly_name,
-                        "name": command_name,
-                        "args": command_args,
-                        "enabled": True,
-                    }
-                )
+            # Return all commands with their enabled status, don't filter here
+            enabled = (
+                str(self.agent_config["commands"][friendly_name]).lower() == "true"
+            )
+            available_commands.append(
+                {
+                    "friendly_name": friendly_name,
+                    "name": command_name,
+                    "args": command_args,
+                    "enabled": enabled,
+                }
+            )
         return available_commands
 
     def get_enabled_commands(self):
@@ -259,14 +317,26 @@ class Extensions:
         except:
             settings = {}
         commands = []
-        command_files = glob.glob("extensions/*.py")
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
+            if module is None:
                 continue
-            module = importlib.import_module(f"extensions.{module_name}")
-            if issubclass(getattr(module, module_name), Extensions):
-                command_class = getattr(module, module_name)(**settings)
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            # Check if the class exists and is a subclass of Extensions
+            if hasattr(module, class_name) and issubclass(
+                getattr(module, class_name), Extensions
+            ):
+                command_class = getattr(module, class_name)(**settings)
                 if hasattr(command_class, "commands"):
                     for (
                         command_name,
@@ -276,7 +346,7 @@ class Extensions:
                         commands.append(
                             (
                                 command_name,
-                                getattr(module, module_name),
+                                getattr(module, class_name),
                                 command_function.__name__,
                                 params,
                             )
@@ -314,14 +384,26 @@ class Extensions:
 
     def get_extension_settings(self):
         settings = {}
-        command_files = glob.glob("extensions/*.py")
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
+            if module is None:
                 continue
-            module = importlib.import_module(f"extensions.{module_name}")
-            if issubclass(getattr(module, module_name), Extensions):
-                command_class = getattr(module, module_name)()
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            # Check if the class exists and is a subclass of Extensions
+            if hasattr(module, class_name) and issubclass(
+                getattr(module, class_name), Extensions
+            ):
+                command_class = getattr(module, class_name)()
                 params = self.get_command_params(command_class.__init__)
                 # Remove self and kwargs from params
                 if "self" in params:
@@ -329,7 +411,7 @@ class Extensions:
                 if "kwargs" in params:
                     del params["kwargs"]
                 if params != {}:
-                    settings[module_name] = params
+                    settings[class_name] = params
 
         # Use self.chains_with_args instead of iterating over self.chains
         if self.chains_with_args:
@@ -350,6 +432,7 @@ class Extensions:
         agixt_server = getenv("AGIXT_URI")
         injection_variables = {
             "user": self.user,
+            "user_id": self.user_id,
             "agent_name": self.agent_name,
             "command_name": command_name,
             "conversation_name": self.conversation_name,
@@ -368,12 +451,47 @@ class Extensions:
         if "activity_id" in command_args:
             injection_variables["activity_id"] = command_args["activity_id"]
             del command_args["activity_id"]
+
+        # Emit webhook event for command execution started
+        import asyncio
+
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="command.execution.started",
+                user_id=self.user_id,
+                agent_id=self.agent_id,
+                data={
+                    "command_name": command_name,
+                    "command_args": command_args,
+                    "agent_name": self.agent_name,
+                    "conversation_id": self.conversation_id,
+                },
+            )
+        )
+
         command_function, module, params = self.find_command(command_name=command_name)
         logging.info(
             f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
         )
         if command_function is None:
             logging.error(f"Command {command_name} not found")
+
+            # Emit webhook event for command execution failed
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="command.execution.failed",
+                    user_id=self.user_id,
+                    agent_id=self.agent_id,
+                    data={
+                        "command_name": command_name,
+                        "command_args": command_args,
+                        "agent_name": self.agent_name,
+                        "conversation_id": self.conversation_id,
+                        "error": f"Command {command_name} not found",
+                    },
+                )
+            )
+
             return f"Command {command_name} not found"
 
         if command_args is None:
@@ -389,9 +507,51 @@ class Extensions:
                 del args[param]
 
         if module is None:  # It's a chain
-            return await command_function(
-                chain_name=command_name, user_input="", **args
-            )
+            try:
+                result = await command_function(
+                    chain_name=command_name, user_input="", **args
+                )
+
+                # Emit webhook event for command execution completed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.completed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "response": (
+                                str(result)[:1000] if result else None
+                            ),  # Limit response size
+                        },
+                    )
+                )
+
+                return result
+            except Exception as e:
+                # Emit webhook event for command execution failed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.failed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "error": str(e),
+                        },
+                    )
+                )
+                raise
         else:  # It's a regular command
             extension_instance = None
             try:
@@ -399,7 +559,47 @@ class Extensions:
                 result = await getattr(extension_instance, command_function.__name__)(
                     **args
                 )
+
+                # Emit webhook event for command execution completed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.completed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "response": (
+                                str(result)[:1000] if result else None
+                            ),  # Limit response size
+                        },
+                    )
+                )
+
                 return result
+            except Exception as e:
+                # Emit webhook event for command execution failed
+                import asyncio
+
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="command.execution.failed",
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        data={
+                            "command_name": command_name,
+                            "command_args": command_args,
+                            "agent_name": self.agent_name,
+                            "conversation_id": self.conversation_id,
+                            "error": str(e),
+                        },
+                    )
+                )
+                raise
             finally:
                 # Ensure cleanup for extensions that support it
                 if extension_instance and hasattr(extension_instance, "ensure_cleanup"):
@@ -431,56 +631,90 @@ class Extensions:
 
     def get_extensions(self):
         commands = []
-        command_files = glob.glob("extensions/*.py")
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
         for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
+            if module is None:
                 continue
-            module = importlib.import_module(f"extensions.{module_name}")
-            command_class = getattr(module, module_name.lower())()
-            extension_name = command_file.split("/")[-1].split(".")[0]
-            extension_name = extension_name.replace("_", " ").title()
-            try:
-                extension_description = inspect.getdoc(command_class)
-            except:
-                extension_description = extension_name
-            constructor = inspect.signature(command_class.__init__)
-            params = constructor.parameters
-            extension_settings = [
-                name for name in params if name != "self" and name != "kwargs"
-            ]
-            extension_commands = []
-            if hasattr(command_class, "commands"):
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            # Check if the class exists and is a subclass of Extensions
+            if hasattr(module, class_name):
+                ext_class = getattr(module, class_name)
+                # Use the module's Extensions class reference for comparison
+                # since extensions import "from Extensions import Extensions"
                 try:
-                    for (
-                        command_name,
-                        command_function,
-                    ) in command_class.commands.items():
-                        params = self.get_command_params(command_function)
-                        try:
-                            command_description = inspect.getdoc(command_function)
-                        except:
-                            command_description = command_name
-                        extension_commands.append(
-                            {
-                                "friendly_name": command_name,
-                                "description": command_description,
-                                "command_name": command_function.__name__,
-                                "command_args": params,
-                            }
+                    extensions_base = getattr(module, "Extensions", None)
+                    if extensions_base and issubclass(ext_class, extensions_base):
+                        is_extensions_subclass = True
+                    else:
+                        # Fallback: check if it's a subclass of the current Extensions class
+                        is_extensions_subclass = issubclass(ext_class, Extensions)
+                except (TypeError, AttributeError):
+                    is_extensions_subclass = False
+
+                if is_extensions_subclass:
+                    try:
+                        command_class = getattr(module, class_name)()
+                    except Exception as e:
+                        logging.error(
+                            f"Error instantiating extension class {class_name}: {e}"
                         )
-                except Exception as e:
-                    logging.error(f"Error getting commands: {e}")
-            if extension_name == "Agixt Actions":
-                extension_name = "AGiXT Actions"
-            commands.append(
-                {
-                    "extension_name": extension_name,
-                    "description": extension_description,
-                    "settings": extension_settings,
-                    "commands": extension_commands,
-                }
-            )
+                        continue
+
+                    extension_name = os.path.basename(command_file).split(".")[0]
+                    extension_name = extension_name.replace("_", " ").title()
+                    try:
+                        extension_description = inspect.getdoc(command_class)
+                    except:
+                        extension_description = extension_name
+                    constructor = inspect.signature(command_class.__init__)
+                    params = constructor.parameters
+                    extension_settings = [
+                        name for name in params if name != "self" and name != "kwargs"
+                    ]
+                    extension_commands = []
+                    if hasattr(command_class, "commands"):
+                        try:
+                            for (
+                                command_name,
+                                command_function,
+                            ) in command_class.commands.items():
+                                params = self.get_command_params(command_function)
+                                try:
+                                    command_description = inspect.getdoc(
+                                        command_function
+                                    )
+                                except:
+                                    command_description = command_name
+                                extension_commands.append(
+                                    {
+                                        "friendly_name": command_name,
+                                        "description": command_description,
+                                        "command_name": command_function.__name__,
+                                        "command_args": params,
+                                    }
+                                )
+                        except Exception as e:
+                            logging.error(f"Error getting commands: {e}")
+                    if extension_name == "Agixt Actions":
+                        extension_name = "AGiXT Actions"
+                    commands.append(
+                        {
+                            "extension_name": extension_name,
+                            "description": extension_description,
+                            "settings": extension_settings,
+                            "commands": extension_commands,
+                        }
+                    )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -509,3 +743,94 @@ class Extensions:
             )
 
         return commands
+
+    def get_extension_routers(self):
+        """Collect FastAPI routers from extensions that define them"""
+        routers = []
+        try:
+            settings = self.agent_config["settings"]
+        except:
+            settings = {}
+
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
+        for command_file in command_files:
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
+            if module is None:
+                continue
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            try:
+                # Check if the class exists and is a subclass of Extensions
+                if hasattr(module, class_name) and issubclass(
+                    getattr(module, class_name), Extensions
+                ):
+                    command_class = getattr(module, class_name)(**settings)
+                    # Check if the extension has a router attribute
+                    if hasattr(command_class, "router"):
+                        routers.append(
+                            {
+                                "extension_name": class_name,
+                                "router": command_class.router,
+                            }
+                        )
+                        logging.info(f"Found router for extension: {class_name}")
+            except Exception as e:
+                logging.error(f"Error loading router from extension {class_name}: {e}")
+                continue
+
+        return routers
+
+    @staticmethod
+    def get_extension_webhook_events():
+        """Collect webhook events from all extensions"""
+        extension_events = []
+        # Use cached extension discovery
+        command_files = _get_cached_extension_files()
+
+        for command_file in command_files:
+            # Import the module using cached helper function
+            module = _get_cached_extension_module(command_file)
+            if module is None:
+                continue
+
+            # Get the expected class name from the module
+            class_name = get_extension_class_name(os.path.basename(command_file))
+
+            # Check if module is in disabled extensions
+            if class_name in DISABLED_EXTENSIONS:
+                continue
+
+            try:
+                # Check if the class exists and is a subclass of Extensions
+                if hasattr(module, class_name) and issubclass(
+                    getattr(module, class_name), Extensions
+                ):
+                    extension_class = getattr(module, class_name)
+                    # Check if the extension defines webhook events
+                    if (
+                        hasattr(extension_class, "webhook_events")
+                        and extension_class.webhook_events
+                    ):
+                        # Add extension name to each event for context
+                        for event in extension_class.webhook_events:
+                            event_with_extension = event.copy()
+                            event_with_extension["extension"] = class_name
+                            extension_events.append(event_with_extension)
+                        logging.info(
+                            f"Found {len(extension_class.webhook_events)} webhook events for extension: {class_name}"
+                        )
+            except Exception as e:
+                logging.error(
+                    f"Error loading webhook events from extension {class_name}: {e}"
+                )
+                continue
+
+        return extension_events

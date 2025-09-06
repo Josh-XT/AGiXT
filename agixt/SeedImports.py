@@ -80,6 +80,10 @@ def import_extensions():
     if "Custom Automation" in extensions_data:
         del extensions_data["Custom Automation"]
     extension_settings_data = Extensions().get_extension_settings()
+
+    # Create extension database tables during seed import
+    create_extension_tables()
+
     session = get_session()
 
     # Get existing extensions
@@ -151,15 +155,33 @@ def import_extensions():
                                 f"Imported argument: {arg_name} for command: {command_name}"
                             )
 
-        # Delete commands that no longer exist
+        # Only delete commands that are truly obsolete
+        # Commands should only be deleted if their extension no longer exists
+        # or if we're certain the extension no longer provides this command
         imported_command_names = [
             command_data["friendly_name"]
             for command_data in extension_data.get("commands", [])
         ]
-        for existing_command in existing_commands:
-            if existing_command.name not in imported_command_names:
-                session.delete(existing_command)
-                logging.info(f"Deleted command: {existing_command.name}")
+
+        # We should be very conservative about deleting commands since agents depend on them
+        # Only delete if we have a confident list of current commands AND the command is missing
+        if (
+            len(imported_command_names) > 0
+        ):  # Only if we successfully discovered commands
+            for existing_command in existing_commands:
+                if existing_command.name not in imported_command_names:
+                    # Log but don't auto-delete - require manual intervention for safety
+                    logging.warning(
+                        f"Command '{existing_command.name}' exists in DB but not found in extension '{extension_name}' - preserving for agent compatibility"
+                    )
+                    # Uncomment the next lines only if you want to enable deletion:
+                    # session.delete(existing_command)
+                    # logging.info(f"Deleted obsolete command: {existing_command.name}")
+        else:
+            # If no commands were discovered, preserve all existing ones
+            logging.info(
+                f"No commands discovered for extension '{extension_name}', preserving {len(existing_commands)} existing commands"
+            )
 
     # Process extension settings
     for extension_name, settings in extension_settings_data.items():
@@ -200,14 +222,28 @@ def import_extensions():
                     f"Imported setting: {setting_name} for extension: {extension_name}"
                 )
 
-    # Delete extensions that no longer exist
+    # Only delete extensions that we're certain no longer exist
+    # Be very conservative about extension deletion since commands depend on them
     imported_extension_names = [
         extension_data["extension_name"] for extension_data in extensions_data
     ]
-    for existing_extension in existing_extensions:
-        if existing_extension.name not in imported_extension_names:
-            session.delete(existing_extension)
-            logging.info(f"Deleted extension: {existing_extension.name}")
+
+    if (
+        len(imported_extension_names) > 0
+    ):  # Only if we successfully discovered extensions
+        for existing_extension in existing_extensions:
+            if existing_extension.name not in imported_extension_names:
+                # Log but don't auto-delete extensions - they may be from hub imports
+                logging.warning(
+                    f"Extension '{existing_extension.name}' exists in DB but not found in current scan - preserving for safety"
+                )
+                # Uncomment the next lines only if you want to enable deletion:
+                # session.delete(existing_extension)
+                # logging.info(f"Deleted extension: {existing_extension.name}")
+    else:
+        logging.warning(
+            "No extensions discovered during import - preserving all existing extensions"
+        )
 
     try:
         session.commit()
@@ -217,6 +253,81 @@ def import_extensions():
         raise
     finally:
         session.close()
+
+
+def create_extension_tables():
+    """Create database tables for extensions that have them"""
+    import importlib
+    import os
+    import glob
+    from DB import ExtensionDatabaseMixin, engine
+    from ExtensionsHub import (
+        find_extension_files,
+        import_extension_module,
+        get_extension_class_name,
+    )
+    from Extensions import Extensions
+
+    logging.info("Creating extension database tables...")
+
+    # Get all extension files
+    try:
+        extension_files = find_extension_files()
+    except Exception as e:
+        logging.error(f"Error finding extension files: {e}")
+        return
+
+    created_tables = []
+    for extension_file in extension_files:
+        try:
+            # Import the extension module
+            module = import_extension_module(extension_file)
+            if module is None:
+                continue
+
+            # Get the expected class name
+            class_name = get_extension_class_name(os.path.basename(extension_file))
+
+            # Check if the class exists and inherits from both Extensions and ExtensionDatabaseMixin
+            if (
+                hasattr(module, class_name)
+                and issubclass(getattr(module, class_name), Extensions)
+                and issubclass(getattr(module, class_name), ExtensionDatabaseMixin)
+            ):
+
+                extension_class = getattr(module, class_name)
+
+                # Check if the extension has database models
+                if (
+                    hasattr(extension_class, "extension_models")
+                    and extension_class.extension_models
+                ):
+                    logging.info(f"Creating tables for extension: {class_name}")
+
+                    # Create tables for this extension
+                    for model in extension_class.extension_models:
+                        try:
+                            model.__table__.create(engine, checkfirst=True)
+                            table_name = model.__tablename__
+                            created_tables.append(table_name)
+                            logging.info(f"Created table: {table_name}")
+                        except Exception as e:
+                            logging.error(
+                                f"Error creating table {model.__tablename__}: {e}"
+                            )
+
+                    # Register the models
+                    extension_class.register_models()
+
+        except Exception as e:
+            logging.debug(f"Could not process extension {extension_file}: {e}")
+
+    if created_tables:
+        logging.info(
+            f"Successfully created {len(created_tables)} extension tables: {', '.join(created_tables)}"
+        )
+    else:
+        logging.info("No extension tables needed to be created")
 
 
 def check_and_import_chain_steps(chain_name, chain_data, session, user_id=None):
@@ -596,19 +707,117 @@ def import_providers():
     session.close()
 
 
+def cleanup_orphaned_data():
+    """
+    Manually clean up truly orphaned commands and extensions.
+    This should be called manually when you're certain that extensions/commands
+    should be removed (e.g., after permanently removing extension files).
+    """
+    import os
+    from Extensions import Extensions
+    from ExtensionsHub import find_extension_files, get_extension_class_name
+
+    session = get_session()
+
+    try:
+        # Get currently available extensions
+        ext = Extensions()
+        available_extensions_data = ext.get_extensions()
+        available_extension_names = {
+            ext_data["extension_name"] for ext_data in available_extensions_data
+        }
+
+        if not available_extension_names:
+            logging.warning(
+                "No extensions discovered - aborting cleanup to prevent accidental deletion"
+            )
+            return
+
+        # Find truly orphaned extensions (those not found in file system)
+        orphaned_extensions = []
+        all_extensions = session.query(Extension).all()
+
+        for db_extension in all_extensions:
+            if db_extension.name not in available_extension_names:
+                # Double-check by trying to find the extension file
+                extension_files = find_extension_files()
+                found = False
+                for file_path in extension_files:
+                    expected_name = get_extension_class_name(
+                        os.path.basename(file_path)
+                    )
+                    if (
+                        expected_name.lower().replace("_", " ")
+                        == db_extension.name.lower()
+                    ):
+                        found = True
+                        break
+
+                if not found:
+                    orphaned_extensions.append(db_extension)
+
+        if orphaned_extensions:
+            logging.info(f"Found {len(orphaned_extensions)} truly orphaned extensions")
+            for ext in orphaned_extensions:
+                # This will cascade delete commands due to foreign key relationships
+                session.delete(ext)
+                logging.info(f"Deleted orphaned extension: {ext.name}")
+
+        session.commit()
+        logging.info("Orphaned data cleanup completed")
+
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error during orphaned data cleanup: {e}")
+    finally:
+        session.close()
+
+
 def import_all_data():
     # Ensure default user exists
     ensure_default_user()
 
-    # Import all data types
-    logging.info("Importing providers...")
-    import_providers()
+    # Initialize extensions hub first to clone external extensions
+    logging.info("Initializing extensions hub...")
+    try:
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        # Use the synchronous version to avoid event loop conflicts
+        hub_success = hub.clone_or_update_hub_sync()
+
+        # If hub was successful, invalidate extension cache to force rediscovery
+        if hub_success:
+            from Extensions import invalidate_extension_cache
+
+            invalidate_extension_cache()
+            logging.info("Extension cache invalidated after hub update")
+    except Exception as e:
+        logging.warning(f"Failed to initialize extensions hub: {e}")
+
+    # Import extensions BEFORE providers to ensure all extensions are available
     logging.info("Importing extensions...")
     import_extensions()
+
+    # Import providers after extensions
+    logging.info("Importing providers...")
+    import_providers()
+
     logging.info("Importing prompts...")
     import_prompts()
     # logging.info("Importing agents...")
     # import_agents()
     # logging.info("Importing chains...")
     # import_chains()
+
+    # Register extension routers after all extensions are imported
+    # This ensures hub extensions are available for router registration
+    logging.info("Registering extension routers...")
+    try:
+        from app import register_extension_routers
+
+        register_extension_routers()
+    except Exception as e:
+        logging.warning(f"Failed to register extension routers: {e}")
+
     logging.info("Imports complete.")

@@ -1,6 +1,14 @@
 name: Build and Test
 
-on: ["push"]
+on:
+  push:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'book.json'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
 jobs:
   lint:
     runs-on: ubuntu-22.04

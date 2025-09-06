@@ -36,6 +36,10 @@ import re
 from solders.keypair import Keypair
 from typing import Tuple
 import binascii
+from WebhookManager import WebhookEventEmitter
+
+# Initialize webhook event emitter
+webhook_emitter = WebhookEventEmitter()
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -131,6 +135,27 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     session.add(agent)
     session.commit()
 
+    # Emit webhook event for agent creation (async without await since this is sync function)
+    import asyncio
+
+    try:
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="agent.created",
+                data={
+                    "agent_id": str(agent.id),
+                    "agent_name": agent_name,
+                    "user_id": str(user_id),
+                    "provider": provider_settings.get("provider", "rotation"),
+                    "timestamp": datetime.now().isoformat(),
+                },
+                user_id=str(user_id),
+            )
+        )
+    except:
+        # If we're not in an async context, just log it
+        logging.debug(f"Could not emit webhook event for agent creation: {agent_name}")
+
     for key, value in provider_settings.items():
         agent_setting = AgentSettingModel(
             agent_id=agent.id,
@@ -199,6 +224,26 @@ def delete_agent(agent_name, user=DEFAULT_USER):
     # Delete the agent
     session.delete(agent)
     session.commit()
+
+    # Emit webhook event for agent deletion
+    import asyncio
+
+    try:
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="agent.deleted",
+                data={
+                    "agent_id": str(agent.id),
+                    "agent_name": agent_name,
+                    "user_id": str(user_id),
+                    "timestamp": datetime.now().isoformat(),
+                },
+                user_id=str(user_id),
+            )
+        )
+    except:
+        logging.debug(f"Could not emit webhook event for agent deletion: {agent_name}")
+
     session.close()
     return {"message": f"Agent {agent_name} deleted."}, 200
 
@@ -223,8 +268,33 @@ def rename_agent(agent_name, new_name, user=DEFAULT_USER, company_id=None):
     if not agent:
         session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
+    old_name = agent.name
     agent.name = new_name
     session.commit()
+
+    # Emit webhook event for agent rename
+    import asyncio
+
+    try:
+        asyncio.create_task(
+            webhook_emitter.emit_event(
+                event_type="agent.updated",
+                data={
+                    "agent_id": str(agent.id),
+                    "old_name": old_name,
+                    "new_name": new_name,
+                    "user_id": str(user_id),
+                    "update_type": "rename",
+                    "timestamp": datetime.now().isoformat(),
+                },
+                user_id=str(user_id),
+            )
+        )
+    except:
+        logging.debug(
+            f"Could not emit webhook event for agent rename: {old_name} -> {new_name}"
+        )
+
     session.close()
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
@@ -773,6 +843,23 @@ class Agent:
             return ""
         input_tokens = get_tokens(prompt)
         provider_name = self.AGENT_CONFIG["settings"]["provider"]
+
+        # Emit webhook event for inference start
+        await webhook_emitter.emit_event(
+            event_type="agent.inference.started",
+            data={
+                "agent_id": str(self.agent_id),
+                "agent_name": self.agent_name,
+                "user_id": str(self.user_id),
+                "provider": provider_name,
+                "input_tokens": input_tokens,
+                "use_smartest": use_smartest,
+                "has_images": len(images) > 0,
+                "timestamp": datetime.now().isoformat(),
+            },
+            user_id=str(self.user_id),
+        )
+
         try:
             if stream:
                 # For streaming, return the stream object for the caller to handle
@@ -808,9 +895,38 @@ class Agent:
                 answer = str(answer).replace("\_", "_")
                 if answer.endswith("\n\n"):
                     answer = answer[:-2]
+
+                # Emit webhook event for successful inference
+                await webhook_emitter.emit_event(
+                    event_type="agent.inference.completed",
+                    data={
+                        "agent_id": str(self.agent_id),
+                        "agent_name": self.agent_name,
+                        "user_id": str(self.user_id),
+                        "provider": provider_name,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                    user_id=str(self.user_id),
+                )
         except Exception as e:
             logging.error(f"Error in inference: {str(e)}")
             answer = "<answer>Unable to process request.</answer>"
+
+            # Emit webhook event for failed inference
+            await webhook_emitter.emit_event(
+                event_type="agent.inference.failed",
+                data={
+                    "agent_id": str(self.agent_id),
+                    "agent_name": self.agent_name,
+                    "user_id": str(self.user_id),
+                    "provider": provider_name,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat(),
+                },
+                user_id=str(self.user_id),
+            )
         return answer
 
     async def vision_inference(
@@ -916,11 +1032,39 @@ class Agent:
         )
         user = session.query(User).filter(User.id == self.user_id).first()
         sso_providers = {}
-        # Get py files in sso folder
-        sso_files = os.listdir("sso")
-        for sso_file in sso_files:
-            if sso_file.endswith(".py"):
-                sso_providers[sso_file.replace(".py", "")] = False
+        # Get OAuth-enabled extensions by scanning for SSO components
+        import importlib.util
+
+        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        extension_files = os.listdir(extensions_dir)
+        for extension_file in extension_files:
+            if extension_file.endswith(".py") and not extension_file.startswith("__"):
+                try:
+                    # Load the extension module to check for OAuth components
+                    extension_name = extension_file.replace(".py", "")
+                    file_path = os.path.join(extensions_dir, extension_file)
+                    spec = importlib.util.spec_from_file_location(
+                        extension_name, file_path
+                    )
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+
+                    # Check if the extension has OAuth components (SSO class or sso function)
+                    has_sso_class = any(
+                        hasattr(module, f"{extension_name.capitalize()}SSO")
+                        for extension_name in [extension_name]
+                    )
+                    has_sso_function = hasattr(module, "sso")
+                    has_oauth_scopes = hasattr(module, "SCOPES")
+
+                    if has_sso_class or has_sso_function or has_oauth_scopes:
+                        sso_providers[extension_name] = False
+                except Exception as e:
+                    # Skip extensions that can't be loaded or don't have OAuth components
+                    logging.debug(
+                        f"Extension {extension_file} does not have OAuth components: {str(e)}"
+                    )
+                    continue
         if user_oauth:
             for oauth in user_oauth:
                 provider = (
@@ -1120,6 +1264,29 @@ class Agent:
         try:
             session.commit()
             logging.info(f"Agent {self.agent_name} configuration updated successfully.")
+
+            # Emit webhook event for agent configuration update
+            import asyncio
+
+            try:
+                asyncio.create_task(
+                    webhook_emitter.emit_event(
+                        event_type="agent.settings.updated",
+                        data={
+                            "agent_id": str(self.agent_id),
+                            "agent_name": self.agent_name,
+                            "user_id": str(self.user_id),
+                            "config_key": config_key,
+                            "updated_config": new_config,
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                        user_id=str(self.user_id),
+                    )
+                )
+            except:
+                logging.debug(
+                    f"Could not emit webhook event for agent configuration update: {self.agent_name}"
+                )
         except Exception as e:
             session.rollback()
             logging.error(f"Error updating agent configuration: {str(e)}")

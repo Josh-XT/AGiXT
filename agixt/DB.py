@@ -23,6 +23,67 @@ from cryptography.fernet import Fernet
 from Globals import getenv
 import numpy as np
 
+
+class ExtensionDatabaseMixin:
+    """
+    Mixin class for extensions that need database tables
+    """
+
+    extension_models = []  # Extensions should override this with their models
+    _registered_models = set()  # Track which models have been logged
+    _created_tables = set()  # Track which tables have been created
+
+    @classmethod
+    def register_models(cls):
+        """Register extension models with SQLAlchemy"""
+        if hasattr(cls, "extension_models"):
+            for model in cls.extension_models:
+                # Only log once per model to avoid spam
+                if model.__tablename__ not in cls._registered_models:
+                    logging.info(f"Registered model: {model.__tablename__}")
+                    cls._registered_models.add(model.__tablename__)
+
+                # Create table if not already created
+                if model.__tablename__ not in cls._created_tables:
+                    try:
+                        model.__table__.create(engine, checkfirst=True)
+                        cls._created_tables.add(model.__tablename__)
+                        logging.info(f"Created table: {model.__tablename__}")
+                    except Exception as e:
+                        # Check if error is about existing index - this is expected behavior
+                        if "already exists" in str(e).lower():
+                            logging.debug(
+                                f"Table/index already exists for {model.__tablename__}: {e}"
+                            )
+                            cls._created_tables.add(model.__tablename__)
+                        else:
+                            logging.error(
+                                f"Error creating table {model.__tablename__}: {e}"
+                            )
+
+    @classmethod
+    def create_tables(cls):
+        """Create database tables for this extension"""
+        if hasattr(cls, "extension_models"):
+            for model in cls.extension_models:
+                if model.__tablename__ not in cls._created_tables:
+                    try:
+                        model.__table__.create(engine, checkfirst=True)
+                        cls._created_tables.add(model.__tablename__)
+                        logging.info(f"Created table: {model.__tablename__}")
+                    except Exception as e:
+                        # Check if error is about existing index - this is expected behavior
+                        if "already exists" in str(e).lower():
+                            logging.debug(
+                                f"Table/index already exists for {model.__tablename__}: {e}"
+                            )
+                            cls._created_tables.add(model.__tablename__)
+                        else:
+                            logging.error(
+                                f"Error creating table {model.__tablename__}: {e}"
+                            )
+
+
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
@@ -43,6 +104,12 @@ try:
             LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}?sslmode={DATABASE_SSL}"
         DATABASE_URI = f"postgresql://{LOGIN_URI}"
     else:
+        import os
+
+        if "/" in DATABASE_NAME:
+            db_folder = os.path.dirname(DATABASE_NAME)
+            if not os.path.exists(db_folder):
+                os.makedirs(db_folder)
         DATABASE_URI = f"sqlite:///{DATABASE_NAME}.db"
 
     # Database connection pool settings
@@ -130,6 +197,13 @@ class Company(Base):
     status = Column(Boolean, nullable=True, default=True)
     address = Column(String, nullable=True, default=None)
     phone_number = Column(String, nullable=True, default=None)
+    email = Column(String, nullable=True, default=None)
+    website = Column(String, nullable=True, default=None)
+    city = Column(String, nullable=True, default=None)
+    state = Column(String, nullable=True, default=None)
+    zip_code = Column(String, nullable=True, default=None)
+    country = Column(String, nullable=True, default=None)
+    notes = Column(Text, nullable=True, default=None)
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -396,7 +470,7 @@ class Command(Base):
     name = Column(Text, nullable=False)
     extension_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("extension.id"),
+        ForeignKey("extension.id", ondelete="CASCADE"),
     )
     extension = relationship("Extension", backref="commands")
 
@@ -747,6 +821,100 @@ class TaskItem(Base):
     user = relationship("User", backref="task_item")
 
 
+class WebhookIncoming(Base):
+    __tablename__ = "webhook_incoming"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    webhook_id = Column(String, unique=True, nullable=False)  # URL path identifier
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    api_key = Column(String, nullable=False)  # For authentication
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    agent = relationship("Agent", backref="incoming_webhooks")
+    user = relationship("User", backref="incoming_webhooks")
+
+
+class WebhookOutgoing(Base):
+    __tablename__ = "webhook_outgoing"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=True,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=True,
+    )
+    event_types = Column(Text)  # JSON array stored as text
+    target_url = Column(String, nullable=False)
+    headers = Column(Text)  # JSON object stored as text
+    secret = Column(String, nullable=True)  # Secret for HMAC signature verification
+    retry_count = Column(Integer, default=3)
+    retry_delay = Column(Integer, default=60)  # Seconds between retries
+    timeout = Column(Integer, default=30)  # Request timeout in seconds
+    active = Column(Boolean, default=True)
+    filters = Column(Text)  # JSON object stored as text for event filters
+    consecutive_failures = Column(Integer, default=0)
+    total_events_sent = Column(Integer, default=0)
+    successful_deliveries = Column(Integer, default=0)
+    failed_deliveries = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", backref="outgoing_webhooks")
+    company = relationship("Company", backref="outgoing_webhooks")
+    agent = relationship("Agent", backref="outgoing_webhooks")
+
+
+class WebhookLog(Base):
+    __tablename__ = "webhook_log"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    webhook_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        nullable=False,
+    )
+    direction = Column(String, nullable=False)  # 'incoming' or 'outgoing'
+    payload = Column(Text)  # JSON payload
+    response = Column(Text, nullable=True)  # Response data
+    status_code = Column(Integer, nullable=True)
+    timestamp = Column(DateTime, server_default=func.now())
+    retry_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+
+
 class Prompt(Base):
     __tablename__ = "prompt"
     id = Column(
@@ -824,6 +992,26 @@ def process_embedding_for_storage(embedding):
         return np.array(embedding).reshape(-1)
 
     return None
+
+
+class TokenBlacklist(Base):
+    __tablename__ = "token_blacklist"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    token = Column(String, nullable=False, unique=True)
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    blacklisted_at = Column(DateTime, server_default=func.now())
+    expires_at = Column(DateTime, nullable=False)  # JWT expiration time
+
+    # Relationships
+    user = relationship("User", backref="blacklisted_tokens")
 
 
 class Memory(Base):
@@ -976,6 +1164,13 @@ def migrate_company_table():
                 session.execute(
                     text("SELECT phone_number FROM Company LIMIT 1")
                 ).fetchone()
+                session.execute(text("SELECT email FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT website FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT city FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT state FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT zip_code FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT country FROM Company LIMIT 1")).fetchone()
+                session.execute(text("SELECT notes FROM Company LIMIT 1")).fetchone()
                 logging.info("Company table migration: All columns already exist")
                 return
             except Exception:
@@ -985,74 +1180,224 @@ def migrate_company_table():
 
             if DATABASE_TYPE == "sqlite":
                 # SQLite ALTER TABLE syntax
-                try:
-                    session.execute(
-                        text("ALTER TABLE Company ADD COLUMN status BOOLEAN DEFAULT 1")
-                    )
-                    logging.info("Added status column to Company table")
-                except Exception as e:
-                    if "duplicate column name" not in str(e).lower():
-                        logging.error(f"Error adding status column: {e}")
+                columns_to_add = [
+                    ("status", "BOOLEAN DEFAULT 1"),
+                    ("address", "TEXT DEFAULT NULL"),
+                    ("phone_number", "TEXT DEFAULT NULL"),
+                    ("email", "TEXT DEFAULT NULL"),
+                    ("website", "TEXT DEFAULT NULL"),
+                    ("city", "TEXT DEFAULT NULL"),
+                    ("state", "TEXT DEFAULT NULL"),
+                    ("zip_code", "TEXT DEFAULT NULL"),
+                    ("country", "TEXT DEFAULT NULL"),
+                    ("notes", "TEXT DEFAULT NULL"),
+                ]
 
-                try:
-                    session.execute(
-                        text("ALTER TABLE Company ADD COLUMN address TEXT DEFAULT NULL")
-                    )
-                    logging.info("Added address column to Company table")
-                except Exception as e:
-                    if "duplicate column name" not in str(e).lower():
-                        logging.error(f"Error adding address column: {e}")
-
-                try:
-                    session.execute(
-                        text(
-                            "ALTER TABLE Company ADD COLUMN phone_number TEXT DEFAULT NULL"
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE Company ADD COLUMN {column_name} {column_def}"
+                            )
                         )
-                    )
-                    logging.info("Added phone_number column to Company table")
-                except Exception as e:
-                    if "duplicate column name" not in str(e).lower():
-                        logging.error(f"Error adding phone_number column: {e}")
+                        logging.info(f"Added {column_name} column to Company table")
+                    except Exception as e:
+                        if "duplicate column name" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
             else:
                 # PostgreSQL ALTER TABLE syntax
-                try:
-                    session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD COLUMN status BOOLEAN DEFAULT TRUE'
-                        )
-                    )
-                    logging.info("Added status column to Company table")
-                except Exception as e:
-                    if "already exists" not in str(e).lower():
-                        logging.error(f"Error adding status column: {e}")
+                columns_to_add = [
+                    ("status", "BOOLEAN DEFAULT TRUE"),
+                    ("address", "VARCHAR DEFAULT NULL"),
+                    ("phone_number", "VARCHAR DEFAULT NULL"),
+                    ("email", "VARCHAR DEFAULT NULL"),
+                    ("website", "VARCHAR DEFAULT NULL"),
+                    ("city", "VARCHAR DEFAULT NULL"),
+                    ("state", "VARCHAR DEFAULT NULL"),
+                    ("zip_code", "VARCHAR DEFAULT NULL"),
+                    ("country", "VARCHAR DEFAULT NULL"),
+                    ("notes", "TEXT DEFAULT NULL"),
+                ]
 
-                try:
-                    session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD COLUMN address VARCHAR DEFAULT NULL'
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Company" ADD COLUMN {column_name} {column_def}'
+                            )
                         )
-                    )
-                    logging.info("Added address column to Company table")
-                except Exception as e:
-                    if "already exists" not in str(e).lower():
-                        logging.error(f"Error adding address column: {e}")
-
-                try:
-                    session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD COLUMN phone_number VARCHAR DEFAULT NULL'
-                        )
-                    )
-                    logging.info("Added phone_number column to Company table")
-                except Exception as e:
-                    if "already exists" not in str(e).lower():
-                        logging.error(f"Error adding phone_number column: {e}")
+                        logging.info(f"Added {column_name} column to Company table")
+                    except Exception as e:
+                        if "already exists" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
 
             session.commit()
             logging.info("Company table migration completed successfully")
 
     except Exception as e:
         logging.error(f"Error during Company table migration: {e}")
+
+
+def migrate_webhook_outgoing_table():
+    """
+    Migration function to add missing fields to the WebhookOutgoing table if they don't exist.
+    """
+    try:
+        with get_session() as session:
+            # Check if we need to add the new columns
+            try:
+                # Try to access the new columns to see if they exist
+                session.execute(
+                    text("SELECT secret FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT retry_delay FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT timeout FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT filters FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT consecutive_failures FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT total_events_sent FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT successful_deliveries FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                session.execute(
+                    text("SELECT failed_deliveries FROM webhook_outgoing LIMIT 1")
+                ).fetchone()
+                logging.info(
+                    "WebhookOutgoing table migration: All columns already exist"
+                )
+                return
+            except Exception:
+                # Columns don't exist, we need to add them
+                logging.info("WebhookOutgoing table migration: Adding new columns")
+                pass
+
+            if DATABASE_TYPE == "sqlite":
+                # SQLite ALTER TABLE syntax
+                columns_to_add = [
+                    ("secret", "TEXT DEFAULT NULL"),
+                    ("retry_delay", "INTEGER DEFAULT 60"),
+                    ("timeout", "INTEGER DEFAULT 30"),
+                    ("filters", "TEXT DEFAULT NULL"),
+                    ("consecutive_failures", "INTEGER DEFAULT 0"),
+                    ("total_events_sent", "INTEGER DEFAULT 0"),
+                    ("successful_deliveries", "INTEGER DEFAULT 0"),
+                    ("failed_deliveries", "INTEGER DEFAULT 0"),
+                ]
+
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE webhook_outgoing ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        logging.info(
+                            f"Added {column_name} column to webhook_outgoing table"
+                        )
+                    except Exception as e:
+                        if "duplicate column name" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
+            else:
+                # PostgreSQL ALTER TABLE syntax
+                columns_to_add = [
+                    ("secret", "VARCHAR DEFAULT NULL"),
+                    ("retry_delay", "INTEGER DEFAULT 60"),
+                    ("timeout", "INTEGER DEFAULT 30"),
+                    ("filters", "TEXT DEFAULT NULL"),
+                    ("consecutive_failures", "INTEGER DEFAULT 0"),
+                    ("total_events_sent", "INTEGER DEFAULT 0"),
+                    ("successful_deliveries", "INTEGER DEFAULT 0"),
+                    ("failed_deliveries", "INTEGER DEFAULT 0"),
+                ]
+
+                for column_name, column_def in columns_to_add:
+                    try:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE webhook_outgoing ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        logging.info(
+                            f"Added {column_name} column to webhook_outgoing table"
+                        )
+                    except Exception as e:
+                        if "already exists" not in str(e).lower():
+                            logging.error(f"Error adding {column_name} column: {e}")
+
+            session.commit()
+            logging.info("WebhookOutgoing table migration completed successfully")
+
+    except Exception as e:
+        logging.error(f"Error during WebhookOutgoing table migration: {e}")
+
+
+def discover_extension_models():
+    """
+    Discover and register all extension models
+    """
+    import importlib
+    import glob
+    import os
+
+    extension_models = []
+    command_files = glob.glob("extensions/*.py")
+
+    for command_file in command_files:
+        module_name = os.path.splitext(os.path.basename(command_file))[0]
+        try:
+            module = importlib.import_module(f"extensions.{module_name}")
+
+            # Check if the module has any classes that inherit from ExtensionDatabaseMixin
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if isinstance(attr, type) and issubclass(attr, ExtensionDatabaseMixin):
+                    if attr is not ExtensionDatabaseMixin and hasattr(
+                        attr, "extension_models"
+                    ):
+                        extension_models.extend(attr.extension_models)
+                        logging.info(f"Found extension models in {module_name}")
+        except Exception as e:
+            logging.debug(
+                f"Could not import extension {module_name} for model discovery: {e}"
+            )
+
+    return extension_models
+
+
+def initialize_extension_tables():
+    """
+    Initialize all extension database tables
+    """
+    models = discover_extension_models()
+    for model in models:
+        # Check if table has already been created by ExtensionDatabaseMixin
+        if model.__tablename__ not in ExtensionDatabaseMixin._created_tables:
+            try:
+                model.__table__.create(engine, checkfirst=True)
+                ExtensionDatabaseMixin._created_tables.add(model.__tablename__)
+                logging.info(f"Initialized extension table: {model.__tablename__}")
+            except Exception as e:
+                # Check if error is about existing index - this is expected behavior
+                if "already exists" in str(e).lower():
+                    logging.debug(
+                        f"Table/index already exists for {model.__tablename__}: {e}"
+                    )
+                    ExtensionDatabaseMixin._created_tables.add(model.__tablename__)
+                else:
+                    logging.error(
+                        f"Error creating extension table {model.__tablename__}: {e}"
+                    )
+        else:
+            logging.debug(f"Table {model.__tablename__} already created, skipping")
 
 
 def setup_default_roles():
@@ -1079,7 +1424,10 @@ if __name__ == "__main__":
                 logging.error(f"Error connecting to database: {e}")
                 time.sleep(5)
     Base.metadata.create_all(engine)
+    # Initialize extension tables after core tables
+    initialize_extension_tables()
     migrate_company_table()
+    migrate_webhook_outgoing_table()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:

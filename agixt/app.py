@@ -22,11 +22,13 @@ from endpoints.Health import app as health_endpoints
 from endpoints.Tasks import app as tasks_endpoints
 from endpoints.Legacy import app as legacy_endpoints
 from endpoints.TeslaIntegration import register_tesla_routes
+from endpoints.Webhook import app as webhook_endpoints
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
 from typing import Optional
 from TaskMonitor import TaskMonitor
+from ExtensionsHub import ExtensionsHub
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -46,6 +48,9 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
+        # to avoid multiple workers trying to clone the same repositories
+
         workspace_manager.start_file_watcher()
         await task_monitor.start()
         logging.info("AGiXT services started successfully")
@@ -121,6 +126,47 @@ app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
 app.include_router(health_endpoints)
 app.include_router(legacy_endpoints)
+app.include_router(webhook_endpoints)
+
+# Extension router registration will be handled after seed import
+# to ensure hub extensions are available before registration
+_extension_routers_registered = False
+
+
+def register_extension_routers():
+    """Register extension routers - called after seed import to include hub extensions"""
+    global _extension_routers_registered
+
+    if _extension_routers_registered:
+        logging.info("Extension routers already registered, skipping")
+        return
+
+    try:
+        from Extensions import Extensions
+
+        ext = Extensions()
+        extension_routers = ext.get_extension_routers()
+
+        for extension_router in extension_routers:
+            extension_name = extension_router["extension_name"]
+            router = extension_router["router"]
+            # Don't add prefix - let extensions define their own full paths
+            app.include_router(router)
+            logging.info(
+                f"Registered extension endpoints for '{extension_name}' with extension-defined paths"
+            )
+
+        _extension_routers_registered = True
+        logging.info(
+            f"Successfully registered {len(extension_routers)} extension routers"
+        )
+
+    except Exception as e:
+        logging.error(f"Error registering extension endpoints: {e}")
+
+
+# Initial registration for local extensions (hub extensions will be registered after seed import)
+register_extension_routers()
 
 
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])

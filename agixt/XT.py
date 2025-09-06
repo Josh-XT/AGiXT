@@ -15,6 +15,7 @@ from typing import (
     get_type_hints,
 )
 from MagicalAuth import MagicalAuth
+from WorkerRegistry import worker_registry
 from enum import Enum
 from pydantic import BaseModel
 import pdfplumber
@@ -143,7 +144,7 @@ class AGiXT:
         Returns:
             list: List of available commands
         """
-        return self.agent.available_commands()
+        return self.agent.available_commands
 
     async def browsed_links(self):
         """
@@ -195,6 +196,7 @@ class AGiXT:
         log_user_input: bool = True,
         log_output: bool = True,
         language: str = "en",
+        command_overrides: list = None,
         **kwargs,
     ):
         """
@@ -213,6 +215,7 @@ class AGiXT:
             log_user_input (bool): Whether to log the user input
             log_output (bool): Whether to log the output
             language (str): Language of the response
+            command_overrides (list): List of command overrides for the agent
             **kwargs: Additional keyword arguments
 
         Returns:
@@ -248,6 +251,7 @@ class AGiXT:
             tts=voice_response,
             log_user_input=log_user_input,
             log_output=log_output,
+            command_overrides=command_overrides,
             **kwargs,
         )
         if language == "en":
@@ -1300,6 +1304,38 @@ class AGiXT:
         # conversation_name = prompt.user
         c = self.conversation
         conversation_id = self.conversation_id
+
+        # Register this conversation as active
+        task = asyncio.current_task()
+        worker_registry.register_conversation(
+            conversation_id=conversation_id,
+            user_id=self.auth.user_id,
+            agent_name=self.agent_name,
+            task=task,
+        )
+
+        try:
+            return await self._execute_chat_completions(prompt)
+        except asyncio.CancelledError:
+            logging.info(
+                f"Chat completion cancelled for conversation {conversation_id}"
+            )
+            raise
+        except Exception as e:
+            logging.error(
+                f"Error in chat completions for conversation {conversation_id}: {e}"
+            )
+            raise
+        finally:
+            # Always unregister when done
+            worker_registry.unregister_conversation(conversation_id)
+
+    async def _execute_chat_completions(self, prompt: ChatCompletions):
+        """
+        Internal method that does the actual chat completion processing
+        """
+        c = self.conversation
+        conversation_id = self.conversation_id
         urls = []
         files = []
         new_prompt = ""
@@ -1309,6 +1345,9 @@ class AGiXT:
         language = "en"
         log_output = True
         log_user_input = True
+        command_overrides = None
+        if prompt.tools:
+            command_overrides = prompt.tools
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
@@ -1801,6 +1840,7 @@ class AGiXT:
                 language=language,
                 include_sources=include_sources,
                 context=additional_context,
+                command_overrides=command_overrides,
                 **prompt_args,
             )
             if response.startswith(f"{self.agent_name}:"):
@@ -2026,6 +2066,61 @@ class AGiXT:
         chunk_id = conversation_id  # Use conversation_id as the chunk ID
         created_time = int(time.time())
 
+        # Register this conversation as active
+        task = asyncio.current_task()
+        worker_registry.register_conversation(
+            conversation_id=conversation_id,
+            user_id=self.auth.user_id,
+            agent_name=self.agent_name,
+            task=task,
+        )
+
+        try:
+            # Execute the streaming chat completion
+            async for chunk in self._execute_chat_completions_stream(prompt):
+                yield chunk
+        except asyncio.CancelledError:
+            # Handle graceful stop
+            final_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created_time,
+                "model": self.agent_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "[Conversation stopped by user]"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+            logging.info(
+                f"Streaming chat completion cancelled for conversation {conversation_id}"
+            )
+            raise
+        except Exception as e:
+            logging.error(
+                f"Error in streaming chat completions for conversation {conversation_id}: {e}"
+            )
+            raise
+        finally:
+            # Always unregister when done
+            worker_registry.unregister_conversation(conversation_id)
+
+    async def _execute_chat_completions_stream(self, prompt: ChatCompletions):
+        """
+        Internal method that does the actual streaming chat completion processing
+        """
+        import json
+        import time
+        import asyncio
+
+        conversation_id = self.conversation_id
+        chunk_id = conversation_id  # Use conversation_id as the chunk ID
+        created_time = int(time.time())
+
         # Process the prompt exactly like the non-streaming version
         c = self.conversation
         urls = []
@@ -2037,6 +2132,9 @@ class AGiXT:
         language = "en"
         log_output = True
         log_user_input = True
+        command_overrides = None
+        if prompt.tools:
+            command_overrides = prompt.tools
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
@@ -2352,6 +2450,7 @@ class AGiXT:
                     log_user_input=False,
                     log_output=False,
                     language=language,
+                    command_overrides=command_overrides,
                     **prompt_args,
                 )
 

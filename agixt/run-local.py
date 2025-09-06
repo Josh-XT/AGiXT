@@ -25,6 +25,7 @@ async def initialize_database(is_restart=False):
         # Create tables
         DB.Base.metadata.create_all(DB.engine)
         DB.migrate_company_table()
+        DB.migrate_webhook_outgoing_table()
         DB.setup_default_roles()
 
         # Handle seed data - only on initial boot, not on restarts
@@ -115,9 +116,10 @@ async def start_service(is_restart=False):
             str(getenv("UVICORN_WORKERS")),
             "--proxy-headers",
         ]
-
-        # Working directory should be /agixt (from Dockerfile WORKDIR)
-        work_dir = "/agixt"
+        work_dir = os.getcwd()
+        # Working directory should be /agixt when running in Docker
+        if os.path.exists("/.dockerenv"):
+            work_dir = "/agixt"
         logger.info(f"Starting uvicorn in directory: {work_dir}")
         logger.info(f"Current working directory is: {os.getcwd()}")
         logger.info(

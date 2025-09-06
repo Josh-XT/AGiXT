@@ -22,6 +22,13 @@ class CompanyResponse(BaseModel):
     status: Optional[bool] = True
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
     users: List[UserResponse]
     children: List["CompanyResponse"] = []
 
@@ -29,9 +36,6 @@ class CompanyResponse(BaseModel):
 class NewCompanyResponse(BaseModel):
     id: str
     name: str
-
-
-CompanyResponse.model_rebuild()
 
 
 class InvitationCreate(BaseModel):
@@ -627,6 +631,13 @@ class NewCompanyInput(BaseModel):
     status: Optional[bool] = True
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class UpdateUserRole(BaseModel):
@@ -644,9 +655,173 @@ class UpdateCompanyInput(BaseModel):
     status: Optional[bool] = None
     address: Optional[str] = None
     phone_number: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
 
 
 # Wallet Models
 class WalletResponseModel(BaseModel):
     private_key: str
     passphrase: str
+
+
+# Webhook System Models
+class WebhookIncomingCreate(BaseModel):
+    """Model for creating an incoming webhook"""
+
+    name: str
+    agent_id: str
+    description: Optional[str] = None
+    active: Optional[bool] = True
+
+
+class WebhookIncomingUpdate(BaseModel):
+    """Model for updating an incoming webhook"""
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class WebhookIncomingResponse(BaseModel):
+    """Response model for incoming webhook details"""
+
+    webhook_id: str
+    name: str
+    agent_id: str
+    api_key: str
+    webhook_url: str  # Full URL for the webhook endpoint
+    description: Optional[str] = None
+    active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookOutgoingCreate(BaseModel):
+    """Model for creating an outgoing webhook subscription"""
+
+    name: str
+    target_url: str
+    event_types: List[str]  # List of event types to subscribe to
+    company_id: Optional[str] = (
+        None  # Company ID - if not provided, uses user's default company
+    )
+    headers: Optional[Dict[str, str]] = {}  # Custom headers to include
+    secret: Optional[str] = None  # Secret for webhook signature verification
+    retry_count: Optional[int] = 3
+    retry_delay: Optional[int] = 60  # Seconds between retries
+    timeout: Optional[int] = 30  # Request timeout in seconds
+    active: Optional[bool] = True
+    filters: Optional[Dict[str, Any]] = {}  # Event filters (e.g., agent_name, user_id)
+
+
+class WebhookOutgoingUpdate(BaseModel):
+    """Model for updating an outgoing webhook"""
+
+    name: Optional[str] = None
+    target_url: Optional[str] = None
+    event_types: Optional[List[str]] = None
+    company_id: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
+    secret: Optional[str] = None
+    retry_count: Optional[int] = None
+    retry_delay: Optional[int] = None
+    timeout: Optional[int] = None
+    active: Optional[bool] = None
+    filters: Optional[Dict[str, Any]] = None
+
+
+class WebhookOutgoingResponse(BaseModel):
+    """Response model for outgoing webhook details"""
+
+    id: str
+    name: str
+    target_url: str
+    event_types: List[str]
+    company_id: str
+    headers: Dict[str, str]
+    secret: Optional[str] = None
+    retry_count: int
+    retry_delay: int
+    timeout: int
+    active: bool
+    filters: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    consecutive_failures: int
+    total_events_sent: int
+    successful_deliveries: int
+    failed_deliveries: int
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookEventPayload(BaseModel):
+    """Standard payload structure for webhook events"""
+
+    event_id: str
+    event_type: str  # e.g., "command.executed", "chat.completed", "agent.created"
+    timestamp: datetime
+    user_id: str
+    company_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    data: Dict[str, Any]  # Event-specific data
+    metadata: Optional[Dict[str, Any]] = {}  # Additional metadata
+
+
+class WebhookLogResponse(BaseModel):
+    """Response model for webhook log entries"""
+
+    id: str
+    direction: str  # "incoming" or "outgoing"
+    webhook_id: str
+    payload: Optional[str] = None  # JSON payload as string
+    response: Optional[str] = None  # Response data as string
+    status_code: Optional[int] = None
+    error_message: Optional[str] = None
+    retry_count: int
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookTestPayload(BaseModel):
+    """Model for testing webhook endpoints"""
+
+    webhook_id: str
+    event_type: Optional[str] = "webhook.test"  # Allow custom event type
+    test_payload: Optional[Dict[str, Any]] = {
+        "test": True,
+        "message": "Test webhook payload",
+    }
+
+
+class WebhookStatistics(BaseModel):
+    """Statistics for webhook usage"""
+
+    webhook_id: str
+    webhook_type: str
+    total_requests: int
+    successful_requests: int
+    failed_requests: int
+    average_processing_time_ms: float
+    last_request_at: Optional[datetime] = None
+    last_error_at: Optional[datetime] = None
+    last_error_message: Optional[str] = None
+
+
+class WebhookEventTypeList(BaseModel):
+    """Available webhook event types"""
+
+    event_types: List[Dict[str, str]]  # List of {type, description}
