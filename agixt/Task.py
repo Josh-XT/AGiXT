@@ -109,7 +109,9 @@ class Task:
         agent_name: str = None,
         start_date: datetime.datetime = None,
         end_date: datetime.datetime = None,
-        frequency: str = "daily",  # e.g., daily, weekly, monthly
+        frequency: str = "daily",  # e.g., daily, weekly, monthly, yearly
+        weekdays: str = None,  # "0,1,2,3,4,5,6" for Sun-Sat
+        timezone: str = None,  # IANA timezone string
         estimated_hours: int = None,
         priority: int = 2,
         memory_collection: str = "0",
@@ -134,7 +136,16 @@ class Task:
             if agent:
                 agent_id = agent.id
         task_ids = []
-        # If daily, create a new task for each date with create_task
+        
+        # Handle timezone conversion if provided
+        if timezone:
+            tz = ZoneInfo(timezone)
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=tz)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=tz)
+        
+        # If daily, create a new task for each date
         if frequency == "daily":
             current_date = start_date
             while current_date <= end_date:
@@ -154,6 +165,51 @@ class Task:
                 task_ids.append(str(task.id))
                 current_date += datetime.timedelta(days=1)
         elif frequency == "weekly":
+            if weekdays:
+                # Handle specific weekdays (0=Sunday, 1=Monday, ..., 6=Saturday)
+                selected_weekdays = [int(d) for d in weekdays.split(",")]
+                current_date = start_date
+                
+                while current_date <= end_date:
+                    # Check if current date's weekday is in selected weekdays
+                    if current_date.weekday() + 1 in selected_weekdays:  # Convert Mon=0 to Sun=0 format
+                        weekday_adjusted = (current_date.weekday() + 1) % 7
+                        if weekday_adjusted in selected_weekdays:
+                            task = TaskItem(
+                                user_id=self.user_id,
+                                category_id=category.id,
+                                title=title,
+                                description=description,
+                                agent_id=agent_id,
+                                due_date=current_date,
+                                estimated_hours=estimated_hours,
+                                priority=priority,
+                                scheduled=True,
+                                memory_collection=memory_collection,
+                            )
+                            session.add(task)
+                            task_ids.append(str(task.id))
+                    current_date += datetime.timedelta(days=1)
+            else:
+                # Standard weekly recurrence
+                current_date = start_date
+                while current_date <= end_date:
+                    task = TaskItem(
+                        user_id=self.user_id,
+                        category_id=category.id,
+                        title=title,
+                        description=description,
+                        agent_id=agent_id,
+                        due_date=current_date,
+                        estimated_hours=estimated_hours,
+                        priority=priority,
+                        scheduled=True,
+                        memory_collection=memory_collection,
+                    )
+                    session.add(task)
+                    task_ids.append(str(task.id))
+                    current_date += datetime.timedelta(weeks=1)
+        elif frequency == "monthly":
             current_date = start_date
             while current_date <= end_date:
                 task = TaskItem(
@@ -170,9 +226,30 @@ class Task:
                 )
                 session.add(task)
                 task_ids.append(str(task.id))
-                current_date += datetime.timedelta(weeks=1)
-        elif frequency == "monthly":
+                # Add roughly 30 days, but try to keep same day of month
+                if current_date.month == 12:
+                    next_month = current_date.replace(year=current_date.year + 1, month=1)
+                else:
+                    next_month = current_date.replace(month=current_date.month + 1)
+                current_date = next_month
+        elif frequency == "yearly":
             current_date = start_date
+            while current_date <= end_date:
+                task = TaskItem(
+                    user_id=self.user_id,
+                    category_id=category.id,
+                    title=title,
+                    description=description,
+                    agent_id=agent_id,
+                    due_date=current_date,
+                    estimated_hours=estimated_hours,
+                    priority=priority,
+                    scheduled=True,
+                    memory_collection=memory_collection,
+                )
+                session.add(task)
+                task_ids.append(str(task.id))
+                current_date = current_date.replace(year=current_date.year + 1)
             while current_date <= end_date:
                 task = TaskItem(
                     user_id=self.user_id,
