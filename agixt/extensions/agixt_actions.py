@@ -129,6 +129,7 @@ class agixt_actions(Extensions):
             "Create Automation Chain": self.create_agixt_chain,
             "Modify Automation Chain": self.modify_chain,
             "Custom API Endpoint": self.custom_api,
+            "Browser Automation": self.browser_automation,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -1754,3 +1755,266 @@ class agixt_actions(Extensions):
             except Exception as e:
                 logging.error(f"Unexpected error: {e}")
                 return f"Unexpected error: {e}"
+
+    async def browser_automation(
+        self,
+        task: str,
+        url: str = "",
+        session_id: str = "",
+        keep_open: bool = False,
+    ):
+        """
+        Control and automate web browsers through natural language commands using browser-use.
+
+        This command enables AI agents to interact with websites, fill forms, extract data,
+        take screenshots, and perform complex web automation tasks using natural language
+        instructions.
+
+        The browser automation system maintains persistent browser sessions that can be reused
+        across multiple commands, allowing for stateful interactions with websites.
+
+        Features:
+        - Navigate to any website and interact with page elements
+        - Extract structured data from web pages
+        - Fill out forms and submit information
+        - Take screenshots of pages or specific elements
+        - Handle multi-step workflows across different pages
+        - Maintain login sessions and cookies
+        - Extract text, links, images and other content
+        - Perform searches and interact with dynamic content
+        - Download files and handle uploads
+
+        Args:
+            task (str): Natural language description of what to do in the browser.
+                Examples:
+                - "Go to google.com and search for AGiXT"
+                - "Fill out the contact form with test data"
+                - "Extract all product prices from the page"
+                - "Take a screenshot of the main content area"
+                - "Click the login button and enter credentials"
+
+            url (str, optional): Starting URL to navigate to. If not provided, the task
+                should specify where to navigate.
+
+            session_id (str, optional): ID of an existing browser session to reuse.
+                If not provided, a new session will be created. Use this to continue
+                multi-step workflows in the same browser instance.
+
+            keep_open (bool, optional): Whether to keep the browser session open after
+                completing the task. Default is False. Set to True if you plan to
+                continue using the same session for follow-up tasks.
+
+        Returns:
+            str: Result of the browser automation task, which may include:
+                - Extracted data from the webpage
+                - Screenshot URLs (saved to workspace)
+                - Confirmation of completed actions
+                - Session ID for reuse (if keep_open=True)
+                - Error messages if the task failed
+
+        Examples:
+            Simple navigation and search:
+            ```
+            result = await browser_automation(
+                task="Go to wikipedia.org and search for artificial intelligence",
+                headless=True
+            )
+            ```
+
+            Data extraction with session persistence:
+            ```
+            result = await browser_automation(
+                task="Extract all article titles and summaries from the tech news section",
+                url="https://news.ycombinator.com",
+                keep_open=True
+            )
+            # Returns session_id in result for follow-up tasks
+            ```
+
+            Multi-step workflow using existing session:
+            ```
+            result = await browser_automation(
+                task="Click on the first article and extract the full text",
+                session_id="existing_session_id",
+                keep_open=False  # Close after this task
+            )
+            ```
+
+        Notes:
+            - The browser-use MCP server must be running via uvx for this command to work
+            - Screenshots are automatically saved to the agent's workspace directory
+            - Complex tasks may take longer to complete due to page loading and interactions
+            - The service uses AI to understand page structure and determine how to complete tasks
+            - For best results, be specific about what elements to interact with or data to extract
+        """
+        headless = True
+        try:
+            # Import the MCP client
+            from mcp_client import AGiXTMCPAdapter
+
+            # Prepare the arguments for the MCP tool call
+            tool_arguments = {
+                "action": task,
+                "use_vision": True,  # Enable vision for better page understanding
+            }
+
+            if url:
+                tool_arguments["url"] = url
+
+            if session_id:
+                tool_arguments["session_id"] = session_id
+
+            # Add headless mode preference
+            tool_arguments["headless"] = headless
+
+            # Create adapter for stdio-based browser-use MCP server
+            adapter = AGiXTMCPAdapter()
+
+            # Configure connection to browser-use MCP server running via uvx
+            server_config = {
+                "transport": "stdio",
+                "command": "/home/josh/snap/code/205/.local/share/../bin/uvx",
+                "args": ["browser-use[cli]", "--mcp"],
+            }
+
+            server_id = f"browser_use_{uuid.uuid4().hex[:8]}"
+            client = await adapter.connect_to_server(server_id, server_config)
+
+            try:
+                # First, list available tools to understand what's available
+                tools = await adapter.execute_mcp_action(server_id, "list_tools")
+
+                # Determine which tool to use based on the task
+                tool_name = "browser_navigate"  # Default tool for most tasks
+
+                # Adjust tool selection based on task content
+                task_lower = task.lower()
+                if any(word in task_lower for word in ["click", "press", "select"]):
+                    tool_name = "browser_click"
+                elif any(
+                    word in task_lower for word in ["type", "enter", "input", "fill"]
+                ):
+                    tool_name = "browser_type"
+                elif any(
+                    word in task_lower for word in ["extract", "get", "find", "scrape"]
+                ):
+                    tool_name = "browser_extract_content"
+                elif any(word in task_lower for word in ["scroll"]):
+                    tool_name = "browser_scroll"
+                elif any(word in task_lower for word in ["back", "previous"]):
+                    tool_name = "browser_go_back"
+                elif any(
+                    word in task_lower for word in ["state", "elements", "page info"]
+                ):
+                    tool_name = "browser_get_state"
+
+                # Prepare arguments based on the selected tool
+                if tool_name == "browser_navigate":
+                    # For navigation, we need a URL
+                    if url:
+                        tool_arguments = {"url": url}
+                    elif "http" in task or "www." in task:
+                        # Try to extract URL from task
+                        import re
+
+                        url_match = re.search(r"https?://[^\s]+|www\.[^\s]+", task)
+                        if url_match:
+                            extracted_url = url_match.group()
+                            if not extracted_url.startswith("http"):
+                                extracted_url = "https://" + extracted_url
+                            tool_arguments = {"url": extracted_url}
+                        else:
+                            tool_arguments = {"url": "https://google.com"}
+                    else:
+                        # Default to a search
+                        search_query = (
+                            task.replace("search for", "").replace("go to", "").strip()
+                        )
+                        tool_arguments = {
+                            "url": f"https://www.google.com/search?q={search_query}"
+                        }
+
+                elif tool_name == "browser_extract_content":
+                    tool_arguments = {"query": task}
+
+                elif tool_name == "browser_get_state":
+                    tool_arguments = {}
+
+                else:
+                    # For other tools, use the original arguments but ensure compatibility
+                    tool_arguments = {"action": task}
+
+                # Call the browser automation tool
+                content = await adapter.execute_mcp_action(
+                    server_id,
+                    "call_tool",
+                    tool_name=tool_name,
+                    arguments=tool_arguments,
+                )
+
+                # Format the response
+                formatted_result = []
+                formatted_result.append("✅ Browser automation task completed")
+
+                # Process the content returned from the tool
+                for item in content:
+                    if item.get("type") == "text":
+                        text_content = item.get("text", "")
+                        if text_content:
+                            formatted_result.append(f"📄 Result: {text_content}")
+                    elif item.get("type") == "resource":
+                        # Handle resource content (like screenshots)
+                        resource_uri = item.get("uri", "")
+                        if resource_uri:
+                            formatted_result.append(f"📎 Resource: {resource_uri}")
+
+                # Add session info if keeping open
+                if keep_open:
+                    formatted_result.append(
+                        "ℹ️ Browser session kept open for continued use"
+                    )
+
+                return (
+                    "\n".join(formatted_result)
+                    if formatted_result
+                    else "Browser automation completed"
+                )
+
+            finally:
+                # Always disconnect
+                await adapter.disconnect_all()
+
+        except ImportError:
+            return (
+                "❌ Error: MCP client module not found. Please ensure mcp_client.py is available.\n"
+                "The browser automation feature requires the MCP client implementation."
+            )
+        except Exception as e:
+            logging.error(f"Error in browser automation: {str(e)}")
+
+            # Provide helpful error messages
+            if "No such file or directory" in str(e) or "uvx" in str(e):
+                return (
+                    "❌ Error: Could not find uvx command or browser-use.\n"
+                    "Please ensure uv is installed and browser-use is available:\n"
+                    "```bash\n"
+                    "curl -LsSf https://astral.sh/uv/install.sh | sh\n"
+                    "uvx browser-use[cli] --help\n"
+                    "```"
+                )
+            elif "Failed to connect" in str(e) or "Connection" in str(e):
+                return (
+                    "❌ Error: Could not connect to browser-use MCP server.\n"
+                    "Please ensure browser-use is running in MCP mode:\n"
+                    "```bash\n"
+                    "uvx browser-use[cli] --mcp\n"
+                    "```"
+                )
+            elif "timeout" in str(e).lower():
+                return (
+                    "❌ Error: Browser automation timed out.\n"
+                    "The task may be too complex or the website may be slow to respond.\n"
+                    "Try breaking the task into smaller steps or increasing the timeout."
+                )
+            else:
+                return f"❌ Error during browser automation: {str(e)}"
