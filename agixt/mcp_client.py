@@ -461,7 +461,7 @@ class AGiXTMCPAdapter:
 
                 # Configure browser-use to use AGiXT as OpenAI-compatible provider
                 env["OPENAI_API_KEY"] = self.user_api_key
-                env["OPENAI_BASE_URL"] = f"{agixt_uri}/v1"
+                env["OPENAI_BASE_URL"] = f"{agixt_uri}/v1/mcp/"
                 env["BROWSER_USE_MODEL"] = agent_name  # Use agent name as model
 
                 # Optimal defaults for vision models
