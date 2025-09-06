@@ -63,6 +63,82 @@ RESTART_COOLDOWN = int(getenv("RESTART_COOLDOWN"))  # seconds between restarts
 consecutive_failures = 0
 last_restart_time: Optional[datetime] = None
 uvicorn_process: Optional[subprocess.Popen] = None
+browser_use_process: Optional[subprocess.Popen] = None
+
+
+async def start_browser_use_mcp():
+    """Start the browser-use MCP server for browser automation."""
+    global browser_use_process
+
+    # Check if browser automation is enabled
+    enable_browser_automation = (
+        str(getenv("ENABLE_BROWSER_AUTOMATION", "true")).lower() == "true"
+    )
+    if not enable_browser_automation:
+        logger.info(
+            "Browser automation is disabled via ENABLE_BROWSER_AUTOMATION environment variable"
+        )
+        return
+
+    try:
+        # Check if uv/uvx is available
+        uvx_path = None
+        for path in ["/root/.local/bin/uvx", "/usr/local/bin/uvx", "uvx"]:
+            try:
+                result = subprocess.run(
+                    [path, "--version"], capture_output=True, timeout=5
+                )
+                if result.returncode == 0:
+                    uvx_path = path
+                    break
+            except:
+                continue
+
+        if not uvx_path:
+            logger.warning(
+                "uvx not found in PATH. Browser automation will not be available."
+            )
+            logger.warning(
+                "To enable browser automation, install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+            )
+            return
+
+        logger.info("Starting browser-use MCP server...")
+
+        # Start browser-use MCP server with simple configuration
+        # LLM configuration is handled at the MCP client level with user-specific API keys
+        cmd = [uvx_path, "browser-use[cli]", "--mcp"]
+
+        browser_use_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=os.environ.copy(),
+        )
+
+        logger.info(
+            f"Browser-use MCP server started with PID {browser_use_process.pid}"
+        )
+
+        # Wait a moment to check if it started successfully
+        await asyncio.sleep(2)
+
+        if browser_use_process.poll() is not None:
+            # Process died, get the error output
+            stdout, stderr = browser_use_process.communicate()
+            logger.error(f"Browser-use MCP server failed to start:")
+            if stderr:
+                logger.error(f"Error output: {stderr.decode()}")
+            if stdout:
+                logger.error(f"Standard output: {stdout.decode()}")
+            browser_use_process = None
+        else:
+            logger.info("Browser-use MCP server appears to be running successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to start browser-use MCP server: {e}")
+        logger.warning("Browser automation will not be available")
+        browser_use_process = None
 
 
 async def check_health() -> bool:
@@ -149,14 +225,17 @@ async def start_service(is_restart=False):
 
         logger.info("Uvicorn process appears to be running successfully")
 
+        # Start browser-use MCP server after uvicorn is running
+        await start_browser_use_mcp()
+
     except Exception as e:
         logger.error(f"Failed to start service: {e}")
         raise
 
 
 async def restart_service():
-    """Kill and restart the uvicorn process."""
-    global uvicorn_process, last_restart_time
+    """Kill and restart the uvicorn process and browser-use MCP server."""
+    global uvicorn_process, browser_use_process, last_restart_time
 
     # Check cooldown
     if last_restart_time:
@@ -170,7 +249,7 @@ async def restart_service():
     logger.warning("Attempting to restart AGiXT service...")
 
     try:
-        # Kill existing process if any
+        # Kill existing uvicorn process if any
         if uvicorn_process and uvicorn_process.poll() is None:
             logger.info("Killing existing uvicorn process...")
             uvicorn_process.terminate()
@@ -180,6 +259,19 @@ async def restart_service():
                 logger.warning("Process didn't terminate gracefully, forcing kill...")
                 uvicorn_process.kill()
                 uvicorn_process.wait()
+
+        # Kill existing browser-use MCP server if any
+        if browser_use_process and browser_use_process.poll() is None:
+            logger.info("Killing existing browser-use MCP server...")
+            browser_use_process.terminate()
+            try:
+                browser_use_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "Browser-use process didn't terminate gracefully, forcing kill..."
+                )
+                browser_use_process.kill()
+                browser_use_process.wait()
 
         # Wait a bit before starting again
         logger.info("Waiting 5 seconds before restart...")
@@ -246,8 +338,17 @@ async def monitor_loop():
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
     logger.info(f"Received signal {signum}, shutting down...")
+
+    # Shutdown uvicorn process
     if uvicorn_process and uvicorn_process.poll() is None:
+        logger.info("Terminating uvicorn process...")
         uvicorn_process.terminate()
+
+    # Shutdown browser-use MCP server
+    if browser_use_process and browser_use_process.poll() is None:
+        logger.info("Terminating browser-use MCP server...")
+        browser_use_process.terminate()
+
     sys.exit(0)
 
 

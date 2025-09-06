@@ -114,9 +114,12 @@ class HTTPTransport:
 class StdioTransport:
     """Standard I/O transport for local MCP servers"""
 
-    def __init__(self, command: str, args: List[str] = None):
+    def __init__(
+        self, command: str, args: List[str] = None, env: Optional[Dict[str, str]] = None
+    ):
         self.command = command
         self.args = args or []
+        self.env = env
         self.process: Optional[asyncio.subprocess.Process] = None
         self.read_task: Optional[asyncio.Task] = None
         self.notification_handlers = {}
@@ -124,12 +127,18 @@ class StdioTransport:
 
     async def connect(self):
         """Start the MCP server process"""
+        import os
+
+        # Use provided environment or copy current environment
+        process_env = self.env.copy() if self.env else os.environ.copy()
+
         self.process = await asyncio.create_subprocess_exec(
             self.command,
             *self.args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=process_env,
         )
 
         # Start reading from stdout
@@ -227,7 +236,9 @@ class MCPClient:
             )
         elif transport_type == TransportType.STDIO:
             return StdioTransport(
-                command=params.get("command"), args=params.get("args", [])
+                command=params.get("command"),
+                args=params.get("args", []),
+                env=params.get("env"),
             )
         else:
             raise ValueError(f"Unsupported transport type: {transport_type}")
@@ -417,8 +428,9 @@ class AGiXTMCPAdapter:
     Adapter to integrate MCP client with AGiXT's extension system
     """
 
-    def __init__(self):
+    def __init__(self, user_api_key: Optional[str] = None):
         self.clients: Dict[str, MCPClient] = {}
+        self.user_api_key = user_api_key
 
     async def connect_to_server(self, server_id: str, server_config: dict) -> MCPClient:
         """
@@ -437,10 +449,36 @@ class AGiXTMCPAdapter:
                 auth_headers=server_config.get("auth_headers", {}),
             )
         elif transport_type == TransportType.STDIO:
+            # Handle AGiXT integration for stdio transports (like browser-use)
+            env = server_config.get("env", {}).copy()
+
+            # Auto-configure browser-use to use AGiXT if it's a browser-use server
+            if "browser-use" in server_config.get("command", "") and self.user_api_key:
+                from Globals import getenv
+
+                agixt_uri = getenv("AGIXT_URI", "http://localhost:7437")
+                agent_name = server_config.get("agent_name", "gpt-4o")
+
+                # Configure browser-use to use AGiXT as OpenAI-compatible provider
+                env["OPENAI_API_KEY"] = self.user_api_key
+                env["OPENAI_BASE_URL"] = f"{agixt_uri}/v1/mcp/"
+                env["BROWSER_USE_MODEL"] = agent_name  # Use agent name as model
+
+                # Optimal defaults for vision models
+                env["BROWSER_USE_HEADLESS"] = "true"
+                env["BROWSER_USE_VIEWPORT_WIDTH"] = "1280"
+                env["BROWSER_USE_VIEWPORT_HEIGHT"] = "720"
+
+                logger.info(f"Configured browser-use MCP server to use AGiXT:")
+                logger.info(f"  - Base URL: {env['OPENAI_BASE_URL']}")
+                logger.info(f"  - Model (Agent): {agent_name}")
+                logger.info(f"  - Headless: true, Viewport: 1280x720")
+
             client = MCPClient(
                 transport_type,
                 command=server_config["command"],
                 args=server_config.get("args", []),
+                env=env,
             )
         else:
             raise ValueError(f"Unsupported transport: {transport_type}")
