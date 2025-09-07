@@ -57,3 +57,6 @@ tickets.py
 contacts.py
 activity_log.py
 assets.py
+xtsystems_extensions/*
+web/*
+mobile/*

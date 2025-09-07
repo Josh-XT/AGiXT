@@ -114,15 +114,18 @@ async def new_task(
         minutes = int(task.minutes)
     except:
         minutes = 0
-    
+
     # Calculate the due date - support both absolute and relative times
     if task.start_date:
         # Use absolute start_date if provided
         try:
-            due_date = datetime.datetime.fromisoformat(task.start_date.replace('Z', '+00:00'))
+            due_date = datetime.datetime.fromisoformat(
+                task.start_date.replace("Z", "+00:00")
+            )
             # Handle timezone conversion if provided
             if task.timezone:
                 from zoneinfo import ZoneInfo
+
                 tz = ZoneInfo(task.timezone)
                 if due_date.tzinfo is None:
                     due_date = due_date.replace(tzinfo=tz)

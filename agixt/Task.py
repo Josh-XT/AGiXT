@@ -136,7 +136,7 @@ class Task:
             if agent:
                 agent_id = agent.id
         task_ids = []
-        
+
         # Handle timezone conversion if provided
         if timezone:
             tz = ZoneInfo(timezone)
@@ -144,7 +144,7 @@ class Task:
                 start_date = start_date.replace(tzinfo=tz)
             if end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=tz)
-        
+
         # If daily, create a new task for each date
         if frequency == "daily":
             current_date = start_date
@@ -169,10 +169,12 @@ class Task:
                 # Handle specific weekdays (0=Sunday, 1=Monday, ..., 6=Saturday)
                 selected_weekdays = [int(d) for d in weekdays.split(",")]
                 current_date = start_date
-                
+
                 while current_date <= end_date:
                     # Check if current date's weekday is in selected weekdays
-                    if current_date.weekday() + 1 in selected_weekdays:  # Convert Mon=0 to Sun=0 format
+                    if (
+                        current_date.weekday() + 1 in selected_weekdays
+                    ):  # Convert Mon=0 to Sun=0 format
                         weekday_adjusted = (current_date.weekday() + 1) % 7
                         if weekday_adjusted in selected_weekdays:
                             task = TaskItem(
@@ -228,7 +230,9 @@ class Task:
                 task_ids.append(str(task.id))
                 # Add roughly 30 days, but try to keep same day of month
                 if current_date.month == 12:
-                    next_month = current_date.replace(year=current_date.year + 1, month=1)
+                    next_month = current_date.replace(
+                        year=current_date.year + 1, month=1
+                    )
                 else:
                     next_month = current_date.replace(month=current_date.month + 1)
                 current_date = next_month
