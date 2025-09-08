@@ -1612,6 +1612,43 @@ Remember to:
                     {"success": False, "error": "Component category cannot be empty"}
                 )
 
+            # Parse price from string if needed
+            parsed_price = None
+            if price is not None:
+                if isinstance(price, (int, float)):
+                    parsed_price = float(price)
+                elif isinstance(price, str):
+                    # Try to extract numeric value from price string
+                    import re
+
+                    # Remove currency symbols and extract numbers
+                    price_str = price.strip().lower()
+                    if price_str in ["n/a", "na", "", "unknown", "tbd"]:
+                        parsed_price = None
+                    else:
+                        # Extract numbers from string like "$6.99", "Estimated at $6.99", "6.99 USD", etc.
+                        price_match = re.search(r"(\d+\.?\d*)", price_str)
+                        if price_match:
+                            try:
+                                parsed_price = float(price_match.group(1))
+                            except ValueError:
+                                parsed_price = None
+
+            # Parse quantity_on_hand if it's a string
+            parsed_quantity = 0
+            if quantity_on_hand is not None:
+                if isinstance(quantity_on_hand, int):
+                    parsed_quantity = quantity_on_hand
+                elif isinstance(quantity_on_hand, str):
+                    try:
+                        parsed_quantity = (
+                            int(quantity_on_hand.strip())
+                            if quantity_on_hand.strip().isdigit()
+                            else 0
+                        )
+                    except (ValueError, AttributeError):
+                        parsed_quantity = 0
+
             component = Component(
                 user_id=self.user_id,
                 name=name.strip(),
@@ -1621,8 +1658,8 @@ Remember to:
                 description=description.strip() if description else None,
                 specifications=json.dumps(specifications or {}),
                 dimensions=json.dumps(dimensions or {}),
-                quantity_on_hand=quantity_on_hand,
-                price=price,
+                quantity_on_hand=parsed_quantity,
+                price=parsed_price,
                 buy_link=buy_link.strip() if buy_link else None,
                 datasheet_link=datasheet_link.strip() if datasheet_link else None,
                 package_type=package_type.strip() if package_type else None,
@@ -1733,9 +1770,44 @@ Remember to:
             if dimensions is not None:
                 component.dimensions = json.dumps(dimensions)
             if quantity_on_hand is not None:
-                component.quantity_on_hand = quantity_on_hand
+                # Parse quantity_on_hand if it's a string
+                if isinstance(quantity_on_hand, int):
+                    component.quantity_on_hand = quantity_on_hand
+                elif isinstance(quantity_on_hand, str):
+                    try:
+                        component.quantity_on_hand = (
+                            int(quantity_on_hand.strip())
+                            if quantity_on_hand.strip().isdigit()
+                            else 0
+                        )
+                    except (ValueError, AttributeError):
+                        component.quantity_on_hand = 0
+                else:
+                    component.quantity_on_hand = quantity_on_hand
+
             if price is not None:
-                component.price = price
+                # Parse price from string if needed
+                if isinstance(price, (int, float)):
+                    component.price = float(price)
+                elif isinstance(price, str):
+                    # Try to extract numeric value from price string
+                    import re
+
+                    price_str = price.strip().lower()
+                    if price_str in ["n/a", "na", "", "unknown", "tbd"]:
+                        component.price = None
+                    else:
+                        # Extract numbers from string like "$6.99", "Estimated at $6.99", "6.99 USD", etc.
+                        price_match = re.search(r"(\d+\.?\d*)", price_str)
+                        if price_match:
+                            try:
+                                component.price = float(price_match.group(1))
+                            except ValueError:
+                                component.price = None
+                        else:
+                            component.price = None
+                else:
+                    component.price = price
             if buy_link is not None:
                 component.buy_link = buy_link.strip() if buy_link else None
             if datasheet_link is not None:
