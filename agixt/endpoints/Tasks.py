@@ -21,9 +21,11 @@ class TaskModel(BaseModel):
     agent_name: str
     title: str
     task_description: Optional[str] = None
-    days: int = 0
+    start_date: Optional[str] = None  # NEW: Absolute datetime support
+    days: int = 0  # Keep for backward compatibility
     hours: int = 0
     minutes: int = 0
+    timezone: Optional[str] = None  # NEW: Timezone support
     priority: Optional[int] = 1
     estimated_hours: Optional[str] = None
     conversation_id: str = None
@@ -36,6 +38,8 @@ class ReoccurringTaskModel(BaseModel):
     start_date: str
     end_date: str
     frequency: Optional[str] = "daily"
+    weekdays: Optional[str] = None  # "0,1,2,3,4,5,6" for Sun-Sat
+    timezone: Optional[str] = None  # IANA timezone string
     priority: Optional[int] = 1
     estimated_hours: Optional[str] = None
     conversation_id: Optional[str] = None
@@ -110,10 +114,31 @@ async def new_task(
         minutes = int(task.minutes)
     except:
         minutes = 0
-    # Calculate the due date
-    due_date = datetime.datetime.now() + datetime.timedelta(
-        days=days, hours=hours, minutes=minutes
-    )
+
+    # Calculate the due date - support both absolute and relative times
+    if task.start_date:
+        # Use absolute start_date if provided
+        try:
+            due_date = datetime.datetime.fromisoformat(
+                task.start_date.replace("Z", "+00:00")
+            )
+            # Handle timezone conversion if provided
+            if task.timezone:
+                from zoneinfo import ZoneInfo
+
+                tz = ZoneInfo(task.timezone)
+                if due_date.tzinfo is None:
+                    due_date = due_date.replace(tzinfo=tz)
+        except ValueError:
+            # Fallback to relative time if date parsing fails
+            due_date = datetime.datetime.now() + datetime.timedelta(
+                days=days, hours=hours, minutes=minutes
+            )
+    else:
+        # Use relative time (backward compatibility)
+        due_date = datetime.datetime.now() + datetime.timedelta(
+            days=days, hours=hours, minutes=minutes
+        )
 
     # Set task description to "NA" if None
     task_description = (
@@ -190,6 +215,8 @@ async def new_reoccurring_task(
         start_date=task.start_date,
         end_date=task.end_date,
         frequency=task.frequency,
+        weekdays=task.weekdays,  # NEW: Support for specific weekdays
+        timezone=task.timezone,  # NEW: Timezone support
         priority=task.priority if task.priority else 1,
         estimated_hours=task.estimated_hours,
         memory_collection=task.conversation_id,  # This ensures context preservation

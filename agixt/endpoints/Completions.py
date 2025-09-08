@@ -88,6 +88,65 @@ async def chat_completion(
         return await agixt.chat_completions(prompt=prompt)
 
 
+# Chat Completions endpoint
+# https://platform.openai.com/docs/api-reference/chat/createChatCompletion
+@app.post(
+    "/v1/mcp/chat/completions",
+    tags=["Completions"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Create Chat Completion",
+    description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format. Supports streaming responses when stream=true.",
+)
+async def chat_completion(
+    prompt: ChatCompletions,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    # prompt.model is the agent name
+    # prompt.user is the conversation name
+    # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
+    prompt.messages[0]["disable_commands"] = True
+    conversation_name = prompt.user
+    if conversation_name != "-":
+        try:
+            conversation_id = str(uuid.UUID(conversation_name))
+        except:
+            conversation_id = None
+        if conversation_id:
+            user_id = get_user_id(user)
+            conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=user_id
+            )
+    if not prompt.model:
+        agents = get_agents(user=user)
+        try:
+            prompt.model = agents[0].name
+        except Exception as e:
+            print(f"Error getting agent name: {e}")
+            prompt.model = "AGiXT"
+    prompt.model = prompt.model.replace('"', "")
+    agixt = AGiXT(
+        user=user,
+        agent_name=prompt.model,
+        api_key=authorization,
+        conversation_name=conversation_name,
+    )
+
+    # Check if streaming is requested
+    if prompt.stream:
+        return StreamingResponse(
+            agixt.chat_completions_stream(prompt=prompt),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Content-Type": "text/plain; charset=utf-8",
+            },
+        )
+    else:
+        return await agixt.chat_completions(prompt=prompt)
+
+
 # Embedding endpoint
 # https://platform.openai.com/docs/api-reference/embeddings/createEmbedding
 @app.post(
