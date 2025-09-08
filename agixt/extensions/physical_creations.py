@@ -1563,12 +1563,13 @@ Remember to:
         """Add a new component to the inventory"""
         session = get_session()
         try:
-            if not name.strip():
+            # Validate required parameters
+            if not name or not name.strip():
                 return json.dumps(
                     {"success": False, "error": "Component name cannot be empty"}
                 )
 
-            if not category.strip():
+            if not category or not category.strip():
                 return json.dumps(
                     {"success": False, "error": "Component category cannot be empty"}
                 )
@@ -1577,21 +1578,21 @@ Remember to:
                 user_id=self.user_id,
                 name=name.strip(),
                 category=category.strip(),
-                manufacturer=manufacturer,
-                part_number=part_number,
-                description=description,
+                manufacturer=manufacturer.strip() if manufacturer else None,
+                part_number=part_number.strip() if part_number else None,
+                description=description.strip() if description else None,
                 specifications=json.dumps(specifications or {}),
                 dimensions=json.dumps(dimensions or {}),
                 quantity_on_hand=quantity_on_hand,
                 price=price,
-                buy_link=buy_link,
-                datasheet_link=datasheet_link,
-                package_type=package_type,
-                voltage_rating=voltage_rating,
-                current_rating=current_rating,
-                power_rating=power_rating,
-                tolerance=tolerance,
-                value=value,
+                buy_link=buy_link.strip() if buy_link else None,
+                datasheet_link=datasheet_link.strip() if datasheet_link else None,
+                package_type=package_type.strip() if package_type else None,
+                voltage_rating=voltage_rating.strip() if voltage_rating else None,
+                current_rating=current_rating.strip() if current_rating else None,
+                power_rating=power_rating.strip() if power_rating else None,
+                tolerance=tolerance.strip() if tolerance else None,
+                value=value.strip() if value else None,
             )
 
             session.add(component)
@@ -1667,14 +1668,14 @@ Remember to:
 
             # Update fields if provided
             if name is not None:
-                if not name.strip():
+                if not name or not name.strip():
                     return json.dumps(
                         {"success": False, "error": "Component name cannot be empty"}
                     )
                 component.name = name.strip()
 
             if category is not None:
-                if not category.strip():
+                if not category or not category.strip():
                     return json.dumps(
                         {
                             "success": False,
@@ -1684,11 +1685,11 @@ Remember to:
                 component.category = category.strip()
 
             if manufacturer is not None:
-                component.manufacturer = manufacturer
+                component.manufacturer = manufacturer.strip() if manufacturer else None
             if part_number is not None:
-                component.part_number = part_number
+                component.part_number = part_number.strip() if part_number else None
             if description is not None:
-                component.description = description
+                component.description = description.strip() if description else None
             if specifications is not None:
                 component.specifications = json.dumps(specifications)
             if dimensions is not None:
@@ -1698,21 +1699,27 @@ Remember to:
             if price is not None:
                 component.price = price
             if buy_link is not None:
-                component.buy_link = buy_link
+                component.buy_link = buy_link.strip() if buy_link else None
             if datasheet_link is not None:
-                component.datasheet_link = datasheet_link
+                component.datasheet_link = (
+                    datasheet_link.strip() if datasheet_link else None
+                )
             if package_type is not None:
-                component.package_type = package_type
+                component.package_type = package_type.strip() if package_type else None
             if voltage_rating is not None:
-                component.voltage_rating = voltage_rating
+                component.voltage_rating = (
+                    voltage_rating.strip() if voltage_rating else None
+                )
             if current_rating is not None:
-                component.current_rating = current_rating
+                component.current_rating = (
+                    current_rating.strip() if current_rating else None
+                )
             if power_rating is not None:
-                component.power_rating = power_rating
+                component.power_rating = power_rating.strip() if power_rating else None
             if tolerance is not None:
-                component.tolerance = tolerance
+                component.tolerance = tolerance.strip() if tolerance else None
             if value is not None:
-                component.value = value
+                component.value = value.strip() if value else None
 
             component.updated_at = datetime.utcnow()
             session.commit()
