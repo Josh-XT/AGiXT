@@ -1542,8 +1542,8 @@ Remember to:
 
     async def add_component(
         self,
-        name: str,
-        category: str,
+        name: str = None,
+        category: str = None,
         manufacturer: str = None,
         part_number: str = None,
         description: str = None,
@@ -1563,6 +1563,44 @@ Remember to:
         """Add a new component to the inventory"""
         session = get_session()
         try:
+            # Auto-generate name if not provided
+            if not name or not name.strip():
+                # Try to generate a meaningful name from available info
+                auto_name_parts = []
+
+                if manufacturer and manufacturer.strip():
+                    auto_name_parts.append(manufacturer.strip())
+
+                if (
+                    part_number
+                    and part_number.strip()
+                    and part_number.strip().lower() != "n/a"
+                ):
+                    auto_name_parts.append(part_number.strip())
+                elif category and category.strip():
+                    # If no part number but we have manufacturer and category, combine them
+                    if manufacturer and manufacturer.strip():
+                        auto_name_parts.append(category.strip())
+
+                if not auto_name_parts and category and category.strip():
+                    # If no manufacturer/part_number, use category only
+                    auto_name_parts.append(category.strip())
+
+                if auto_name_parts:
+                    name = " ".join(auto_name_parts)
+                elif description and description.strip():
+                    # Use first 50 characters of description as fallback
+                    name = description.strip()[:50]
+                    if len(description.strip()) > 50:
+                        name += "..."
+                else:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "Component name cannot be determined. Please provide a name, manufacturer, part_number, or description.",
+                        }
+                    )
+
             # Validate required parameters
             if not name or not name.strip():
                 return json.dumps(
