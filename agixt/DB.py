@@ -112,11 +112,47 @@ try:
                 os.makedirs(db_folder)
         DATABASE_URI = f"sqlite:///{DATABASE_NAME}.db"
 
-    # Database connection pool settings
-    DB_POOL_SIZE = 20
-    DB_MAX_OVERFLOW = 15
-    DB_POOL_TIMEOUT = 30
-    DB_POOL_RECYCLE = 3600
+    # Database connection pool settings with dynamic calculation
+    # Get number of uvicorn workers
+    UVICORN_WORKERS = int(getenv("UVICORN_WORKERS", "60"))
+
+    # Allow customization via environment variables
+    # Default to generous settings to prevent connection exhaustion
+    DB_POOL_MULTIPLIER = float(
+        getenv("DB_POOL_MULTIPLIER", "3")
+    )  # 3 connections per worker
+    DB_OVERFLOW_MULTIPLIER = float(getenv("DB_OVERFLOW_MULTIPLIER", "2"))  # 2x overflow
+
+    # Calculate pool sizes dynamically based on worker count
+    # This ensures we have enough connections for all workers plus overhead
+    DB_POOL_SIZE = int(
+        getenv("DB_POOL_SIZE", str(int(UVICORN_WORKERS * DB_POOL_MULTIPLIER)))
+    )
+    DB_MAX_OVERFLOW = int(
+        getenv("DB_MAX_OVERFLOW", str(int(DB_POOL_SIZE * DB_OVERFLOW_MULTIPLIER)))
+    )
+
+    # Other pool settings
+    DB_POOL_TIMEOUT = int(getenv("DB_POOL_TIMEOUT", "30"))
+    DB_POOL_RECYCLE = int(getenv("DB_POOL_RECYCLE", "3600"))
+
+    # Total connections available
+    TOTAL_CONNECTIONS = DB_POOL_SIZE + DB_MAX_OVERFLOW
+
+    # Log the configuration for monitoring
+    logging.info(
+        f"Database pool configuration: Workers={UVICORN_WORKERS}, "
+        f"Pool Size={DB_POOL_SIZE}, Max Overflow={DB_MAX_OVERFLOW}, "
+        f"Total Connections={TOTAL_CONNECTIONS}, "
+        f"Connections per Worker={TOTAL_CONNECTIONS/UVICORN_WORKERS:.2f}"
+    )
+
+    # Warn if configuration seems insufficient
+    if TOTAL_CONNECTIONS < UVICORN_WORKERS * 2:
+        logging.warning(
+            f"Database pool may be insufficient: {TOTAL_CONNECTIONS} total connections "
+            f"for {UVICORN_WORKERS} workers. Consider increasing DB_POOL_MULTIPLIER or DB_POOL_SIZE."
+        )
 
     engine = create_engine(
         DATABASE_URI,
@@ -134,7 +170,8 @@ try:
     Base = declarative_base()
 
     logging.info(
-        f"Database connection established successfully. Pool size: {DB_POOL_SIZE}, Max overflow: {DB_MAX_OVERFLOW}"
+        f"Database connection established successfully. Pool size: {DB_POOL_SIZE}, "
+        f"Max overflow: {DB_MAX_OVERFLOW}, Total: {TOTAL_CONNECTIONS}"
     )
 
 except Exception as e:
