@@ -243,7 +243,7 @@ class Conversations:
         session.close()
         return result
 
-    def get_conversation(self, limit=100, page=1):
+    def get_conversation(self, limit=1000, page=1):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id

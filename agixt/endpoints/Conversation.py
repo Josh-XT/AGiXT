@@ -162,7 +162,7 @@ async def get_conversation_history(
 )
 async def get_conversation_data(
     conversation_name: str,
-    limit: int = 100,
+    limit: int = 1000,
     page: int = 1,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
