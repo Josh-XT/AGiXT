@@ -1378,17 +1378,17 @@ class Chain:
             # Build prompt object similar to get_chain() method
             prompt = {}
             if step.target_chain_id:
-                prompt["chain_name"] = (
-                    session.query(ChainDB).get(step.target_chain_id).name
-                )
+                chain_obj = session.query(ChainDB).get(step.target_chain_id)
+                if chain_obj:
+                    prompt["chain_name"] = chain_obj.name
             elif step.target_command_id:
-                prompt["command_name"] = (
-                    session.query(Command).get(step.target_command_id).name
-                )
+                command_obj = session.query(Command).get(step.target_command_id)
+                if command_obj:
+                    prompt["command_name"] = command_obj.name
             elif step.target_prompt_id:
-                prompt["prompt_name"] = (
-                    session.query(Prompt).get(step.target_prompt_id).name
-                )
+                prompt_obj = session.query(Prompt).get(step.target_prompt_id)
+                if prompt_obj:
+                    prompt["prompt_name"] = prompt_obj.name
 
             # Retrieve argument data for the step
             arguments = (
