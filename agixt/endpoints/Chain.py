@@ -122,7 +122,15 @@ async def get_chain_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
     chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)
     if chain_data is None:
         raise HTTPException(status_code=404, detail="Chain not found")
-    return {chain_data["name"]: chain_data}
+
+    # Transform the response to match ChainDetailsResponse model
+    response_data = {
+        "id": chain_data.get("id", chain_id),
+        "chain_name": chain_data.get("name", ""),
+        "steps": chain_data.get("steps", []),
+    }
+
+    return {chain_data.get("name", ""): response_data}
 
 
 @app.delete(
