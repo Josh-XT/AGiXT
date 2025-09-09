@@ -228,7 +228,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
                 logging.error(f"Validation error: {str(e)}")
                 return False
 
-    async def _generate_preview(self, scad_file: str) -> str:
+    def _generate_preview(self, scad_file: str) -> str:
         """Generate preview image for OpenSCAD model using virtual display"""
         output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".png"
         output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
@@ -262,7 +262,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             logging.error(f"Unexpected error in preview generation: {str(e)}")
             return None
 
-    async def _generate_stl(self, scad_file: str) -> str:
+    def _generate_stl(self, scad_file: str) -> str:
         """Generate STL file from OpenSCAD model"""
         output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".stl"
         output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
@@ -290,7 +290,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             logging.error(f"Unexpected error in STL generation: {str(e)}")
             return None
 
-    async def _save_file(self, content: str, filename: str) -> str:
+    def _save_file(self, content: str, filename: str) -> str:
         """Save content to a file in the working directory"""
         filepath = os.path.join(self.WORKING_DIRECTORY, filename)
         try:
@@ -316,7 +316,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
 
             # Step 1: Extract requirements
             logging.info("Starting requirements extraction...")
-            requirements = await self._extract_requirements(description)
+            requirements = self._extract_requirements(description)
             results.append("## 📋 Requirements Analysis\n" + requirements)
             logging.info("Requirements extraction completed")
 
@@ -367,7 +367,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             logging.error(f"Traceback: {traceback.format_exc()}")
             return f"**Error creating hardware project:**\n\n{str(e)}\n\nPlease try again or check the logs for more details."
 
-    async def _extract_requirements(self, description: str) -> str:
+    def _extract_requirements(self, description: str) -> str:
         """Extract technical requirements from natural language description"""
         prompt = f"""Analyze this hardware project request and extract technical requirements:
 
@@ -599,7 +599,7 @@ Format everything clearly with proper sections and include any important notes o
         )
 
         # Save the circuit design to a file
-        circuit_file = await self._save_file(circuit_design, "circuit_design.txt")
+        circuit_file = self._save_file(circuit_design, "circuit_design.txt")
         if circuit_file:
             circuit_design += f"\n\n📥 [Download Circuit Design]({self.output_url}/circuit_design.txt)"
 
@@ -781,7 +781,7 @@ Return ONLY the complete, fixed Arduino code in a code block."""
             firmware_code = firmware_code.strip()
 
             # Validate syntax
-            success, error_msg = await self._validate_arduino_syntax(firmware_code)
+            success, error_msg = self._validate_arduino_syntax(firmware_code)
 
             if success:
                 logging.info(
@@ -796,7 +796,7 @@ Return ONLY the complete, fixed Arduino code in a code block."""
                 iteration += 1
 
         # Save firmware to file
-        firmware_file = await self._save_file(firmware_code, "firmware.ino")
+        firmware_file = self._save_file(firmware_code, "firmware.ino")
 
         # Prepare response
         response = f"```cpp\n{firmware_code}\n```\n\n"
@@ -814,7 +814,7 @@ Return ONLY the complete, fixed Arduino code in a code block."""
                 response += f"- **Attempt {i}**: {error_preview}...\n"
             response += "\n"
 
-        success, final_status = await self._validate_arduino_syntax(firmware_code)
+        success, final_status = self._validate_arduino_syntax(firmware_code)
         if success:
             response += "✅ **Final Status**: Code syntax validation passed!\n\n"
         else:
@@ -944,8 +944,8 @@ Include test fit features and assembly instructions in comments."""
             f.write(scad_code)
 
         # Generate preview and STL
-        preview_path = await self._generate_preview(scad_filepath)
-        stl_path = await self._generate_stl(scad_filepath)
+        preview_path = self._generate_preview(scad_filepath)
+        stl_path = self._generate_stl(scad_filepath)
 
         response = f"```openscad\n{scad_code}\n```\n\n"
 
@@ -1065,14 +1065,14 @@ Make it professional and comprehensive enough for open-source release."""
         )
 
         # Save documentation
-        doc_file = await self._save_file(documentation, "README.md")
+        doc_file = self._save_file(documentation, "README.md")
 
         if doc_file:
             documentation += f"\n\n📥 [Download README]({self.output_url}/README.md)"
 
         return documentation
 
-    async def _generate_threejs_viewer(
+    def _generate_threejs_viewer(
         self, scad_code: str, model_name: str = "model"
     ) -> str:
         """
@@ -1236,7 +1236,7 @@ Make it professional and comprehensive enough for open-source release."""
 
         # Save HTML file
         html_filename = f"{model_name}_viewer.html"
-        html_path = await self._save_file(html_content, html_filename)
+        html_path = self._save_file(html_content, html_filename)
 
         return html_path
 
@@ -1405,13 +1405,13 @@ Remember to:
             f.write(scad_code)
 
         # Generate preview image
-        preview_path = await self._generate_preview(scad_filepath)
+        preview_path = self._generate_preview(scad_filepath)
 
         # Generate STL file
-        stl_path = await self._generate_stl(scad_filepath)
+        stl_path = self._generate_stl(scad_filepath)
 
         # Generate interactive Three.js viewer
-        viewer_path = await self._generate_threejs_viewer(scad_code, model_name)
+        viewer_path = self._generate_threejs_viewer(scad_code, model_name)
 
         # Build response with all outputs
         response_parts = [
@@ -1463,7 +1463,7 @@ Remember to:
 
         return "\n".join(response_parts)
 
-    async def _validate_arduino_syntax(self, code: str) -> tuple[bool, str]:
+    def _validate_arduino_syntax(self, code: str) -> tuple[bool, str]:
         """
         Validate Arduino/C++ code syntax without requiring compilation tools.
         This performs basic syntax checks that can catch common errors.
