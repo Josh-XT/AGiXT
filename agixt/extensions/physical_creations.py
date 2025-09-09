@@ -200,6 +200,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             "Delete Component from Parts Inventory": self.delete_component,
             "List Components in Parts Inventory": self.list_components,
             "Search Components in Parts Inventory": self.search_components,
+            "Count Components in Parts Inventory": self.count_components,
         }
 
     def _validate_scad_code(self, code: str) -> bool:
@@ -2040,5 +2041,146 @@ Use the "Add Component" command to update inventory as you acquire new parts."""
         except Exception as e:
             logging.error(f"Error checking project inventory: {e}")
             return f"**Inventory Analysis:**\n\nError accessing inventory: {str(e)}"
+        finally:
+            session.close()
+
+    async def count_components(
+        self,
+        category: str = None,
+        manufacturer: str = None,
+        min_quantity: int = None,
+        max_quantity: int = None,
+        package_type: str = None,
+        voltage_rating: str = None,
+    ) -> str:
+        """Count components in inventory with optional filters"""
+        session = get_session()
+        try:
+            # Start with base query
+            query = session.query(Component).filter_by(user_id=self.user_id)
+
+            # Apply filters
+            filters_applied = []
+
+            if category:
+                query = query.filter(Component.category.ilike(f"%{category}%"))
+                filters_applied.append(f"category containing '{category}'")
+
+            if manufacturer:
+                query = query.filter(Component.manufacturer.ilike(f"%{manufacturer}%"))
+                filters_applied.append(f"manufacturer containing '{manufacturer}'")
+
+            if package_type:
+                query = query.filter(Component.package_type.ilike(f"%{package_type}%"))
+                filters_applied.append(f"package type containing '{package_type}'")
+
+            if voltage_rating:
+                query = query.filter(
+                    Component.voltage_rating.ilike(f"%{voltage_rating}%")
+                )
+                filters_applied.append(f"voltage rating containing '{voltage_rating}'")
+
+            if min_quantity is not None:
+                query = query.filter(Component.quantity_on_hand >= min_quantity)
+                filters_applied.append(f"quantity >= {min_quantity}")
+
+            if max_quantity is not None:
+                query = query.filter(Component.quantity_on_hand <= max_quantity)
+                filters_applied.append(f"quantity <= {max_quantity}")
+
+            # Get the count and components for detailed breakdown
+            total_count = query.count()
+            components = query.all()
+
+            # Calculate additional statistics
+            total_quantity = sum(comp.quantity_on_hand for comp in components)
+            categories = {}
+            manufacturers = {}
+            low_stock_count = 0
+            out_of_stock_count = 0
+
+            for comp in components:
+                # Count by category
+                cat = comp.category or "Unknown"
+                categories[cat] = categories.get(cat, 0) + 1
+
+                # Count by manufacturer
+                mfr = comp.manufacturer or "Unknown"
+                manufacturers[mfr] = manufacturers.get(mfr, 0) + 1
+
+                # Stock level analysis
+                if comp.quantity_on_hand == 0:
+                    out_of_stock_count += 1
+                elif comp.quantity_on_hand <= 5:  # Consider <= 5 as low stock
+                    low_stock_count += 1
+
+            # Build response
+            if filters_applied:
+                filter_text = " with filters: " + ", ".join(filters_applied)
+            else:
+                filter_text = ""
+
+            response = {
+                "success": True,
+                "count": total_count,
+                "total_quantity": total_quantity,
+                "filters_applied": filters_applied,
+                "breakdown": {
+                    "by_category": dict(sorted(categories.items())),
+                    "by_manufacturer": dict(sorted(manufacturers.items())),
+                    "stock_analysis": {
+                        "out_of_stock": out_of_stock_count,
+                        "low_stock": low_stock_count,
+                        "in_stock": total_count - out_of_stock_count - low_stock_count,
+                    },
+                },
+            }
+
+            # Create a user-friendly summary
+            summary = f"**📊 Component Count Summary**\n\n"
+            summary += (
+                f"**Total Components:** {total_count} unique items{filter_text}\n"
+            )
+            summary += f"**Total Quantity:** {total_quantity} individual pieces\n\n"
+
+            if categories:
+                summary += "**📦 By Category:**\n"
+                for cat, count in sorted(categories.items()):
+                    summary += f"- {cat}: {count} types\n"
+                summary += "\n"
+
+            if (
+                manufacturers and len(manufacturers) <= 10
+            ):  # Only show if reasonable number
+                summary += "**🏭 By Manufacturer:**\n"
+                for mfr, count in sorted(manufacturers.items()):
+                    summary += f"- {mfr}: {count} types\n"
+                summary += "\n"
+
+            # Stock analysis
+            summary += "**📈 Stock Analysis:**\n"
+            summary += f"- ✅ In Stock: {total_count - out_of_stock_count - low_stock_count} items\n"
+            summary += f"- ⚠️ Low Stock (≤5): {low_stock_count} items\n"
+            summary += f"- ❌ Out of Stock: {out_of_stock_count} items\n\n"
+
+            if filters_applied:
+                summary += "**🔍 Filters Applied:**\n"
+                for filter_desc in filters_applied:
+                    summary += f"- {filter_desc}\n"
+                summary += "\n"
+
+            summary += "💡 **Quick Tips:**\n"
+            summary += "- Use `List Components` to see detailed inventory\n"
+            summary += "- Use `Search Components` to find specific items\n"
+            if low_stock_count > 0 or out_of_stock_count > 0:
+                summary += f"- Consider restocking {low_stock_count + out_of_stock_count} items\n"
+
+            response["summary"] = summary
+
+            return json.dumps(response)
+
+        except Exception as e:
+            logging.error(f"Error counting components: {e}")
+            return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()
