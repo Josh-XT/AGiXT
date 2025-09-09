@@ -3,10 +3,9 @@ import os
 import subprocess
 import tempfile
 import json
-import asyncio
 import warnings
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 from sqlalchemy import (
     Column,
     String,
@@ -14,18 +13,13 @@ from sqlalchemy import (
     Integer,
     Float,
     DateTime,
-    Boolean,
-    func,
     or_,
 )
-from sqlalchemy.orm import declarative_base
 from sqlalchemy.exc import SAWarning
 from Extensions import Extensions
 from pyvirtualdisplay import Display
 from DB import get_session, ExtensionDatabaseMixin, Base
-from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
-from MagicalAuth import verify_api_key
 
 # Suppress the specific SQLAlchemy warning about duplicate class registration
 warnings.filterwarnings(
@@ -172,10 +166,10 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
     extension_models = [Component]
 
     def __init__(self, **kwargs):
-        self.agent_name = kwargs.get("agent_name", "gpt4free")
+        self.agent_name = kwargs.get("agent_id", "gpt4free")
         self.api_key = kwargs.get("api_key")
         self.ApiClient = kwargs.get("ApiClient")
-        self.conversation_name = kwargs.get("conversation_name")
+        self.conversation_name = kwargs.get("conversation_id")
         self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
         self.WORKING_DIRECTORY = kwargs.get(
             "conversation_directory", os.path.join(os.getcwd(), "WORKSPACE")
