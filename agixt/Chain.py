@@ -1364,17 +1364,35 @@ class Chain:
 
         steps = (
             session.query(ChainStep)
+            .join(Agent, ChainStep.agent_id == Agent.id)
             .filter(ChainStep.chain_id == chain_db.id)
             .order_by(ChainStep.step_number)
             .all()
         )
         chain_steps = []
         for step in steps:
+            # Get the agent name from the joined Agent table
+            agent = session.query(Agent).filter(Agent.id == step.agent_id).first()
+            agent_name = agent.name if agent else ""
+
+            # Parse the prompt JSON to get prompt_name
+            prompt_data = {}
+            try:
+                import json
+
+                if step.prompt:
+                    prompt_data = json.loads(step.prompt)
+            except (json.JSONDecodeError, TypeError):
+                prompt_data = {}
+
             step_data = {
                 "step": step.step_number,
-                "agent_name": step.agent_name,
-                "prompt_type": step.prompt_type,
-                "prompt": {"prompt_name": step.prompt_name, "introduction": ""},
+                "agent_name": agent_name,
+                "prompt_type": step.prompt_type or "",
+                "prompt": {
+                    "prompt_name": prompt_data.get("prompt_name", ""),
+                    "introduction": prompt_data.get("introduction", ""),
+                },
             }
             if step.target_chain_id:
                 step_data["target_chain"] = (
