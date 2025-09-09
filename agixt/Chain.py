@@ -1375,28 +1375,41 @@ class Chain:
             agent = session.query(Agent).filter(Agent.id == step.agent_id).first()
             agent_name = agent.name if agent else ""
 
-            # Parse the prompt JSON to get prompt_name
-            prompt_data = {}
-            try:
-                import json
+            # Build prompt object similar to get_chain() method
+            prompt = {}
+            if step.target_chain_id:
+                prompt["chain_name"] = (
+                    session.query(ChainDB).get(step.target_chain_id).name
+                )
+            elif step.target_command_id:
+                prompt["command_name"] = (
+                    session.query(Command).get(step.target_command_id).name
+                )
+            elif step.target_prompt_id:
+                prompt["prompt_name"] = (
+                    session.query(Prompt).get(step.target_prompt_id).name
+                )
 
-                if step.prompt:
-                    prompt_data = json.loads(step.prompt)
-            except (json.JSONDecodeError, TypeError):
-                prompt_data = {}
+            # Retrieve argument data for the step
+            arguments = (
+                session.query(Argument, ChainStepArgument)
+                .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
+                .filter(ChainStepArgument.chain_step_id == step.id)
+                .all()
+            )
+
+            prompt_args = {}
+            for argument, chain_step_argument in arguments:
+                prompt_args[argument.name] = chain_step_argument.value
+
+            prompt.update(prompt_args)
 
             step_data = {
                 "step": step.step_number,
                 "agent_name": agent_name,
                 "prompt_type": step.prompt_type or "",
-                "prompt": prompt_data,  # Use the full prompt data instead of just extracting specific fields
+                "prompt": prompt,
             }
-            if step.target_chain_id:
-                step_data["target_chain"] = (
-                    session.query(ChainDB).get(step.target_chain_id).name
-                    if session.query(ChainDB).get(step.target_chain_id)
-                    else ""
-                )
             chain_steps.append(step_data)
 
         result = {
