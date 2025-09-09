@@ -237,9 +237,9 @@ async def add_step_by_id_v1(
         # Get the agent name from agent ID
         agents = get_agents(user=user)
         agent_name = None
-        for agent_id, agent_info in agents.items():
-            if agent_id == step_info.agent_id:
-                agent_name = agent_info.get("name")
+        for agent in agents:
+            if agent["id"] == step_info.agent_id:
+                agent_name = agent["name"]
                 break
 
         if agent_name is None:
@@ -294,9 +294,9 @@ async def update_step_by_id_v1(
         # Get the agent name from agent ID
         agents = get_agents(user=user)
         agent_name = None
-        for agent_id, agent_info in agents.items():
-            if agent_id == chain_step.agent_id:
-                agent_name = agent_info.get("name")
+        for agent in agents:
+            if agent.get("id") == chain_step.agent_id:
+                agent_name = agent.get("name")
                 break
 
         if agent_name is None:

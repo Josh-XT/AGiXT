@@ -94,8 +94,8 @@ class Chain:
             step_data = {
                 "step": step.step_number,
                 "agent_name": agent_name,
-                "prompt_type": step.prompt_type,
-                "prompt": prompt,
+                "prompt_type": step.prompt_type or "",
+                "prompt": prompt,  # Use the full prompt data instead of just extracting specific fields
             }
             steps.append(step_data)
 
@@ -1389,10 +1389,7 @@ class Chain:
                 "step": step.step_number,
                 "agent_name": agent_name,
                 "prompt_type": step.prompt_type or "",
-                "prompt": {
-                    "prompt_name": prompt_data.get("prompt_name", ""),
-                    "introduction": prompt_data.get("introduction", ""),
-                },
+                "prompt": prompt_data,  # Use the full prompt data instead of just extracting specific fields
             }
             if step.target_chain_id:
                 step_data["target_chain"] = (
