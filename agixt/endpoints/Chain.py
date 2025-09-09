@@ -123,24 +123,11 @@ async def get_chain_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
     if chain_data is None:
         raise HTTPException(status_code=404, detail="Chain not found")
 
-    # Transform the steps to match frontend expectations
-    transformed_steps = []
-    for step in chain_data.get("steps", []):
-        transformed_step = {
-            "step": step.get("step"),
-            "agentName": step.get("agent_name"),  # Transform agent_name to agentName
-            "promptType": step.get(
-                "prompt_type"
-            ),  # Transform prompt_type to promptType
-            "prompt": step.get("prompt", {}),  # Keep prompt structure as-is
-        }
-        transformed_steps.append(transformed_step)
-
     # Transform the response to match ChainDetailsResponse model
     response_data = {
         "id": chain_data.get("id", chain_id),
         "chain_name": chain_data.get("name", ""),
-        "steps": transformed_steps,
+        "steps": chain_data.get("steps", []),
     }
 
     return {chain_data.get("name", ""): response_data}
