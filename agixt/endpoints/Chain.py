@@ -127,6 +127,7 @@ async def get_chain_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
     response_data = {
         "id": chain_data.get("id", chain_id),
         "chain_name": chain_data.get("name", ""),
+        "description": chain_data.get("description", ""),
         "steps": chain_data.get("steps", []),
     }
 
