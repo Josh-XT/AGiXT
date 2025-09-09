@@ -25,17 +25,43 @@ app = APIRouter()
     "/v1/chains",
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
-    response_model=List[str],
+    response_model=List[Dict[str, str]],
     summary="Get all chains",
-    description="Retrieves a list of all available chains for the authenticated user and global chains.",
+    description="Retrieves a list of all available chains with IDs for the authenticated user and global chains.",
 )
 async def get_chains_v1(
     user=Depends(verify_api_key), authorization: str = Header(None)
 ):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    chains = Chain(user=user).get_chains()
-    return chains
+
+    # Get chain names
+    chain_names = Chain(user=user).get_chains()
+
+    # For each chain, get its full data to extract the ID
+    chains_with_ids = []
+    for chain_name in chain_names:
+        try:
+            chain_data = Chain(user=user).get_chain(chain_name=chain_name)
+            if chain_data and "steps" in chain_data:
+                # Generate a consistent ID if not present
+                import hashlib
+
+                chain_id = chain_data.get(
+                    "id", hashlib.md5(chain_name.encode()).hexdigest()
+                )
+                chains_with_ids.append(
+                    {
+                        "id": str(chain_id),
+                        "chainName": chain_name,
+                        "description": chain_data.get("description", ""),
+                    }
+                )
+        except Exception as e:
+            # Skip chains that can't be loaded
+            continue
+
+    return chains_with_ids
 
 
 @app.post(
