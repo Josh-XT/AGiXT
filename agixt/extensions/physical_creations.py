@@ -301,6 +301,43 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             logging.error(f"Error saving file {filename}: {str(e)}")
             return None
 
+    def _generate_scad_file(self, code: str) -> str:
+        """Generate OpenSCAD file from code string with proper extraction"""
+        # Extract OpenSCAD code from structured response
+        extracted_code = ""
+
+        # First try to extract from answer tags
+        if "<answer>" in code and "</answer>" in code:
+            answer_section = code.split("<answer>")[1].split("</answer>")[0]
+            if "```openscad" in answer_section:
+                extracted_code = answer_section.split("```openscad")[1].split("```")[0]
+            elif "```" in answer_section:
+                extracted_code = answer_section.split("```")[1].split("```")[0]
+            else:
+                extracted_code = answer_section
+        # Fallback to original extraction method
+        elif "```openscad" in code:
+            extracted_code = code.split("```openscad")[1].split("```")[0]
+        elif "```" in code:
+            extracted_code = code.split("```")[1].split("```")[0]
+        else:
+            extracted_code = code
+
+        extracted_code = extracted_code.strip()
+
+        # Create file with timestamp to avoid conflicts
+        timestamp = subprocess.check_output(["date", "+%Y%m%d_%H%M%S"]).decode().strip()
+        filename = f"model_{timestamp}.scad"
+        filepath = os.path.join(self.WORKING_DIRECTORY, filename)
+
+        try:
+            with open(filepath, "w") as f:
+                f.write(extracted_code)
+            return filepath
+        except Exception as e:
+            logging.error(f"Error saving OpenSCAD file: {str(e)}")
+            return None
+
     async def create_hardware_project(self, description: str) -> str:
         """
         Create a complete hardware project from a natural language description.
@@ -839,71 +876,114 @@ Return ONLY the complete, fixed Arduino code in a code block."""
 
 {components}
 
-Create a professional enclosure with:
+The assistant is an expert OpenSCAD programmer specializing in translating natural language descriptions into precise, printable 3D enclosures. The assistant's deep understanding spans mechanical engineering, 3D printing constraints, and programmatic modeling techniques.
 
-1. **Component Compartments**
-   - Precise cavities for each board
-   - Proper clearances (0.5mm tolerance)
-   - Support posts with screw holes
-   - Component labels embossed/debossed
+Core Knowledge Base:
+1. OpenSCAD Fundamentals
+- All measurements are in millimeters
+- Basic primitives: cube(), cylinder(), sphere()
+- Boolean operations: union(), difference(), intersection()
+- Transformations: translate(), rotate(), scale()
+- Hull(), minkowski() for advanced shapes
+- Linear_extrude() and rotate_extrude() for 2D to 3D operations
 
-2. **Connectors and Ports**
-   - Accurate cutouts for all connectors
-   - USB ports
-   - Power jacks
-   - Sensor windows
-   - LED windows with light pipes
-   - Button access
+2. 3D Printing Considerations
+- Minimum wall thickness: 2mm for stability
+- Standard tolerances: 0.2mm for fitting parts
+- Support structures: Design to minimize overhangs >45°
+- Base layer: Ensure adequate surface area
+- Bridging: Keep unsupported spans under 10mm
 
-3. **Assembly Design**
-   - Snap-fit design or screw assembly
-   - Alignment features
-   - Part orientation markers
-   - Living hinges if applicable
+3. Code Structure Requirements
+- Parameterized designs using variables
+- Modular construction with clear module definitions
+- Descriptive variable names (e.g., wall_thickness, base_diameter)
+- Comprehensive comments explaining design choices
+- $fn parameter for controlling curve resolution
 
-4. **Thermal Management**
-   - Ventilation slots/holes
-   - Heat sink mounting points
-   - Airflow channels
-   - Component spacing
+4. Enclosure Design Requirements:
+   - Component Compartments: Precise cavities with 0.5mm tolerance, support posts with screw holes
+   - Connectors and Ports: Accurate cutouts for USB, power, sensors, LEDs with light pipes
+   - Assembly Design: Snap-fit or screw assembly with alignment features
+   - Thermal Management: Ventilation slots, heat sink mounting, airflow channels
+   - Mounting Features: Wall mount points, stand-offs, keyhole slots
+   - Wire Management: Cable routing channels, strain relief, wire clips
+   - Environmental Protection: Gasket grooves, drainage channels
+   - User Interface: Display windows, button caps, status LED light pipes
 
-5. **Mounting Features**
-   - Wall mount points
-   - Stand-offs
-   - Keyhole slots
-   - Threaded inserts compatibility
+Solution Development Process:
+1. Theory Crafting (in <thinking> tags)
+   - Generate multiple possible approaches to the enclosure design
+   - Consider different primitive combinations
+   - Explore alternative module structures
+   - Brainstorm potential parameterization schemes
+   - Document pros and cons of each approach
 
-6. **Wire Management**
-   - Cable routing channels
-   - Strain relief features
-   - Wire clip points
-   - Bundle organization
+2. Implementation Testing (in <step> tags)
+   - Implement most promising approaches
+   - Test edge cases and parameter ranges
+   - Verify printability constraints
+   - Validate structural integrity
 
-7. **Environmental Protection**
-   - Gasket grooves if needed
-   - Drainage channels
-   - IP rating considerations
+3. Solution Evaluation (in <reflection> tags)
+   - Rate each approach using <reward> tags (0.0-1.0)
+   - Consider:
+     * Code maintainability
+     * Print reliability
+     * Customization flexibility
+     * Resource efficiency
+     * Structural integrity
+   - Justify ratings with specific criteria
+   - Identify potential improvements
 
-8. **User Interface**
-   - Display windows
-   - Button caps or extensions
-   - Status LED light pipes
-   - Label areas
+4. Final Solution (in <answer> tags)
+   - Present the highest-rated implementation
+   - Include comprehensive documentation
+   - Provide printer settings
+   - Note any important usage considerations
 
-9. **Manufacturing Considerations**
-   - No overhangs >45 degrees
-   - Minimum wall thickness 2mm
-   - Print orientation optimization
-   - Support-free design if possible
+For the enclosure design:
+1. Analyze key requirements and constraints
+2. Break down complex shapes into primitive components
+3. Consider printability and structural integrity
+4. Include necessary tolerances for moving parts
+5. Document all assumptions about measurements
 
-Create parametric OpenSCAD code with:
-- All dimensions as variables
-- Modular design
-- Clear comments
-- $fn=100 for smooth curves
-- Proper structure with modules
+The assistant's output must follow strict formatting:
+1. Theory crafting and analysis in <thinking> tags
+2. Implementation attempts in <step> tags
+3. Evaluation and scoring in <reflection> tags
+4. Final, complete OpenSCAD code in <answer> tags
+5. Code must be thoroughly commented and properly indented
 
-Include test fit features and assembly instructions in comments."""
+Sample measurements if not specified:
+- Wall thickness: 2mm
+- Base stability ratio: 2:3 (height:base width)
+- Clearance for moving parts: 0.2mm
+- Minimum feature size: 0.8mm
+- Default curve resolution: $fn=100
+
+Error prevention:
+- Validate all boolean operations
+- Check for non-manifold geometry
+- Ensure proper nesting of transformations
+- Verify wall thickness throughout
+- Test for printability constraints
+
+The goal is to produce OpenSCAD code that is:
+1. Immediately printable without modification
+2. Highly parameterized for customization
+3. Well-documented and maintainable
+4. Optimized for 3D printing
+5. Structurally sound and functional
+
+Remember to:
+- Consider multiple approaches before settling on a solution
+- Rate each attempt with <reward> tags
+- Provide detailed justification for design choices
+- Only proceed with approaches scoring 0.8 or higher
+- Backtrack and try new approaches if scores are low
+- Put the full OpenSCAD code in the <answer> tag inside of a OpenSCAD code block like: ```openscad\\nOpenSCAD code block\\n```"""
 
         scad_prompt_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
@@ -921,27 +1001,19 @@ Include test fit features and assembly instructions in comments."""
             },
         )
 
-        # Extract OpenSCAD code
-        if "```openscad" in scad_prompt_response:
-            scad_code = scad_prompt_response.split("```openscad")[1].split("```")[0]
-        elif "```" in scad_prompt_response:
-            scad_code = scad_prompt_response.split("```")[1].split("```")[0]
-        else:
-            scad_code = scad_prompt_response
+        # Generate SCAD file using proper extraction method
+        scad_filepath = self._generate_scad_file(scad_prompt_response)
 
-        scad_code = scad_code.strip()
+        if not scad_filepath:
+            return "Error: Failed to generate OpenSCAD file"
+
+        # Extract clean code for validation and display
+        with open(scad_filepath, "r") as f:
+            scad_code = f.read()
 
         # Validate and generate files
         if not self._validate_scad_code(scad_code):
             logging.info("OpenSCAD code may have syntax issues")
-
-        # Save OpenSCAD file
-        timestamp = subprocess.check_output(["date", "+%Y%m%d_%H%M%S"]).decode().strip()
-        scad_filename = f"enclosure_{timestamp}.scad"
-        scad_filepath = os.path.join(self.WORKING_DIRECTORY, scad_filename)
-
-        with open(scad_filepath, "w") as f:
-            f.write(scad_code)
 
         # Generate preview and STL
         preview_path = self._generate_preview(scad_filepath)
@@ -953,7 +1025,7 @@ Include test fit features and assembly instructions in comments."""
             response += f"![Enclosure Preview]({self.output_url}/{os.path.basename(preview_path)})\n\n"
 
         response += "### Download Files\n"
-        response += f"- 📥 [OpenSCAD Source]({self.output_url}/{scad_filename})\n"
+        response += f"- 📥 [OpenSCAD Source]({self.output_url}/{os.path.basename(scad_filepath)})\n"
         if stl_path:
             response += f"- 🖨️ [STL for 3D Printing]({self.output_url}/{os.path.basename(stl_path)})\n"
 
