@@ -311,39 +311,61 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
         Returns:
             str: Markdown formatted report with all generated files and documentation
         """
-        results = []
+        try:
+            results = []
 
-        # Step 1: Extract requirements
-        requirements = await self._extract_requirements(description)
-        results.append("## 📋 Requirements Analysis\n" + requirements)
+            # Step 1: Extract requirements
+            logging.info("Starting requirements extraction...")
+            requirements = await self._extract_requirements(description)
+            results.append("## 📋 Requirements Analysis\n" + requirements)
+            logging.info("Requirements extraction completed")
 
-        # Step 2: Research components
-        components = await self._research_components(requirements)
-        results.append("\n## 🔍 Component Selection\n" + components)
+            # Step 2: Research components
+            logging.info("Starting component research...")
+            components = await self._research_components(requirements)
+            results.append("\n## 🔍 Component Selection\n" + components)
+            logging.info("Component research completed")
 
-        # Step 3: Design circuit
-        circuit = await self.design_circuit(
-            requirements + "\n\nComponents:\n" + components
-        )
-        results.append("\n## ⚡ Circuit Design\n" + circuit)
+            # Step 3: Design circuit
+            logging.info("Starting circuit design...")
+            circuit = await self.design_circuit(
+                requirements + "\n\nComponents:\n" + components
+            )
+            results.append("\n## ⚡ Circuit Design\n" + circuit)
+            logging.info("Circuit design completed")
 
-        # Step 4: Generate firmware
-        firmware = await self.generate_firmware(
-            requirements + "\n\nComponents:\n" + components
-        )
-        results.append("\n## 💻 Firmware\n" + firmware)
+            # Step 4: Generate firmware
+            logging.info("Starting firmware generation...")
+            firmware = await self.generate_firmware(
+                requirements + "\n\nComponents:\n" + components
+            )
+            results.append("\n## 💻 Firmware\n" + firmware)
+            logging.info("Firmware generation completed")
 
-        # Step 5: Create enclosure
-        enclosure = await self.create_enclosure(components)
-        results.append("\n## 📦 Enclosure Design\n" + enclosure)
+            # Step 5: Create enclosure
+            logging.info("Starting enclosure creation...")
+            enclosure = await self.create_enclosure(components)
+            results.append("\n## 📦 Enclosure Design\n" + enclosure)
+            logging.info("Enclosure creation completed")
 
-        # Step 6: Generate documentation
-        docs = await self.generate_documentation(
-            f"Project: {description}\n\nRequirements: {requirements}\n\nComponents: {components}"
-        )
-        results.append("\n## 📚 Documentation\n" + docs)
+            # Step 6: Generate documentation
+            logging.info("Starting documentation generation...")
+            docs = await self.generate_documentation(
+                f"Project: {description}\n\nRequirements: {requirements}\n\nComponents: {components}"
+            )
+            results.append("\n## 📚 Documentation\n" + docs)
+            logging.info("Documentation generation completed")
 
-        return "\n".join(results)
+            logging.info("Hardware project creation completed successfully")
+            return "\n".join(results)
+
+        except Exception as e:
+            logging.error(f"Error in create_hardware_project: {e}")
+            logging.error(f"Error type: {type(e).__name__}")
+            import traceback
+
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            return f"**Error creating hardware project:**\n\n{str(e)}\n\nPlease try again or check the logs for more details."
 
     async def _extract_requirements(self, description: str) -> str:
         """Extract technical requirements from natural language description"""
@@ -387,7 +409,7 @@ Provide a structured analysis covering:
 
 Format the output as a clear, structured requirements document that can guide component selection and design decisions."""
 
-        return await self.ApiClient.prompt_agent(
+        return self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -468,7 +490,7 @@ For each component:
 
 Format as a structured bill of materials (BOM) clearly marking inventory vs purchase items."""
 
-        return await self.ApiClient.prompt_agent(
+        return self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -560,7 +582,7 @@ Provide comprehensive circuit design documentation including:
 
 Format everything clearly with proper sections and include any important notes or warnings."""
 
-        circuit_design = await self.ApiClient.prompt_agent(
+        circuit_design = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -716,7 +738,7 @@ Instructions:
 
 Return ONLY the complete, fixed Arduino code in a code block."""
 
-            response = await self.ApiClient.prompt_agent(
+            response = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
@@ -883,7 +905,7 @@ Create parametric OpenSCAD code with:
 
 Include test fit features and assembly instructions in comments."""
 
-        scad_prompt_response = await self.ApiClient.prompt_agent(
+        scad_prompt_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -1026,7 +1048,7 @@ Format as proper Markdown with:
 
 Make it professional and comprehensive enough for open-source release."""
 
-        documentation = await self.ApiClient.prompt_agent(
+        documentation = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -1338,7 +1360,7 @@ Remember to:
 - Put the full OpenSCAD code in the <answer> tag inside of a OpenSCAD code block like: ```openscad\nOpenSCAD code block\n```"""
 
         # Generate OpenSCAD code with full reasoning process
-        scad_response = await self.ApiClient.prompt_agent(
+        scad_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
