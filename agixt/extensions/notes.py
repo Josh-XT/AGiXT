@@ -111,7 +111,7 @@ class notes(Extensions, ExtensionDatabaseMixin):
 
     def __init__(self, **kwargs):
         self.AGENT = kwargs
-        self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
+        self.user_id = kwargs.get("user_id", None)
         self.ApiClient = kwargs.get("ApiClient", None)
 
         # Register models with ExtensionDatabaseMixin
