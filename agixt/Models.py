@@ -516,6 +516,7 @@ class ChainStepDetail(BaseModel):
 class ChainDetailsResponse(BaseModel):
     id: str
     chain_name: str
+    description: Optional[str] = ""
     steps: List[ChainStepDetail]
 
     class Config:
