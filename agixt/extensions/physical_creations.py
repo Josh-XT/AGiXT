@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import json
 import warnings
+import traceback
 from datetime import datetime
 from typing import Dict, Any, Optional
 from sqlalchemy import (
@@ -170,7 +171,15 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
         self.api_key = kwargs.get("api_key")
         self.ApiClient = kwargs.get("ApiClient")
         self.conversation_name = kwargs.get("conversation_id")
-        self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
+
+        # Ensure user_id is properly set - prioritize user_id over user
+        self.user_id = kwargs.get("user_id")
+
+        # Log user_id for debugging component storage issues
+        logging.info(
+            f"Physical creations extension initialized for user_id: {self.user_id}"
+        )
+
         self.WORKING_DIRECTORY = kwargs.get(
             "conversation_directory", os.path.join(os.getcwd(), "WORKSPACE")
         )
@@ -195,6 +204,8 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             "List Components in Parts Inventory": self.list_components,
             "Search Components in Parts Inventory": self.search_components,
             "Count Components in Parts Inventory": self.count_components,
+            # Debug command to help troubleshoot user_id issues
+            "Debug Component Storage": self.debug_component_storage,
         }
 
     def _validate_scad_code(self, code: str) -> bool:
@@ -1652,6 +1663,9 @@ Remember to:
         """Add a new component to the inventory"""
         session = get_session()
         try:
+            # Debug logging to track user_id
+            logging.info(f"Adding component for user_id: {self.user_id}")
+
             # Auto-generate name if not provided
             if not name or not name.strip():
                 # Try to generate a meaningful name from available info
@@ -1973,6 +1987,9 @@ Remember to:
         """List components with pagination and optional category filter"""
         session = get_session()
         try:
+            # Debug logging to track user_id
+            logging.info(f"Listing components for user_id: {self.user_id}")
+
             query = session.query(Component).filter_by(user_id=self.user_id)
 
             if category:
@@ -2144,6 +2161,9 @@ Use the "Add Component" command to update inventory as you acquire new parts."""
         """Count components in inventory with optional filters"""
         session = get_session()
         try:
+            # Debug logging to track user_id
+            logging.info(f"Counting components for user_id: {self.user_id}")
+
             # Start with base query
             query = session.query(Component).filter_by(user_id=self.user_id)
 
@@ -2269,6 +2289,52 @@ Use the "Add Component" command to update inventory as you acquire new parts."""
 
         except Exception as e:
             logging.error(f"Error counting components: {e}")
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def debug_component_storage(self) -> str:
+        """Debug method to help troubleshoot component storage issues"""
+        session = get_session()
+        try:
+            # Get current user_id info
+            current_user_id = self.user_id
+
+            # Get all unique user_ids in the components table
+            all_user_ids = session.query(Component.user_id).distinct().all()
+            user_id_list = [uid[0] for uid in all_user_ids]
+
+            # Get count for current user
+            current_user_count = (
+                session.query(Component).filter_by(user_id=current_user_id).count()
+            )
+
+            # Get all components with their user_ids (for debugging)
+            all_components = session.query(
+                Component.id, Component.user_id, Component.name, Component.category
+            ).all()
+
+            debug_info = {
+                "current_user_id": current_user_id,
+                "conversation_name": self.conversation_name,
+                "all_user_ids_in_db": user_id_list,
+                "component_count_for_current_user": current_user_count,
+                "total_components_in_db": len(all_components),
+                "all_components": [
+                    {
+                        "id": comp.id,
+                        "user_id": comp.user_id,
+                        "name": comp.name,
+                        "category": comp.category,
+                    }
+                    for comp in all_components
+                ],
+            }
+
+            return json.dumps(debug_info, indent=2)
+
+        except Exception as e:
+            logging.error(f"Error in debug_component_storage: {e}")
             return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()
