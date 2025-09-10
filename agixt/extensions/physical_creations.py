@@ -15,6 +15,7 @@ from sqlalchemy import (
     Float,
     DateTime,
     or_,
+    func,
 )
 from sqlalchemy.exc import SAWarning
 from Extensions import Extensions
@@ -172,8 +173,18 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
         self.ApiClient = kwargs.get("ApiClient")
         self.conversation_name = kwargs.get("conversation_id")
 
-        # Ensure user_id is properly set - prioritize user_id over user
-        self.user_id = kwargs.get("user_id")
+        # Set user_id - only use user_id, not user (which is email address)
+        raw_user_id = kwargs.get("user_id")
+
+        if (
+            raw_user_id
+            and str(raw_user_id).strip()
+            and str(raw_user_id).strip().lower() != "none"
+        ):
+            self.user_id = str(raw_user_id).strip()
+        else:
+            # If no user_id provided, try to find existing components and use the most common user_id
+            self.user_id = self._determine_consistent_user_id()
 
         # Log user_id for debugging component storage issues
         logging.info(
@@ -188,6 +199,40 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
 
         # Register models with ExtensionDatabaseMixin
         self.register_models()
+
+    def _determine_consistent_user_id(self):
+        """
+        Determine a consistent user_id when none is provided by looking at existing components.
+        This helps maintain consistency when AGiXT doesn't pass user_id consistently.
+        """
+        try:
+            session = get_session()
+            # Get all unique user_ids and their component counts
+            user_counts = (
+                session.query(Component.user_id, func.count(Component.id))
+                .group_by(Component.user_id)
+                .order_by(func.count(Component.id).desc())
+                .all()
+            )
+            session.close()
+
+            if user_counts:
+                # Return the user_id with the most components (most likely the real user)
+                most_common_user_id = user_counts[0][0]
+                logging.info(
+                    f"No user_id provided, using most common user_id: {most_common_user_id}"
+                )
+                return most_common_user_id
+            else:
+                # No components exist, use a default
+                logging.info(
+                    "No user_id provided and no existing components, using default_user"
+                )
+                return "default_user"
+
+        except Exception as e:
+            logging.error(f"Error determining consistent user_id: {e}")
+            return "default_user"
 
         self.commands = {
             "Create Hardware Project": self.create_hardware_project,
@@ -2300,9 +2345,13 @@ Use the "Add Component" command to update inventory as you acquire new parts."""
             # Get current user_id info
             current_user_id = self.user_id
 
-            # Get all unique user_ids in the components table
-            all_user_ids = session.query(Component.user_id).distinct().all()
-            user_id_list = [uid[0] for uid in all_user_ids]
+            # Get all unique user_ids in the components table with counts
+            user_id_counts = (
+                session.query(Component.user_id, func.count(Component.id))
+                .group_by(Component.user_id)
+                .order_by(func.count(Component.id).desc())
+                .all()
+            )
 
             # Get count for current user
             current_user_count = (
@@ -2314,12 +2363,42 @@ Use the "Add Component" command to update inventory as you acquire new parts."""
                 Component.id, Component.user_id, Component.name, Component.category
             ).all()
 
+            # Determine if there's a user_id mismatch issue
+            total_components = len(all_components)
+            mismatch_detected = current_user_count == 0 and total_components > 0
+
+            if mismatch_detected:
+                # Find the user_id with the most components (likely the correct one)
+                if user_id_counts:
+                    most_common_user_id = user_id_counts[0][0]
+                    most_common_count = user_id_counts[0][1]
+                else:
+                    most_common_user_id = None
+                    most_common_count = 0
+            else:
+                most_common_user_id = None
+                most_common_count = 0
+
             debug_info = {
                 "current_user_id": current_user_id,
                 "conversation_name": self.conversation_name,
-                "all_user_ids_in_db": user_id_list,
+                "user_id_counts": {uid: count for uid, count in user_id_counts},
                 "component_count_for_current_user": current_user_count,
-                "total_components_in_db": len(all_components),
+                "total_components_in_db": total_components,
+                "mismatch_detected": mismatch_detected,
+                "suggested_user_id": (
+                    most_common_user_id if mismatch_detected else current_user_id
+                ),
+                "issue_explanation": (
+                    (
+                        f"USER_ID MISMATCH DETECTED: You have {total_components} components in the database, "
+                        f"but they are stored under user_id '{most_common_user_id}' (with {most_common_count} components), "
+                        f"while the extension is currently using user_id '{current_user_id}' which has {current_user_count} components. "
+                        f"This is why count_components returns 0 even though you have components."
+                    )
+                    if mismatch_detected
+                    else "No issues detected - user_id is consistent."
+                ),
                 "all_components": [
                     {
                         "id": comp.id,
