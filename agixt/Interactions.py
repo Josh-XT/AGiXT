@@ -1201,8 +1201,6 @@ class Interactions:
                 )
         else:
             logging.info(f"{self.agent_name} Response: {self.response}")
-        if "http://localhost:7437" in self.response:
-            self.response = self.response.replace("http://localhost:7437", AGIXT_URI)
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
