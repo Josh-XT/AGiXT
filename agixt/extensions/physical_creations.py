@@ -196,8 +196,6 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             "List Components in Parts Inventory": self.list_components,
             "Search Components in Parts Inventory": self.search_components,
             "Count Components in Parts Inventory": self.count_components,
-            # Debug command to help troubleshoot user_id issues
-            "Debug Component Storage": self.debug_component_storage,
         }
 
     def _validate_scad_code(self, code: str) -> bool:
@@ -2281,84 +2279,6 @@ Use the "Add Component" command to update inventory as you acquire new parts."""
 
         except Exception as e:
             logging.error(f"Error counting components: {e}")
-            return json.dumps({"success": False, "error": str(e)})
-        finally:
-            session.close()
-
-    async def debug_component_storage(self) -> str:
-        """Debug method to help troubleshoot component storage issues"""
-        session = get_session()
-        try:
-            # Get current user_id info
-            current_user_id = self.user_id
-
-            # Get all unique user_ids in the components table
-            all_user_ids = session.query(Component.user_id).distinct().all()
-            user_id_list = [uid[0] for uid in all_user_ids]
-
-            # Get count for current user
-            current_user_count = (
-                session.query(Component).filter_by(user_id=current_user_id).count()
-            )
-
-            # Get all components with their user_ids (for debugging)
-            all_components = session.query(
-                Component.id, Component.user_id, Component.name, Component.category
-            ).all()
-
-            # Count components per user_id
-            user_id_counts = {}
-            for comp in all_components:
-                user_id = comp.user_id
-                user_id_counts[user_id] = user_id_counts.get(user_id, 0) + 1
-
-            # Determine if there's a user_id mismatch issue
-            total_components = len(all_components)
-            mismatch_detected = current_user_count == 0 and total_components > 0
-
-            if mismatch_detected and user_id_counts:
-                # Find the user_id with the most components (likely the correct one)
-                most_common_user_id = max(user_id_counts, key=user_id_counts.get)
-                most_common_count = user_id_counts[most_common_user_id]
-            else:
-                most_common_user_id = None
-                most_common_count = 0
-
-            debug_info = {
-                "current_user_id": current_user_id,
-                "conversation_name": self.conversation_name,
-                "user_id_counts": user_id_counts,
-                "component_count_for_current_user": current_user_count,
-                "total_components_in_db": total_components,
-                "mismatch_detected": mismatch_detected,
-                "suggested_user_id": (
-                    most_common_user_id if mismatch_detected else current_user_id
-                ),
-                "issue_explanation": (
-                    (
-                        f"USER_ID MISMATCH DETECTED: You have {total_components} components in the database, "
-                        f"but they are stored under user_id '{most_common_user_id}' (with {most_common_count} components), "
-                        f"while the extension is currently using user_id '{current_user_id}' which has {current_user_count} components. "
-                        f"This is why count_components returns 0 even though you have components."
-                    )
-                    if mismatch_detected
-                    else "No issues detected - user_id is consistent."
-                ),
-                "all_components": [
-                    {
-                        "id": comp.id,
-                        "user_id": comp.user_id,
-                        "name": comp.name,
-                        "category": comp.category,
-                    }
-                    for comp in all_components
-                ],
-            }
-
-            return json.dumps(debug_info, indent=2)
-
-        except Exception as e:
-            logging.error(f"Error in debug_component_storage: {e}")
             return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()
