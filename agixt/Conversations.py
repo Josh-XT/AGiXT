@@ -289,7 +289,9 @@ class Conversations:
             msg = {
                 "id": message.id,
                 "role": message.role,
-                "message": message.content,
+                "message": str(message.content).replace(
+                    "http://localhost:7437", getenv("AGIXT_URI")
+                ),
                 "timestamp": convert_time(message.timestamp, user_id=user_id),
                 "updated_at": convert_time(message.updated_at, user_id=user_id),
                 "updated_by": message.updated_by,
