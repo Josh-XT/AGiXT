@@ -108,6 +108,7 @@ class web_browsing(Extensions):
             "Interact with Webpage": self.interact_with_webpage,
             "Web Search": self.websearch,
             "Browser Automation": self.browser_automation,
+            "Research on arXiv": self.search_arxiv,
         }
         self.playwright = None
         self.browser = None
@@ -2996,6 +2997,24 @@ Analyze the attached screenshot.
             self.context = None
             self.browser = None
             self.playwright = None
+
+    async def search_arxiv(self, query: str, max_articles: int = 5):
+        """
+        Search for articles on arXiv and learn from them
+
+        Args:
+        query (str): The search query
+        max_articles (int): The maximum number of articles to read
+
+        Returns:
+        str: Success message
+        """
+        return self.ApiClient.learn_arxiv(
+            query=query,
+            article_ids=None,
+            max_articles=max_articles,
+            collection_number="0",
+        )
 
     async def browser_automation(
         self,
