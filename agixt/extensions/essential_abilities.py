@@ -478,8 +478,6 @@ print(output)
             if agent["name"] == self.agent_name:
                 agent_id = str(agent["id"])
 
-        from agixt_actions import execute_python_code
-
         execution_response = execute_python_code(
             code=code, agent_id=agent_id, conversation_id=self.conversation_id
         )
