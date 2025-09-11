@@ -3388,3 +3388,36 @@ Rewrite the modifications to fix the issue."""
                     conversation_name=self.conversation_name,
                 )
                 return f"Modifications applied successfully:\n{combined_results}\n\n{commit_result}"
+
+    async def get_assigned_issues(self, github_username: str = "None") -> str:
+        """
+        Get all open issues assigned to a specific GitHub user.
+        Args:
+        github_username (str): The GitHub username to search for. If the assistant uses "None", it will default to the user's GitHub username automatically.
+        Returns:
+        str: A list of open issues assigned to the user in markdown format.
+        """
+        if github_username.lower() == "none":
+            github_username = self.GITHUB_USERNAME
+        response = requests.get(
+            f"https://api.github.com/search/issues",
+            headers={
+                "Authorization": f"token {self.GITHUB_API_KEY}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            params={
+                "q": f"is:open is:issue assignee:{github_username} archived:false",
+            },
+        )
+
+        # Check if the response was successful
+        if response.status_code == 200:
+            issues = response.json().get("items", [])
+            issue_string = f"# Issues assigned to {github_username}\n\n"
+            for issue in issues:
+                issue_string += (
+                    f"## [{issue['title']}]({issue['html_url']})\n\n{issue['body']}\n\n"
+                )
+            return issue_string
+        else:
+            return f"Failed to fetch issues: {response.status_code} {response.text}"
