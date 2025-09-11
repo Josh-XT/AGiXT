@@ -251,9 +251,9 @@ class automation_helpers(Extensions):
         filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
         with open(filepath, "r") as f:
             content = f.read()
-        
+
         new_init = new_init.replace("    def __init__", "def __init__")
-        
+
         # Find the existing __init__ method and replace it
         init_pattern = r"def __init__\(.*?\):\s*.*?(?=\n\s{4}def|\n\s{0}def|\nclass|\Z)"
         if re.search(init_pattern, content, re.DOTALL):
@@ -262,10 +262,10 @@ class automation_helpers(Extensions):
             # If no __init__ method found, add it after class definition
             class_pattern = r"(class\s+\w+.*?:\s*)"
             content = re.sub(class_pattern, rf"\1\n{new_init}\n", content)
-        
+
         with open(filepath, "w") as f:
             f.write(content)
-        
+
         return f"Successfully replaced __init__ method in {filename}"
 
     def parse_openapi(self, data):
@@ -370,7 +370,7 @@ class automation_helpers(Extensions):
         """
         components = openapi_data.get("components", {})
         security_schemes = components.get("securitySchemes", {})
-        
+
         if security_schemes:
             for scheme_name, scheme in security_schemes.items():
                 auth_type = scheme.get("type", "")
@@ -380,7 +380,7 @@ class automation_helpers(Extensions):
                     return f"API Key in {scheme.get('in', 'header')}"
                 elif auth_type == "oauth2":
                     return "OAuth2"
-        
+
         return "None"
 
     async def generate_openapi_chain(
@@ -405,7 +405,7 @@ class automation_helpers(Extensions):
         openapi_data = json.loads(openapi_str)
         endpoints = self.parse_openapi(data=openapi_data)
         auth_type = self.get_auth_type(openapi_data=openapi_data)
-        
+
         if api_base_uri == "":
             rules = """## Guidelines
 - Respond in JSON in a markdown codeblock with the only key being `base_uri`, for example:
@@ -434,19 +434,19 @@ class automation_helpers(Extensions):
             response = response.split("```json")[1].split("```")[0].strip()
             response = response.split("```")[1].strip()
             api_base_uri = json.loads(response).get("base_uri", "")
-            
+
         extension_name = extension_name.lower().replace(" ", "_")
         chain_name = f"OpenAPI to Python Chain - {extension_name}"
         chains = self.ApiClient.get_chains()
-        
+
         # Check if any chain with the same name already exists, if so, delete it
         for chain in chains:
             if chain == chain_name:
                 self.ApiClient.delete_chain(chain_name=chain_name)
-                
+
         self.ApiClient.add_chain(chain_name=chain_name)
         i = 0
-        
+
         for endpoint in endpoints:
             i += 1
             self.ApiClient.add_step(
@@ -494,7 +494,7 @@ class automation_helpers(Extensions):
                     "text": "\n\n{STEP" + str(i - 1) + "}",
                 },
             )
-            
+
         return chain_name
 
     async def mcp_client(
@@ -516,12 +516,10 @@ class automation_helpers(Extensions):
         """
         try:
             from mcp_client import MCPClient
-            
+
             client = MCPClient()
             response = await client.call_method(
-                server=mcp_server,
-                method=method,
-                params=params
+                server=mcp_server, method=method, params=params
             )
             return str(response)
         except Exception as e:

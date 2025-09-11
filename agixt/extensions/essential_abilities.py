@@ -45,7 +45,7 @@ class essential_abilities(Extensions):
         self.WORKING_DIRECTORY_RESTRICTED = True
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
-        
+
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
@@ -166,14 +166,16 @@ class essential_abilities(Extensions):
         str: List of matching files
         """
         import fnmatch
-        
+
         matches = []
         try:
             for root, dirnames, filenames in os.walk(self.WORKING_DIRECTORY):
                 for filename in fnmatch.filter(filenames, f"*{query}*"):
-                    relative_path = os.path.relpath(os.path.join(root, filename), self.WORKING_DIRECTORY)
+                    relative_path = os.path.relpath(
+                        os.path.join(root, filename), self.WORKING_DIRECTORY
+                    )
                     matches.append(relative_path)
-            
+
             if matches:
                 return f"Found {len(matches)} matching files:\\n" + "\\n".join(matches)
             else:
@@ -193,7 +195,7 @@ class essential_abilities(Extensions):
         str: Search results showing matching lines
         """
         import re
-        
+
         matches = []
         try:
             if filename:
@@ -204,24 +206,39 @@ class essential_abilities(Extensions):
                 files_to_search = []
                 for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
                     for file in files:
-                        if file.endswith(('.txt', '.py', '.md', '.json', '.yaml', '.yml', '.ini', '.cfg')):
-                            relative_path = os.path.relpath(os.path.join(root, file), self.WORKING_DIRECTORY)
+                        if file.endswith(
+                            (
+                                ".txt",
+                                ".py",
+                                ".md",
+                                ".json",
+                                ".yaml",
+                                ".yml",
+                                ".ini",
+                                ".cfg",
+                            )
+                        ):
+                            relative_path = os.path.relpath(
+                                os.path.join(root, file), self.WORKING_DIRECTORY
+                            )
                             files_to_search.append(relative_path)
 
             for file_path in files_to_search:
                 try:
                     full_path = self.safe_join(file_path)
-                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                         lines = f.readlines()
-                    
+
                     for line_num, line in enumerate(lines, 1):
                         if query.lower() in line.lower():
                             matches.append(f"{file_path}:{line_num}: {line.strip()}")
                 except:
                     continue
-            
+
             if matches:
-                return f"Found {len(matches)} matches:\\n" + "\\n".join(matches[:20])  # Limit to first 20 matches
+                return f"Found {len(matches)} matches:\\n" + "\\n".join(
+                    matches[:20]
+                )  # Limit to first 20 matches
             else:
                 return f"No matches found for: {query}"
         except Exception as e:
@@ -241,18 +258,18 @@ class essential_abilities(Extensions):
         """
         try:
             filepath = self.safe_join(filename)
-            
+
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
-            
+
             if old_text not in content:
                 return f"Error: Text '{old_text}' not found in file {filename}"
-            
+
             modified_content = content.replace(old_text, new_text)
-            
+
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(modified_content)
-            
+
             return f"File {filename} modified successfully."
         except Exception as e:
             return f"Error modifying file: {str(e)}"
@@ -305,7 +322,7 @@ class essential_abilities(Extensions):
                 return result.stdout
             else:
                 return f"Error: {result.stderr}"
-        
+
         with open(file_path, "r") as f:
             code = f.read()
         return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)
@@ -454,14 +471,15 @@ print(output)
             filepath = os.path.join(self.WORKING_DIRECTORY, filename)
             with open(filepath, "w") as f:
                 f.write(text)
-                
+
         agents = self.ApiClient.get_agents()
         agent_id = ""
         for agent in agents:
             if agent["name"] == self.agent_name:
                 agent_id = str(agent["id"])
-                
+
         from agixt_actions import execute_python_code
+
         execution_response = execute_python_code(
             code=code, agent_id=agent_id, conversation_id=self.conversation_id
         )
@@ -529,7 +547,9 @@ print(output)
         Returns:
         str: The current date and time in the format "YYYY-MM-DD HH:MM:SS"
         """
-        return "Current date and time: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return "Current date and time: " + datetime.datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
     async def create_agixt_chain(self, natural_language_request: str):
         """
@@ -593,29 +613,28 @@ print(output)
         str: The API response
         """
         import requests
-        
+
         try:
             # Parse headers if provided
             if headers:
-                headers_dict = json.loads(headers) if isinstance(headers, str) else headers
+                headers_dict = (
+                    json.loads(headers) if isinstance(headers, str) else headers
+                )
             else:
                 headers_dict = {}
 
             # Make the API call
-            if method.upper() in ['POST', 'PUT', 'PATCH'] and body:
+            if method.upper() in ["POST", "PUT", "PATCH"] and body:
                 response = requests.request(
                     method=method.upper(),
                     url=url,
                     headers=headers_dict,
                     json=json.loads(body) if isinstance(body, str) else body,
-                    timeout=30
+                    timeout=30,
                 )
             else:
                 response = requests.request(
-                    method=method.upper(),
-                    url=url,
-                    headers=headers_dict,
-                    timeout=30
+                    method=method.upper(), url=url, headers=headers_dict, timeout=30
                 )
 
             return f"Status: {response.status_code}\\nResponse: {response.text}"
