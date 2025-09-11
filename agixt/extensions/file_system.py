@@ -35,8 +35,6 @@ class file_system(Extensions):
             "Execute Python File": self.execute_python_file,
             "Delete File": self.delete_file,
             "Execute Shell": self.execute_shell,
-            "Indent String for Python Code": self.indent_string,
-            "Generate Commands Dictionary": self.generate_commands_dict,
         }
 
     async def execute_python_file(self, file: str):
@@ -525,47 +523,4 @@ print(output)
 
         return results
 
-    async def indent_string(self, string: str, indents: int = 1):
-        """
-        Indent a string for Python code
-
-        Args:
-        string (str): The string to indent
-        indents (int): The number of indents to add
-
-        Returns:
-        str: The indented string
-        """
-        try:
-            indents = int(indents)
-        except:
-            indents = 1
-        if indents == 1:
-            indent = "    "
-        else:
-            indent = "    " * indents
-        lines = string.split("\n")
-        indented_lines = [(indent + line) for line in lines]
-        indented_string = "\n".join(indented_lines)
         return indented_string
-
-    async def generate_commands_dict(self, python_file_content):
-        """
-        Generate a dictionary of commands from a Python file
-
-        Args:
-        python_file_content (str): The content of the Python file
-
-        Returns:
-        str: The dictionary of commands
-        """
-        function_names = re.findall(r"async def (.*?)\(", python_file_content)
-        commands_dict = {
-            f_name.replace("_", " "): f"self.{f_name}" for f_name in function_names
-        }
-        commands_string = "self.commands = {"
-        for key, value in commands_dict.items():
-            commands_string += f' "{key.capitalize()}": {value},'
-        commands_string = commands_string[:-1]
-        commands_string += "}"
-        return commands_string

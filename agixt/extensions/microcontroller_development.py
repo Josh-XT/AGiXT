@@ -182,7 +182,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
         self.register_models()
 
         self.commands = {
-            "Create Hardware Project": self.create_hardware_project,
+            "Create Microcontroller Project": self.create_hardware_project,
             "Generate 3D Model": self.generate_3d_model,
             "Design Circuit": self.design_circuit,
             "Generate Firmware": self.generate_firmware,
