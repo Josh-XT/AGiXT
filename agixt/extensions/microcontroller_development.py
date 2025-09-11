@@ -3,10 +3,10 @@ import os
 import subprocess
 import tempfile
 import json
-import asyncio
 import warnings
+import traceback
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 from sqlalchemy import (
     Column,
     String,
@@ -14,18 +14,13 @@ from sqlalchemy import (
     Integer,
     Float,
     DateTime,
-    Boolean,
-    func,
     or_,
 )
-from sqlalchemy.orm import declarative_base
 from sqlalchemy.exc import SAWarning
 from Extensions import Extensions
 from pyvirtualdisplay import Display
 from DB import get_session, ExtensionDatabaseMixin, Base
-from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
-from MagicalAuth import verify_api_key
 
 # Suppress the specific SQLAlchemy warning about duplicate class registration
 warnings.filterwarnings(
@@ -172,11 +167,11 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
     extension_models = [Component]
 
     def __init__(self, **kwargs):
-        self.agent_name = kwargs.get("agent_name", "gpt4free")
+        self.agent_name = kwargs.get("agent_id", "gpt4free")
         self.api_key = kwargs.get("api_key")
         self.ApiClient = kwargs.get("ApiClient")
-        self.conversation_name = kwargs.get("conversation_name")
-        self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
+        self.conversation_name = kwargs.get("conversation_id")
+        self.user_id = kwargs.get("user_id", None)
         self.WORKING_DIRECTORY = kwargs.get(
             "conversation_directory", os.path.join(os.getcwd(), "WORKSPACE")
         )
@@ -187,7 +182,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
         self.register_models()
 
         self.commands = {
-            "Create Hardware Project": self.create_hardware_project,
+            "Create Microcontroller Project": self.create_hardware_project,
             "Generate 3D Model": self.generate_3d_model,
             "Design Circuit": self.design_circuit,
             "Generate Firmware": self.generate_firmware,
@@ -228,7 +223,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
                 logging.error(f"Validation error: {str(e)}")
                 return False
 
-    async def _generate_preview(self, scad_file: str) -> str:
+    def _generate_preview(self, scad_file: str) -> str:
         """Generate preview image for OpenSCAD model using virtual display"""
         output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".png"
         output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
@@ -262,7 +257,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             logging.error(f"Unexpected error in preview generation: {str(e)}")
             return None
 
-    async def _generate_stl(self, scad_file: str) -> str:
+    def _generate_stl(self, scad_file: str) -> str:
         """Generate STL file from OpenSCAD model"""
         output_name = os.path.splitext(os.path.basename(scad_file))[0] + ".stl"
         output_path = os.path.join(self.WORKING_DIRECTORY, output_name)
@@ -290,7 +285,7 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             logging.error(f"Unexpected error in STL generation: {str(e)}")
             return None
 
-    async def _save_file(self, content: str, filename: str) -> str:
+    def _save_file(self, content: str, filename: str) -> str:
         """Save content to a file in the working directory"""
         filepath = os.path.join(self.WORKING_DIRECTORY, filename)
         try:
@@ -299,6 +294,43 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
             return filepath
         except Exception as e:
             logging.error(f"Error saving file {filename}: {str(e)}")
+            return None
+
+    def _generate_scad_file(self, code: str) -> str:
+        """Generate OpenSCAD file from code string with proper extraction"""
+        # Extract OpenSCAD code from structured response
+        extracted_code = ""
+
+        # First try to extract from answer tags
+        if "<answer>" in code and "</answer>" in code:
+            answer_section = code.split("<answer>")[1].split("</answer>")[0]
+            if "```openscad" in answer_section:
+                extracted_code = answer_section.split("```openscad")[1].split("```")[0]
+            elif "```" in answer_section:
+                extracted_code = answer_section.split("```")[1].split("```")[0]
+            else:
+                extracted_code = answer_section
+        # Fallback to original extraction method
+        elif "```openscad" in code:
+            extracted_code = code.split("```openscad")[1].split("```")[0]
+        elif "```" in code:
+            extracted_code = code.split("```")[1].split("```")[0]
+        else:
+            extracted_code = code
+
+        extracted_code = extracted_code.strip()
+
+        # Create file with timestamp to avoid conflicts
+        timestamp = subprocess.check_output(["date", "+%Y%m%d_%H%M%S"]).decode().strip()
+        filename = f"model_{timestamp}.scad"
+        filepath = os.path.join(self.WORKING_DIRECTORY, filename)
+
+        try:
+            with open(filepath, "w") as f:
+                f.write(extracted_code)
+            return filepath
+        except Exception as e:
+            logging.error(f"Error saving OpenSCAD file: {str(e)}")
             return None
 
     async def create_hardware_project(self, description: str) -> str:
@@ -311,41 +343,63 @@ class physical_creations(Extensions, ExtensionDatabaseMixin):
         Returns:
             str: Markdown formatted report with all generated files and documentation
         """
-        results = []
+        try:
+            results = []
 
-        # Step 1: Extract requirements
-        requirements = await self._extract_requirements(description)
-        results.append("## 📋 Requirements Analysis\n" + requirements)
+            # Step 1: Extract requirements
+            logging.info("Starting requirements extraction...")
+            requirements = self._extract_requirements(description)
+            results.append("## 📋 Requirements Analysis\n" + requirements)
+            logging.info("Requirements extraction completed")
 
-        # Step 2: Research components
-        components = await self._research_components(requirements)
-        results.append("\n## 🔍 Component Selection\n" + components)
+            # Step 2: Research components
+            logging.info("Starting component research...")
+            components = await self._research_components(requirements)
+            results.append("\n## 🔍 Component Selection\n" + components)
+            logging.info("Component research completed")
 
-        # Step 3: Design circuit
-        circuit = await self.design_circuit(
-            requirements + "\n\nComponents:\n" + components
-        )
-        results.append("\n## ⚡ Circuit Design\n" + circuit)
+            # Step 3: Design circuit
+            logging.info("Starting circuit design...")
+            circuit = await self.design_circuit(
+                requirements + "\n\nComponents:\n" + components
+            )
+            results.append("\n## ⚡ Circuit Design\n" + circuit)
+            logging.info("Circuit design completed")
 
-        # Step 4: Generate firmware
-        firmware = await self.generate_firmware(
-            requirements + "\n\nComponents:\n" + components
-        )
-        results.append("\n## 💻 Firmware\n" + firmware)
+            # Step 4: Generate firmware
+            logging.info("Starting firmware generation...")
+            firmware = await self.generate_firmware(
+                requirements + "\n\nComponents:\n" + components
+            )
+            results.append("\n## 💻 Firmware\n" + firmware)
+            logging.info("Firmware generation completed")
 
-        # Step 5: Create enclosure
-        enclosure = await self.create_enclosure(components)
-        results.append("\n## 📦 Enclosure Design\n" + enclosure)
+            # Step 5: Create enclosure
+            logging.info("Starting enclosure creation...")
+            enclosure = await self.create_enclosure(components)
+            results.append("\n## 📦 Enclosure Design\n" + enclosure)
+            logging.info("Enclosure creation completed")
 
-        # Step 6: Generate documentation
-        docs = await self.generate_documentation(
-            f"Project: {description}\n\nRequirements: {requirements}\n\nComponents: {components}"
-        )
-        results.append("\n## 📚 Documentation\n" + docs)
+            # Step 6: Generate documentation
+            logging.info("Starting documentation generation...")
+            docs = await self.generate_documentation(
+                f"Project: {description}\n\nRequirements: {requirements}\n\nComponents: {components}"
+            )
+            results.append("\n## 📚 Documentation\n" + docs)
+            logging.info("Documentation generation completed")
 
-        return "\n".join(results)
+            logging.info("Hardware project creation completed successfully")
+            return "\n".join(results)
 
-    async def _extract_requirements(self, description: str) -> str:
+        except Exception as e:
+            logging.error(f"Error in create_hardware_project: {e}")
+            logging.error(f"Error type: {type(e).__name__}")
+            import traceback
+
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            return f"**Error creating hardware project:**\n\n{str(e)}\n\nPlease try again or check the logs for more details."
+
+    def _extract_requirements(self, description: str) -> str:
         """Extract technical requirements from natural language description"""
         prompt = f"""Analyze this hardware project request and extract technical requirements:
 
@@ -387,7 +441,7 @@ Provide a structured analysis covering:
 
 Format the output as a clear, structured requirements document that can guide component selection and design decisions."""
 
-        return await self.ApiClient.prompt_agent(
+        return self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -468,7 +522,7 @@ For each component:
 
 Format as a structured bill of materials (BOM) clearly marking inventory vs purchase items."""
 
-        return await self.ApiClient.prompt_agent(
+        return self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -560,7 +614,7 @@ Provide comprehensive circuit design documentation including:
 
 Format everything clearly with proper sections and include any important notes or warnings."""
 
-        circuit_design = await self.ApiClient.prompt_agent(
+        circuit_design = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -577,7 +631,7 @@ Format everything clearly with proper sections and include any important notes o
         )
 
         # Save the circuit design to a file
-        circuit_file = await self._save_file(circuit_design, "circuit_design.txt")
+        circuit_file = self._save_file(circuit_design, "circuit_design.txt")
         if circuit_file:
             circuit_design += f"\n\n📥 [Download Circuit Design]({self.output_url}/circuit_design.txt)"
 
@@ -716,7 +770,7 @@ Instructions:
 
 Return ONLY the complete, fixed Arduino code in a code block."""
 
-            response = await self.ApiClient.prompt_agent(
+            response = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
@@ -759,7 +813,7 @@ Return ONLY the complete, fixed Arduino code in a code block."""
             firmware_code = firmware_code.strip()
 
             # Validate syntax
-            success, error_msg = await self._validate_arduino_syntax(firmware_code)
+            success, error_msg = self._validate_arduino_syntax(firmware_code)
 
             if success:
                 logging.info(
@@ -774,7 +828,7 @@ Return ONLY the complete, fixed Arduino code in a code block."""
                 iteration += 1
 
         # Save firmware to file
-        firmware_file = await self._save_file(firmware_code, "firmware.ino")
+        firmware_file = self._save_file(firmware_code, "firmware.ino")
 
         # Prepare response
         response = f"```cpp\n{firmware_code}\n```\n\n"
@@ -792,7 +846,7 @@ Return ONLY the complete, fixed Arduino code in a code block."""
                 response += f"- **Attempt {i}**: {error_preview}...\n"
             response += "\n"
 
-        success, final_status = await self._validate_arduino_syntax(firmware_code)
+        success, final_status = self._validate_arduino_syntax(firmware_code)
         if success:
             response += "✅ **Final Status**: Code syntax validation passed!\n\n"
         else:
@@ -817,73 +871,116 @@ Return ONLY the complete, fixed Arduino code in a code block."""
 
 {components}
 
-Create a professional enclosure with:
+The assistant is an expert OpenSCAD programmer specializing in translating natural language descriptions into precise, printable 3D enclosures. The assistant's deep understanding spans mechanical engineering, 3D printing constraints, and programmatic modeling techniques.
 
-1. **Component Compartments**
-   - Precise cavities for each board
-   - Proper clearances (0.5mm tolerance)
-   - Support posts with screw holes
-   - Component labels embossed/debossed
+Core Knowledge Base:
+1. OpenSCAD Fundamentals
+- All measurements are in millimeters
+- Basic primitives: cube(), cylinder(), sphere()
+- Boolean operations: union(), difference(), intersection()
+- Transformations: translate(), rotate(), scale()
+- Hull(), minkowski() for advanced shapes
+- Linear_extrude() and rotate_extrude() for 2D to 3D operations
 
-2. **Connectors and Ports**
-   - Accurate cutouts for all connectors
-   - USB ports
-   - Power jacks
-   - Sensor windows
-   - LED windows with light pipes
-   - Button access
+2. 3D Printing Considerations
+- Minimum wall thickness: 2mm for stability
+- Standard tolerances: 0.2mm for fitting parts
+- Support structures: Design to minimize overhangs >45°
+- Base layer: Ensure adequate surface area
+- Bridging: Keep unsupported spans under 10mm
 
-3. **Assembly Design**
-   - Snap-fit design or screw assembly
-   - Alignment features
-   - Part orientation markers
-   - Living hinges if applicable
+3. Code Structure Requirements
+- Parameterized designs using variables
+- Modular construction with clear module definitions
+- Descriptive variable names (e.g., wall_thickness, base_diameter)
+- Comprehensive comments explaining design choices
+- $fn parameter for controlling curve resolution
 
-4. **Thermal Management**
-   - Ventilation slots/holes
-   - Heat sink mounting points
-   - Airflow channels
-   - Component spacing
+4. Enclosure Design Requirements:
+   - Component Compartments: Precise cavities with 0.5mm tolerance, support posts with screw holes
+   - Connectors and Ports: Accurate cutouts for USB, power, sensors, LEDs with light pipes
+   - Assembly Design: Snap-fit or screw assembly with alignment features
+   - Thermal Management: Ventilation slots, heat sink mounting, airflow channels
+   - Mounting Features: Wall mount points, stand-offs, keyhole slots
+   - Wire Management: Cable routing channels, strain relief, wire clips
+   - Environmental Protection: Gasket grooves, drainage channels
+   - User Interface: Display windows, button caps, status LED light pipes
 
-5. **Mounting Features**
-   - Wall mount points
-   - Stand-offs
-   - Keyhole slots
-   - Threaded inserts compatibility
+Solution Development Process:
+1. Theory Crafting (in <thinking> tags)
+   - Generate multiple possible approaches to the enclosure design
+   - Consider different primitive combinations
+   - Explore alternative module structures
+   - Brainstorm potential parameterization schemes
+   - Document pros and cons of each approach
 
-6. **Wire Management**
-   - Cable routing channels
-   - Strain relief features
-   - Wire clip points
-   - Bundle organization
+2. Implementation Testing (in <step> tags)
+   - Implement most promising approaches
+   - Test edge cases and parameter ranges
+   - Verify printability constraints
+   - Validate structural integrity
 
-7. **Environmental Protection**
-   - Gasket grooves if needed
-   - Drainage channels
-   - IP rating considerations
+3. Solution Evaluation (in <reflection> tags)
+   - Rate each approach using <reward> tags (0.0-1.0)
+   - Consider:
+     * Code maintainability
+     * Print reliability
+     * Customization flexibility
+     * Resource efficiency
+     * Structural integrity
+   - Justify ratings with specific criteria
+   - Identify potential improvements
 
-8. **User Interface**
-   - Display windows
-   - Button caps or extensions
-   - Status LED light pipes
-   - Label areas
+4. Final Solution (in <answer> tags)
+   - Present the highest-rated implementation
+   - Include comprehensive documentation
+   - Provide printer settings
+   - Note any important usage considerations
 
-9. **Manufacturing Considerations**
-   - No overhangs >45 degrees
-   - Minimum wall thickness 2mm
-   - Print orientation optimization
-   - Support-free design if possible
+For the enclosure design:
+1. Analyze key requirements and constraints
+2. Break down complex shapes into primitive components
+3. Consider printability and structural integrity
+4. Include necessary tolerances for moving parts
+5. Document all assumptions about measurements
 
-Create parametric OpenSCAD code with:
-- All dimensions as variables
-- Modular design
-- Clear comments
-- $fn=100 for smooth curves
-- Proper structure with modules
+The assistant's output must follow strict formatting:
+1. Theory crafting and analysis in <thinking> tags
+2. Implementation attempts in <step> tags
+3. Evaluation and scoring in <reflection> tags
+4. Final, complete OpenSCAD code in <answer> tags
+5. Code must be thoroughly commented and properly indented
 
-Include test fit features and assembly instructions in comments."""
+Sample measurements if not specified:
+- Wall thickness: 2mm
+- Base stability ratio: 2:3 (height:base width)
+- Clearance for moving parts: 0.2mm
+- Minimum feature size: 0.8mm
+- Default curve resolution: $fn=100
 
-        scad_prompt_response = await self.ApiClient.prompt_agent(
+Error prevention:
+- Validate all boolean operations
+- Check for non-manifold geometry
+- Ensure proper nesting of transformations
+- Verify wall thickness throughout
+- Test for printability constraints
+
+The goal is to produce OpenSCAD code that is:
+1. Immediately printable without modification
+2. Highly parameterized for customization
+3. Well-documented and maintainable
+4. Optimized for 3D printing
+5. Structurally sound and functional
+
+Remember to:
+- Consider multiple approaches before settling on a solution
+- Rate each attempt with <reward> tags
+- Provide detailed justification for design choices
+- Only proceed with approaches scoring 0.8 or higher
+- Backtrack and try new approaches if scores are low
+- Put the full OpenSCAD code in the <answer> tag inside of a OpenSCAD code block like: ```openscad\\nOpenSCAD code block\\n```"""
+
+        scad_prompt_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -899,31 +996,23 @@ Include test fit features and assembly instructions in comments."""
             },
         )
 
-        # Extract OpenSCAD code
-        if "```openscad" in scad_prompt_response:
-            scad_code = scad_prompt_response.split("```openscad")[1].split("```")[0]
-        elif "```" in scad_prompt_response:
-            scad_code = scad_prompt_response.split("```")[1].split("```")[0]
-        else:
-            scad_code = scad_prompt_response
+        # Generate SCAD file using proper extraction method
+        scad_filepath = self._generate_scad_file(scad_prompt_response)
 
-        scad_code = scad_code.strip()
+        if not scad_filepath:
+            return "Error: Failed to generate OpenSCAD file"
+
+        # Extract clean code for validation and display
+        with open(scad_filepath, "r") as f:
+            scad_code = f.read()
 
         # Validate and generate files
         if not self._validate_scad_code(scad_code):
             logging.info("OpenSCAD code may have syntax issues")
 
-        # Save OpenSCAD file
-        timestamp = subprocess.check_output(["date", "+%Y%m%d_%H%M%S"]).decode().strip()
-        scad_filename = f"enclosure_{timestamp}.scad"
-        scad_filepath = os.path.join(self.WORKING_DIRECTORY, scad_filename)
-
-        with open(scad_filepath, "w") as f:
-            f.write(scad_code)
-
         # Generate preview and STL
-        preview_path = await self._generate_preview(scad_filepath)
-        stl_path = await self._generate_stl(scad_filepath)
+        preview_path = self._generate_preview(scad_filepath)
+        stl_path = self._generate_stl(scad_filepath)
 
         response = f"```openscad\n{scad_code}\n```\n\n"
 
@@ -931,7 +1020,7 @@ Include test fit features and assembly instructions in comments."""
             response += f"![Enclosure Preview]({self.output_url}/{os.path.basename(preview_path)})\n\n"
 
         response += "### Download Files\n"
-        response += f"- 📥 [OpenSCAD Source]({self.output_url}/{scad_filename})\n"
+        response += f"- 📥 [OpenSCAD Source]({self.output_url}/{os.path.basename(scad_filepath)})\n"
         if stl_path:
             response += f"- 🖨️ [STL for 3D Printing]({self.output_url}/{os.path.basename(stl_path)})\n"
 
@@ -1026,7 +1115,7 @@ Format as proper Markdown with:
 
 Make it professional and comprehensive enough for open-source release."""
 
-        documentation = await self.ApiClient.prompt_agent(
+        documentation = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -1043,14 +1132,14 @@ Make it professional and comprehensive enough for open-source release."""
         )
 
         # Save documentation
-        doc_file = await self._save_file(documentation, "README.md")
+        doc_file = self._save_file(documentation, "README.md")
 
         if doc_file:
             documentation += f"\n\n📥 [Download README]({self.output_url}/README.md)"
 
         return documentation
 
-    async def _generate_threejs_viewer(
+    def _generate_threejs_viewer(
         self, scad_code: str, model_name: str = "model"
     ) -> str:
         """
@@ -1214,7 +1303,7 @@ Make it professional and comprehensive enough for open-source release."""
 
         # Save HTML file
         html_filename = f"{model_name}_viewer.html"
-        html_path = await self._save_file(html_content, html_filename)
+        html_path = self._save_file(html_content, html_filename)
 
         return html_path
 
@@ -1338,7 +1427,7 @@ Remember to:
 - Put the full OpenSCAD code in the <answer> tag inside of a OpenSCAD code block like: ```openscad\nOpenSCAD code block\n```"""
 
         # Generate OpenSCAD code with full reasoning process
-        scad_response = await self.ApiClient.prompt_agent(
+        scad_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -1383,13 +1472,13 @@ Remember to:
             f.write(scad_code)
 
         # Generate preview image
-        preview_path = await self._generate_preview(scad_filepath)
+        preview_path = self._generate_preview(scad_filepath)
 
         # Generate STL file
-        stl_path = await self._generate_stl(scad_filepath)
+        stl_path = self._generate_stl(scad_filepath)
 
         # Generate interactive Three.js viewer
-        viewer_path = await self._generate_threejs_viewer(scad_code, model_name)
+        viewer_path = self._generate_threejs_viewer(scad_code, model_name)
 
         # Build response with all outputs
         response_parts = [
@@ -1441,7 +1530,7 @@ Remember to:
 
         return "\n".join(response_parts)
 
-    async def _validate_arduino_syntax(self, code: str) -> tuple[bool, str]:
+    def _validate_arduino_syntax(self, code: str) -> tuple[bool, str]:
         """
         Validate Arduino/C++ code syntax without requiring compilation tools.
         This performs basic syntax checks that can catch common errors.
@@ -1564,6 +1653,9 @@ Remember to:
         """Add a new component to the inventory"""
         session = get_session()
         try:
+            # Debug logging to track user_id
+            logging.info(f"Adding component for user_id: {self.user_id}")
+
             # Auto-generate name if not provided
             if not name or not name.strip():
                 # Try to generate a meaningful name from available info
@@ -1885,6 +1977,9 @@ Remember to:
         """List components with pagination and optional category filter"""
         session = get_session()
         try:
+            # Debug logging to track user_id
+            logging.info(f"Listing components for user_id: {self.user_id}")
+
             query = session.query(Component).filter_by(user_id=self.user_id)
 
             if category:
@@ -2056,6 +2151,9 @@ Use the "Add Component" command to update inventory as you acquire new parts."""
         """Count components in inventory with optional filters"""
         session = get_session()
         try:
+            # Debug logging to track user_id
+            logging.info(f"Counting components for user_id: {self.user_id}")
+
             # Start with base query
             query = session.query(Component).filter_by(user_id=self.user_id)
 

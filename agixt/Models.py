@@ -384,6 +384,21 @@ class ChainStepNewInfo(BaseModel):
     new_step_number: int
 
 
+# V1 Step models using agent_id instead of agent_name
+class StepInfoV1(BaseModel):
+    step_number: int
+    agent_id: str
+    prompt_type: str
+    prompt: dict
+
+
+class ChainStepV1(BaseModel):
+    step_number: int
+    agent_id: str
+    prompt_type: str
+    prompt: dict
+
+
 class ResponseMessage(BaseModel):
     message: str
 
@@ -501,6 +516,7 @@ class ChainStepDetail(BaseModel):
 class ChainDetailsResponse(BaseModel):
     id: str
     chain_name: str
+    description: Optional[str] = ""
     steps: List[ChainStepDetail]
 
     class Config:

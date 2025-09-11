@@ -88,7 +88,32 @@ class Note(Base):
 
 
 class notes(Extensions, ExtensionDatabaseMixin):
-    """Notes Extension with database support and REST API endpoints"""
+    """
+    Notes Extension with database support and REST API endpoints.
+
+    This extension serves as the AGiXT agent's persistent memory system, allowing it to store,
+    retrieve, search, and manage notes that can be referenced across conversations. The notes
+    act as both the agent's working memory and a personal notebook system for users.
+
+    Key capabilities:
+    - Create structured notes with titles, content, and tags
+    - Search through existing notes to find relevant information
+    - Update and delete notes as information changes
+    - Tag-based organization for better categorization
+    - Full-text search across titles, content, and tags
+
+    Usage Guidelines for AI Agents:
+    - Use this extension as your primary memory system to remember important information
+    - Search your notes whenever you need context about previous conversations or tasks
+    - Create notes to remember user preferences, important facts, or ongoing projects
+    - Use tags to categorize information (e.g., "user-preferences", "project-alpha", "research")
+    - Always search existing notes before asking the user to repeat information
+    - Update notes when you learn new information about existing topics
+    - Delete notes that become outdated or incorrect
+
+    This extension provides both programmatic access via agent commands and REST API endpoints
+    for external integrations.
+    """
 
     # Register extension models for automatic table creation
     extension_models = [Note]
@@ -111,7 +136,7 @@ class notes(Extensions, ExtensionDatabaseMixin):
 
     def __init__(self, **kwargs):
         self.AGENT = kwargs
-        self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
+        self.user_id = kwargs.get("user_id", None)
         self.ApiClient = kwargs.get("ApiClient", None)
 
         # Register models with ExtensionDatabaseMixin
@@ -217,7 +242,36 @@ class notes(Extensions, ExtensionDatabaseMixin):
     async def create_note(
         self, title: str, content: str, tags: List[str] = None
     ) -> str:
-        """Create a new note"""
+        """
+        Create a new note in the agent's memory system.
+
+        This command stores information that the agent can reference later, acting as persistent
+        memory across conversations. Use this to remember important facts, user preferences,
+        project details, or any information that might be useful in future interactions.
+
+        Args:
+            title (str): A descriptive title for the note (required, cannot be empty)
+            content (str): The main content/body of the note (required, cannot be empty)
+            tags (List[str], optional): List of tags for categorization and easier searching
+
+        Returns:
+            str: JSON response with success status, message, and created note data
+
+        Usage Notes:
+        - Use descriptive titles that will help you find the note later
+        - Include comprehensive content - this is your memory, be thorough
+        - Add relevant tags for categorization (e.g., "user-info", "project-x", "preferences")
+        - Create notes proactively when you learn something important about the user or task
+        - Use this whenever you want to remember something for future conversations
+        - Good examples: user preferences, project requirements, important decisions made
+
+        When to use:
+        - User shares personal information or preferences
+        - Important decisions are made during a conversation
+        - You discover key facts about a project or task
+        - User mentions recurring themes or topics
+        - You need to track progress on long-term objectives
+        """
         session = get_session()
         try:
             if not title.strip():
@@ -277,7 +331,28 @@ class notes(Extensions, ExtensionDatabaseMixin):
             session.close()
 
     async def get_note(self, note_id: int) -> str:
-        """Get a specific note by ID"""
+        """
+        Retrieve a specific note by its unique ID.
+
+        Use this command when you have a specific note ID and want to access its full content.
+        This is useful when you know exactly which note contains the information you need.
+
+        Args:
+            note_id (int): The unique identifier of the note to retrieve
+
+        Returns:
+            str: JSON response with success status and note data (id, title, content, tags, timestamps)
+
+        Usage Notes:
+        - Only use this when you have a specific note ID from a previous search or list operation
+        - This returns the complete note content, including all metadata
+        - If you don't know the note ID, use search_notes or list_notes instead
+
+        When to use:
+        - You have a note ID from a previous search and need the full content
+        - Following up on a specific note reference from an earlier conversation
+        - Accessing detailed information from a note you've previously identified
+        """
         session = get_session()
         try:
             note = (
@@ -319,7 +394,35 @@ class notes(Extensions, ExtensionDatabaseMixin):
         content: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> str:
-        """Update an existing note"""
+        """
+        Update an existing note with new information.
+
+        Use this command to modify notes when you learn new information, need to correct
+        details, or want to add additional context to existing notes. This keeps your
+        memory system current and accurate.
+
+        Args:
+            note_id (int): The unique identifier of the note to update
+            title (Optional[str]): New title for the note (if provided, cannot be empty)
+            content (Optional[str]): New content for the note (if provided, cannot be empty)
+            tags (Optional[List[str]]): New tags list (completely replaces existing tags)
+
+        Returns:
+            str: JSON response with success status, message, and updated note data
+
+        Usage Notes:
+        - You only need to provide the fields you want to change
+        - Updating tags completely replaces the existing tag list
+        - The updated_at timestamp is automatically set to the current time
+        - Use this to keep your memory accurate and up-to-date
+
+        When to use:
+        - You discover new information that should be added to an existing note
+        - Previous information in a note becomes outdated or incorrect
+        - You want to add more tags for better categorization
+        - User provides updates to previously stored information
+        - You need to refine or clarify existing notes based on new context
+        """
         session = get_session()
         try:
             note = (
@@ -387,7 +490,34 @@ class notes(Extensions, ExtensionDatabaseMixin):
             session.close()
 
     async def delete_note(self, note_id: int) -> str:
-        """Delete a note"""
+        """
+        Delete a note from the agent's memory system.
+
+        Use this command to remove notes that are no longer relevant, contain outdated
+        information, or were created in error. This helps keep your memory system clean
+        and focused on current, accurate information.
+
+        Args:
+            note_id (int): The unique identifier of the note to delete
+
+        Returns:
+            str: JSON response with success status and confirmation message
+
+        Usage Notes:
+        - This action is permanent - deleted notes cannot be recovered
+        - Make sure you have the correct note ID before deleting
+        - Consider updating instead of deleting if the note has some useful information
+
+        When to use:
+        - Information in a note becomes completely obsolete or incorrect
+        - Notes were created by mistake or contain duplicate information
+        - User explicitly requests removal of certain information
+        - Cleaning up test notes or temporary information
+        - Notes contain sensitive information that should not be retained
+
+        Caution: Only delete notes when you're certain they're no longer needed, as this
+        removes information permanently from your memory system.
+        """
         session = get_session()
         try:
             note = (
@@ -429,7 +559,36 @@ class notes(Extensions, ExtensionDatabaseMixin):
             session.close()
 
     async def list_notes(self, limit: int = 10, offset: int = 0) -> str:
-        """List all notes for the user with pagination"""
+        """
+        List all notes with pagination, ordered by most recently updated.
+
+        Use this command to browse through your stored notes, get an overview of what
+        information you have available, or when you need to see recent notes but don't
+        have a specific search query in mind.
+
+        Args:
+            limit (int, optional): Maximum number of notes to return (default: 10, max: 100)
+            offset (int, optional): Number of notes to skip for pagination (default: 0)
+
+        Returns:
+            str: JSON response with success status, list of notes, total count, and pagination info
+
+        Usage Notes:
+        - Notes are returned in order of most recent update first
+        - Each note includes all fields: id, title, content, tags, and timestamps
+        - Use pagination (limit/offset) to browse through large collections of notes
+        - The response includes total count for implementing pagination
+
+        When to use:
+        - You want to see what information you have stored recently
+        - Browsing your memory system to refresh context
+        - Looking for notes when you don't have specific search terms
+        - Getting an overview of stored information before starting a complex task
+        - Checking what you've learned in recent conversations
+
+        This is particularly useful at the beginning of conversations to review recent
+        memory and context, or when you want to audit what information you have available.
+        """
         session = get_session()
         try:
             notes = (
@@ -474,7 +633,43 @@ class notes(Extensions, ExtensionDatabaseMixin):
             session.close()
 
     async def search_notes(self, query: str, limit: int = 10) -> str:
-        """Search notes by title, content, or tags"""
+        """
+        Search through your notes using keywords or phrases.
+
+        This is your primary tool for finding relevant information from your memory system.
+        Use this command whenever you need context about a topic, want to recall previous
+        conversations, or need to find specific information you've stored.
+
+        Args:
+            query (str): Search terms to look for in note titles, content, and tags
+            limit (int, optional): Maximum number of results to return (default: 10, max: 100)
+
+        Returns:
+            str: JSON response with success status, matching notes, search query, and result count
+
+        Usage Notes:
+        - Searches across note titles, content, and tags using case-insensitive matching
+        - Results are ordered by most recently updated first
+        - Use specific keywords or phrases that might appear in your notes
+        - Try different search terms if you don't find what you're looking for initially
+
+        When to use:
+        - ALWAYS search before asking the user to repeat information they may have shared
+        - When you need context about a topic, project, or previous conversation
+        - Looking for user preferences or previously established settings
+        - Trying to recall decisions made in past interactions
+        - Finding information about ongoing projects or tasks
+        - Before starting work on something, search to see what you already know
+
+        Search Strategy Tips:
+        - Start with broad terms, then narrow down if needed
+        - Try synonyms or related terms if initial search doesn't find what you need
+        - Search for user names, project names, or key concepts
+        - Use tags if you remember categorizing information that way
+
+        This should be your go-to command whenever you need to remember something or
+        provide context-aware responses based on previous interactions.
+        """
         session = get_session()
         try:
             search_term = f"%{query}%"

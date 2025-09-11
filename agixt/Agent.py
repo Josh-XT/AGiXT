@@ -1670,22 +1670,10 @@ class Agent:
                     if company_command not in command_list:
                         command_list.append(company_command)
         if len(command_list) > 0:
-            # CodeQL ultra-safe pattern: Create secure conversation directory
-            import hashlib
-
-            if conversation_id:
-                conv_hash = hashlib.sha256(str(conversation_id).encode()).hexdigest()[
-                    :16
-                ]
-                conversation_dir = f"{self.working_directory}/conv_{conv_hash}"
-            else:
-                conversation_dir = f"{self.working_directory}/default_conversation"
-
-            os.makedirs(conversation_dir, exist_ok=True)
-            working_directory = conversation_dir
-
-            # Generate secure URL without using user input in path construction
-            conversation_outputs = f"http://localhost:7437/outputs/conversation_{hash(conversation_id if conversation_id else 'default') % 100000}/"
+            working_directory = f"{self.working_directory}/{conversation_id}"
+            conversation_outputs = (
+                f"http://localhost:7437/outputs/{self.agent_id}/{conversation_id}/"
+            )
             try:
                 agent_extensions = self.get_company_agent_extensions()
                 if agent_extensions == "":
