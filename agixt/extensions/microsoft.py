@@ -218,6 +218,73 @@ class microsoft(Extensions):
         )
         os.makedirs(self.attachments_dir, exist_ok=True)
 
+    def _parse_datetime(self, dt_input):
+        """
+        Helper function to parse datetime input that can be either a string or datetime object.
+        Returns a datetime object.
+        """
+        if isinstance(dt_input, str):
+            # Remove any trailing zeros and extra precision from microseconds
+            dt_str = dt_input.strip()
+
+            # Handle various datetime string formats
+            try:
+                # First try standard ISO format
+                if dt_str.endswith("Z"):
+                    return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                elif "+" in dt_str or dt_str.endswith("00:00"):
+                    return datetime.fromisoformat(dt_str)
+                else:
+                    # Handle format like "2025-09-14T05:45:00.0000000"
+                    if "." in dt_str:
+                        # Remove excessive microseconds precision
+                        date_part, time_part = dt_str.split("T")
+                        if "." in time_part:
+                            time_base, microseconds = time_part.split(".")
+                            # Keep only up to 6 digits for microseconds
+                            microseconds = microseconds[:6].ljust(6, "0")
+                            dt_str = f"{date_part}T{time_base}.{microseconds}"
+
+                    # Parse as naive datetime first
+                    return datetime.fromisoformat(dt_str)
+            except ValueError:
+                # Try parsing without microseconds
+                try:
+                    if "T" in dt_str:
+                        dt_str = dt_str.split(".")[0]  # Remove microseconds
+                    return datetime.fromisoformat(dt_str)
+                except ValueError:
+                    # Last resort: try strptime with common formats
+                    formats = [
+                        "%Y-%m-%dT%H:%M:%S",
+                        "%Y-%m-%d %H:%M:%S",
+                        "%Y-%m-%dT%H:%M",
+                        "%Y-%m-%d %H:%M",
+                    ]
+                    for fmt in formats:
+                        try:
+                            return datetime.strptime(dt_str, fmt)
+                        except ValueError:
+                            continue
+                    raise ValueError(f"Unable to parse datetime string: {dt_input}")
+        elif isinstance(dt_input, datetime):
+            return dt_input
+        else:
+            raise ValueError(f"Invalid datetime input type: {type(dt_input)}")
+
+    def _format_datetime_for_api(self, dt):
+        """
+        Helper function to format datetime for Microsoft Graph API.
+        Returns properly formatted ISO string.
+        """
+        if isinstance(dt, str):
+            dt = self._parse_datetime(dt)
+
+        # Format as ISO string without timezone info (API handles timezone separately)
+        return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[
+            :-3
+        ]  # Remove last 3 digits of microseconds
+
     def verify_user(self):
         """
         Verifies that the current access token corresponds to a valid user.
@@ -304,8 +371,8 @@ class microsoft(Extensions):
         Checks if a specific time slot is available.
 
         Args:
-            start_time (datetime): Start time of proposed event
-            end_time (datetime): End time of proposed event
+            start_time (datetime or str): Start time of proposed event
+            end_time (datetime or str): End time of proposed event
 
         Returns:
             tuple: (bool, dict) - (is_available, conflicting_event_if_any)
@@ -313,18 +380,24 @@ class microsoft(Extensions):
         try:
             self.verify_user()
 
+            # Parse datetime inputs
+            start_dt = self._parse_datetime(start_time)
+            end_dt = self._parse_datetime(end_time)
+
             # Get events for the day
             existing_events = await self.microsoft_get_calendar_items(
-                start_date=start_time, end_date=end_time, max_items=50
+                start_date=start_dt, end_date=end_dt, max_items=50
             )
 
             for event in existing_events:
                 event_start = datetime.fromisoformat(
-                    event["start_time"].replace("Z", "+")
+                    event["start_time"].replace("Z", "+00:00")
                 )
-                event_end = datetime.fromisoformat(event["end_time"].replace("Z", "+"))
+                event_end = datetime.fromisoformat(
+                    event["end_time"].replace("Z", "+00:00")
+                )
 
-                if start_time <= event_end and end_time >= event_start:
+                if start_dt <= event_end and end_dt >= event_start:
                     return False, event
 
             return True, None
@@ -349,8 +422,8 @@ class microsoft(Extensions):
 
         Args:
             subject (str): Event title/subject
-            start_time (datetime): Event start time
-            end_time (datetime): Event end time
+            start_time (datetime or str): Event start time
+            end_time (datetime or str): Event end time
             location (str): Optional physical location
             attendees (list): Optional list of attendee email addresses
             body (str): Optional event description
@@ -361,14 +434,29 @@ class microsoft(Extensions):
             str: Success or failure message
         """
         try:
+            # Parse datetime inputs
+            start_dt = self._parse_datetime(start_time)
+            end_dt = self._parse_datetime(end_time)
+
+            # Convert string boolean values if needed
+            if isinstance(is_online_meeting, str):
+                is_online_meeting = is_online_meeting.lower() in ("true", "1", "yes")
+
+            # Convert reminder minutes to int if it's a string
+            if isinstance(reminder_minutes_before, str):
+                try:
+                    reminder_minutes_before = int(reminder_minutes_before)
+                except ValueError:
+                    reminder_minutes_before = 15  # Default fallback
+
             is_available, conflict = await self.microsoft_check_time_availability(
-                start_time, end_time
+                start_dt, end_dt
             )
 
             if not is_available:
                 return {
                     "success": False,
-                    "message": f"The user isn't available at {start_time.strftime('%Y-%m-%d %H:%M')}. "
+                    "message": f"The user isn't available at {start_dt.strftime('%Y-%m-%d %H:%M')}. "
                     f"There is a conflict with '{conflict['subject']}'. "
                     f"Ask the user if they would like to schedule a different time or "
                     f"move their scheduled item '{conflict['subject']}' to a different time.",
@@ -382,8 +470,14 @@ class microsoft(Extensions):
 
             event_data = {
                 "subject": subject,
-                "start": {"dateTime": start_time, "timeZone": self.timezone},
-                "end": {"dateTime": end_time, "timeZone": self.timezone},
+                "start": {
+                    "dateTime": self._format_datetime_for_api(start_dt),
+                    "timeZone": self.timezone or "UTC",
+                },
+                "end": {
+                    "dateTime": self._format_datetime_for_api(end_dt),
+                    "timeZone": self.timezone or "UTC",
+                },
                 "isOnlineMeeting": is_online_meeting,
                 "reminderMinutesBeforeStart": reminder_minutes_before,
             }
@@ -396,11 +490,21 @@ class microsoft(Extensions):
 
             if attendees:
                 if isinstance(attendees, str):
-                    attendees = [attendees]
-                event_data["attendees"] = [
-                    {"emailAddress": {"address": email}, "type": "required"}
-                    for email in attendees
-                ]
+                    # Handle empty string or comma-separated list
+                    if attendees.strip():
+                        attendees = [
+                            email.strip()
+                            for email in attendees.split(",")
+                            if email.strip()
+                        ]
+                    else:
+                        attendees = []
+
+                if attendees:  # Only add if we have actual attendees
+                    event_data["attendees"] = [
+                        {"emailAddress": {"address": email}, "type": "required"}
+                        for email in attendees
+                    ]
 
             response = requests.post(
                 "https://graph.microsoft.com/v1.0/me/events",
@@ -588,14 +692,18 @@ class microsoft(Extensions):
 
             # If changing time, check availability
             if check_availability and start_time and end_time:
+                # Parse datetime strings properly
+                start_dt = self._parse_datetime(start_time)
+                end_dt = self._parse_datetime(end_time)
+
                 is_available, conflict = await self.microsoft_check_time_availability(
-                    start_time, end_time
+                    start_dt, end_dt
                 )
 
                 if not is_available:
                     return {
                         "success": False,
-                        "message": f"The user isn't available at {start_time.strftime('%Y-%m-%d %H:%M')}. "
+                        "message": f"The user isn't available at {start_dt.strftime('%Y-%m-%d %H:%M')}. "
                         f"There is a conflict with '{conflict['subject']}'. "
                         f"Ask the user if they would like to choose a different time.",
                     }
@@ -606,33 +714,57 @@ class microsoft(Extensions):
             if subject:
                 update_data["subject"] = subject
             if start_time:
-                # Ensure datetime is properly formatted
-                if isinstance(start_time, datetime):
-                    start_time = start_time.isoformat()
+                # Parse and format datetime properly
+                start_dt = self._parse_datetime(start_time)
                 update_data["start"] = {
-                    "dateTime": start_time,
-                    "timeZone": self.timezone,
+                    "dateTime": self._format_datetime_for_api(start_dt),
+                    "timeZone": self.timezone or "UTC",
                 }
             if end_time:
-                # Ensure datetime is properly formatted
-                if isinstance(end_time, datetime):
-                    end_time = end_time.isoformat()
-                update_data["end"] = {"dateTime": end_time, "timeZone": self.timezone}
+                # Parse and format datetime properly
+                end_dt = self._parse_datetime(end_time)
+                update_data["end"] = {
+                    "dateTime": self._format_datetime_for_api(end_dt),
+                    "timeZone": self.timezone or "UTC",
+                }
             if location is not None:
                 update_data["location"] = {"displayName": location}
             if body is not None:
                 update_data["body"] = {"contentType": "HTML", "content": body}
             if is_online_meeting is not None:
+                # Convert string boolean values if needed
+                if isinstance(is_online_meeting, str):
+                    is_online_meeting = is_online_meeting.lower() in (
+                        "true",
+                        "1",
+                        "yes",
+                    )
                 update_data["isOnlineMeeting"] = is_online_meeting
             if reminder_minutes_before is not None:
+                # Convert reminder minutes to int if it's a string
+                if isinstance(reminder_minutes_before, str):
+                    try:
+                        reminder_minutes_before = int(reminder_minutes_before)
+                    except ValueError:
+                        reminder_minutes_before = 15  # Default fallback
                 update_data["reminderMinutesBeforeStart"] = reminder_minutes_before
             if attendees is not None:
                 if isinstance(attendees, str):
-                    attendees = [attendees]
-                update_data["attendees"] = [
-                    {"emailAddress": {"address": email}, "type": "required"}
-                    for email in attendees
-                ]
+                    # Handle empty string or comma-separated list
+                    if attendees.strip():
+                        attendees = [
+                            email.strip()
+                            for email in attendees.split(",")
+                            if email.strip()
+                        ]
+                    else:
+                        attendees = []
+
+                if attendees:  # Only add if we have actual attendees
+                    update_data["attendees"] = [
+                        {"emailAddress": {"address": email}, "type": "required"}
+                        for email in attendees
+                    ]
 
             # If no fields to update, return success
             if not update_data:
