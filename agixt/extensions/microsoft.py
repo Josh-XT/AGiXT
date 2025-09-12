@@ -53,6 +53,8 @@ class MicrosoftSSO:
         self.user_info = self.get_user_info()
 
     def get_new_token(self):
+        logging.info("Attempting to refresh Microsoft access token...")
+
         response = requests.post(
             "https://login.microsoftonline.com/common/oauth2/v2.0/token",
             data={
@@ -64,24 +66,50 @@ class MicrosoftSSO:
             },
         )
 
+        logging.info(f"Token refresh response status: {response.status_code}")
+
         if response.status_code != 200:
+            logging.error(f"Token refresh failed with response: {response.text}")
             raise Exception(f"Microsoft token refresh failed: {response.text}")
 
         token_data = response.json()
+        logging.info(f"Token refresh response keys: {list(token_data.keys())}")
 
         # Update our access token for immediate use
         if "access_token" in token_data:
-            self.access_token = token_data["access_token"]
+            new_token = token_data["access_token"]
+            logging.info(f"New token length: {len(new_token)}")
+            logging.info(f"New token parts: {len(new_token.split('.'))}")
+            self.access_token = new_token
+        else:
+            logging.error("No access_token in refresh response")
 
         return token_data
 
     def get_user_info(self):
         uri = "https://graph.microsoft.com/v1.0/me"
+
+        # Debug: log token information (safely)
+        if self.access_token:
+            token_parts = str(self.access_token).split(".")
+            logging.info(f"Token has {len(token_parts)} parts (should be 3 for JWT)")
+            logging.info(f"Token length: {len(self.access_token)}")
+            logging.info(f"Token starts with: {self.access_token[:50]}...")
+            logging.info(f"Token ends with: ...{self.access_token[-50:]}")
+        else:
+            logging.error("No access token available")
+
         response = requests.get(
             uri,
             headers={"Authorization": f"Bearer {self.access_token}"},
         )
+
+        # Log response details
+        logging.info(f"User info request status: {response.status_code}")
+        logging.info(f"User info response headers: {dict(response.headers)}")
+
         if response.status_code == 401:
+            logging.info("Token expired, attempting to refresh...")
             self.access_token = self.get_new_token()
             response = requests.get(
                 uri,
