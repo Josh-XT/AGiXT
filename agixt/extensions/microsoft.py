@@ -393,7 +393,9 @@ class microsoft(Extensions):
                 event_start = self._parse_datetime(event["start_time"])
                 event_end = self._parse_datetime(event["end_time"])
 
-                if start_dt <= event_end and end_dt >= event_start:
+                # Check for actual overlap (exclusive at boundaries)
+                # A meeting ending at 10:00 doesn't conflict with one starting at 10:00
+                if start_dt < event_end and end_dt > event_start:
                     return False, event
 
             return True, None
