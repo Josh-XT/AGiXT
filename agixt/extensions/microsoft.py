@@ -783,6 +783,37 @@ class microsoft(Extensions):
                     return []
                 else:
                     logging.info("Calendar access verified successfully")
+
+                    # Quick test - can we get ANY events at all?
+                    test_url = "https://graph.microsoft.com/v1.0/me/events?$top=3"
+                    test_response = requests.get(test_url, headers=headers)
+                    logging.info(
+                        f"Quick events test status: {test_response.status_code}"
+                    )
+
+                    if test_response.status_code == 200:
+                        test_data = test_response.json()
+                        total_events = len(test_data.get("value", []))
+                        logging.info(
+                            f"Quick test found {total_events} total events in calendar"
+                        )
+
+                        if total_events > 0:
+                            logging.info("Sample events from quick test:")
+                            for i, event in enumerate(test_data["value"]):
+                                start_time = event.get("start", {}).get(
+                                    "dateTime", "Unknown"
+                                )
+                                subject = event.get("subject", "No subject")
+                                logging.info(
+                                    f"  Event {i+1}: '{subject}' at {start_time}"
+                                )
+                        else:
+                            logging.warning(
+                                "Quick test shows user has NO events in calendar at all"
+                            )
+                    else:
+                        logging.error(f"Quick events test failed: {test_response.text}")
             except Exception as cal_err:
                 logging.error(f"Error checking calendar access: {str(cal_err)}")
                 return []
@@ -799,23 +830,63 @@ class microsoft(Extensions):
             response = requests.get(url, headers=headers)
             logging.info(f"Response status: {response.status_code}")
 
+            # Log the full response for debugging
+            if response.status_code == 200:
+                response_data = response.json()
+                logging.info(f"Full response: {response_data}")
+            else:
+                logging.error(f"Error response: {response.text}")
+
             if response.status_code != 200:
                 error_response = response.text
                 logging.error(f"Calendar API error: {error_response}")
 
-                # Try an alternative endpoint - regular events with filter
-                alt_url = f"https://graph.microsoft.com/v1.0/me/events?$top={max_items}&$orderby=start/dateTime"
+                # Try multiple alternative approaches
+                logging.info("Trying alternative approaches...")
 
-                logging.info(f"Trying alternative endpoint: {alt_url}")
-                alt_response = requests.get(alt_url, headers=headers)
-                logging.info(f"Alternative response status: {alt_response.status_code}")
+                # Approach 1: Simple events endpoint without date filters
+                alt_url1 = (
+                    f"https://graph.microsoft.com/v1.0/me/events?$top={max_items}"
+                )
+                logging.info(f"Trying simple events endpoint: {alt_url1}")
+                alt_response1 = requests.get(alt_url1, headers=headers)
+                logging.info(
+                    f"Simple events response status: {alt_response1.status_code}"
+                )
 
-                if alt_response.status_code == 200:
-                    response = alt_response
-                else:
-                    logging.error(
-                        f"Alternative endpoint also failed: {alt_response.text}"
+                if alt_response1.status_code == 200:
+                    alt_data1 = alt_response1.json()
+                    logging.info(
+                        f"Simple events found {len(alt_data1.get('value', []))} events"
                     )
+                    if alt_data1.get("value"):
+                        response = alt_response1
+                        logging.info("Using simple events endpoint results")
+                    else:
+                        logging.info(
+                            "Simple events endpoint returned empty results too"
+                        )
+
+                # Approach 2: Different calendar view format
+                if response.status_code != 200:
+                    alt_url2 = f"https://graph.microsoft.com/v1.0/me/calendar/calendarView?startDateTime={start_str}&endDateTime={end_str}&$top={max_items}"
+                    logging.info(
+                        f"Trying calendar view with /calendar/ path: {alt_url2}"
+                    )
+                    alt_response2 = requests.get(alt_url2, headers=headers)
+                    logging.info(
+                        f"Calendar view alt response status: {alt_response2.status_code}"
+                    )
+
+                    if alt_response2.status_code == 200:
+                        response = alt_response2
+                        logging.info("Using calendar view alternative")
+                    else:
+                        logging.error(f"Calendar view alt failed: {alt_response2.text}")
+
+                # If still no success, return empty
+                if response.status_code != 200:
+                    logging.error("All endpoints failed")
                     return []
 
             data = response.json()

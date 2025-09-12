@@ -90,7 +90,6 @@ class WebhookEventEmitter:
         Returns:
             Event ID for tracking
         """
-        logger.info(f"Emitting webhook event: {event_type} for user: {user_id}")
         logger.debug(
             f"emit_event parameters: event_type={event_type}, user_id={user_id}, company_id={company_id} (type: {type(company_id)}), agent_id={agent_id}, agent_name={agent_name}"
         )
@@ -185,9 +184,6 @@ class WebhookEventEmitter:
     async def _send_to_subscribers(self, event: WebhookEventPayload):
         """Send event to all matching webhook subscribers"""
         session = get_session()
-        logger.info(
-            f"Looking for webhooks subscribed to event type: {event.event_type}"
-        )
 
         try:
             # If no company_id in the event, log warning and skip webhook processing
@@ -204,13 +200,6 @@ class WebhookEventEmitter:
                 .filter(WebhookOutgoing.company_id == event.company_id)
                 .all()
             )
-            logger.info(
-                f"Total active webhooks for company {event.company_id}: {len(all_webhooks)}"
-            )
-            for wh in all_webhooks:
-                logger.info(
-                    f"  Webhook {wh.id} ({wh.name}): event_types={wh.event_types}, target={wh.target_url}"
-                )
 
             # Find all active webhooks subscribed to this event type
             # First get all active webhooks for this company, then filter in Python for better compatibility
@@ -223,41 +212,17 @@ class WebhookEventEmitter:
 
             webhooks = []
             for webhook in all_active_webhooks:
-                logger.info(
-                    f"Checking if webhook {webhook.id} ({webhook.name}) subscribes to event {event.event_type}"
-                )
                 if self._webhook_subscribes_to_event(webhook, event.event_type):
-                    logger.info(
-                        f"✓ Webhook {webhook.id} subscribes to {event.event_type}"
-                    )
                     webhooks.append(webhook)
-                else:
-                    logger.info(
-                        f"✗ Webhook {webhook.id} does not subscribe to {event.event_type}"
-                    )
-
-            logger.info(
-                f"Found {len(webhooks)} active webhooks for event type {event.event_type}"
-            )
 
             for webhook in webhooks:
-                logger.info(
-                    f"Checking webhook {webhook.id} ({webhook.name}) with event_types: {webhook.event_types}"
-                )
                 # Check if webhook matches filters
                 if self._matches_filters(webhook, event):
-                    logger.info(
-                        f"Webhook {webhook.id} matches filters, checking circuit breaker"
-                    )
                     # Check circuit breaker
                     if self._is_circuit_open(webhook.id):
                         logger.warning(f"Circuit breaker open for webhook {webhook.id}")
                         continue
-
-                    # Send webhook
-                    logger.info(f"Sending webhook {webhook.id} to {webhook.target_url}")
                     task = asyncio.create_task(self._send_webhook(webhook, event))
-                    logger.info(f"Async task created for webhook {webhook.id}: {task}")
                 else:
                     logger.info(f"Webhook {webhook.id} does not match filters")
 
@@ -271,7 +236,6 @@ class WebhookEventEmitter:
     ) -> bool:
         """Check if event matches webhook filters"""
         if not webhook.filters:
-            logger.debug(f"Webhook {webhook.id} has no filters, allowing all events")
             return True
 
         # Deserialize filters from JSON
@@ -348,17 +312,10 @@ class WebhookEventEmitter:
     ) -> bool:
         """Check if webhook subscribes to the given event type"""
         if not webhook.event_types:
-            # Empty/null event_types means subscribe to all events
-            logger.info(
-                f"Webhook {webhook.id} has no event_types specified - subscribing to all events"
-            )
             return True
 
         event_types_str = webhook.event_types.strip()
         if not event_types_str:
-            logger.info(
-                f"Webhook {webhook.id} has empty event_types - subscribing to all events"
-            )
             return True
 
         # Try to parse as JSON array first
@@ -366,13 +323,6 @@ class WebhookEventEmitter:
             if event_types_str.startswith("[") and event_types_str.endswith("]"):
                 event_types_list = json.loads(event_types_str)
                 if isinstance(event_types_list, list):
-                    logger.info(
-                        f"Webhook {webhook.id} event_types parsed as JSON array: {event_types_list}"
-                    )
-                    result = event_type in event_types_list or "*" in event_types_list
-                    logger.info(
-                        f"Webhook {webhook.id}: '{event_type}' in {event_types_list} = {result}"
-                    )
                     return result
         except (json.JSONDecodeError, TypeError) as e:
             logger.info(f"Webhook {webhook.id}: Failed to parse as JSON: {e}")
@@ -383,24 +333,11 @@ class WebhookEventEmitter:
             event_types_list = [
                 et.strip().strip("\"'") for et in event_types_str.split(",")
             ]
-            logger.info(
-                f"Webhook {webhook.id} event_types parsed as comma-separated: {event_types_list}"
-            )
-            result = event_type in event_types_list or "*" in event_types_list
-            logger.info(
-                f"Webhook {webhook.id}: '{event_type}' in {event_types_list} = {result}"
-            )
             return result
 
         # Single event type (remove quotes if present)
         single_event = event_types_str.strip("\"'")
-        logger.info(
-            f"Webhook {webhook.id} event_types parsed as single event: '{single_event}'"
-        )
         result = single_event == event_type or single_event == "*"
-        logger.info(
-            f"Webhook {webhook.id}: '{event_type}' == '{single_event}' = {result}"
-        )
         return result
 
     def _is_circuit_open(self, webhook_id: str) -> bool:
@@ -422,9 +359,6 @@ class WebhookEventEmitter:
         self, webhook: WebhookOutgoing, event: WebhookEventPayload, retry_count: int = 0
     ):
         """Send webhook with retry logic"""
-        logger.info(
-            f"Starting _send_webhook for webhook {webhook.id} (attempt {retry_count + 1})"
-        )
         session = get_session()
         start_time = time.time()
 
@@ -439,9 +373,6 @@ class WebhookEventEmitter:
 
             # Log payload transformation for Discord webhooks
             if "discord.com/api/webhooks" in webhook.target_url:
-                logger.info(
-                    f"Discord webhook payload transformed from {original_payload['event_type']} event"
-                )
                 logger.debug(
                     f"Original payload: {json.dumps(original_payload, default=str)}"
                 )
@@ -457,7 +388,6 @@ class WebhookEventEmitter:
                 headers["X-Webhook-Signature"] = signature
 
             # Send HTTP request
-            logger.info(f"Sending HTTP POST request to {webhook.target_url}")
             async with httpx.AsyncClient(timeout=webhook.timeout) as client:
                 logger.info(
                     f"Making HTTP request with payload: {json.dumps(payload, default=str)[:200]}..."
@@ -465,14 +395,9 @@ class WebhookEventEmitter:
                 response = await client.post(
                     webhook.target_url, json=payload, headers=headers
                 )
-                logger.info(f"HTTP response received: status={response.status_code}")
 
             processing_time = int((time.time() - start_time) * 1000)
 
-            # Log successful delivery
-            logger.info(
-                f"Webhook {webhook.id} delivered successfully with status {response.status_code}"
-            )
             log_entry = WebhookLog(
                 id=str(uuid.uuid4()),
                 webhook_id=webhook.id,

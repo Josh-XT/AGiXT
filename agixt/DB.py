@@ -40,7 +40,6 @@ class ExtensionDatabaseMixin:
             for model in cls.extension_models:
                 # Only log once per model to avoid spam
                 if model.__tablename__ not in cls._registered_models:
-                    logging.info(f"Registered model: {model.__tablename__}")
                     cls._registered_models.add(model.__tablename__)
 
                 # Create table if not already created
@@ -48,7 +47,6 @@ class ExtensionDatabaseMixin:
                     try:
                         model.__table__.create(engine, checkfirst=True)
                         cls._created_tables.add(model.__tablename__)
-                        logging.info(f"Created table: {model.__tablename__}")
                     except Exception as e:
                         # Check if error is about existing index - this is expected behavior
                         if "already exists" in str(e).lower():
@@ -70,7 +68,6 @@ class ExtensionDatabaseMixin:
                     try:
                         model.__table__.create(engine, checkfirst=True)
                         cls._created_tables.add(model.__tablename__)
-                        logging.info(f"Created table: {model.__tablename__}")
                     except Exception as e:
                         # Check if error is about existing index - this is expected behavior
                         if "already exists" in str(e).lower():
@@ -139,14 +136,6 @@ try:
     # Total connections available
     TOTAL_CONNECTIONS = DB_POOL_SIZE + DB_MAX_OVERFLOW
 
-    # Log the configuration for monitoring
-    logging.info(
-        f"Database pool configuration: Workers={UVICORN_WORKERS}, "
-        f"Pool Size={DB_POOL_SIZE}, Max Overflow={DB_MAX_OVERFLOW}, "
-        f"Total Connections={TOTAL_CONNECTIONS}, "
-        f"Connections per Worker={TOTAL_CONNECTIONS/UVICORN_WORKERS:.2f}"
-    )
-
     # Warn if configuration seems insufficient
     if TOTAL_CONNECTIONS < UVICORN_WORKERS * 2:
         logging.warning(
@@ -168,11 +157,6 @@ try:
     connection = engine.connect()
     connection.close()  # Close test connection
     Base = declarative_base()
-
-    logging.info(
-        f"Database connection established successfully. Pool size: {DB_POOL_SIZE}, "
-        f"Max overflow: {DB_MAX_OVERFLOW}, Total: {TOTAL_CONNECTIONS}"
-    )
 
 except Exception as e:
     logging.error(f"Error connecting to database: {e}")
@@ -1401,7 +1385,6 @@ def discover_extension_models():
                         attr, "extension_models"
                     ):
                         extension_models.extend(attr.extension_models)
-                        logging.info(f"Found extension models in {module_name}")
         except Exception as e:
             logging.debug(
                 f"Could not import extension {module_name} for model discovery: {e}"
@@ -1421,7 +1404,6 @@ def initialize_extension_tables():
             try:
                 model.__table__.create(engine, checkfirst=True)
                 ExtensionDatabaseMixin._created_tables.add(model.__tablename__)
-                logging.info(f"Initialized extension table: {model.__tablename__}")
             except Exception as e:
                 # Check if error is about existing index - this is expected behavior
                 if "already exists" in str(e).lower():
