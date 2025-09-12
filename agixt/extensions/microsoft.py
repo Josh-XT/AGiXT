@@ -390,12 +390,8 @@ class microsoft(Extensions):
             )
 
             for event in existing_events:
-                event_start = self._parse_datetime(
-                    event["start_time"]
-                )
-                event_end = self._parse_datetime(
-                    event["end_time"]
-                )
+                event_start = self._parse_datetime(event["start_time"])
+                event_end = self._parse_datetime(event["end_time"])
 
                 if start_dt <= event_end and end_dt >= event_start:
                     return False, event
