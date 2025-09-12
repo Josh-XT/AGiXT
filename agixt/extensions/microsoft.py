@@ -89,15 +89,23 @@ class MicrosoftSSO:
             )
         try:
             data = response.json()
-            first_name = data["givenName"]
-            last_name = data["surname"]
-            email = data["mail"]
+            # Handle missing or null fields gracefully
+            first_name = data.get("givenName", "") or ""
+            last_name = data.get("surname", "") or ""
+            email = data.get("mail") or data.get("userPrincipalName", "")
+
+            # Log the response for debugging
+            logging.info(f"Microsoft user info response: {data}")
+
             return {
                 "email": email,
                 "first_name": first_name,
                 "last_name": last_name,
             }
-        except:
+        except Exception as e:
+            logging.error(f"Error parsing Microsoft user info: {str(e)}")
+            logging.error(f"Response status: {response.status_code}")
+            logging.error(f"Response content: {response.text}")
             raise HTTPException(
                 status_code=400,
                 detail="Error getting user info from Microsoft",
