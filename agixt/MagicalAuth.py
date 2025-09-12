@@ -1,72 +1,3 @@
-"""
-MagicalAuth - Advanced OAuth Token Management
-
-This module provides comprehensive OAuth token management with automatic refresh capabilities.
-
-Key improvements for OAuth token handling:
-
-1. Automatic Token Refresh:
-   - Tokens are automatically refreshed before expiration (5-minute buffer)
-   - Failed API calls due to expired tokens trigger automatic refresh and retry
-   - Support for different OAuth providers with varying token formats
-
-2. Proactive Token Management:
-   - refresh_expiring_oauth_tokens(): Background task to refresh tokens expiring soon
-   - get_oauth_token_status(): Get detailed status of all user's OAuth connections
-   - refresh_all_oauth_tokens(): Manually refresh all user's tokens
-
-3. Robust Error Handling:
-   - Graceful handling of providers that don't support refresh tokens (e.g., GitHub)
-   - Automatic retry with exponential backoff for transient failures
-   - Clear error messages guiding users when re-authentication is required
-
-4. Token Lifecycle Management:
-   - Automatic cleanup of expired tokens
-   - Proper handling of rotating refresh tokens
-   - Token expiration tracking and validation
-
-5. API Call Wrapper:
-   - oauth_api_call(): Wrapper for OAuth API calls with automatic retry on token expiry
-   - Transparent token refresh for seamless user experience
-
-Usage Examples:
-
-# Get OAuth functions with automatic token refresh
-auth = MagicalAuth(token=user_token)
-google_api = auth.get_oauth_functions("google")
-
-# Make API calls with automatic retry on token expiry
-def make_api_call(oauth_instance):
-    return oauth_instance.get_user_info()
-
-result = auth.oauth_api_call("google", make_api_call)
-
-# Check token status
-status = auth.get_oauth_token_status()
-
-# Refresh all tokens
-results = auth.refresh_all_oauth_tokens()
-
-# Background maintenance (should be called periodically)
-refresh_expiring_oauth_tokens()  # Refresh expiring tokens
-cleanup_expired_oauth_tokens()   # Clean up old expired tokens
-
-Required environment variables:
-
-- AGIXT_API_KEY: Encryption key to encrypt and decrypt data
-- APP_URI: URL to send in the email for the user to click on
-- AGIXT_URI: URL to the AGiXT server
-- APP_NAME: Name of the app
-- AGENT_NAME: Name of the agent
-- TZ: Timezone
-- LOG_LEVEL: Log level
-- LOG_FORMAT: Log format
-- DEFAULT_USER: Default user email
-- STRIPE_API_KEY: Stripe API key
-- REGISTRATION_DISABLED: Registration disabled flag
-- APP_URI: App URI
-"""
-
 from DB import (
     User,
     FailedLogins,
@@ -100,7 +31,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from agixtsdk import AGiXTSDK
-import importlib.util
 import importlib
 import pyotp
 import logging
