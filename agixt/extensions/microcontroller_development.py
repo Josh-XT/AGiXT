@@ -156,7 +156,7 @@ class Component(Base):
         }
 
 
-class physical_creations(Extensions, ExtensionDatabaseMixin):
+class microcontroller_development(Extensions, ExtensionDatabaseMixin):
     """
     Complete hardware creation pipeline from concept to manufacturable product.
     Combines 3D modeling, electronics design, firmware generation, and documentation.
