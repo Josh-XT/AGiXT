@@ -184,10 +184,11 @@ def import_extensions():
                                 f"  Updated agent command reference for agent {agent_command.agent_id}"
                             )
 
-                    # Delete the old command
-                    session.delete(existing_in_other_extension)
+                    # Skip deleting the old command for now to avoid foreign key issues
+                    # The important part (moving agent references) is done
+                    # The old command entry will be cleaned up in a future import or manual cleanup
                     logging.info(
-                        f"  Removed old command entry from extension '{existing_in_other_extension.extension.name}'"
+                        f"  Moved agent references from old '{command_name}' entry (will clean up old entry later)"
                     )
 
                 else:
