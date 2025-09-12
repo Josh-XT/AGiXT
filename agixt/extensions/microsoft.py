@@ -146,18 +146,18 @@ class microsoft(Extensions):
         self.auth = None
         if microsoft_client_id and microsoft_client_secret:
             self.commands = {
-                "Microsoft - Get Emails": self.get_emails,
-                "Microsoft - Send Email": self.send_email,
-                "Microsoft - Create Draft Email": self.create_draft_email,
-                "Microsoft - Delete Email": self.delete_email,
-                "Microsoft - Search Emails": self.search_emails,
-                "Microsoft - Reply to Email": self.reply_to_email,
-                "Microsoft - Process Attachments": self.process_attachments,
-                "Microsoft - Get Calendar Items": self.get_calendar_items,
-                "Microsoft - Get Available Timeslots": self.get_available_timeslots,
-                "Microsoft - Add Calendar Item": self.add_calendar_item,
-                "Microsoft - Modify Calendar Item": self.modify_calendar_item,
-                "Microsoft - Remove Calendar Item": self.remove_calendar_item,
+                "Get Emails from Microsoft Account": self.microsoft_get_emails,
+                "Send Email from Microsoft Account": self.microsoft_send_email,
+                "Create Draft Email in Microsoft Account": self.microsoft_create_draft_email,
+                "Delete Email from Microsoft Account": self.microsoft_delete_email,
+                "Search Emails in Microsoft Account": self.microsoft_search_emails,
+                "Reply to Email in Microsoft Account": self.microsoft_reply_to_email,
+                "Process Attachments from Microsoft Email": self.microsoft_process_attachments,
+                "Get Calendar Items from Microsoft Account": self.microsoft_get_calendar_items,
+                "Get Available Timeslots from Microsoft Calendar": self.microsoft_get_available_timeslots,
+                "Add Calendar Item to Microsoft Account": self.microsoft_add_calendar_item,
+                "Modify Calendar Item in Microsoft Account": self.microsoft_modify_calendar_item,
+                "Remove Calendar Item from Microsoft Account": self.microsoft_remove_calendar_item,
             }
 
             if self.api_key:
@@ -191,7 +191,7 @@ class microsoft(Extensions):
                 "with the correct scopes (e.g., Calendars.ReadWrite), and the user is properly signed in."
             )
 
-    async def send_email(
+    async def microsoft_send_email(
         self, recipient, subject, body, attachments=None, importance="normal"
     ):
         """
@@ -253,7 +253,7 @@ class microsoft(Extensions):
             logging.error(f"Error sending email: {str(e)}")
             return f"Failed to send email: {str(e)}"
 
-    async def check_time_availability(self, start_time, end_time):
+    async def microsoft_check_time_availability(self, start_time, end_time):
         """
         Checks if a specific time slot is available.
 
@@ -268,7 +268,7 @@ class microsoft(Extensions):
             self.verify_user()
 
             # Get events for the day
-            existing_events = await self.get_calendar_items(
+            existing_events = await self.microsoft_get_calendar_items(
                 start_date=start_time, end_date=end_time, max_items=50
             )
 
@@ -287,7 +287,7 @@ class microsoft(Extensions):
             logging.error(f"Error checking time availability: {str(e)}")
             raise
 
-    async def add_calendar_item(
+    async def microsoft_add_calendar_item(
         self,
         subject,
         start_time,
@@ -315,7 +315,7 @@ class microsoft(Extensions):
             str: Success or failure message
         """
         try:
-            is_available, conflict = await self.check_time_availability(
+            is_available, conflict = await self.microsoft_check_time_availability(
                 start_time, end_time
             )
 
@@ -380,7 +380,9 @@ class microsoft(Extensions):
                 "message": f"Failed to create calendar event: {str(e)}",
             }
 
-    async def get_emails(self, folder_name="Inbox", max_emails=10, page_size=10):
+    async def microsoft_get_emails(
+        self, folder_name="Inbox", max_emails=10, page_size=10
+    ):
         """
         Retrieves emails from a specified folder in the user's Microsoft 365 mailbox.
 
@@ -472,7 +474,7 @@ class microsoft(Extensions):
             logging.error(f"Error retrieving emails: {str(e)}")
             return []
 
-    async def modify_calendar_item(
+    async def microsoft_modify_calendar_item(
         self,
         event_id,
         subject=None,
@@ -540,7 +542,7 @@ class microsoft(Extensions):
 
             # If changing time, check availability
             if check_availability and start_time and end_time:
-                is_available, conflict = await self.check_time_availability(
+                is_available, conflict = await self.microsoft_check_time_availability(
                     start_time, end_time
                 )
 
@@ -620,7 +622,7 @@ class microsoft(Extensions):
                 "message": f"Failed to modify calendar event: {str(e)}",
             }
 
-    async def remove_calendar_item(self, event_id):
+    async def microsoft_remove_calendar_item(self, event_id):
         """
         Deletes a calendar event.
 
@@ -693,7 +695,9 @@ class microsoft(Extensions):
             logging.error(f"Error deleting calendar event: {str(e)}")
             return f"Failed to delete calendar event: {str(e)}"
 
-    async def get_calendar_items(self, start_date=None, end_date=None, max_items=10):
+    async def microsoft_get_calendar_items(
+        self, start_date=None, end_date=None, max_items=10
+    ):
         """
         Retrieves calendar events within a date range.
 
@@ -808,7 +812,7 @@ class microsoft(Extensions):
             logging.error(f"Error retrieving calendar items: {str(e)}")
             return []
 
-    async def get_available_timeslots(
+    async def microsoft_get_available_timeslots(
         self,
         start_date,
         num_days=7,
@@ -849,7 +853,7 @@ class microsoft(Extensions):
             end_date = start_date + timedelta(days=num_days)
 
             # Get all existing calendar events for the date range with increased limit
-            existing_events = await self.get_calendar_items(
+            existing_events = await self.microsoft_get_calendar_items(
                 start_date=start_date,
                 end_date=end_date,
                 max_items=100,  # Increased to handle busy calendars
@@ -966,7 +970,7 @@ class microsoft(Extensions):
             logging.error(f"Error finding available timeslots: {str(e)}")
             return []
 
-    async def create_draft_email(
+    async def microsoft_create_draft_email(
         self, recipient, subject, body, attachments=None, importance="normal"
     ):
         """
@@ -1039,7 +1043,7 @@ class microsoft(Extensions):
             logging.error(f"Error creating draft email: {str(e)}")
             return f"Failed to create draft email: {str(e)}"
 
-    async def delete_email(self, message_id):
+    async def microsoft_delete_email(self, message_id):
         """
         Deletes a specific email.
 
@@ -1091,7 +1095,7 @@ class microsoft(Extensions):
             logging.error(f"Error deleting email: {str(e)}")
             return f"Failed to delete email: {str(e)}"
 
-    async def search_emails(
+    async def microsoft_search_emails(
         self, query, folder_name="Inbox", max_emails=10, date_range=None
     ):
         """
@@ -1205,7 +1209,7 @@ class microsoft(Extensions):
             logging.error(f"Error searching emails: {str(e)}")
             return []
 
-    async def reply_to_email(self, message_id, body, attachments=None):
+    async def microsoft_reply_to_email(self, message_id, body, attachments=None):
         """
         Replies to a specific email.
 
@@ -1343,7 +1347,7 @@ class microsoft(Extensions):
             logging.error(f"Error sending reply: {str(e)}")
             return f"Failed to send reply: {str(e)}"
 
-    async def process_attachments(self, message_id):
+    async def microsoft_process_attachments(self, message_id):
         """
         Downloads attachments from a specific email.
 
