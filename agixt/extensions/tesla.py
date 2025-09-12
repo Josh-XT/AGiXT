@@ -86,13 +86,13 @@ class TeslaSSO:
             )
 
         token_data = response.json()
-        
+
         # Update our tokens for immediate use
         if "access_token" in token_data:
             self.access_token = token_data["access_token"]
         else:
             raise Exception("No access_token in Tesla refresh response")
-            
+
         if "refresh_token" in token_data:
             self.refresh_token = token_data["refresh_token"]
 

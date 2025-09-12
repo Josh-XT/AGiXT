@@ -67,7 +67,6 @@ Required environment variables:
 - APP_URI: App URI
 """
 
-
 from DB import (
     User,
     FailedLogins,
@@ -807,18 +806,20 @@ class MagicalAuth:
 
     def refresh_oauth_token(self, provider: str, force_refresh: bool = False):
         """Refresh OAuth token if expired or forced
-        
+
         Args:
             provider: OAuth provider name
             force_refresh: Force refresh even if token appears valid
-            
+
         Returns:
             str: New access token
         """
         session = get_session()
         try:
             provider_record = (
-                session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider)
+                .first()
             )
             if not provider_record:
                 raise HTTPException(status_code=404, detail="Provider not found")
@@ -831,31 +832,37 @@ class MagicalAuth:
             )
 
             if not user_oauth:
-                raise HTTPException(status_code=404, detail="OAuth connection not found")
+                raise HTTPException(
+                    status_code=404, detail="OAuth connection not found"
+                )
 
             # Check if refresh token is available
             if not user_oauth.refresh_token:
                 logging.warning(f"No refresh token available for {provider} provider")
                 # Special case for providers that don't support refresh tokens
-                if provider.lower() in ['github']:
+                if provider.lower() in ["github"]:
                     raise HTTPException(
-                        status_code=401, 
-                        detail=f"{provider} tokens are long-lived and don't support refresh. If you're experiencing authentication issues, please re-authenticate."
+                        status_code=401,
+                        detail=f"{provider} tokens are long-lived and don't support refresh. If you're experiencing authentication issues, please re-authenticate.",
                     )
                 else:
                     raise HTTPException(
-                        status_code=401, 
-                        detail=f"No refresh token available for {provider}. Please re-authenticate."
+                        status_code=401,
+                        detail=f"No refresh token available for {provider}. Please re-authenticate.",
                     )
 
             # Determine if token needs refresh
             needs_refresh = force_refresh
             if not needs_refresh and user_oauth.token_expires_at:
                 # Refresh if token expires within the next 5 minutes
-                needs_refresh = user_oauth.token_expires_at <= datetime.now() + timedelta(minutes=5)
+                needs_refresh = (
+                    user_oauth.token_expires_at <= datetime.now() + timedelta(minutes=5)
+                )
             elif not needs_refresh and not user_oauth.token_expires_at:
                 # If we don't know when it expires, assume it might be expired
-                logging.warning(f"No expiration time stored for {provider} token, attempting refresh")
+                logging.warning(
+                    f"No expiration time stored for {provider} token, attempting refresh"
+                )
                 needs_refresh = True
 
             if needs_refresh:
@@ -863,7 +870,7 @@ class MagicalAuth:
                     logging.info(f"Refreshing OAuth token for {provider}")
                     sso_instance = get_sso_instance(provider)(
                         access_token=user_oauth.access_token,
-                        refresh_token=user_oauth.refresh_token
+                        refresh_token=user_oauth.refresh_token,
                     )
                     new_tokens = sso_instance.get_new_token()
 
@@ -877,11 +884,11 @@ class MagicalAuth:
                             user_oauth.access_token = new_tokens["access_token"]
                         else:
                             raise ValueError("No access_token in refresh response")
-                        
+
                         # Update refresh token if provided (some providers rotate refresh tokens)
                         if "refresh_token" in new_tokens:
                             user_oauth.refresh_token = new_tokens["refresh_token"]
-                        
+
                         # Update expiration time if provided
                         if "expires_in" in new_tokens:
                             user_oauth.token_expires_at = datetime.now() + timedelta(
@@ -892,7 +899,9 @@ class MagicalAuth:
                                 new_tokens["expires_at"]
                             )
                     else:
-                        raise ValueError(f"Unexpected token response format: {type(new_tokens)}")
+                        raise ValueError(
+                            f"Unexpected token response format: {type(new_tokens)}"
+                        )
 
                     session.commit()
                     logging.info(f"Successfully refreshed OAuth token for {provider}")
@@ -914,10 +923,10 @@ class MagicalAuth:
 
     def get_oauth_functions(self, provider: str):
         """Get OAuth functions with automatic token refresh handling
-        
+
         Args:
             provider: OAuth provider name
-            
+
         Returns:
             SSO instance with valid access token
         """
@@ -926,13 +935,15 @@ class MagicalAuth:
             user = session.query(User).filter(User.id == self.user_id).first()
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
-            
+
             provider_record = (
-                session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider)
+                .first()
             )
             if not provider_record:
                 raise HTTPException(status_code=404, detail="Provider not found")
-            
+
             user_oauth = (
                 session.query(UserOAuth)
                 .filter(UserOAuth.user_id == self.user_id)
@@ -941,7 +952,7 @@ class MagicalAuth:
             )
             if not user_oauth:
                 raise HTTPException(status_code=404, detail="User OAuth not found")
-            
+
             # Always check and refresh token if needed before creating the SSO instance
             try:
                 access_token = self.refresh_oauth_token(provider)
@@ -949,14 +960,13 @@ class MagicalAuth:
                 # If refresh fails, the user needs to re-authenticate
                 session.close()
                 raise e
-            
+
             # Create SSO instance with fresh token and refresh token for future use
             session.close()
             return get_sso_instance(provider.name)(
-                access_token=access_token,
-                refresh_token=user_oauth.refresh_token
+                access_token=access_token, refresh_token=user_oauth.refresh_token
             )
-            
+
         except HTTPException:
             session.close()
             raise
@@ -964,35 +974,39 @@ class MagicalAuth:
             session.close()
             logging.error(f"Error getting OAuth functions for {provider}: {str(e)}")
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error accessing {provider} OAuth functions: {str(e)}"
+                status_code=500,
+                detail=f"Error accessing {provider} OAuth functions: {str(e)}",
             )
 
     def oauth_api_call(self, provider: str, api_call_func, *args, **kwargs):
         """Execute an OAuth API call with automatic token refresh retry
-        
+
         Args:
             provider: OAuth provider name
             api_call_func: Function to call that makes the API request
             *args, **kwargs: Arguments to pass to the API call function
-            
+
         Returns:
             Result of the API call
         """
         max_retries = 2
-        
+
         for attempt in range(max_retries):
             try:
                 # Get OAuth functions (this will refresh token if needed)
                 oauth_functions = self.get_oauth_functions(provider)
-                
+
                 # Execute the API call
                 return api_call_func(oauth_functions, *args, **kwargs)
-                
+
             except HTTPException as e:
                 # If it's an auth error and we haven't tried refreshing yet, try once more
-                if (e.status_code == 401 or e.status_code == 403) and attempt < max_retries - 1:
-                    logging.info(f"OAuth API call failed with auth error, forcing token refresh for {provider}")
+                if (
+                    e.status_code == 401 or e.status_code == 403
+                ) and attempt < max_retries - 1:
+                    logging.info(
+                        f"OAuth API call failed with auth error, forcing token refresh for {provider}"
+                    )
                     try:
                         # Force refresh the token
                         self.refresh_oauth_token(provider, force_refresh=True)
@@ -1001,17 +1015,30 @@ class MagicalAuth:
                         logging.error(f"Token refresh failed: {str(refresh_error)}")
                         raise HTTPException(
                             status_code=401,
-                            detail=f"Authentication failed for {provider}. Please re-authenticate."
+                            detail=f"Authentication failed for {provider}. Please re-authenticate.",
                         )
                 else:
                     # Re-raise the original exception if not an auth error or max retries reached
                     raise e
-                    
+
             except Exception as e:
                 # Handle non-HTTP exceptions that might indicate token issues
                 error_str = str(e).lower()
-                if any(keyword in error_str for keyword in ['unauthorized', 'forbidden', 'invalid_token', 'token_expired']) and attempt < max_retries - 1:
-                    logging.info(f"OAuth API call failed with token error, forcing token refresh for {provider}: {str(e)}")
+                if (
+                    any(
+                        keyword in error_str
+                        for keyword in [
+                            "unauthorized",
+                            "forbidden",
+                            "invalid_token",
+                            "token_expired",
+                        ]
+                    )
+                    and attempt < max_retries - 1
+                ):
+                    logging.info(
+                        f"OAuth API call failed with token error, forcing token refresh for {provider}: {str(e)}"
+                    )
                     try:
                         # Force refresh the token
                         self.refresh_oauth_token(provider, force_refresh=True)
@@ -1020,90 +1047,92 @@ class MagicalAuth:
                         logging.error(f"Token refresh failed: {str(refresh_error)}")
                         raise HTTPException(
                             status_code=401,
-                            detail=f"Authentication failed for {provider}. Please re-authenticate."
+                            detail=f"Authentication failed for {provider}. Please re-authenticate.",
                         )
                 else:
                     # Re-raise the original exception
                     raise e
-        
+
         # Should not reach here, but just in case
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to complete OAuth API call for {provider} after {max_retries} attempts"
+            detail=f"Failed to complete OAuth API call for {provider} after {max_retries} attempts",
         )
 
     def refresh_all_oauth_tokens(self):
         """Proactively refresh all OAuth tokens that are expiring soon
-        
+
         Returns:
             dict: Results of refresh attempts for each provider
         """
         session = get_session()
         results = {}
-        
+
         try:
             user_oauth_connections = (
-                session.query(UserOAuth)
-                .filter(UserOAuth.user_id == self.user_id)
-                .all()
+                session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
             )
-            
+
             for user_oauth in user_oauth_connections:
                 provider_record = (
                     session.query(OAuthProvider)
                     .filter(OAuthProvider.id == user_oauth.provider_id)
                     .first()
                 )
-                
+
                 if not provider_record:
                     continue
-                    
+
                 provider_name = provider_record.name
-                
+
                 try:
                     # Check if token needs refresh (expires within 10 minutes)
                     needs_refresh = False
                     if user_oauth.token_expires_at:
-                        needs_refresh = user_oauth.token_expires_at <= datetime.now() + timedelta(minutes=10)
-                    
+                        needs_refresh = (
+                            user_oauth.token_expires_at
+                            <= datetime.now() + timedelta(minutes=10)
+                        )
+
                     if needs_refresh and user_oauth.refresh_token:
-                        logging.info(f"Proactively refreshing token for {provider_name}")
+                        logging.info(
+                            f"Proactively refreshing token for {provider_name}"
+                        )
                         new_token = self.refresh_oauth_token(provider_name)
                         results[provider_name] = {
                             "status": "refreshed",
-                            "message": "Token refreshed successfully"
+                            "message": "Token refreshed successfully",
                         }
                     elif not user_oauth.refresh_token:
                         results[provider_name] = {
                             "status": "warning",
-                            "message": "No refresh token available"
+                            "message": "No refresh token available",
                         }
                     else:
                         results[provider_name] = {
-                            "status": "valid", 
-                            "message": "Token still valid"
+                            "status": "valid",
+                            "message": "Token still valid",
                         }
-                        
+
                 except Exception as e:
-                    logging.error(f"Failed to refresh token for {provider_name}: {str(e)}")
-                    results[provider_name] = {
-                        "status": "error",
-                        "message": str(e)
-                    }
-            
+                    logging.error(
+                        f"Failed to refresh token for {provider_name}: {str(e)}"
+                    )
+                    results[provider_name] = {"status": "error", "message": str(e)}
+
             return results
-            
+
         finally:
             session.close()
 
     def get_oauth_token_status(self):
         """Get the status of all OAuth tokens for the user
-        
+
         Returns:
             dict: Status information for each OAuth connection
         """
         session = get_session()
-        
+
         try:
             user_oauth_connections = (
                 session.query(UserOAuth)
@@ -1111,30 +1140,36 @@ class MagicalAuth:
                 .filter(UserOAuth.user_id == self.user_id)
                 .all()
             )
-            
+
             status_info = {}
-            
+
             for user_oauth in user_oauth_connections:
                 provider_name = user_oauth.provider.name
-                
+
                 token_status = {
                     "provider": provider_name,
                     "has_access_token": bool(user_oauth.access_token),
                     "has_refresh_token": bool(user_oauth.refresh_token),
-                    "expires_at": user_oauth.token_expires_at.isoformat() if user_oauth.token_expires_at else None,
+                    "expires_at": (
+                        user_oauth.token_expires_at.isoformat()
+                        if user_oauth.token_expires_at
+                        else None
+                    ),
                     "is_expired": False,
-                    "expires_soon": False
+                    "expires_soon": False,
                 }
-                
+
                 if user_oauth.token_expires_at:
                     now = datetime.now()
                     token_status["is_expired"] = user_oauth.token_expires_at <= now
-                    token_status["expires_soon"] = user_oauth.token_expires_at <= now + timedelta(minutes=10)
-                
+                    token_status["expires_soon"] = (
+                        user_oauth.token_expires_at <= now + timedelta(minutes=10)
+                    )
+
                 status_info[provider_name] = token_status
-            
+
             return status_info
-            
+
         finally:
             session.close()
 
@@ -3568,10 +3603,10 @@ class MagicalAuth:
 
 def refresh_expiring_oauth_tokens():
     """Background task to refresh OAuth tokens that are expiring soon
-    
+
     This function should be called periodically (e.g., every hour) to proactively
     refresh tokens that are expiring within the next 30 minutes.
-    
+
     Returns:
         dict: Summary of refresh operations
     """
@@ -3580,22 +3615,22 @@ def refresh_expiring_oauth_tokens():
         "total_tokens_checked": 0,
         "tokens_refreshed": 0,
         "tokens_failed": 0,
-        "errors": []
+        "errors": [],
     }
-    
+
     try:
         # Find all tokens that expire within the next 30 minutes
         expiry_threshold = datetime.now() + timedelta(minutes=30)
-        
+
         expiring_tokens = (
             session.query(UserOAuth)
             .filter(UserOAuth.token_expires_at <= expiry_threshold)
             .filter(UserOAuth.refresh_token.isnot(None))
             .all()
         )
-        
+
         summary["total_tokens_checked"] = len(expiring_tokens)
-        
+
         for user_oauth in expiring_tokens:
             try:
                 # Get provider info
@@ -3604,15 +3639,15 @@ def refresh_expiring_oauth_tokens():
                     .filter(OAuthProvider.id == user_oauth.provider_id)
                     .first()
                 )
-                
+
                 if not provider:
                     continue
-                
+
                 # Create MagicalAuth instance for this user
                 user = session.query(User).filter(User.id == user_oauth.user_id).first()
                 if not user:
                     continue
-                
+
                 # Create a token for this user to use MagicalAuth
                 temp_token = jwt.encode(
                     {
@@ -3623,64 +3658,66 @@ def refresh_expiring_oauth_tokens():
                     getenv("AGIXT_API_KEY"),
                     algorithm="HS256",
                 )
-                
+
                 auth = MagicalAuth(token=temp_token)
                 auth.refresh_oauth_token(provider.name, force_refresh=True)
-                
+
                 summary["tokens_refreshed"] += 1
-                logging.info(f"Successfully refreshed token for user {user.email}, provider {provider.name}")
-                
+                logging.info(
+                    f"Successfully refreshed token for user {user.email}, provider {provider.name}"
+                )
+
             except Exception as e:
                 summary["tokens_failed"] += 1
                 error_msg = f"Failed to refresh token for user {user_oauth.user_id}, provider {provider.name if provider else 'unknown'}: {str(e)}"
                 summary["errors"].append(error_msg)
                 logging.error(error_msg)
-        
+
         return summary
-        
+
     except Exception as e:
         logging.error(f"Error in refresh_expiring_oauth_tokens: {str(e)}")
         summary["errors"].append(f"General error: {str(e)}")
         return summary
-    
+
     finally:
         session.close()
 
 
 def cleanup_expired_oauth_tokens():
     """Remove OAuth tokens that have been expired for more than 30 days
-    
+
     This helps keep the database clean by removing tokens that are definitely unusable.
-    
+
     Returns:
         int: Number of expired tokens removed
     """
     session = get_session()
-    
+
     try:
         # Remove tokens expired for more than 30 days
         expiry_threshold = datetime.now() - timedelta(days=30)
-        
+
         expired_tokens = (
             session.query(UserOAuth)
             .filter(UserOAuth.token_expires_at <= expiry_threshold)
             .all()
         )
-        
+
         count = len(expired_tokens)
-        
+
         for token in expired_tokens:
             session.delete(token)
-        
+
         session.commit()
         logging.info(f"Cleaned up {count} expired OAuth tokens")
         return count
-        
+
     except Exception as e:
         session.rollback()
         logging.error(f"Error cleaning up expired OAuth tokens: {str(e)}")
         return 0
-    
+
     finally:
         session.close()
 
@@ -3743,26 +3780,27 @@ def cleanup_expired_tokens():
 
 # Example usage and integration points
 
+
 async def example_oauth_usage():
     """Example of how to use the improved OAuth functionality"""
-    
+
     # Example 1: Using oauth_api_call for robust API calls
     def get_google_calendar_events(google_api):
         # This function would make actual Google Calendar API calls
         return google_api.get_calendar_events()
-    
+
     try:
         auth = MagicalAuth(token="your_user_token")
         events = auth.oauth_api_call("google", get_google_calendar_events)
         print(f"Retrieved {len(events)} calendar events")
     except HTTPException as e:
         print(f"Failed to get calendar events: {e.detail}")
-    
+
     # Example 2: Check token status before important operations
     try:
-        auth = MagicalAuth(token="your_user_token") 
+        auth = MagicalAuth(token="your_user_token")
         token_status = auth.get_oauth_token_status()
-        
+
         for provider, status in token_status.items():
             if status["is_expired"]:
                 print(f"Warning: {provider} token is expired")
@@ -3778,52 +3816,47 @@ def scheduled_token_maintenance():
         # Refresh expiring tokens
         refresh_results = refresh_expiring_oauth_tokens()
         logging.info(f"Token refresh summary: {refresh_results}")
-        
+
         # Clean up old expired tokens (run less frequently, e.g., daily)
         if datetime.now().hour == 2:  # Run at 2 AM
             cleanup_count = cleanup_expired_oauth_tokens()
             logging.info(f"Cleaned up {cleanup_count} old expired tokens")
-            
+
             # Also cleanup expired JWT tokens
             jwt_cleanup_count = cleanup_expired_tokens()
             logging.info(f"Cleaned up {jwt_cleanup_count} expired JWT tokens")
-            
+
     except Exception as e:
         logging.error(f"Error in scheduled token maintenance: {str(e)}")
 
 
 # Integration with FastAPI endpoints
 
+
 def create_oauth_status_endpoint():
     """Example FastAPI endpoint to check OAuth token status"""
     from fastapi import Depends
-    
+
     def get_oauth_status(auth: MagicalAuth = Depends(verify_api_key)):
         """Get OAuth connection status for the authenticated user"""
         try:
-            return {
-                "status": "success",
-                "data": auth.get_oauth_token_status()
-            }
+            return {"status": "success", "data": auth.get_oauth_token_status()}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-    
+
     return get_oauth_status
 
 
 def create_oauth_refresh_endpoint():
     """Example FastAPI endpoint to manually refresh OAuth tokens"""
     from fastapi import Depends
-    
+
     def refresh_oauth_tokens(auth: MagicalAuth = Depends(verify_api_key)):
         """Manually refresh all OAuth tokens for the authenticated user"""
         try:
             results = auth.refresh_all_oauth_tokens()
-            return {
-                "status": "success", 
-                "data": results
-            }
+            return {"status": "success", "data": results}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-    
+
     return refresh_oauth_tokens
