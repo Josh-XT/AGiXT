@@ -76,17 +76,43 @@ class GitHubSSO:
 
     def get_new_token(self):
         # GitHub tokens do not support refresh tokens directly, we need to re-authorize.
-        response = requests.post(
-            "https://github.com/login/oauth/access_token",
-            headers={"Accept": "application/json"},
-            data={
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "refresh_token": self.refresh_token,
-                "grant_type": "refresh_token",
-            },
-        )
-        return response.json()["access_token"]
+        # GitHub tokens are long-lived and don't typically expire, but if they do,
+        # the user needs to re-authenticate.
+        if not self.refresh_token:
+            raise HTTPException(
+                status_code=401, 
+                detail="GitHub tokens do not support refresh. Please re-authenticate."
+            )
+        
+        # This will likely fail since GitHub doesn't support refresh tokens
+        # but we'll try anyway in case their API changes
+        try:
+            response = requests.post(
+                "https://github.com/login/oauth/access_token",
+                headers={"Accept": "application/json"},
+                data={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "refresh_token": self.refresh_token,
+                    "grant_type": "refresh_token",
+                },
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"GitHub token refresh failed: {response.text}")
+            
+            token_data = response.json()
+            
+            # Update our access token for immediate use
+            if "access_token" in token_data:
+                self.access_token = token_data["access_token"]
+            
+            return token_data
+        except Exception as e:
+            raise HTTPException(
+                status_code=401,
+                detail="GitHub tokens do not support refresh. Please re-authenticate."
+            )
 
     def get_user_info(self):
         uri = "https://api.github.com/user"

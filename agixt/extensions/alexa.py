@@ -71,15 +71,21 @@ class AlexaSSO:
         if response.status_code != 200:
             raise HTTPException(
                 status_code=response.status_code,
-                detail=f"Failed to refresh Alexa token: {response.text}",
+                detail=f"Alexa token refresh failed: {response.text}",
             )
 
-        data = response.json()
-        self.access_token = data["access_token"]
-        if "refresh_token" in data:
-            self.refresh_token = data["refresh_token"]
+        token_data = response.json()
 
-        return self.access_token
+        # Update our tokens for immediate use
+        if "access_token" in token_data:
+            self.access_token = token_data["access_token"]
+        else:
+            raise Exception("No access_token in Alexa refresh response")
+
+        if "refresh_token" in token_data:
+            self.refresh_token = token_data["refresh_token"]
+
+        return token_data
 
     def get_user_info(self):
         """Get user information from Alexa API"""

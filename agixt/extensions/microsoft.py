@@ -63,7 +63,17 @@ class MicrosoftSSO:
                 "scope": " ".join(SCOPES),
             },
         )
-        return response.json()["access_token"]
+
+        if response.status_code != 200:
+            raise Exception(f"Microsoft token refresh failed: {response.text}")
+
+        token_data = response.json()
+
+        # Update our access token for immediate use
+        if "access_token" in token_data:
+            self.access_token = token_data["access_token"]
+
+        return token_data
 
     def get_user_info(self):
         uri = "https://graph.microsoft.com/v1.0/me"

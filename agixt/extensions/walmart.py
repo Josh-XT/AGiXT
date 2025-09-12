@@ -71,10 +71,22 @@ class WalmartSSO:
                 logging.error(f"Error refreshing token: {response.text}")
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Failed to refresh Walmart token: {response.text}",
+                    detail=f"Walmart token refresh failed: {response.text}",
                 )
 
-            return response.json()["access_token"]
+            token_data = response.json()
+
+            # Update our access token for immediate use
+            if "access_token" in token_data:
+                self.access_token = token_data["access_token"]
+            else:
+                raise Exception("No access_token in Walmart refresh response")
+
+            return token_data
+
+        except HTTPException:
+            # Re-raise HTTPException as-is
+            raise
         except Exception as e:
             logging.error(f"Error refreshing Walmart token: {str(e)}")
             raise HTTPException(

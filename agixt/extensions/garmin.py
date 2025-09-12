@@ -66,7 +66,13 @@ class GarminSSO:
         logging.warning(
             "Garmin OAuth 1.0a tokens typically don't support refresh. Re-authorization may be required."
         )
-        return self.access_token
+
+        # Return a dict format to match the expected interface
+        # but indicate that refresh isn't supported
+        raise HTTPException(
+            status_code=401,
+            detail="Garmin OAuth 1.0a tokens don't support refresh. Please re-authenticate.",
+        )
 
     def get_user_info(self):
         """Get user information from Garmin Connect API"""
