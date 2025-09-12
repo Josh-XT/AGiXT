@@ -747,7 +747,18 @@ class microsoft(Extensions):
                 try:
                     end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
                 except ValueError:
+                    # For date-only strings, set to end of day to capture all events
                     end_date = datetime.strptime(end_date, "%Y-%m-%d")
+                    end_date = end_date.replace(hour=23, minute=59, second=59)
+
+            # If start and end dates are the same day, adjust end_date to end of day
+            if (
+                start_date.date() == end_date.date()
+                and end_date.hour == 0
+                and end_date.minute == 0
+                and end_date.second == 0
+            ):
+                end_date = end_date.replace(hour=23, minute=59, second=59)
 
             # Format dates properly for the API - ensure proper timezone handling
             if start_date.tzinfo is None:
