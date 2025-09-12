@@ -13,6 +13,7 @@ from DB import (
     Command,
     User,
     Agent,
+    AgentCommand,
 )
 from Providers import get_providers, get_provider_options
 from Agent import add_agent
@@ -119,21 +120,92 @@ def import_extensions():
                 command_name = command_data["friendly_name"]
                 command_description = command_data.get("description", "")
 
-                # Find or create command
-                command = (
+                # Check if this command exists in a different extension (moved command)
+                existing_in_other_extension = (
                     session.query(Command)
-                    .filter_by(extension_id=extension.id, name=command_name)
+                    .join(Extension)
+                    .filter(Command.name == command_name, Extension.id != extension.id)
                     .first()
                 )
 
-                if not command:
-                    command = Command(
-                        extension_id=extension.id,
-                        name=command_name,
+                if existing_in_other_extension:
+                    logging.info(
+                        f"Command '{command_name}' found in extension '{existing_in_other_extension.extension.name}', moving to '{extension_name}'"
                     )
-                    session.add(command)
-                    session.flush()
-                    logging.info(f"Imported command: {command_name}")
+
+                    # Find or create command in current extension
+                    command = (
+                        session.query(Command)
+                        .filter_by(extension_id=extension.id, name=command_name)
+                        .first()
+                    )
+
+                    if not command:
+                        command = Command(
+                            extension_id=extension.id,
+                            name=command_name,
+                        )
+                        session.add(command)
+                        session.flush()
+                        logging.info(f"Created new command entry: {command_name}")
+
+                    # Update all agent command references from old to new
+                    agent_commands = (
+                        session.query(AgentCommand)
+                        .filter(
+                            AgentCommand.command_id == existing_in_other_extension.id
+                        )
+                        .all()
+                    )
+
+                    for agent_command in agent_commands:
+                        # Check if agent already has a reference to the new command
+                        existing_ref = (
+                            session.query(AgentCommand)
+                            .filter(
+                                AgentCommand.agent_id == agent_command.agent_id,
+                                AgentCommand.command_id == command.id,
+                            )
+                            .first()
+                        )
+
+                        if existing_ref:
+                            # Merge - keep enabled if either was enabled
+                            if agent_command.state:
+                                existing_ref.state = True
+                            session.delete(agent_command)
+                            logging.info(
+                                f"  Merged agent command reference for agent {agent_command.agent_id}"
+                            )
+                        else:
+                            # Update to point to new command
+                            agent_command.command_id = command.id
+                            logging.info(
+                                f"  Updated agent command reference for agent {agent_command.agent_id}"
+                            )
+
+                    # Delete the old command
+                    session.delete(existing_in_other_extension)
+                    logging.info(
+                        f"  Removed old command entry from extension '{existing_in_other_extension.extension.name}'"
+                    )
+
+                else:
+                    # Normal case - find or create command in this extension
+                    command = (
+                        session.query(Command)
+                        .filter_by(extension_id=extension.id, name=command_name)
+                        .first()
+                    )
+
+                    if not command:
+                        command = Command(
+                            extension_id=extension.id,
+                            name=command_name,
+                        )
+                        session.add(command)
+                        session.flush()
+                        logging.info(f"Imported command: {command_name}")
 
                 # Process command arguments if they exist
                 if "command_args" in command_data:
@@ -247,6 +319,8 @@ def import_extensions():
 
     try:
         session.commit()
+        logging.info("Extension import completed successfully")
+
     except Exception as e:
         session.rollback()
         logging.error(f"Error importing extensions: {str(e)}")
