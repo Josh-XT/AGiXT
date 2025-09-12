@@ -724,17 +724,31 @@ class microsoft(Extensions):
             if not end_date:
                 end_date = start_date + timedelta(days=7)
 
-            # Format dates properly for the API
-            start_str = (
-                start_date.isoformat() + "Z"
-                if "Z" not in start_date.isoformat()
-                else start_date.isoformat()
-            )
-            end_str = (
-                end_date.isoformat() + "Z"
-                if "Z" not in end_date.isoformat()
-                else end_date.isoformat()
-            )
+            # Handle string inputs by converting to datetime
+            if isinstance(start_date, str):
+                try:
+                    start_date = datetime.fromisoformat(
+                        start_date.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    start_date = datetime.strptime(start_date, "%Y-%m-%d")
+
+            if isinstance(end_date, str):
+                try:
+                    end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                except ValueError:
+                    end_date = datetime.strptime(end_date, "%Y-%m-%d")
+
+            # Format dates properly for the API - ensure proper timezone handling
+            if start_date.tzinfo is None:
+                start_str = start_date.isoformat() + "Z"
+            else:
+                start_str = start_date.isoformat()
+
+            if end_date.tzinfo is None:
+                end_str = end_date.isoformat() + "Z"
+            else:
+                end_str = end_date.isoformat()
 
             logging.info(f"Fetching calendar items from {start_str} to {end_str}")
 
@@ -745,10 +759,14 @@ class microsoft(Extensions):
                 )
                 if cal_check.status_code != 200:
                     logging.error(f"Calendar access error: {cal_check.text}")
+                    return []
+                else:
+                    logging.info("Calendar access verified successfully")
             except Exception as cal_err:
                 logging.error(f"Error checking calendar access: {str(cal_err)}")
+                return []
 
-            # Build URL with parameters
+            # Build URL with parameters - try calendarView first (recommended for date ranges)
             url = (
                 f"https://graph.microsoft.com/v1.0/me/calendarView?"
                 f"startDateTime={start_str}&"
@@ -756,33 +774,46 @@ class microsoft(Extensions):
                 f"$top={max_items}&$orderby=start/dateTime"
             )
 
+            logging.info(f"Making request to: {url}")
             response = requests.get(url, headers=headers)
+            logging.info(f"Response status: {response.status_code}")
 
             if response.status_code != 200:
                 error_response = response.text
                 logging.error(f"Calendar API error: {error_response}")
 
-                # Try an alternative endpoint
-                alt_url = (
-                    f"https://graph.microsoft.com/v1.0/me/events?"
-                    f"$filter=start/dateTime ge '{start_str}' and end/dateTime le '{end_str}'&"
-                    f"$top={max_items}&$orderby=start/dateTime"
-                )
+                # Try an alternative endpoint - regular events with filter
+                alt_url = f"https://graph.microsoft.com/v1.0/me/events?$top={max_items}&$orderby=start/dateTime"
 
+                logging.info(f"Trying alternative endpoint: {alt_url}")
                 alt_response = requests.get(alt_url, headers=headers)
+                logging.info(f"Alternative response status: {alt_response.status_code}")
+
                 if alt_response.status_code == 200:
                     response = alt_response
                 else:
-                    raise Exception(f"Failed to fetch calendar items: {error_response}")
+                    logging.error(
+                        f"Alternative endpoint also failed: {alt_response.text}"
+                    )
+                    return []
 
             data = response.json()
+            logging.info(
+                f"Response data keys: {list(data.keys()) if data else 'No data'}"
+            )
+
             if not data.get("value"):
                 logging.warning("No calendar events found in the specified date range")
+                logging.info(f"Full response: {data}")
                 return []
 
+            logging.info(f"Found {len(data['value'])} calendar events")
             events = []
-            for event in data["value"]:
+            for i, event in enumerate(data["value"]):
                 try:
+                    logging.info(
+                        f"Processing event {i+1}: {event.get('subject', 'No subject')}"
+                    )
                     # Extract and format the event details
                     event_dict = {
                         "id": event["id"],
@@ -803,13 +834,22 @@ class microsoft(Extensions):
                     }
                     events.append(event_dict)
                 except KeyError as ke:
-                    logging.error(f"Key error processing event: {ke}")
+                    logging.error(f"Key error processing event {i+1}: {ke}")
+                    logging.error(f"Event data: {event}")
                     continue  # Skip this event but continue with others
+                except Exception as event_err:
+                    logging.error(f"Error processing event {i+1}: {str(event_err)}")
+                    logging.error(f"Event data: {event}")
+                    continue
 
+            logging.info(f"Successfully processed {len(events)} calendar events")
             return events
 
         except Exception as e:
             logging.error(f"Error retrieving calendar items: {str(e)}")
+            import traceback
+
+            logging.error(f"Traceback: {traceback.format_exc()}")
             return []
 
     async def microsoft_get_available_timeslots(
