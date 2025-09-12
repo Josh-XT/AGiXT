@@ -3815,16 +3815,16 @@ def scheduled_token_maintenance():
     try:
         # Refresh expiring tokens
         refresh_results = refresh_expiring_oauth_tokens()
-        logging.info(f"Token refresh summary: {refresh_results}")
+        # logging.info(f"Token refresh summary: {refresh_results}")
 
         # Clean up old expired tokens (run less frequently, e.g., daily)
         if datetime.now().hour == 2:  # Run at 2 AM
             cleanup_count = cleanup_expired_oauth_tokens()
-            logging.info(f"Cleaned up {cleanup_count} old expired tokens")
+            # logging.info(f"Cleaned up {cleanup_count} old expired tokens")
 
             # Also cleanup expired JWT tokens
             jwt_cleanup_count = cleanup_expired_tokens()
-            logging.info(f"Cleaned up {jwt_cleanup_count} expired JWT tokens")
+            # logging.info(f"Cleaned up {jwt_cleanup_count} expired JWT tokens")
 
     except Exception as e:
         logging.error(f"Error in scheduled token maintenance: {str(e)}")
