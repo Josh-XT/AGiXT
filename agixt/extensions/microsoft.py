@@ -390,11 +390,11 @@ class microsoft(Extensions):
             )
 
             for event in existing_events:
-                event_start = datetime.fromisoformat(
-                    event["start_time"].replace("Z", "+00:00")
+                event_start = self._parse_datetime(
+                    event["start_time"]
                 )
-                event_end = datetime.fromisoformat(
-                    event["end_time"].replace("Z", "+00:00")
+                event_end = self._parse_datetime(
+                    event["end_time"]
                 )
 
                 if start_dt <= event_end and end_dt >= event_start:
@@ -904,19 +904,13 @@ class microsoft(Extensions):
 
             # Handle string inputs by converting to datetime
             if isinstance(start_date, str):
-                try:
-                    start_date = datetime.fromisoformat(
-                        start_date.replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    start_date = datetime.strptime(start_date, "%Y-%m-%d")
+                start_date = self._parse_datetime(start_date)
 
             if isinstance(end_date, str):
-                try:
-                    end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-                except ValueError:
-                    # For date-only strings, set to end of day to capture all events
-                    end_date = datetime.strptime(end_date, "%Y-%m-%d")
+                end_date = self._parse_datetime(end_date)
+                # If it was a date-only string, the parser may have set time to 00:00:00
+                # So if both hour/minute/second are 0, set to end of day
+                if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
                     end_date = end_date.replace(hour=23, minute=59, second=59)
 
             # If start and end dates are the same day, adjust end_date to end of day
@@ -1210,12 +1204,7 @@ class microsoft(Extensions):
 
             # Make sure start_date is a datetime object
             if isinstance(start_date, str):
-                try:
-                    start_date = datetime.fromisoformat(
-                        start_date.replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    start_date = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S")
+                start_date = self._parse_datetime(start_date)
 
             logging.info(f"Finding available time slots starting from {start_date}")
 
@@ -1267,20 +1256,8 @@ class microsoft(Extensions):
                 for event in existing_events:
                     try:
                         # Handle different datetime formats from API
-                        event_start_str = event["start_time"].rstrip("Z")
-                        event_end_str = event["end_time"].rstrip("Z")
-
-                        try:
-                            event_start = datetime.fromisoformat(event_start_str)
-                            event_end = datetime.fromisoformat(event_end_str)
-                        except ValueError:
-                            # Handle alternative formats
-                            event_start = datetime.strptime(
-                                event_start_str, "%Y-%m-%dT%H:%M:%S"
-                            )
-                            event_end = datetime.strptime(
-                                event_end_str, "%Y-%m-%dT%H:%M:%S"
-                            )
+                        event_start = self._parse_datetime(event["start_time"])
+                        event_end = self._parse_datetime(event["end_time"])
 
                         # Check if this event is on the current day
                         if event_start.date() == current_day:
