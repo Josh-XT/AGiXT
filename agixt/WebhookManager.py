@@ -323,6 +323,7 @@ class WebhookEventEmitter:
             if event_types_str.startswith("[") and event_types_str.endswith("]"):
                 event_types_list = json.loads(event_types_str)
                 if isinstance(event_types_list, list):
+                    result = event_type in event_types_list or "*" in event_types_list
                     return result
         except (json.JSONDecodeError, TypeError) as e:
             logger.info(f"Webhook {webhook.id}: Failed to parse as JSON: {e}")
@@ -333,6 +334,7 @@ class WebhookEventEmitter:
             event_types_list = [
                 et.strip().strip("\"'") for et in event_types_str.split(",")
             ]
+            result = event_type in event_types_list or "*" in event_types_list
             return result
 
         # Single event type (remove quotes if present)
