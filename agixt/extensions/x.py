@@ -57,8 +57,17 @@ class XSSO:
             },
         )
         if response.status_code != 200:
-            raise Exception(f"Token refresh failed: {response.text}")
-        return response.json()["access_token"]
+            raise Exception(f"X (Twitter) token refresh failed: {response.text}")
+
+        token_data = response.json()
+
+        # Update our access token for immediate use
+        if "access_token" in token_data:
+            self.access_token = token_data["access_token"]
+        else:
+            raise Exception("No access_token in X (Twitter) refresh response")
+
+        return token_data
 
     def get_user_info(self):
         uri = "https://api.twitter.com/2/users/me?user.fields=name,username,profile_image_url,confirmed_email"

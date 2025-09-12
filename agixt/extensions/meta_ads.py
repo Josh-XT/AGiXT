@@ -74,13 +74,18 @@ class MetaSSO:
             )
 
         data = response.json()
-        self.access_token = data["access_token"]
+
+        # Update our tokens for immediate use
+        if "access_token" in data:
+            self.access_token = data["access_token"]
+        else:
+            raise Exception("No access_token in Meta refresh response")
 
         # Meta doesn't typically return refresh tokens, so we keep the existing one
         if "refresh_token" in data:
             self.refresh_token = data["refresh_token"]
 
-        return self.access_token
+        return data
 
     def get_long_lived_token(self):
         """Exchange short-lived token for long-lived token"""
@@ -101,9 +106,14 @@ class MetaSSO:
             )
 
         data = response.json()
-        self.access_token = data["access_token"]
 
-        return self.access_token
+        # Update our access token for immediate use
+        if "access_token" in data:
+            self.access_token = data["access_token"]
+        else:
+            raise Exception("No access_token in Meta long-lived token response")
+
+        return data
 
     def get_user_info(self):
         """Get user information from the Facebook Graph API"""

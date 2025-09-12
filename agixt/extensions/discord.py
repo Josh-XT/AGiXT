@@ -65,15 +65,27 @@ class DiscordSSO:
             response = requests.post(TOKEN_URL, data=payload, headers=headers)
             response.raise_for_status()  # Raise exception for bad status codes
             data = response.json()
+
+            if "access_token" not in data:
+                raise Exception("No access_token in refresh response")
+
             self.access_token = data.get("access_token")
             # Discord refresh tokens might be single-use or long-lived, handle accordingly
-            self.refresh_token = data.get("refresh_token", self.refresh_token)
+            if "refresh_token" in data:
+                self.refresh_token = data.get("refresh_token")
+
             logging.info("Successfully refreshed Discord token.")
-            return self.access_token
+            return data  # Return the full token response
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error refreshing Discord token: {response.text}")
+            logging.error(f"Error refreshing Discord token: {e}")
             raise HTTPException(
                 status_code=401, detail=f"Failed to refresh Discord token: {str(e)}"
+            )
+        except Exception as e:
+            logging.error(f"Error processing Discord token response: {e}")
+            raise HTTPException(
+                status_code=401,
+                detail=f"Failed to process Discord token refresh: {str(e)}",
             )
 
     def get_user_info(self):

@@ -57,7 +57,19 @@ class AmazonSSO:
                 "scope": "openid email profile",
             },
         )
-        return response.json()["access_token"]
+
+        if response.status_code != 200:
+            raise Exception(f"Amazon Cognito token refresh failed: {response.text}")
+
+        token_data = response.json()
+
+        # Update our access token for immediate use
+        if "access_token" in token_data:
+            self.access_token = token_data["access_token"]
+        else:
+            raise Exception("No access_token in Amazon Cognito refresh response")
+
+        return token_data
 
     def get_user_info(self):
         uri = f"https://{self.user_pool_id}.auth.{self.region}.amazoncognito.com/oauth2/userInfo"

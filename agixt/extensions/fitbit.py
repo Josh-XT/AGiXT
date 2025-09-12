@@ -85,11 +85,17 @@ class FitbitSSO:
             )
 
         data = response.json()
-        self.access_token = data["access_token"]
+
+        # Update our tokens for immediate use
+        if "access_token" in data:
+            self.access_token = data["access_token"]
+        else:
+            raise Exception("No access_token in Fitbit refresh response")
+
         if "refresh_token" in data:
             self.refresh_token = data["refresh_token"]
 
-        return self.access_token
+        return data
 
     def get_user_info(self):
         """Get user information from Fitbit API"""
