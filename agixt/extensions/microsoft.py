@@ -1020,10 +1020,10 @@ class microsoft(Extensions):
                         "end_time": event.get("end", {}).get("dateTime", ""),
                         "location": event.get("location", {}).get("displayName", ""),
                         "is_online_meeting": event.get("isOnlineMeeting", False),
-                        "meeting_url": event.get("onlineMeeting", {}).get(
+                        "meeting_url": (event.get("onlineMeeting") or {}).get(
                             "joinUrl", ""
                         ),
-                        "organizer": event.get("organizer", {})
+                        "organizer": (event.get("organizer") or {})
                         .get("emailAddress", {})
                         .get("address", ""),
                         "is_all_day": event.get("isAllDay", False),
