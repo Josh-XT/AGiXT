@@ -826,7 +826,77 @@ class microsoft(Extensions):
             if not data.get("value"):
                 logging.warning("No calendar events found in the specified date range")
                 logging.info(f"Full response: {data}")
-                return []
+
+                # Let's do some diagnostics - check if user has ANY events at all
+                logging.info("Running diagnostics to check for any events...")
+
+                # Try to get any events from a much broader range (last 30 days to next 30 days)
+                diag_start = (datetime.now() - timedelta(days=30)).isoformat() + "Z"
+                diag_end = (datetime.now() + timedelta(days=30)).isoformat() + "Z"
+
+                diag_url = f"https://graph.microsoft.com/v1.0/me/events?$top=5"
+                diag_response = requests.get(diag_url, headers=headers)
+
+                if diag_response.status_code == 200:
+                    diag_data = diag_response.json()
+                    logging.info(
+                        f"Diagnostic check found {len(diag_data.get('value', []))} total events"
+                    )
+                    if diag_data.get("value"):
+                        logging.info("Sample events found:")
+                        for i, event in enumerate(diag_data["value"][:3]):
+                            logging.info(
+                                f"  Event {i+1}: {event.get('subject', 'No subject')} - {event.get('start', {}).get('dateTime', 'No start time')}"
+                            )
+                    else:
+                        logging.info(
+                            "No events found in diagnostic check either - user may have empty calendar"
+                        )
+                else:
+                    logging.error(f"Diagnostic check failed: {diag_response.text}")
+
+                # Also try checking all calendars (not just default)
+                logging.info("Checking all user calendars...")
+                calendars_url = "https://graph.microsoft.com/v1.0/me/calendars"
+                cal_response = requests.get(calendars_url, headers=headers)
+
+                if cal_response.status_code == 200:
+                    cal_data = cal_response.json()
+                    logging.info(f"Found {len(cal_data.get('value', []))} calendars")
+                    for i, calendar in enumerate(cal_data.get("value", [])):
+                        cal_name = calendar.get("name", "Unknown")
+                        cal_id = calendar.get("id", "Unknown")
+                        logging.info(f"  Calendar {i+1}: {cal_name} (ID: {cal_id})")
+
+                        # Try to get events from each calendar
+                        cal_events_url = f"https://graph.microsoft.com/v1.0/me/calendars/{cal_id}/calendarView?startDateTime={start_str}&endDateTime={end_str}&$top=5"
+                        cal_events_response = requests.get(
+                            cal_events_url, headers=headers
+                        )
+
+                        if cal_events_response.status_code == 200:
+                            cal_events_data = cal_events_response.json()
+                            event_count = len(cal_events_data.get("value", []))
+                            logging.info(
+                                f"    Found {event_count} events in calendar '{cal_name}' for the specified date range"
+                            )
+                            if event_count > 0:
+                                # If we found events in a specific calendar, let's return them
+                                logging.info(
+                                    f"Found events in calendar '{cal_name}', processing them..."
+                                )
+                                data = cal_events_data
+                                break
+                        else:
+                            logging.error(
+                                f"    Failed to get events from calendar '{cal_name}': {cal_events_response.text}"
+                            )
+                else:
+                    logging.error(f"Failed to get calendars list: {cal_response.text}")
+
+                # If we still don't have data after checking all calendars, return empty
+                if not data.get("value"):
+                    return []
 
             logging.info(f"Found {len(data['value'])} calendar events")
             events = []
