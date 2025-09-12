@@ -87,6 +87,97 @@ def import_extensions():
 
     session = get_session()
 
+    # Clean up orphaned agent command references before importing
+    logging.info("Checking for orphaned agent command references...")
+    try:
+        # Build a map of currently available commands
+        current_command_map = {}  # command_name -> extension_name
+        for extension_data in extensions_data:
+            extension_name = extension_data["extension_name"]
+            for command in extension_data.get("commands", []):
+                command_name = command["friendly_name"]
+                current_command_map[command_name.lower()] = extension_name
+
+        # Find agent commands that reference non-existent or moved commands
+        orphaned_count = 0
+        updated_count = 0
+
+        all_agent_commands = (
+            session.query(AgentCommand).join(Command).join(Extension).all()
+        )
+
+        for agent_command in all_agent_commands:
+            command_name = agent_command.command.name.lower()
+            current_extension = agent_command.command.extension.name
+
+            if command_name in current_command_map:
+                correct_extension = current_command_map[command_name]
+
+                # Check if command is in wrong extension (moved or extension renamed)
+                if correct_extension.lower() != current_extension.lower():
+                    # Find the correct extension and command
+                    new_ext = (
+                        session.query(Extension)
+                        .filter(Extension.name.ilike(correct_extension))
+                        .first()
+                    )
+
+                    if new_ext:
+                        # Find or create the command in the correct extension
+                        new_command = (
+                            session.query(Command)
+                            .filter_by(
+                                extension_id=new_ext.id, name=agent_command.command.name
+                            )
+                            .first()
+                        )
+
+                        if not new_command:
+                            new_command = Command(
+                                extension_id=new_ext.id, name=agent_command.command.name
+                            )
+                            session.add(new_command)
+                            session.flush()
+
+                        # Check if agent already has reference to correct command
+                        existing_ref = (
+                            session.query(AgentCommand)
+                            .filter(
+                                AgentCommand.agent_id == agent_command.agent_id,
+                                AgentCommand.command_id == new_command.id,
+                            )
+                            .first()
+                        )
+
+                        if existing_ref:
+                            # Merge - keep enabled if either was enabled
+                            if agent_command.state:
+                                existing_ref.state = True
+                            session.delete(agent_command)
+                        else:
+                            # Update reference to correct command
+                            agent_command.command_id = new_command.id
+
+                        updated_count += 1
+                        logging.info(
+                            f"  Fixed reference for '{agent_command.command.name}' from '{current_extension}' to '{correct_extension}'"
+                        )
+            else:
+                # Command no longer exists - remove the reference
+                session.delete(agent_command)
+                orphaned_count += 1
+                logging.info(
+                    f"  Removed orphaned reference to '{agent_command.command.name}' in '{current_extension}'"
+                )
+
+        if updated_count > 0 or orphaned_count > 0:
+            logging.info(
+                f"Updated {updated_count} agent command references and removed {orphaned_count} orphaned references"
+            )
+
+    except Exception as e:
+        logging.error(f"Error cleaning up orphaned agent commands: {e}")
+
     # Get existing extensions
     existing_extensions = session.query(Extension).all()
 
@@ -95,8 +186,44 @@ def import_extensions():
         extension_name = extension_data["extension_name"]
         description = extension_data.get("description", "")
 
-        # Find or create extension
+        # Find or create extension - also check for potential renames
         extension = session.query(Extension).filter_by(name=extension_name).first()
+
+        # If extension doesn't exist by exact name, check if it might have been renamed
+        # by looking for extensions with similar command sets
+        if not extension:
+            current_commands = set(
+                cmd["friendly_name"].lower()
+                for cmd in extension_data.get("commands", [])
+            )
+
+            # Look for existing extensions that have significant command overlap
+            for existing_ext in existing_extensions:
+                existing_commands = set(
+                    cmd.name.lower() for cmd in existing_ext.commands
+                )
+
+                # Check for significant overlap (at least 50% of commands match)
+                if (
+                    current_commands
+                    and len(current_commands & existing_commands)
+                    / len(current_commands)
+                    >= 0.5
+                ):
+                    logging.info(
+                        f"Extension '{existing_ext.name}' appears to have been renamed to '{extension_name}' (command overlap detected)"
+                    )
+
+                    # Update the extension name
+                    old_name = existing_ext.name
+                    existing_ext.name = extension_name
+                    existing_ext.description = description
+                    extension = existing_ext
+                    logging.info(
+                        f"Renamed extension from '{old_name}' to '{extension_name}'"
+                    )
+                    break
+
         if extension:
             extension.description = description
             logging.info(f"Updated extension: {extension_name}")
