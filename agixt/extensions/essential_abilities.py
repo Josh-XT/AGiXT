@@ -13,8 +13,8 @@ from Globals import getenv
 class essential_abilities(Extensions):
     """
     The Essential Abilities extension provides core functionality for agents,
-    including file system operations, data analysis, Python code execution,
-    and other fundamental capabilities.
+    including file system operations within the agent's workspace, data analysis, Python code execution,
+    and other fundamental capabilities. The agent's workspace is a safe sandboxed environment where the agent has access to uploaded files, files it downloads, and files it creates. This allows the agent to perform tasks such as reading and writing files, searching file contents, executing Python scripts, and running shell commands in its own environment.
     """
 
     def __init__(self, **kwargs):
@@ -147,6 +147,8 @@ class essential_abilities(Extensions):
 
         Returns:
         str: Success message
+
+        Note: This command will only work in the agent's designated workspace.
         """
         try:
             filepath = self.safe_join(filename)
@@ -165,6 +167,8 @@ class essential_abilities(Extensions):
 
         Returns:
         str: List of matching files
+
+        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
         import fnmatch
 
@@ -194,6 +198,8 @@ class essential_abilities(Extensions):
 
         Returns:
         str: Search results showing matching lines
+
+        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
         import re
 
@@ -256,6 +262,8 @@ class essential_abilities(Extensions):
 
         Returns:
         str: Success message
+
+        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
         try:
             filepath = self.safe_join(filename)
@@ -284,6 +292,8 @@ class essential_abilities(Extensions):
 
         Returns:
         str: Success message
+
+        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
         try:
             filepath = self.safe_join(filename)
@@ -304,6 +314,8 @@ class essential_abilities(Extensions):
 
         Returns:
         str: The output of the Python file
+
+        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
         logging.info(f"Executing file '{file}' in workspace '{self.WORKING_DIRECTORY}'")
 
@@ -337,6 +349,8 @@ class essential_abilities(Extensions):
 
         Returns:
         str: The output of the shell command
+
+        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
         # Create Python code that will execute the shell command in a sandboxed environment
         sandboxed_code = f"""
