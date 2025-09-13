@@ -2584,6 +2584,92 @@ Current Page Content Snippet (for context):
         # Consider it a repeat failure if it failed multiple times recently (e.g., >= 2)
         return recent_failures >= 2
 
+    def is_making_progress(self, attempt_history, window=10):
+        """
+        Determines if the automation is making meaningful progress.
+        Looks for successful operations, URL changes, or other progress indicators.
+        """
+        if len(attempt_history) < window:
+            return True  # Too early to judge, assume progress
+
+        recent_attempts = attempt_history[-window:]
+
+        # Count successful operations (those without error indicators)
+        successful_ops = 0
+        url_changes = 0
+
+        for attempt in recent_attempts:
+            # Count as successful if it doesn't contain error indicators
+            if not any(
+                error_word in attempt.lower()
+                for error_word in ["error:", "failed", "exception:", "timeout"]
+            ):
+                successful_ops += 1
+
+            # Check for URL changes (indicates navigation progress)
+            if "ended on:" in attempt.lower() and "started on:" in attempt.lower():
+                url_changes += 1
+
+        # Consider it progress if we have some successful operations or URL changes
+        progress_ratio = successful_ops / len(recent_attempts)
+        return (
+            progress_ratio > 0.3 or url_changes > 0
+        )  # 30% success rate or any navigation
+
+    def estimate_task_complexity(self, task: str) -> int:
+        """
+        Estimates task complexity based on keywords and returns suggested iteration budget.
+        """
+        task_lower = task.lower()
+
+        # Complex task indicators
+        complex_keywords = [
+            "register",
+            "registration",
+            "sign up",
+            "signup",
+            "create account",
+            "login",
+            "log in",
+            "authentication",
+            "verify",
+            "verification",
+            "multi-step",
+            "workflow",
+            "form",
+            "multiple pages",
+            "navigation",
+            "chat",
+            "message",
+            "conversation",
+            "upload",
+            "download",
+            "search and",
+            "find and",
+            "extract and",
+            "scrape and",
+        ]
+
+        # Count complexity indicators
+        complexity_score = sum(
+            1 for keyword in complex_keywords if keyword in task_lower
+        )
+
+        # Base complexity on word count too
+        word_count = len(task.split())
+        if word_count > 20:
+            complexity_score += 2
+        elif word_count > 10:
+            complexity_score += 1
+
+        # Return suggested iteration budget
+        if complexity_score >= 4:
+            return 50  # Very complex task
+        elif complexity_score >= 2:
+            return 35  # Moderately complex
+        else:
+            return 25  # Simple task
+
     async def interact_with_webpage(self, url: str, task: str):
         """
         Executes a multi-step web interaction workflow based on a natural language task.
@@ -2634,7 +2720,16 @@ Current Page Content Snippet (for context):
                 f"Failed to initialize browser or navigate to starting URL: {nav_error}"
             )
 
-        max_iterations = 15  # Increased max iterations
+        # Estimate task complexity and adjust iteration limit accordingly
+        suggested_iterations = self.estimate_task_complexity(task)
+        max_iterations = max(
+            suggested_iterations, 50
+        )  # Always allow at least 50, but increase if needed
+
+        logging.info(
+            f"Task complexity assessment: {suggested_iterations} iterations suggested, using {max_iterations} as limit"
+        )
+
         iteration_count = 0
         results_summary = []  # User-facing summary of steps/results
         attempt_history = []  # Internal history for LLM planning context
@@ -2736,7 +2831,8 @@ RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 10. For `get_content` / `get_fields`: No selector/value needed, they operate on the current page.
 11. Use `<description>` to explain WHY this step helps achieve the main task.
 12. If the task is fully complete, use operation `done`.
-13. If stuck (e.g., element not found after waiting, repeated failures), consider `wait` or describe the issue and use `done` if truly blocked. Avoid infinite loops of failed actions.
+13. COMPLEX TASKS: You have up to 50 iterations to complete multi-step workflows (registration, login, navigation, etc.). Break complex tasks into small atomic steps. Take your time and be methodical.
+14. If stuck (e.g., element not found after waiting, repeated failures), consider `wait` or describe the issue and use `done` if truly blocked. The system has intelligent failure detection to prevent infinite loops.
 
 EXAMPLE CLICKS:
 <interaction><step><operation>click</operation><selector>button[data-testid='login-btn']</selector><value>Log In</value><description>Click the login button using its test ID and text.</description></step></interaction>
@@ -2856,6 +2952,28 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
                             conversation_name=self.conversation_name,
                         )
                     break  # Stop if we detect a loop of failures
+
+                # Check if we're making progress - allow more iterations if we are
+                if (
+                    iteration_count > 25
+                ):  # Only start checking progress after reasonable number of steps
+                    if not self.is_making_progress(attempt_history):
+                        error_msg = f"No meaningful progress detected in recent iterations. Task may be too complex or have encountered insurmountable obstacles."
+                        logging.warning(error_msg)
+                        results_summary.append(
+                            f"[Iteration {iteration_count}] Warning: {error_msg}"
+                        )
+                        if self.ApiClient:
+                            self.ApiClient.new_conversation_message(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {error_msg}",
+                                conversation_name=self.conversation_name,
+                            )
+                        # Don't break immediately - give it a few more chances
+                        if (
+                            iteration_count > 35
+                        ):  # More aggressive stopping if still no progress
+                            break
 
                 # Record this attempt *before* execution for the history
                 attempt_record = f"Attempt {iteration_count}: {operation}|{selector}|{value} - {description}"
