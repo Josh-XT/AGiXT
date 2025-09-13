@@ -1980,12 +1980,26 @@ class web_browsing(Extensions):
             current_selector = (
                 alternate_selector if attempt > 1 and alternate_selector else selector
             )
-            
+
             # Check if we need a selector for this operation
             # Click can work with just text/value, some operations don't need selectors
-            needs_selector_operations = ["fill", "select", "check", "upload", "download", "assert", "extract_table"]
-            can_work_without_selector = operation in ["click", "wait", "done", "evaluate", "screenshot"]
-            
+            needs_selector_operations = [
+                "fill",
+                "select",
+                "check",
+                "upload",
+                "download",
+                "assert",
+                "extract_table",
+            ]
+            can_work_without_selector = operation in [
+                "click",
+                "wait",
+                "done",
+                "evaluate",
+                "screenshot",
+            ]
+
             if not current_selector and operation in needs_selector_operations:
                 last_error = f"No selector provided for operation '{operation}' which requires a selector (Attempt {attempt})"
                 logging.error(last_error)
@@ -2011,6 +2025,10 @@ class web_browsing(Extensions):
                             # Try exact match first
                             locator = self.page.get_by_text(value, exact=True)
                             count = await locator.count()
+                            logging.info(
+                                f"Exact match for '{value}': found {count} elements"
+                            )
+
                             if count == 1:  # Only click if unique exact match
                                 await locator.click(timeout=5000)
                                 text_click_success = True
@@ -2019,6 +2037,10 @@ class web_browsing(Extensions):
                                 # Try partial match if exact fails
                                 locator = self.page.get_by_text(value, exact=False)
                                 count = await locator.count()
+                                logging.info(
+                                    f"Partial match for '{value}': found {count} elements"
+                                )
+
                                 if count == 1:  # Only click if unique partial match
                                     await locator.click(timeout=5000)
                                     text_click_success = True
@@ -2029,6 +2051,113 @@ class web_browsing(Extensions):
                                     logging.warning(
                                         f"Multiple elements contain text '{value}'. Skipping text click."
                                     )
+                                elif count == 0:
+                                    # Try case-insensitive search as a last resort
+                                    logging.info(
+                                        f"No partial matches found for '{value}', trying case-insensitive and flexible search..."
+                                    )
+                                    try:
+                                        # Get all clickable elements and their text
+                                        clickable_elements = await self.page.query_selector_all(
+                                            "a, button, [role='button'], input[type='submit'], input[type='button'], .btn, [onclick]"
+                                        )
+                                        found_texts = []
+                                        search_variations = [
+                                            value.lower(),
+                                            value.lower().replace(" ", ""),
+                                            value.lower().replace(" ", "-"),
+                                            value.lower().replace(" ", "_"),
+                                        ]
+
+                                        for elem in clickable_elements[
+                                            :15
+                                        ]:  # Check up to 15 elements
+                                            try:
+                                                text_content = await elem.text_content()
+                                                if (
+                                                    text_content
+                                                    and text_content.strip()
+                                                ):
+                                                    clean_text = text_content.strip()
+                                                    found_texts.append(clean_text)
+
+                                                    # Case-insensitive match with variations
+                                                    clean_text_lower = (
+                                                        clean_text.lower()
+                                                    )
+                                                    for search_var in search_variations:
+                                                        if (
+                                                            search_var
+                                                            in clean_text_lower
+                                                            or clean_text_lower
+                                                            in search_var
+                                                        ):
+                                                            await elem.click(
+                                                                timeout=5000
+                                                            )
+                                                            text_click_success = True
+                                                            op_result = f"Clicked element by flexible text match '{clean_text}' (searched for '{value}')"
+                                                            break
+
+                                                    if text_click_success:
+                                                        break
+
+                                            except Exception as elem_error:
+                                                continue
+
+                                        if not text_click_success and found_texts:
+                                            logging.info(
+                                                f"Available clickable text options: {found_texts[:10]}"
+                                            )
+                                            # Try one more approach - look for common login/auth patterns
+                                            login_patterns = [
+                                                "login",
+                                                "log in",
+                                                "sign in",
+                                                "signin",
+                                                "log-in",
+                                                "sign-in",
+                                                "auth",
+                                                "register",
+                                                "signup",
+                                                "sign up",
+                                            ]
+                                            value_lower = value.lower()
+
+                                            for pattern in login_patterns:
+                                                if (
+                                                    pattern in value_lower
+                                                    or value_lower in pattern
+                                                ):
+                                                    for text in found_texts[:10]:
+                                                        text_lower = text.lower()
+                                                        if pattern in text_lower:
+                                                            # Try to click this element
+                                                            try:
+                                                                pattern_locator = self.page.get_by_text(
+                                                                    text, exact=True
+                                                                )
+                                                                pattern_count = (
+                                                                    await pattern_locator.count()
+                                                                )
+                                                                if pattern_count >= 1:
+                                                                    await pattern_locator.first.click(
+                                                                        timeout=5000
+                                                                    )
+                                                                    text_click_success = (
+                                                                        True
+                                                                    )
+                                                                    op_result = f"Clicked element by pattern match '{text}' (pattern: '{pattern}', searched for '{value}')"
+                                                                    break
+                                                            except Exception:
+                                                                continue
+                                                    if text_click_success:
+                                                        break
+
+                                    except Exception as case_insensitive_error:
+                                        logging.warning(
+                                            f"Flexible search failed: {case_insensitive_error}"
+                                        )
                             # else count > 1 for exact match, also skip
 
                         except PlaywrightTimeoutError:
@@ -2041,15 +2170,23 @@ class web_browsing(Extensions):
                     # If text click didn't work or wasn't applicable, use selector
                     if not text_click_success:
                         if not current_selector:
-                            raise ValueError(
-                                "Click operation requires a selector if text matching fails or isn't applicable."
-                            )
-                        op_result = await self.click_element_with_playwright(
-                            current_selector
-                        )  # Uses its own internal waits
-                    # Wait for page potentially changing
-                    await self.page.wait_for_load_state("networkidle", timeout=15000)
-                    await self.page.wait_for_timeout(500)  # Small extra wait
+                            # If we have no selector and text click failed, that's an error
+                            op_result = f"Error: Could not find clickable element with text '{value}' and no selector provided."
+                            logging.error(op_result)
+                        else:
+                            op_result = await self.click_element_with_playwright(
+                                current_selector
+                            )  # Uses its own internal waits
+
+                    # Only wait for page changes if the click was successful
+                    if text_click_success or (
+                        op_result and not op_result.startswith("Error:")
+                    ):
+                        # Wait for page potentially changing
+                        await self.page.wait_for_load_state(
+                            "networkidle", timeout=15000
+                        )
+                        await self.page.wait_for_timeout(500)  # Small extra wait
 
                 elif operation == "fill":
                     if not current_selector:
