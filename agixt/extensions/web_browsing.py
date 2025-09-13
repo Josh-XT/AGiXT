@@ -666,7 +666,10 @@ class web_browsing(Extensions):
                 selector
             ).first  # Use locator and take the first match
             await element.wait_for(state="visible", timeout=timeout)
-            await element.wait_for(state="enabled", timeout=timeout)
+            # Check if element is enabled using is_enabled() method
+            is_enabled = await element.is_enabled()
+            if not is_enabled:
+                return f"Error: Element '{selector}' is not enabled/clickable."
             await element.click(timeout=timeout)
             # Optional: Wait for navigation or network idle if click causes page change
             try:
@@ -717,7 +720,11 @@ class web_browsing(Extensions):
         try:
             element = self.page.locator(selector).first
             await element.wait_for(state="visible", timeout=timeout)
-            await element.wait_for(state="editable", timeout=timeout)
+            # Check if the element is enabled (can accept input)
+            is_enabled = await element.is_enabled()
+            if not is_enabled:
+                return f"Error: Input field '{selector}' is not enabled/interactive."
+
             await element.fill(text, timeout=timeout)
 
             # Verification step
@@ -802,7 +809,10 @@ class web_browsing(Extensions):
             logging.info(f"Attempting to check checkbox '{selector}'")
             element = self.page.locator(selector).first
             await element.wait_for(state="visible", timeout=timeout)
-            await element.wait_for(state="enabled", timeout=timeout)
+            # Check if element is enabled using is_enabled() method
+            is_enabled = await element.is_enabled()
+            if not is_enabled:
+                return f"Error: Checkbox '{selector}' is not enabled."
             await element.check(timeout=timeout)
             logging.info(f"Checked checkbox '{selector}'")
             return f"Checked checkbox '{selector}'"
@@ -1205,7 +1215,7 @@ class web_browsing(Extensions):
 
         Args:
             selector (str): The CSS selector of the element to wait for.
-            state (str): The state to wait for ('visible', 'hidden', 'attached', 'detached', 'enabled', 'disabled', 'editable').
+            state (str): The state to wait for ('visible', 'hidden', 'attached', 'detached').
                          Defaults to 'visible'.
             timeout (int): Maximum time to wait in milliseconds. Defaults to 30000 (30s).
 
@@ -1214,6 +1224,12 @@ class web_browsing(Extensions):
         """
         if self.page is None or self.page.is_closed():
             return "Error: No page loaded or page is closed."
+
+        # Validate state parameter
+        valid_states = ["visible", "hidden", "attached", "detached"]
+        if state not in valid_states:
+            return f"Error: Invalid state '{state}'. Valid states are: {', '.join(valid_states)}"
+
         try:
             logging.info(f"Waiting for element '{selector}' to be {state}...")
             await self.page.locator(selector).first.wait_for(
@@ -2237,9 +2253,6 @@ class web_browsing(Extensions):
                                 "hidden",
                                 "attached",
                                 "detached",
-                                "enabled",
-                                "disabled",
-                                "editable",
                             ]:
                                 wait_state = parts[1]
                         op_result = await self.wait_for_selector_with_playwright(
