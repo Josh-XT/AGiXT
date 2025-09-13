@@ -9,13 +9,22 @@ from Extensions import Extensions
 from safeexecute import execute_python_code
 from agixtsdk import AGiXTSDK
 from Globals import getenv
+from Task import Task
 
 
 class essential_abilities(Extensions):
     """
     The Essential Abilities extension provides core functionality for agents,
     including file system operations within the agent's workspace, data analysis, Python code execution,
-    and other fundamental capabilities. The agent's workspace is a safe sandboxed environment where the agent has access to uploaded files, files it downloads, and files it creates. This allows the agent to perform tasks such as reading and writing files, searching file contents, executing Python scripts, and running shell commands in its own environment.
+    scheduling follow-up messages, and other fundamental capabilities.
+
+    The agent's workspace is a safe sandboxed environment where the agent has access to uploaded files, files it downloads,
+    and files it creates. This allows the agent to perform tasks such as reading and writing files, searching file contents,
+    executing Python scripts, and running shell commands in its own environment.
+
+    The scheduling capabilities enable the AI to proactively schedule follow-up messages and interactions with users at specific times.
+    When scheduled times arrive, the AI can execute commands and notify users of task completion, enabling time-based automation
+    and proactive engagement such as reminders, progress checks, automated reports, and recurring check-ins.
     """
 
     def __init__(self, **kwargs):
@@ -41,6 +50,10 @@ class essential_abilities(Extensions):
             "Convert Markdown to PDF": self.convert_to_pdf,
             "Convert Markdown to DOCX": self.convert_to_docx,
             "Convert Markdown to XLSX": self.convert_to_xlsx,
+            "Schedule Follow-Up Message": self.schedule_task,
+            "Schedule Recurring Follow-Up": self.schedule_reoccurring_task,
+            "Get Scheduled Follow-Ups": self.get_scheduled_tasks,
+            "Modify Scheduled Follow-Up": self.modify_task,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -894,3 +907,161 @@ print(output)
         except Exception as e:
             logging.error(f"Error converting to XLSX: {str(e)}")
             return f"Error: {str(e)}"
+
+    async def schedule_task(
+        self,
+        title: str,
+        task_description: str,
+        days: str = 0,
+        hours: str = 0,
+        minutes: str = 0,
+    ) -> str:
+        """
+        Schedule a follow-up message to the user at a specific time in the future.
+        Use this to proactively remind users, check on progress, or execute commands at scheduled times.
+        Examples: reminding about deadlines, following up on tasks, scheduling automated reports, or checking in after a delay.
+        At the scheduled time, the AI will message the user and can execute any available commands to complete the task.
+
+        Args:
+            title (str): Brief title describing the follow-up purpose (e.g., "Check project progress", "Send daily report")
+            task_description (str): Detailed instructions for what the AI should do when following up, including specific commands to run and information to provide
+            days (int): Number of days from now to schedule the follow-up
+            hours (int): Number of hours from now to schedule the follow-up
+            minutes (int): Number of minutes from now to schedule the follow-up
+
+        Returns:
+            str: Confirmation of the scheduled follow-up with the exact date/time
+        """
+        try:
+            days = int(days)
+        except:
+            days = 0
+        try:
+            hours = int(hours)
+        except:
+            hours = 0
+        try:
+            minutes = int(minutes)
+        except:
+            minutes = 0
+        # Calculate the due date
+        due_date = datetime.datetime.now() + datetime.timedelta(
+            days=days, hours=hours, minutes=minutes
+        )
+
+        # Initialize task manager with the current token
+        task_manager = Task(token=self.api_key)
+        # Create a descriptive title from the purpose of the follow-up
+        title_preview = title.split("\n")[0][:50] + ("..." if len(title) > 50 else "")
+
+        # Create the follow-up task
+        task_id = await task_manager.create_task(
+            title=title_preview,
+            description=task_description,
+            category_name="Follow-ups",
+            agent_name=self.agent_name,
+            due_date=due_date,
+            priority=1,  # High priority for follow-ups
+            memory_collection=self.conversation_id,  # This ensures context preservation
+        )
+
+        return f"Scheduled follow-up message (ID: {task_id}) for {due_date.strftime('%Y-%m-%d %H:%M:%S')}. I'll message you then to {title}."
+
+    async def schedule_reoccurring_task(
+        self,
+        title: str,
+        task_description: str,
+        start_date: str,
+        end_date: str,
+        frequency: str = "daily",
+    ) -> str:
+        """
+        Schedule recurring follow-up messages to the user on a regular basis.
+        Use this for periodic check-ins, regular reports, repeated reminders, or any task that needs consistent follow-up.
+        The AI will message the user at each scheduled interval and can execute commands to provide updates or perform actions.
+        Perfect for daily summaries, weekly progress checks, or monthly reports.
+
+        Args:
+            title (str): Brief title for the recurring follow-up (e.g., "Daily standup check-in", "Weekly metrics report")
+            task_description (str): What the AI should do at each follow-up, including commands to run and information to gather
+            start_date (datetime.datetime): When to begin the recurring follow-ups
+            end_date (datetime.datetime): When to stop the recurring follow-ups
+            frequency (str): How often to follow up - "daily", "weekly", or "monthly"
+
+        Returns:
+            str: Confirmation of the recurring follow-up schedule
+        """
+        # Initialize task manager with the current token
+        task_manager = Task(token=self.api_key)
+        # Create a descriptive title from the purpose of the follow-up
+        title_preview = title.split("\n")[0][:50] + ("..." if len(title) > 50 else "")
+
+        # Create the follow-up task
+        task_ids = await task_manager.create_reoccurring_task(
+            title=title_preview,
+            description=task_description,
+            category_name="Follow-ups",
+            agent_name=self.agent_name,
+            start_date=start_date,
+            end_date=end_date,
+            frequency=frequency,
+            priority=1,  # High priority for follow-ups
+            memory_collection=self.conversation_id,  # This ensures context preservation
+        )
+        return f"Scheduled {frequency} follow-up messages from {start_date} to {end_date}. I'll check in regularly to {title}."
+
+    async def modify_task(
+        self,
+        task_id: str,
+        title: str = None,
+        description: str = None,
+        due_date: str = None,
+        estimated_hours: str = None,
+        priority: str = None,
+        cancel_task: str = "false",
+    ):
+        """
+        Modify or cancel a scheduled follow-up message.
+        Use this to adjust timing, change what the AI should do at follow-up, update priorities, or cancel if no longer needed.
+        This helps maintain relevant and timely follow-ups based on changing circumstances.
+
+        Args:
+            task_id (str): The ID of the scheduled follow-up to modify (obtained from Get Scheduled Follow-Ups)
+            title (str): New title for the follow-up (optional)
+            description (str): Updated instructions for what to do at follow-up (optional)
+            due_date (datetime.datetime): New scheduled time for the follow-up (optional)
+            estimated_hours (int): Updated time estimate (optional)
+            priority (int): New priority level 1-5, where 1 is highest (optional)
+            cancel_task (bool): Set to "true" to cancel the follow-up entirely
+
+        Returns:
+            str: Confirmation of the changes made
+        """
+        # Initialize task manager with the current token
+        task_manager = Task(token=self.api_key)
+        if str(cancel_task).lower() == "true":
+            return await task_manager.delete_task(task_id)
+        # Update the task
+        return await task_manager.update_task(
+            task_id=task_id,
+            title=title,
+            description=description,
+            due_date=due_date,
+            estimated_hours=estimated_hours,
+            priority=priority,
+        )
+
+    async def get_scheduled_tasks(self):
+        """
+        Retrieve all scheduled follow-up messages for the current conversation.
+        Use this to review upcoming follow-ups, check their timing, or find task IDs for modification.
+        This helps ensure follow-ups are still relevant and properly scheduled.
+
+        Returns:
+            list: List of all scheduled follow-ups with their details, timing, and task IDs
+        """
+        # Initialize task manager with the current token
+        task_manager = Task(token=self.api_key)
+        # Get all tasks for the current agent
+        tasks = await task_manager.get_pending_tasks()
+        return tasks
