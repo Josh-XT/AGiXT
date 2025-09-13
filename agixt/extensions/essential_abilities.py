@@ -50,6 +50,7 @@ class essential_abilities(Extensions):
             "Convert Markdown to PDF": self.convert_to_pdf,
             "Convert Markdown to DOCX": self.convert_to_docx,
             "Convert Markdown to XLSX": self.convert_to_xlsx,
+            "Convert Markdown to PPTX": self.convert_to_pptx,
             "Schedule Follow-Up Message": self.schedule_task,
             "Schedule Recurring Follow-Up": self.schedule_reoccurring_task,
             "Get Scheduled Follow-Ups": self.get_scheduled_tasks,
@@ -906,6 +907,58 @@ print(output)
 
         except Exception as e:
             logging.error(f"Error converting to XLSX: {str(e)}")
+            return f"Error: {str(e)}"
+
+    async def convert_to_pptx(self, markdown_content: str, output_file: str) -> str:
+        """
+        Convert markdown content to PPTX.
+
+        Args:
+            markdown_content: The markdown content to convert
+            output_file: File name for the output PPTX file
+
+        Returns:
+            str: Success message with download link or error message
+
+        Note: Do not include a path in the output_file, just the file name. The file will be saved in the agent's workspace and a link to download returned.
+        """
+        try:
+            # Make sure the output directory exists
+            output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
+            os.makedirs(
+                os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
+                exist_ok=True,
+            )
+
+            # Create a temporary markdown file
+            temp_md = os.path.join(
+                self.WORKING_DIRECTORY, f"{os.path.splitext(output_file)[0]}.md"
+            )
+
+            # Write the markdown content to the temp file
+            with open(temp_md, "w", encoding="utf-8") as f:
+                f.write(markdown_content)
+
+            # Execute the conversion with pandoc
+            process = await asyncio.create_subprocess_exec(
+                "pandoc",
+                temp_md,
+                "-o",
+                output_path,
+                "-t",
+                "pptx",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                return f"Error: {stderr.decode()}"
+
+            return f"Successfully converted to {self.output_url}{output_file}"
+
+        except Exception as e:
+            logging.error(f"Error converting to PPTX: {str(e)}")
             return f"Error: {str(e)}"
 
     async def schedule_task(
