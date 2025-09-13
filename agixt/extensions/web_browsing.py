@@ -1980,14 +1980,21 @@ class web_browsing(Extensions):
             current_selector = (
                 alternate_selector if attempt > 1 and alternate_selector else selector
             )
-            if not current_selector and operation not in [
-                "wait",
-                "done",
-                "evaluate",
-            ]:  # Need selector for most ops
-                last_error = f"No selector provided for operation '{operation}' (Attempt {attempt})"
+            
+            # Check if we need a selector for this operation
+            # Click can work with just text/value, some operations don't need selectors
+            needs_selector_operations = ["fill", "select", "check", "upload", "download", "assert", "extract_table"]
+            can_work_without_selector = operation in ["click", "wait", "done", "evaluate", "screenshot"]
+            
+            if not current_selector and operation in needs_selector_operations:
+                last_error = f"No selector provided for operation '{operation}' which requires a selector (Attempt {attempt})"
                 logging.error(last_error)
-                break  # No point retrying without a selector
+                break  # No point retrying without a selector for operations that need one
+            elif not current_selector and not can_work_without_selector and not value:
+                # For other operations, we need either a selector OR a value (for text-based operations)
+                last_error = f"No selector or value provided for operation '{operation}' (Attempt {attempt})"
+                logging.error(last_error)
+                break
 
             logging.info(
                 f"Executing step (Attempt {attempt}/{max_attempts}): {operation} on '{current_selector}'"
