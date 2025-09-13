@@ -191,6 +191,11 @@ class ToggleCommandPayload(BaseModel):
     enable: bool
 
 
+class ToggleExtensionCommandsPayload(BaseModel):
+    extension_name: str
+    enable: bool
+
+
 # AI Service Models
 class ChatCompletions(BaseModel):
     model: Optional[str] = None  # This is the agent name
