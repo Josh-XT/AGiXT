@@ -670,13 +670,16 @@ class web_browsing(Extensions):
             await element.click(timeout=timeout)
             # Optional: Wait for navigation or network idle if click causes page change
             try:
-                await self.page.wait_for_load_state(
-                    "networkidle", timeout=15000
-                )  # Wait after click
+                # Try shorter networkidle timeout first
+                await self.page.wait_for_load_state("networkidle", timeout=5000)
             except PlaywrightTimeoutError:
-                logging.warning(
-                    f"Network did not become idle after clicking {selector}, proceeding anyway."
-                )
+                try:
+                    # Fall back to load state
+                    await self.page.wait_for_load_state("load", timeout=10000)
+                except PlaywrightTimeoutError:
+                    logging.warning(
+                        f"Page load states did not stabilize after clicking {selector}, proceeding anyway."
+                    )
             logging.info(f"Clicked element with selector '{selector}'")
             return f"Clicked element with selector '{selector}'"
         except PlaywrightTimeoutError:
@@ -1998,6 +2001,8 @@ class web_browsing(Extensions):
                 "done",
                 "evaluate",
                 "screenshot",
+                "get_fields",
+                "get_content",
             ]
 
             if not current_selector and operation in needs_selector_operations:
@@ -2182,10 +2187,24 @@ class web_browsing(Extensions):
                     if text_click_success or (
                         op_result and not op_result.startswith("Error:")
                     ):
-                        # Wait for page potentially changing
-                        await self.page.wait_for_load_state(
-                            "networkidle", timeout=15000
-                        )
+                        # Wait for page potentially changing - use multiple strategies with shorter timeouts
+                        try:
+                            # Try networkidle first with shorter timeout
+                            await self.page.wait_for_load_state(
+                                "networkidle", timeout=5000
+                            )
+                        except Exception:
+                            try:
+                                # Fall back to load state
+                                await self.page.wait_for_load_state(
+                                    "load", timeout=10000
+                                )
+                            except Exception:
+                                # Just wait for DOM to be ready
+                                await self.page.wait_for_load_state(
+                                    "domcontentloaded", timeout=5000
+                                )
+
                         await self.page.wait_for_timeout(500)  # Small extra wait
 
                 elif operation == "fill":
