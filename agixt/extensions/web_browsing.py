@@ -206,23 +206,31 @@ class web_browsing(Extensions):
                     args=[
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
-                    ],  # Improve stability
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-features=VizDisplayCompositor",
+                    ],  # Improve stability and avoid detection
                 )
                 self.context = await self.browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080},
+                    ignore_https_errors=True,  # Handle SSL issues more gracefully
                 )
                 self.page = await self.context.new_page()
 
                 # Set reasonable timeouts to prevent hanging
-                self.page.set_default_timeout(30000)  # 30 seconds
-                self.page.set_default_navigation_timeout(60000)  # 60 seconds
+                self.page.set_default_timeout(
+                    30000
+                )  # 30 seconds for element interactions
+                self.page.set_default_navigation_timeout(
+                    120000
+                )  # 2 minutes for navigation
 
                 logging.info("Playwright browser initialized.")
             elif self.page.is_closed():
                 logging.info("Page was closed, creating a new one.")
                 self.page = await self.context.new_page()
                 self.page.set_default_timeout(30000)
-                self.page.set_default_navigation_timeout(60000)
+                self.page.set_default_navigation_timeout(120000)
         except Exception as e:
             logging.error(f"Error initializing browser: {e}")
             await self.ensure_cleanup()
@@ -540,7 +548,7 @@ class web_browsing(Extensions):
             return [{"error": f"Failed to get search results: {str(e)}"}]
 
     async def navigate_to_url_with_playwright(
-        self, url: str, headless: bool = True
+        self, url: str, headless: bool = True, timeout: int = 120000
     ) -> str:
         """
         Navigates the browser to the specified URL using Playwright. Initializes the browser
@@ -550,6 +558,7 @@ class web_browsing(Extensions):
             url (str): The URL to navigate to. Should include the scheme (http/https).
             headless (bool): Whether to run the browser in headless mode (no visible UI).
                              Defaults to True.
+            timeout (int): Navigation timeout in milliseconds. Defaults to 120000 (2 minutes).
 
         Returns:
             str: A confirmation message indicating success or an error message.
@@ -562,18 +571,75 @@ class web_browsing(Extensions):
             await self._ensure_browser_page(headless=headless)
 
             logging.info(f"Navigating to {url}...")
-            await self.page.goto(
-                url, wait_until="networkidle", timeout=60000
-            )  # Increased timeout
-            current_url = self.page.url
-            logging.info(f"Successfully navigated to {current_url}")
-            return f"Successfully navigated to {current_url}"
-        except PlaywrightTimeoutError:
-            error_msg = (
-                f"Error navigating to {url}: Navigation timed out after 60 seconds."
-            )
+
+            # Try different wait strategies in order of preference
+            wait_strategies = ["domcontentloaded", "load", "networkidle"]
+            last_error = None
+
+            for wait_strategy in wait_strategies:
+                try:
+                    logging.info(
+                        f"Attempting navigation with wait_until='{wait_strategy}'"
+                    )
+                    await self.page.goto(url, wait_until=wait_strategy, timeout=timeout)
+                    current_url = self.page.url
+                    logging.info(
+                        f"Successfully navigated to {current_url} using {wait_strategy}"
+                    )
+
+                    # Additional validation - ensure we actually got to a page
+                    if current_url and current_url != "about:blank":
+                        return f"Successfully navigated to {current_url}"
+                    else:
+                        logging.warning(
+                            f"Navigation resulted in blank page, trying next strategy..."
+                        )
+                        continue
+
+                except PlaywrightTimeoutError as e:
+                    last_error = e
+                    logging.warning(
+                        f"Navigation with {wait_strategy} timed out, trying next strategy..."
+                    )
+                    continue
+                except Exception as e:
+                    # Check for common network errors that we might want to retry
+                    error_str = str(e).lower()
+                    if any(
+                        net_error in error_str
+                        for net_error in [
+                            "net::err_name_not_resolved",
+                            "net::err_connection_refused",
+                            "net::err_connection_timed_out",
+                        ]
+                    ):
+                        logging.warning(
+                            f"Network error with {wait_strategy}: {e}, trying next strategy..."
+                        )
+                        last_error = e
+                        continue
+                    else:
+                        # For other errors, don't try other strategies
+                        raise e
+
+            # If all strategies failed, return a more detailed error
+            timeout_seconds = timeout // 1000
+            if last_error:
+                error_detail = str(last_error)
+                if "net::err_name_not_resolved" in error_detail.lower():
+                    error_msg = f"Error navigating to {url}: Domain name could not be resolved. Please check the URL."
+                elif "net::err_connection_refused" in error_detail.lower():
+                    error_msg = f"Error navigating to {url}: Connection refused. The server may be down or unreachable."
+                elif "net::err_connection_timed_out" in error_detail.lower():
+                    error_msg = f"Error navigating to {url}: Connection timed out. The server is taking too long to respond."
+                else:
+                    error_msg = f"Error navigating to {url}: Navigation timed out after {timeout_seconds} seconds using all wait strategies. Last error: {error_detail}"
+            else:
+                error_msg = f"Error navigating to {url}: Navigation timed out after {timeout_seconds} seconds using all wait strategies."
+
             logging.error(error_msg)
             return error_msg
+
         except Exception as e:
             logging.error(f"Error navigating to {url}: {str(e)}", exc_info=True)
             return f"Error navigating to {url}: {str(e)}"
@@ -1567,7 +1633,7 @@ class web_browsing(Extensions):
 
         Args:
             url_pattern (str): A glob pattern (e.g., "**/*.css") or regular expression
-                               (e.g., re.compile(r"(\.png$|\.jpg$)")) to match request URLs.
+                               (e.g., re.compile(r"(\\.png$|\\.jpg$)")) to match request URLs.
             action (str): The action to perform:
                           'block' (default): Aborts the request.
                           'continue': Allows the request to proceed unchanged.
@@ -2383,7 +2449,7 @@ Current Page Content Snippet (for context):
         # Initialize browser if needed, navigate to start URL
         try:
             nav_result = await self.navigate_to_url_with_playwright(
-                url=url, headless=True
+                url=url, headless=True, timeout=120000  # 2 minutes timeout
             )
             if "Error" in nav_result:
                 return f"Failed to start interaction: {nav_result}"
