@@ -28,10 +28,11 @@ class essential_abilities(Extensions):
             "Delete File": self.delete_file,
             "Execute Shell": self.execute_shell,
             "Run Data Analysis": self.run_data_analysis,
-            "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
             "Execute Python Code": self.execute_python_code_internal,
             "Explain Chain": self.chain_to_mermaid,
             "Get Datetime": self.get_datetime,
+            "Get Chain Details": self.get_chain_details,
+            "Get Chain List": self.get_chain_list,
             "Create Automation Chain": self.create_agixt_chain,
             "Modify Automation Chain": self.modify_chain,
             "Custom API Endpoint": self.custom_api,
@@ -537,6 +538,30 @@ print(output)
 
         mermaid = "\\n".join(mermaid_diagram)
         return f"```mermaid\\n{mermaid}\\n```"
+
+    async def get_chain_details(self, chain_name: str):
+        """
+        Get details of a chain
+
+        Args:
+        chain_name (str): The name of the chain
+
+        Returns:
+        str: The details of the chain
+        """
+        chain_data = self.ApiClient.get_chain(chain_name=chain_name)
+        return json.dumps(chain_data, indent=4)
+
+    async def get_chain_list(self):
+        """
+        Get a list of all chains
+
+        Returns:
+        str: The list of chains
+        """
+        chains = self.ApiClient.get_chains()
+        chain_names = [chain["name"] for chain in chains]
+        return "Available Chains:\\n" + "\\n".join(chain_names)
 
     async def get_datetime(self) -> str:
         """
