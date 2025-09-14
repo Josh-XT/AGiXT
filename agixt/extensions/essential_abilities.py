@@ -164,7 +164,7 @@ class essential_abilities(Extensions):
         text (str): The text to write to the file
 
         Returns:
-        str: Success message
+        str: Success message with download link
 
         Note: This command will only work in the agent's designated workspace.
         """
@@ -172,7 +172,7 @@ class essential_abilities(Extensions):
             filepath = self.safe_join(filename)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(text)
-            return f"File {filename} written successfully."
+            return f"File {filename} written successfully. The user can access it at {self.output_url}{filename}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
 
@@ -279,7 +279,7 @@ class essential_abilities(Extensions):
         new_text (str): The replacement text
 
         Returns:
-        str: Success message
+        str: Success message with download link or error message
 
         Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
@@ -297,7 +297,7 @@ class essential_abilities(Extensions):
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(modified_content)
 
-            return f"File {filename} modified successfully."
+            return f"File {filename} modified successfully. The user can access it at {self.output_url}{filename}"
         except Exception as e:
             return f"Error modifying file: {str(e)}"
 
