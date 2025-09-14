@@ -370,8 +370,23 @@ class essential_abilities(Extensions):
 
         Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
         """
-        # Create Python code that will execute the shell command in a sandboxed environment
-        sandboxed_code = f"""
+        try:
+            # Try to use the new shell execution capability from safeexecute
+            from safeexecute import execute_shell_command
+
+            # Execute the shell command with proper sandboxing
+            result = execute_shell_command(
+                command=command_line,
+                working_directory=self.WORKING_DIRECTORY,
+                agent_id=self.agent_name,
+                conversation_id=self.conversation_id,
+            )
+
+            return result
+        except ImportError:
+            # Fallback to the old method if execute_shell_command is not available
+            # Create Python code that will execute the shell command in a sandboxed environment
+            sandboxed_code = f"""
 import subprocess
 import os
 
@@ -402,14 +417,14 @@ output += f"\\nReturn Code: {{result.returncode}}"
 print(output)
 """
 
-        # Execute the code in a sandboxed environment
-        try:
-            result = execute_python_code(
-                code=sandboxed_code, working_directory=self.WORKING_DIRECTORY
-            )
-            return result
-        except Exception as e:
-            return f"Error executing shell command in sandbox: {str(e)}"
+            # Execute the code in a sandboxed environment
+            try:
+                result = execute_python_code(
+                    code=sandboxed_code, working_directory=self.WORKING_DIRECTORY
+                )
+                return result
+            except Exception as e:
+                return f"Error executing shell command in sandbox: {str(e)}"
 
     async def run_data_analysis(self, data: str, query: str):
         """
