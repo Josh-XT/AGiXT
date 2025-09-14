@@ -1,4 +1,4 @@
-FROM joshxt/aicontainer:sha-ca37c5b
+FROM joshxt/aicontainer:sha-f9793e7
 WORKDIR /
 
 # Install uv package manager for browser-use integration
