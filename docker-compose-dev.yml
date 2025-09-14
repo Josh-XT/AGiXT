@@ -4,8 +4,12 @@ services:
     init: true
     restart: unless-stopped
     environment:
-      DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}
-      DATABASE_NAME: ${DATABASE_NAME:-models/agixt}
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
+      DATABASE_NAME: ${DATABASE_NAME:-postgres}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       UVICORN_WORKERS: ${UVICORN_WORKERS:-10}
       AGIXT_API_KEY: ${AGIXT_API_KEY:-None}
       AGIXT_URI: ${AGIXT_URI:-http://agixt:7437}
@@ -95,6 +99,7 @@ services:
       - ./models:/agixt/models
     depends_on:
       - minio
+      - postgres
   agixtinteractive:
     image: joshxt/agixt-interactive:main
     init: true
@@ -121,10 +126,26 @@ services:
     restart: unless-stopped
     volumes:
       - ./node_modules:/app/node_modules
-
+  postgres:
+    image: postgres
+    container_name: postgres
+    ports:
+      - ${AGIXTDB_PORT:-5432}:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - ./models/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
   minio:
-    image: minio/minio:RELEASE.2023-12-23T07-19-11Z
-    container_name: agixt-minio-dev
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: agixt-minio
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"

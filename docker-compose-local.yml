@@ -6,8 +6,12 @@ services:
     init: true
     restart: unless-stopped
     environment:
-      DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}
-      DATABASE_NAME: ${DATABASE_NAME:-models/agixt}
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
+      DATABASE_NAME: ${DATABASE_NAME:-postgres}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       UVICORN_WORKERS: ${UVICORN_WORKERS:-10}
       AGIXT_API_KEY: ${AGIXT_API_KEY:-None}
       AGIXT_URI: ${AGIXT_URI:-http://agixt:7437}
@@ -18,14 +22,6 @@ services:
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
       TOKENIZERS_PARALLELISM: "false"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Healthcheck configuration
-      AGIXT_HEALTH_URL: ${AGIXT_HEALTH_URL:-http://localhost:7437/health}
-      HEALTH_CHECK_INTERVAL: ${HEALTH_CHECK_INTERVAL:-15}
-      HEALTH_CHECK_TIMEOUT: ${HEALTH_CHECK_TIMEOUT:-10}
-      HEALTH_CHECK_MAX_FAILURES: ${HEALTH_CHECK_MAX_FAILURES:-3}
-      RESTART_COOLDOWN: ${RESTART_COOLDOWN:-60}
-      INITIAL_STARTUP_DELAY: ${INITIAL_STARTUP_DELAY:-180}
-      # OAuth clients
       ALEXA_CLIENT_ID: ${ALEXA_CLIENT_ID}
       ALEXA_CLIENT_SECRET: ${ALEXA_CLIENT_SECRET}
       AWS_CLIENT_ID: ${AWS_CLIENT_ID}
@@ -54,7 +50,6 @@ services:
       WALMART_MARKETPLACE_ID: ${WALMART_MARKETPLACE_ID}
       X_CLIENT_ID: ${X_CLIENT_ID}
       X_CLIENT_SECRET: ${X_CLIENT_SECRET}
-      # Storage configuration
       STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
       STORAGE_CONTAINER: ${STORAGE_CONTAINER:-agixt-workspace}
       B2_KEY_ID: ${B2_KEY_ID:-}
@@ -67,14 +62,12 @@ services:
       AWS_STORAGE_REGION: ${AWS_STORAGE_REGION:-us-east-1}
       AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
       AZURE_STORAGE_KEY: ${AZURE_STORAGE_KEY:-}
-      # Agent configuration
       SEED_DATA: ${SEED_DATA:-true}
       AGENT_NAME: ${AGIXT_AGENT:-XT}
       AGENT_PERSONA: ${AGENT_PERSONA}
       TRAINING_URLS: ${TRAINING_URLS}
       ENABLED_COMMANDS: ${ENABLED_COMMANDS}
       EZLOCALAI_VOICE: ${EZLOCALAI_VOICE}
-      # Model configuration
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL}
       AZURE_MODEL: ${AZURE_MODEL}
@@ -88,7 +81,6 @@ services:
       OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS}
       ANTHROPIC_MAX_TOKENS: ${ANTHROPIC_MAX_TOKENS}
       GOOGLE_MAX_TOKENS: ${GOOGLE_MAX_TOKENS}
-      # API keys
       AZURE_API_KEY: ${AZURE_API_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -100,7 +92,6 @@ services:
       EZLOCALAI_URI: ${EZLOCALAI_URI}
       ROTATION_EXCLUSIONS: ${ROTATION_EXCLUSIONS}
       GRAPHIQL: ${GRAPHIQL:-true}
-      # Extensions Hub configuration
       EXTENSIONS_HUB: ${EXTENSIONS_HUB:-}
       EXTENSIONS_HUB_TOKEN: ${EXTENSIONS_HUB_TOKEN:-}
       TZ: ${TZ:-America/New_York}
@@ -110,14 +101,7 @@ services:
       - ./models:/agixt/models
     depends_on:
       - minio
-    # Add healthcheck to monitor the service
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7437/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 3m
-  
+      - postgres
   agixtinteractive:
     image: joshxt/agixt-interactive:main
     init: true
@@ -144,12 +128,26 @@ services:
     restart: unless-stopped
     volumes:
       - ./node_modules:/app/node_modules
-    depends_on:
-      - agixt
-
+  postgres:
+    image: postgres
+    container_name: postgres
+    ports:
+      - ${AGIXTDB_PORT:-5432}:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - ./models/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
   minio:
-    image: minio/minio:RELEASE.2023-12-23T07-19-11Z
-    container_name: agixt-minio-local
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: agixt-minio
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"

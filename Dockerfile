@@ -5,13 +5,13 @@ WORKDIR /
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
+# Fix numpy/spacy compatibility issues by updating to compatible versions
+# This ensures spacy/thinc work with the numpy version
+RUN pip install --upgrade numpy==1.26.4 scipy spacy thinc spacy-legacy spacy-loggers
+
 COPY docker-requirements.txt .
 # Install AGiXT Requirements
 RUN pip install -r docker-requirements.txt
-
-# Force reinstall entire spacy/numpy/thinc stack to fix binary compatibility
-RUN pip uninstall -y spacy spacy-legacy spacy-loggers thinc numpy
-RUN pip install --no-cache-dir numpy==1.24.3 thinc spacy spacy-legacy spacy-loggers
 
 COPY . .
 WORKDIR /agixt
