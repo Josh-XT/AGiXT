@@ -5,7 +5,7 @@ import signal
 import asyncio
 import mimetypes
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from middleware import CriticalEndpointProtectionMiddleware
@@ -280,22 +280,48 @@ async def serve_file(
                 logging.error(f"Error processing local file: {e}")
                 raise HTTPException(status_code=500, detail="Internal server error")
 
-        # For cloud storage, use streaming
+        # For cloud storage, collect content and return directly
         else:
+            logging.info(
+                f"Using S3 direct content for agent_id='{agent_id}', conversation_id='{conversation_id}', filename='{filename}'"
+            )
 
-            async def file_iterator():
-                try:
-                    async for chunk in workspace_manager.stream_file(
-                        agent_id, conversation_id, filename
-                    ):
-                        yield chunk
-                except ValueError as e:
-                    logging.error(f"Validation error in stream_file: {e}")
-                    raise HTTPException(status_code=400, detail=str(e))
-                except Exception as e:
-                    logging.error(f"Error streaming file: {e}")
-                    raise HTTPException(status_code=500, detail="Error streaming file")
+            try:
+                file_content = b""
+                async for chunk in workspace_manager.stream_file(
+                    agent_id, conversation_id, filename
+                ):
+                    file_content += chunk
 
+                # Return content directly instead of streaming
+                from fastapi import Response
+
+                return Response(
+                    content=file_content,
+                    media_type=content_type,
+                    headers={
+                        "Content-Disposition": f'inline; filename="{filename}"',
+                        "X-Content-Type-Options": "nosniff",
+                        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                        "Pragma": "no-cache",
+                    },
+                )
+
+            except ValueError as e:
+                logging.error(f"Validation error in stream_file: {e}")
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logging.error(f"Error streaming file from S3: {type(e).__name__}: {e}")
+                import traceback
+
+                logging.error(f"Traceback: {traceback.format_exc()}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error streaming file: {type(e).__name__}: {str(e)}",
+                )
+
+        # This should not be reached for S3, but kept for local storage
+        logging.info(f"Creating StreamingResponse for {filename}")
         return StreamingResponse(
             file_iterator(),
             media_type=content_type,
