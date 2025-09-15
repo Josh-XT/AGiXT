@@ -13,4 +13,4 @@ hikvisionapi>=0.3.2
 azure-ai-inference
 djitellopy
 axis
-google-ads
+google-ads==28.0.0
