@@ -798,6 +798,9 @@ class Extensions:
                 }
             )
 
+        # Sort extensions by extension name for consistent ordering
+        commands.sort(key=lambda x: x["extension_name"])
+
         return commands
 
     def get_extension_routers(self):
