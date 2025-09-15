@@ -95,6 +95,20 @@ class WebhookEventEmitter:
         )
         event_id = str(uuid.uuid4())
 
+        # Ensure user_id is a string (convert UUID objects to string)
+        if user_id:
+            logger.debug(
+                f"Converting user_id {user_id} (type: {type(user_id)}) to string"
+            )
+            user_id = str(user_id)
+
+        # Ensure agent_id is a string (convert UUID objects to string)
+        if agent_id:
+            logger.debug(
+                f"Converting agent_id {agent_id} (type: {type(agent_id)}) to string"
+            )
+            agent_id = str(agent_id)
+
         # Ensure company_id is a string if provided (handle case where UUID object is passed)
         if company_id:
             logger.debug(
@@ -142,12 +156,15 @@ class WebhookEventEmitter:
             # Check if user_id is a valid UUID format
             import uuid as uuid_lib
 
+            # Ensure user_id is a string
+            user_id_str = str(user_id)
+
             try:
-                uuid_lib.UUID(user_id)
+                uuid_lib.UUID(user_id_str)
             except ValueError:
                 # user_id is not a valid UUID (e.g., email address), skip company lookup
                 logger.debug(
-                    f"User ID {user_id} is not a valid UUID, skipping company lookup"
+                    f"User ID {user_id_str} is not a valid UUID, skipping company lookup"
                 )
                 return None
 
@@ -156,7 +173,7 @@ class WebhookEventEmitter:
 
             user_company = (
                 session.query(UserCompany)
-                .filter(UserCompany.user_id == user_id)
+                .filter(UserCompany.user_id == user_id_str)
                 .first()
             )
 

@@ -124,17 +124,48 @@ class raydium_integration(Extensions):
 
         WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
 
-        if WALLET_PRIVATE_KEY and WALLET_PRIVATE_KEY.strip():
+        if (
+            WALLET_PRIVATE_KEY
+            and WALLET_PRIVATE_KEY.strip()
+            and WALLET_PRIVATE_KEY.upper() not in ["NONE", "NULL", "UNDEFINED", ""]
+        ):
             try:
+                # Try hex decoding first, then base58
                 try:
-                    secret_bytes = bytes.fromhex(WALLET_PRIVATE_KEY)
-                except ValueError:
-                    secret_bytes = base58.b58decode(WALLET_PRIVATE_KEY)
+                    # Remove any whitespace and ensure it's valid hex
+                    cleaned_key = WALLET_PRIVATE_KEY.strip()
+                    if not cleaned_key:
+                        raise ValueError("Empty private key")
+                    # Additional validation - check if key contains only valid characters
+                    if not all(c in "0123456789abcdefABCDEF" for c in cleaned_key):
+                        raise ValueError("Key contains invalid hex characters")
+                    secret_bytes = bytes.fromhex(cleaned_key)
+                except ValueError as hex_error:
+                    try:
+                        # Try base58 decoding
+                        cleaned_key = WALLET_PRIVATE_KEY.strip()
+                        if not cleaned_key:
+                            raise ValueError("Empty private key")
+                        # Validate base58 characters
+                        if not all(
+                            c
+                            in "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+                            for c in cleaned_key
+                        ):
+                            raise ValueError("Key contains invalid base58 characters")
+                        secret_bytes = base58.b58decode(cleaned_key)
+                    except Exception as b58_error:
+                        raise ValueError(
+                            f"Invalid private key format: hex_error={hex_error}, b58_error={b58_error}"
+                        )
 
                 self.wallet_keypair = Keypair.from_seed(secret_bytes)
                 self.wallet_address = str(self.wallet_keypair.pubkey())
             except Exception as e:
-                print(f"Error initializing wallet: {e}")
+                # Log the specific error for debugging but don't print to avoid spam
+                import logging
+
+                logging.debug(f"Raydium wallet initialization failed: {e}")
                 self.wallet_keypair = None
                 self.wallet_address = None
         else:

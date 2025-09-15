@@ -137,6 +137,19 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
 
     # Emit webhook event for agent creation (async without await since this is sync function)
     import asyncio
+    from DB import UserCompany
+
+    # Try to get the user's company_id
+    company_id = None
+    try:
+        user_company = (
+            session.query(UserCompany)
+            .filter(UserCompany.user_id == str(user_id))
+            .first()
+        )
+        company_id = str(user_company.company_id) if user_company else None
+    except:
+        pass
 
     try:
         asyncio.create_task(
@@ -150,6 +163,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=str(user_id),
+                company_id=company_id,
             )
         )
     except:
@@ -1299,6 +1313,11 @@ class Agent:
 
         if config_key == "commands":
             for command_name, enabled in new_config.items():
+                # Protect against empty command names
+                if not command_name or command_name.strip() == "":
+                    logging.error("Empty command name provided in config, skipping")
+                    continue
+
                 # First try to find an existing command
                 command = session.query(Command).filter_by(name=command_name).first()
 
@@ -1469,6 +1488,20 @@ class Agent:
         )
         if not agent:
             return f"Agent {self.agent_name} not found."
+
+        # Handle conversation_id conversion - convert "0" or invalid UUIDs to None
+        if conversation_id == "0" or conversation_id == 0 or not conversation_id:
+            conversation_id = None
+        elif conversation_id:
+            # Validate that it's a proper UUID string
+            try:
+                import uuid
+
+                uuid.UUID(str(conversation_id))
+                conversation_id = str(conversation_id)
+            except (ValueError, TypeError):
+                conversation_id = None
+
         browsed_link = AgentBrowsedLink(
             agent_id=agent.id, link=url, conversation_id=conversation_id
         )

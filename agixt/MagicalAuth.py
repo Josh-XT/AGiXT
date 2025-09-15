@@ -317,6 +317,17 @@ def get_user_id(user: str):
     return user_id
 
 
+def get_user_company_id_by_email(email: str):
+    """Get company_id for a user by their email address"""
+    try:
+        user_id = get_user_id(email)
+        auth = MagicalAuth()
+        auth.email = email
+        return auth.get_user_company_id()
+    except:
+        return None
+
+
 def get_user_by_email(email: str):
     session = get_session()
     try:
