@@ -17,7 +17,7 @@ class automation_helpers(Extensions):
     code generation, data processing, and API integration.
     """
 
-    CATEGORY = "Business & Productivity"
+    CATEGORY = "Development & Code"
 
     def __init__(self, **kwargs):
         self.commands = {

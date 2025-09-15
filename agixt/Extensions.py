@@ -742,16 +742,18 @@ class Extensions:
                     except Exception as e:
                         logging.debug(f"Could not get category description: {e}")
 
-                    commands.append(
-                        {
-                            "extension_name": extension_name,
-                            "description": extension_description,
-                            "settings": extension_settings,
-                            "commands": extension_commands,
-                            "category": category_name,
-                            "category_description": category_description,
-                        }
-                    )
+                    # Only add extensions that have commands (filters out OAuth extensions without credentials)
+                    if extension_commands:
+                        commands.append(
+                            {
+                                "extension_name": extension_name,
+                                "description": extension_description,
+                                "settings": extension_settings,
+                                "commands": extension_commands,
+                                "category": category_name,
+                                "category_description": category_description,
+                            }
+                        )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -769,6 +771,21 @@ class Extensions:
                         },
                     }
                 )
+            try:
+                from DB import get_db_session, ExtensionCategory
+
+                category_name = "Core AI Capabilities"
+                category_description = ""
+                with get_db_session() as session:
+                    category = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name=category_name)
+                        .first()
+                    )
+                    if category:
+                        category_description = category.description or ""
+            except Exception as e:
+                logging.debug(f"Could not get category description: {e}")
 
             commands.append(
                 {
@@ -776,10 +793,13 @@ class Extensions:
                     "description": "Execute a custom automation workflow.",
                     "settings": [],
                     "commands": chain_commands,
-                    "category": "Automation",
-                    "category_description": "Extensions for automation and workflow management",
+                    "category": category_name,
+                    "category_description": category_description,
                 }
             )
+
+        # Sort extensions by extension name for consistent ordering
+        commands.sort(key=lambda x: x["extension_name"])
 
         return commands
 

@@ -101,7 +101,7 @@ class SwapQuote:
     route_plan: List[Dict]
 
 
-class raydium_integration(Extensions):
+class raydium(Extensions):
     """
     Comprehensive Raydium integration for AGiXT
 

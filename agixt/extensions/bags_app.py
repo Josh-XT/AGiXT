@@ -7,9 +7,9 @@ from Extensions import Extensions
 import logging
 
 
-class bags_fm(Extensions):
+class bags_app(Extensions):
     """
-    The Bags.fm extension enables interaction with the Bags.fm API for Solana token operations.
+    The Bags App (bags.fm) extension enables interaction with the Bags.fm API for Solana token operations.
 
     This extension provides functionality for:
     - Token launches with metadata and initial purchases
