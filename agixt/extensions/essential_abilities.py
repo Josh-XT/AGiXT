@@ -63,6 +63,8 @@ class essential_abilities(Extensions):
             "Schedule Recurring Follow-Up": self.schedule_reoccurring_task,
             "Get Scheduled Follow-Ups": self.get_scheduled_tasks,
             "Modify Scheduled Follow-Up": self.modify_task,
+            "Generate Image": self.generate_image,
+            "Convert Text to Speech": self.text_to_speech,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -1145,3 +1147,38 @@ print(output)
         # Get all tasks for the current agent
         tasks = await task_manager.get_pending_tasks()
         return tasks
+
+    async def generate_image(self, prompt):
+        """
+        Generate an image from a prompt.
+
+        Args:
+            prompt (str): The prompt to generate the image from.
+
+        Returns:
+            str: The URL of the generated image.
+        Note:
+            The assistant should send the image URL to the user so they can listen to it, it will embed the image in the chat when the assistant sends the URL.
+        """
+        return self.ApiClient.generate_image(
+            prompt=prompt,
+            model=self.agent_name,
+        )
+
+    async def text_to_speech(self, text):
+        """
+        Convert text to speech. The assistant can use its voice to read the text aloud to the user.
+
+        Args:
+            text (str): The text to convert to speech.
+
+        Returns:
+            str: The URL of the generated audio.
+
+        Note:
+            The assistant should send the audio URL to the user so they can listen to it, it will embed the audio in the chat when the assistant sends the URL.
+        """
+        return self.ApiClient.text_to_speech(
+            text=text,
+            agent_name=self.agent_name,
+        )

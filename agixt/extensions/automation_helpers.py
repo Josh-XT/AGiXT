@@ -3,6 +3,7 @@ import uuid
 import requests
 import os
 import re
+from openai import OpenAI
 from typing import Type
 from pydantic import BaseModel
 from Extensions import Extensions
@@ -33,6 +34,7 @@ class automation_helpers(Extensions):
             "Use MCP Server": self.mcp_client,
             "Indent String for Python Code": self.indent_string,
             "Generate Commands Dictionary": self.generate_commands_dict,
+            "Chat Completion": self.chat_completions,
         }
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
         self.conversation_name = (
@@ -54,6 +56,62 @@ class automation_helpers(Extensions):
         )
         self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
         self.failures = 0
+
+    async def chat_completions(
+        self,
+        base_url,
+        api_key,
+        model,
+        message_content,
+        max_output_tokens=4096,
+        temperature=0.7,
+        top_p=1.0,
+    ):
+        """
+        Chat completions using a custom API. This command is best used in an automation chain to connect agents to other agents or OpenAI style APIs.
+
+        Args:
+            base_url (str): The base URL of the API.
+            api_key (str): Your API key for authentication.
+            model (str): The model to use for chat completions.
+            message_content (str): The content of the message.
+            max_output_tokens (int, optional): The maximum number of output tokens. Defaults to 4096.
+            temperature (float, optional): The temperature for sampling. Defaults to 0.7.
+            top_p (float, optional): The top-p sampling parameter. Defaults to 1.0.
+
+        Returns:
+            str: The response from the API.
+        """
+        try:
+            int(max_output_tokens)
+        except:
+            max_output_tokens = 4096
+        try:
+            float(temperature)
+        except:
+            temperature = 0.7
+        try:
+            float(top_p)
+        except:
+            top_p = 1.0
+
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": message_content,
+                }
+            ],
+            temperature=temperature,
+            max_tokens=max_output_tokens,
+            top_p=top_p,
+        )
+        return response.choices[0].message.content
 
     async def indent_string(self, string: str, indents: int = 1):
         """
