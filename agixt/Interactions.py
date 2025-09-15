@@ -19,7 +19,7 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
-from MagicalAuth import MagicalAuth, impersonate_user
+from MagicalAuth import MagicalAuth, convert_time, impersonate_user
 from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
 
@@ -441,7 +441,9 @@ class Interactions:
             COMMANDS=agent_commands,
             context=context,
             command_list=agent_commands,
-            date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
+            date=convert_time(datetime.now(), user_id=self.user_id).strftime(
+                "%B %d, %Y %I:%M %p"
+            ),
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
             conversation_history=conversation_history,

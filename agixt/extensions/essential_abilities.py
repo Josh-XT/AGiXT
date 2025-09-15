@@ -5,6 +5,12 @@ import asyncio
 import logging
 import datetime
 from typing import Optional
+from MagicalAuth import (
+    convert_time,
+    get_user_timezone,
+    convert_user_time_to_utc,
+    get_current_user_time,
+)
 from Extensions import Extensions
 from safeexecute import execute_python_code
 from agixtsdk import AGiXTSDK
@@ -617,9 +623,9 @@ print(output)
         Returns:
         str: The current date and time in the format "YYYY-MM-DD HH:MM:SS"
         """
-        return "Current date and time: " + datetime.datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        return "Current date and time: " + convert_time(
+            datetime.datetime.now(), user_id=self.user_id
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
     async def create_agixt_chain(self, natural_language_request: str):
         """
@@ -959,10 +965,14 @@ print(output)
             minutes = int(minutes)
         except:
             minutes = 0
-        # Calculate the due date
-        due_date = datetime.datetime.now() + datetime.timedelta(
+        # Calculate the due date from user's current time
+        user_now = get_current_user_time(self.user_id)
+        user_due_time = user_now + datetime.timedelta(
             days=days, hours=hours, minutes=minutes
         )
+
+        # Convert to UTC for database storage
+        due_date = convert_user_time_to_utc(user_due_time, self.user_id)
 
         # Initialize task manager with the current token
         task_manager = Task(token=self.api_key)
