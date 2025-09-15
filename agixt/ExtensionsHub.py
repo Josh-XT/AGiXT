@@ -133,9 +133,6 @@ class ExtensionsHub:
         hub_urls = self._parse_hub_urls()
 
         if not hub_urls:
-            logging.info(
-                "No EXTENSIONS_HUB URLs configured, skipping hub initialization"
-            )
             return False
 
         # Ensure extensions directory exists
@@ -209,9 +206,6 @@ class ExtensionsHub:
         hub_urls = self._parse_hub_urls()
 
         if not hub_urls:
-            logging.info(
-                "No EXTENSIONS_HUB URLs configured, skipping hub initialization"
-            )
             return False
 
         # Ensure extensions directory exists

@@ -781,7 +781,7 @@ class Extensions:
                                 "router": command_class.router,
                             }
                         )
-                        logging.info(f"Found router for extension: {class_name}")
+                        # logging.info(f"Found router for extension: {class_name}")
             except Exception as e:
                 logging.error(f"Error loading router from extension {class_name}: {e}")
                 continue
