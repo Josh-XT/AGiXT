@@ -2656,13 +2656,23 @@ class MagicalAuth:
                     .filter(UserCompany.user_id == self.user_id)
                     .first()
                 )
-                return str(user_company.company_id) if user_company else None
+                if user_company and user_company.company_id is not None:
+                    company_id_str = str(user_company.company_id)
+                    # Don't return "None" string
+                    if company_id_str.lower() in ["none", "null", ""]:
+                        return None
+                    return company_id_str
+                return None
         except Exception as e:
             return None
 
     def get_user_company(self, company_id):
+        # Validate company_id before querying
+        if not company_id or str(company_id).lower() in ["none", "null", ""]:
+            return None
+
         with get_session() as db:
-            # Make sure the company ID is in the lsit of users companies
+            # Make sure the company ID is in the list of users companies
             user_company = (
                 db.query(UserCompany)
                 .filter(UserCompany.user_id == self.user_id)
@@ -3149,8 +3159,12 @@ class MagicalAuth:
         return agixt
 
     def get_company_agent_session(self, company_id: str = None) -> AGiXTSDK:
-        if not company_id:
+        # Handle None, "None" string, or empty string
+        if not company_id or str(company_id).lower() in ["none", "null", ""]:
             company_id = self.company_id
+        # If still no valid company_id, return None
+        if not company_id or str(company_id).lower() in ["none", "null", ""]:
+            return None
         company = self.get_user_company(company_id)
         if not company:
             return None

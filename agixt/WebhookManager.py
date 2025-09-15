@@ -177,11 +177,15 @@ class WebhookEventEmitter:
                 .first()
             )
 
-            company_id = user_company.company_id if user_company else None
+            company_id = (
+                user_company.company_id
+                if user_company and user_company.company_id is not None
+                else None
+            )
             session.close()
 
-            # Ensure we return a string
-            return str(company_id) if company_id else None
+            # Ensure we return a string or None
+            return str(company_id) if company_id is not None else None
 
         except Exception as e:
             logger.warning(f"Could not resolve company_id for user {user_id}: {e}")

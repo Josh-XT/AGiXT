@@ -115,7 +115,9 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     if "company_id" not in provider_settings:
         token = impersonate_user(user_id=str(user_id))
         auth = MagicalAuth(token=token)
-        provider_settings["company_id"] = str(auth.company_id)
+        provider_settings["company_id"] = (
+            str(auth.company_id) if auth.company_id is not None else None
+        )
     # Iterate over DEFAULT_SETTINGS and add any missing keys
     for key in DEFAULT_SETTINGS:
         if key not in provider_settings:
@@ -147,7 +149,11 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
             .filter(UserCompany.user_id == str(user_id))
             .first()
         )
-        company_id = str(user_company.company_id) if user_company else None
+        company_id = (
+            str(user_company.company_id)
+            if user_company and user_company.company_id is not None
+            else None
+        )
     except:
         pass
 
@@ -417,7 +423,7 @@ def get_agents(user=DEFAULT_USER, company=None):
                 continue
         if not company_id:
             auth = MagicalAuth(token=impersonate_user(user_id=str(user_data.id)))
-            company_id = str(auth.company_id)
+            company_id = str(auth.company_id) if auth.company_id is not None else None
             # update agent settings
             agent_setting = AgentSettingModel(
                 agent_id=agent.id,
@@ -636,16 +642,26 @@ class Agent:
         os.makedirs(agent_workspace, exist_ok=True)
         self.working_directory = agent_workspace
         if "company_id" in self.AGENT_CONFIG["settings"]:
-            self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
-            if str(self.company_id).lower() == "none":
+            company_id_value = self.AGENT_CONFIG["settings"]["company_id"]
+            # Handle various None representations
+            if company_id_value is None or str(company_id_value).lower() in [
+                "none",
+                "null",
+                "",
+            ]:
                 self.company_id = None
+            else:
+                self.company_id = str(company_id_value)
+        else:
+            self.company_id = None
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
         self.company_agent = None
-        if self.company_id and str(self.company_id).lower() != "none":
+        if self.company_id:
             self.company_agent = self.get_company_agent()
 
     def get_company_agent(self):
-        if self.company_id:
+        # Check for actual None or "None" string
+        if self.company_id and str(self.company_id).lower() != "none":
             company_agent_session = self.auth.get_company_agent_session(
                 company_id=self.company_id
             )
