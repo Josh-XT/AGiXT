@@ -49,8 +49,10 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
     logging.warning("aiohttp library not available. Install with: pip install aiohttp")
 
+from Extensions import Extensions
 
-class vivotek:
+
+class vivotek(Extensions):
     """
     AGiXT Extension for Vivotek camera systems
 
@@ -61,6 +63,8 @@ class vivotek:
     - PTZ control for supported cameras
     - System configuration
     """
+
+    CATEGORY = "Smart Home & IoT"
 
     def __init__(
         self,

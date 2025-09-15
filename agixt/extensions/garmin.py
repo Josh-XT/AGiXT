@@ -258,6 +258,8 @@ class garmin(Extensions):
     All data is retrieved securely using OAuth authentication with Garmin's Connect IQ API.
     """
 
+    CATEGORY = "Health & Fitness"
+
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
         self.access_token = kwargs.get("GARMIN_ACCESS_TOKEN", None)

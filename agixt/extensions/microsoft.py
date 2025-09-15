@@ -183,6 +183,8 @@ class microsoft(Extensions):
     for tasks like scheduling meetings, sending emails, or managing tasks.
     """
 
+    CATEGORY = "Social & Communication"
+
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
         self.access_token = kwargs.get("MICROSOFT_ACCESS_TOKEN", None)

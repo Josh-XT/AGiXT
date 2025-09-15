@@ -201,6 +201,8 @@ class discord(Extensions):
     and get server information as the logged-in user. Requires appropriate Discord permissions.
     """
 
+    CATEGORY = "Social & Communication"
+
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key", None)  # User's AGiXT JWT
         self.access_token = kwargs.get("DISCORD_ACCESS_TOKEN", None)

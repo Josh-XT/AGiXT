@@ -163,6 +163,8 @@ class microcontroller_development(Extensions, ExtensionDatabaseMixin):
     Now includes comprehensive components inventory management.
     """
 
+    CATEGORY = "Development & Code"
+
     # Register extension models for automatic table creation
     extension_models = [Component]
 

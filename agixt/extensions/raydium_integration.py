@@ -114,6 +114,8 @@ class raydium_integration(Extensions):
     - Pool analytics and data fetching
     """
 
+    CATEGORY = "Finance & Crypto"
+
     def __init__(self, **kwargs):
         # Use the HelloMoon RPC endpoint
         SOLANA_API_URI = "https://rpc.hellomoon.io/15b3c970-4cdc-4718-ac26-3896d5422fb6"

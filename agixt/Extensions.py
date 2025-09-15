@@ -707,12 +707,38 @@ class Extensions:
                             logging.error(f"Error getting commands: {e}")
                     if extension_name == "Agixt Actions":
                         extension_name = "AGiXT Actions"
+
+                    # Get category information from database or extension class
+                    category_name = "Automation"  # Default category
+                    category_description = ""
+
+                    # Try to get category from the extension class
+                    if hasattr(command_class, "CATEGORY"):
+                        category_name = command_class.CATEGORY
+
+                    # Get category description from database if available
+                    try:
+                        from DB import get_db_session, ExtensionCategory
+
+                        with get_db_session() as session:
+                            category = (
+                                session.query(ExtensionCategory)
+                                .filter_by(name=category_name)
+                                .first()
+                            )
+                            if category:
+                                category_description = category.description or ""
+                    except Exception as e:
+                        logging.debug(f"Could not get category description: {e}")
+
                     commands.append(
                         {
                             "extension_name": extension_name,
                             "description": extension_description,
                             "settings": extension_settings,
                             "commands": extension_commands,
+                            "category": category_name,
+                            "category_description": category_description,
                         }
                     )
 
@@ -739,6 +765,8 @@ class Extensions:
                     "description": "Execute a custom automation workflow.",
                     "settings": [],
                     "commands": chain_commands,
+                    "category": "Automation",
+                    "category_description": "Extensions for automation and workflow management",
                 }
             )
 

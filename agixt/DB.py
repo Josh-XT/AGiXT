@@ -731,6 +731,17 @@ class ChainStepResponse(Base):
     content = Column(Text, nullable=False)
 
 
+class ExtensionCategory(Base):
+    __tablename__ = "extension_category"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(Text, nullable=False, unique=True)
+    description = Column(Text, nullable=True, default="")
+
+
 class Extension(Base):
     __tablename__ = "extension"
     id = Column(
@@ -740,6 +751,12 @@ class Extension(Base):
     )
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True, default="")
+    category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("extension_category.id"),
+        nullable=True,
+    )
+    category = relationship("ExtensionCategory", backref="extensions")
 
 
 class Argument(Base):
@@ -1169,6 +1186,61 @@ default_roles = [
     {"id": 4, "name": "child", "friendly_name": "Child"},
 ]
 
+default_extension_categories = [
+    {
+        "name": "Core AI Capabilities",
+        "description": "Essential AI functions like text-to-speech, image generation, and chat completions",
+    },
+    {
+        "name": "Web & Search",
+        "description": "Browse websites, search the internet, and interact with web pages",
+    },
+    {
+        "name": "Social & Communication",
+        "description": "Connect to social media platforms, messaging apps, and email services",
+    },
+    {
+        "name": "Business & Productivity",
+        "description": "Integrate with business tools, project management, and productivity apps",
+    },
+    {
+        "name": "Development & Code",
+        "description": "GitHub integration, code analysis, and software development tools",
+    },
+    {
+        "name": "Data & Databases",
+        "description": "Connect to databases, analyze data, and manage information",
+    },
+    {
+        "name": "Smart Home & IoT",
+        "description": "Control smart home devices, security cameras, and IoT systems",
+    },
+    {
+        "name": "Robotics",
+        "description": "Control robots, drones, and autonomous vehicles",
+    },
+    {
+        "name": "Health & Fitness",
+        "description": "Track health metrics, fitness data, and wellness information",
+    },
+    {
+        "name": "Finance & Crypto",
+        "description": "Manage cryptocurrencies, trading, and financial operations",
+    },
+    {
+        "name": "E-commerce & Shopping",
+        "description": "Integrate with online marketplaces and shopping platforms",
+    },
+    {
+        "name": "File & Document Management",
+        "description": "Handle files, create documents, and manage data storage",
+    },
+    {
+        "name": "Entertainment & Media",
+        "description": "Create and manipulate media content, games, and entertainment",
+    },
+]
+
 
 def migrate_company_table():
     """
@@ -1179,6 +1251,54 @@ def migrate_company_table():
     so this migration will typically be skipped.
     """
     return
+
+
+def migrate_extension_table():
+    """
+    Migration function to add category_id field to the Extension table if it doesn't exist.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # Check if category_id column exists
+            if DATABASE_TYPE == "sqlite":
+                # For SQLite, check if column exists
+                result = session.execute(text("PRAGMA table_info(extension)"))
+                columns = [row[1] for row in result.fetchall()]
+
+                if "category_id" not in columns:
+                    logging.info(
+                        "Adding category_id column to extension table (SQLite)"
+                    )
+                    session.execute(
+                        text("ALTER TABLE extension ADD COLUMN category_id TEXT")
+                    )
+                    session.commit()
+            else:
+                # For PostgreSQL, check if column exists
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'extension' AND column_name = 'category_id'
+                    """
+                    )
+                )
+
+                if not result.fetchone():
+                    logging.info(
+                        "Adding category_id column to extension table (PostgreSQL)"
+                    )
+                    session.execute(
+                        text("ALTER TABLE extension ADD COLUMN category_id UUID")
+                    )
+                    session.commit()
+
+    except Exception as e:
+        logging.debug(f"Extension table migration completed or not needed: {e}")
 
 
 def migrate_webhook_outgoing_table():
@@ -1249,6 +1369,116 @@ def initialize_extension_tables():
             logging.debug(f"Table {model.__tablename__} already created, skipping")
 
 
+def setup_default_extension_categories():
+    """Setup default extension categories"""
+    try:
+        with get_db_session() as session:
+            for category_data in default_extension_categories:
+                existing_category = (
+                    session.query(ExtensionCategory)
+                    .filter_by(name=category_data["name"])
+                    .first()
+                )
+                if not existing_category:
+                    new_category = ExtensionCategory(**category_data)
+                    session.add(new_category)
+            session.commit()
+    except Exception as e:
+        logging.error(f"Error setting up default extension categories: {e}")
+
+
+def migrate_extensions_to_new_categories():
+    """Migrate existing extensions to use the new category mapping"""
+    try:
+        with get_db_session() as session:
+            # Mapping from extension names to new categories
+            extension_category_mapping = {
+                # Core AI Capabilities
+                "Ai": "Core AI Capabilities",
+                "Essential Abilities": "Core AI Capabilities",
+                # Web & Search
+                "Web Browsing": "Web & Search",
+                "Google Search": "Web & Search",
+                # Social & Communication
+                "Discord": "Social & Communication",
+                "Sendgrid Email": "Social & Communication",
+                "Microsoft": "Social & Communication",
+                "X": "Social & Communication",
+                # Business & Productivity
+                "Notes": "Business & Productivity",
+                "Automation Helpers": "Business & Productivity",
+                "Walmart": "Business & Productivity",
+                "Meta Ads": "Business & Productivity",
+                "Google": "Business & Productivity",
+                # Development & Code
+                "Github": "Development & Code",
+                "Graphql Server": "Development & Code",
+                "Microcontroller Development": "Development & Code",
+                # Data & Databases
+                "Postgres Database": "Data & Databases",
+                "Mysql Database": "Data & Databases",
+                "Mssql Database": "Data & Databases",
+                # Smart Home & IoT
+                "Ring": "Smart Home & IoT",
+                "Blink": "Smart Home & IoT",
+                "Axis Camera": "Smart Home & IoT",
+                "Hikvision": "Smart Home & IoT",
+                "Vivotek": "Smart Home & IoT",
+                "Roomba": "Smart Home & IoT",
+                "Dji Tello": "Smart Home & IoT",
+                "Tesla": "Smart Home & IoT",
+                "Alexa": "Smart Home & IoT",
+                # Health & Fitness
+                "Fitbit": "Health & Fitness",
+                "Garmin": "Health & Fitness",
+                "Oura": "Health & Fitness",
+                "Workout Tracker": "Health & Fitness",
+                # Finance & Crypto
+                "Solana Wallet": "Finance & Crypto",
+                "Raydium Integration": "Finance & Crypto",
+                "Bags Fm": "Finance & Crypto",
+                # E-commerce & Shopping
+                "Amazon": "E-commerce & Shopping",
+            }
+
+            # Get all extensions and update their categories
+            extensions = session.query(Extension).all()
+            for extension in extensions:
+                if extension.name in extension_category_mapping:
+                    new_category_name = extension_category_mapping[extension.name]
+                    new_category = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name=new_category_name)
+                        .first()
+                    )
+                    if new_category:
+                        extension.category_id = new_category.id
+                        logging.info(
+                            f"Updated extension '{extension.name}' to category '{new_category_name}'"
+                        )
+                    else:
+                        logging.warning(
+                            f"Category '{new_category_name}' not found for extension '{extension.name}'"
+                        )
+                else:
+                    # Default to Business & Productivity for unmapped extensions
+                    default_category = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name="Business & Productivity")
+                        .first()
+                    )
+                    if default_category:
+                        extension.category_id = default_category.id
+                        logging.info(
+                            f"Updated extension '{extension.name}' to default category 'Business & Productivity'"
+                        )
+
+            session.commit()
+            logging.info("Successfully migrated extensions to new categories")
+    except Exception as e:
+        logging.error(f"Error migrating extensions to new categories: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -1276,7 +1506,9 @@ if __name__ == "__main__":
     # Initialize extension tables after core tables
     initialize_extension_tables()
     migrate_company_table()
+    migrate_extension_table()
     migrate_webhook_outgoing_table()
+    setup_default_extension_categories()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:

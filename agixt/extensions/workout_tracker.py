@@ -120,6 +120,8 @@ class WorkoutTrackerDailyCompletion(Base):
 class workout_tracker(Extensions, ExtensionDatabaseMixin):
     """Workout Tracker Extension with database support"""
 
+    CATEGORY = "Health & Fitness"
+
     # Register extension models for automatic table creation
     extension_models = [WorkoutTrackerDailyGoal, WorkoutTrackerDailyCompletion]
 

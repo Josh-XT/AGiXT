@@ -9,6 +9,8 @@ class mysql_database(Extensions):
     The MySQL Database extension for AGiXT enables you to interact with a MySQL database.
     """
 
+    CATEGORY = "Data & Databases"
+
     def __init__(
         self,
         MYSQL_DATABASE_NAME: str = "",

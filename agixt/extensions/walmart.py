@@ -196,6 +196,8 @@ class walmart(Extensions):
     for tasks like processing orders, updating inventory, or managing products.
     """
 
+    CATEGORY = "E-commerce & Shopping"
+
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
         self.access_token = kwargs.get("WALMART_ACCESS_TOKEN", None)
