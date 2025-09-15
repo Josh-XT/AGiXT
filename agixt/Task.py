@@ -304,14 +304,26 @@ class Task:
                 "agent_id": task.agent_id,
                 "scheduled": task.scheduled,
                 "due_date": convert_time(task.due_date, user_id=self.user_id),
-                "updated_at": task.updated_at,
+                "updated_at": (
+                    convert_time(task.updated_at, user_id=self.user_id)
+                    if task.updated_at
+                    else None
+                ),
                 "priority": task.priority,
                 "title": task.title,
                 "conversation_id": task.memory_collection,
                 "estimated_hours": task.estimated_hours,
                 "completed": task.completed,
-                "created_at": task.created_at,
-                "completed_at": task.completed_at,
+                "created_at": (
+                    convert_time(task.created_at, user_id=self.user_id)
+                    if task.created_at
+                    else None
+                ),
+                "completed_at": (
+                    convert_time(task.completed_at, user_id=self.user_id)
+                    if task.completed_at
+                    else None
+                ),
                 "category_name": task.category.name if task.category else "Follow-ups",
             }
             new_tasks.append(task_dict)
@@ -508,14 +520,26 @@ class Task:
                 "agent_id": task.agent_id,
                 "scheduled": task.scheduled,
                 "due_date": convert_time(task.due_date, user_id=self.user_id),
-                "updated_at": task.updated_at,
+                "updated_at": (
+                    convert_time(task.updated_at, user_id=self.user_id)
+                    if task.updated_at
+                    else None
+                ),
                 "priority": task.priority,
                 "title": task.title,
                 "conversation_id": task.memory_collection,
                 "estimated_hours": task.estimated_hours,
                 "completed": task.completed,
-                "created_at": task.created_at,
-                "completed_at": task.completed_at,
+                "created_at": (
+                    convert_time(task.created_at, user_id=self.user_id)
+                    if task.created_at
+                    else None
+                ),
+                "completed_at": (
+                    convert_time(task.completed_at, user_id=self.user_id)
+                    if task.completed_at
+                    else None
+                ),
                 "category_name": task.category.name if task.category else "Follow-ups",
             }
             new_tasks.append(task_dict)

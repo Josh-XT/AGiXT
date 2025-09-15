@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
 from pydantic.fields import Field
@@ -696,9 +696,16 @@ class WebhookIncomingCreate(BaseModel):
     """Model for creating an incoming webhook"""
 
     name: str
-    agent_id: str
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
     description: Optional[str] = None
     active: Optional[bool] = True
+
+    @model_validator(mode="after")
+    def validate_agent_reference(self):
+        if not self.agent_id and not self.agent_name:
+            raise ValueError("Either agent_id or agent_name must be provided")
+        return self
 
 
 class WebhookIncomingUpdate(BaseModel):

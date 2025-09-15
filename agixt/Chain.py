@@ -585,10 +585,6 @@ class Chain:
                 )
             if prompt_obj:
                 target_prompt_id = prompt_obj.id
-            else:
-                logging.warning(
-                    f"Prompt '{prompt_name}' in category '{prompt_category}' not found. Step target might be invalid."
-                )
 
         # Ensure prompt_value_to_store has a value before updating
         if prompt_value_to_store is None:

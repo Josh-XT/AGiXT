@@ -1,6 +1,6 @@
 import importlib
 import subprocess
-import pkg_resources
+import importlib.metadata
 import glob
 import os
 import inspect
@@ -155,7 +155,10 @@ class Providers:
 
     def install_requirements(self):
         requirements = getattr(self.instance, "requirements", [])
-        installed_packages = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
+        installed_packages = {
+            pkg.metadata["name"].lower(): pkg.version
+            for pkg in importlib.metadata.distributions()
+        }
         for requirement in requirements:
             if requirement.lower() not in installed_packages:
                 subprocess.run(["pip", "install", requirement], check=True)

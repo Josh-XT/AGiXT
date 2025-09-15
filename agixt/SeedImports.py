@@ -39,36 +39,6 @@ def ensure_default_user():
     return user
 
 
-def import_agents(user=DEFAULT_USER):
-    try:
-        agents = [
-            f.name
-            for f in os.scandir("agents")
-            if f.is_dir() and not f.name.startswith("__")
-        ]
-    except:
-        return None
-    session = get_session()
-    for agent_name in agents:
-        # Check if agent already exists
-        agent_exists = session.query(Agent).filter_by(name=agent_name).first()
-        if agent_exists:
-            logging.info(f"Agent {agent_name} already exists, skipping...")
-            continue
-
-        config_path = f"agents/{agent_name}/config.json"
-        with open(config_path) as f:
-            config = json.load(f)
-        add_agent(
-            agent_name=agent_name,
-            provider_settings=config["settings"],
-            commands=config["commands"],
-            user=user,
-        )
-        logging.info(f"Imported agent: {agent_name}")
-    session.close()
-
-
 def import_extensions():
     import json
     from Extensions import Extensions
@@ -88,7 +58,6 @@ def import_extensions():
     session = get_session()
 
     # Clean up orphaned agent command references before importing
-    logging.info("Checking for orphaned agent command references...")
     try:
         # Build a map of currently available commands
         current_command_map = {}  # command_name -> extension_name
@@ -159,21 +128,10 @@ def import_extensions():
                             agent_command.command_id = new_command.id
 
                         updated_count += 1
-                        logging.info(
-                            f"  Fixed reference for '{agent_command.command.name}' from '{current_extension}' to '{correct_extension}'"
-                        )
             else:
                 # Command no longer exists - remove the reference
                 session.delete(agent_command)
                 orphaned_count += 1
-                logging.info(
-                    f"  Removed orphaned reference to '{agent_command.command.name}' in '{current_extension}'"
-                )
-
-        if updated_count > 0 or orphaned_count > 0:
-            logging.info(
-                f"Updated {updated_count} agent command references and removed {orphaned_count} orphaned references"
-            )
 
     except Exception as e:
         logging.error(f"Error cleaning up orphaned agent commands: {e}")
@@ -210,28 +168,20 @@ def import_extensions():
                     / len(current_commands)
                     >= 0.5
                 ):
-                    logging.info(
-                        f"Extension '{existing_ext.name}' appears to have been renamed to '{extension_name}' (command overlap detected)"
-                    )
 
                     # Update the extension name
                     old_name = existing_ext.name
                     existing_ext.name = extension_name
                     existing_ext.description = description
                     extension = existing_ext
-                    logging.info(
-                        f"Renamed extension from '{old_name}' to '{extension_name}'"
-                    )
                     break
 
         if extension:
             extension.description = description
-            logging.info(f"Updated extension: {extension_name}")
         else:
             extension = Extension(name=extension_name, description=description)
             session.add(extension)
             session.flush()
-            logging.info(f"Imported extension: {extension_name}")
 
         # Get existing commands for this extension
         existing_commands = (
@@ -256,9 +206,6 @@ def import_extensions():
                 )
 
                 if existing_in_other_extension:
-                    logging.info(
-                        f"Command '{command_name}' found in extension '{existing_in_other_extension.extension.name}', moving to '{extension_name}'"
-                    )
 
                     # Find or create command in current extension
                     command = (
@@ -274,7 +221,6 @@ def import_extensions():
                         )
                         session.add(command)
                         session.flush()
-                        logging.info(f"Created new command entry: {command_name}")
 
                     # Update all agent command references from old to new
                     agent_commands = (
@@ -301,22 +247,9 @@ def import_extensions():
                             if agent_command.state:
                                 existing_ref.state = True
                             session.delete(agent_command)
-                            logging.info(
-                                f"  Merged agent command reference for agent {agent_command.agent_id}"
-                            )
                         else:
                             # Update to point to new command
                             agent_command.command_id = command.id
-                            logging.info(
-                                f"  Updated agent command reference for agent {agent_command.agent_id}"
-                            )
-
-                    # Skip deleting the old command for now to avoid foreign key issues
-                    # The important part (moving agent references) is done
-                    # The old command entry will be cleaned up in a future import or manual cleanup
-                    logging.info(
-                        f"  Moved agent references from old '{command_name}' entry (will clean up old entry later)"
-                    )
 
                 else:
                     # Normal case - find or create command in this extension
@@ -333,7 +266,6 @@ def import_extensions():
                         )
                         session.add(command)
                         session.flush()
-                        logging.info(f"Imported command: {command_name}")
 
                 # Process command arguments if they exist
                 if "command_args" in command_data:
@@ -351,9 +283,6 @@ def import_extensions():
                                 name=arg_name,
                             )
                             session.add(command_arg)
-                            logging.info(
-                                f"Imported argument: {arg_name} for command: {command_name}"
-                            )
 
         # Only delete commands that are truly obsolete
         # Commands should only be deleted if their extension no longer exists
@@ -363,26 +292,6 @@ def import_extensions():
             for command_data in extension_data.get("commands", [])
         ]
 
-        # We should be very conservative about deleting commands since agents depend on them
-        # Only delete if we have a confident list of current commands AND the command is missing
-        if (
-            len(imported_command_names) > 0
-        ):  # Only if we successfully discovered commands
-            for existing_command in existing_commands:
-                if existing_command.name not in imported_command_names:
-                    # Log but don't auto-delete - require manual intervention for safety
-                    logging.warning(
-                        f"Command '{existing_command.name}' exists in DB but not found in extension '{extension_name}' - preserving for agent compatibility"
-                    )
-                    # Uncomment the next lines only if you want to enable deletion:
-                    # session.delete(existing_command)
-                    # logging.info(f"Deleted obsolete command: {existing_command.name}")
-        else:
-            # If no commands were discovered, preserve all existing ones
-            logging.info(
-                f"No commands discovered for extension '{extension_name}', preserving {len(existing_commands)} existing commands"
-            )
-
     # Process extension settings
     for extension_name, settings in extension_settings_data.items():
         extension = session.query(Extension).filter_by(name=extension_name).first()
@@ -390,7 +299,6 @@ def import_extensions():
             extension = Extension(name=extension_name)
             session.add(extension)
             session.flush()
-            logging.info(f"Imported extension: {extension_name}")
 
         for setting_name, setting_value in settings.items():
             # Convert dictionary or list values to JSON strings
@@ -408,9 +316,6 @@ def import_extensions():
 
             if setting:
                 setting.value = setting_value
-                logging.info(
-                    f"Updated setting: {setting_name} for extension: {extension_name}"
-                )
             else:
                 setting = Setting(
                     extension_id=extension.id,
@@ -418,9 +323,6 @@ def import_extensions():
                     value=setting_value,
                 )
                 session.add(setting)
-                logging.info(
-                    f"Imported setting: {setting_name} for extension: {extension_name}"
-                )
 
     # Only delete extensions that we're certain no longer exist
     # Be very conservative about extension deletion since commands depend on them
@@ -428,26 +330,8 @@ def import_extensions():
         extension_data["extension_name"] for extension_data in extensions_data
     ]
 
-    if (
-        len(imported_extension_names) > 0
-    ):  # Only if we successfully discovered extensions
-        for existing_extension in existing_extensions:
-            if existing_extension.name not in imported_extension_names:
-                # Log but don't auto-delete extensions - they may be from hub imports
-                logging.warning(
-                    f"Extension '{existing_extension.name}' exists in DB but not found in current scan - preserving for safety"
-                )
-                # Uncomment the next lines only if you want to enable deletion:
-                # session.delete(existing_extension)
-                # logging.info(f"Deleted extension: {existing_extension.name}")
-    else:
-        logging.warning(
-            "No extensions discovered during import - preserving all existing extensions"
-        )
-
     try:
         session.commit()
-        logging.info("Extension import completed successfully")
 
     except Exception as e:
         session.rollback()
@@ -469,8 +353,6 @@ def create_extension_tables():
         get_extension_class_name,
     )
     from Extensions import Extensions
-
-    logging.info("Creating extension database tables...")
 
     # Get all extension files
     try:
@@ -504,7 +386,6 @@ def create_extension_tables():
                     hasattr(extension_class, "extension_models")
                     and extension_class.extension_models
                 ):
-                    logging.info(f"Creating tables for extension: {class_name}")
 
                     # Create tables for this extension
                     for model in extension_class.extension_models:
@@ -512,7 +393,6 @@ def create_extension_tables():
                             model.__table__.create(engine, checkfirst=True)
                             table_name = model.__tablename__
                             created_tables.append(table_name)
-                            logging.info(f"Created table: {table_name}")
                         except Exception as e:
                             logging.error(
                                 f"Error creating table {model.__tablename__}: {e}"
@@ -523,13 +403,6 @@ def create_extension_tables():
 
         except Exception as e:
             logging.debug(f"Could not process extension {extension_file}: {e}")
-
-    if created_tables:
-        logging.info(
-            f"Successfully created {len(created_tables)} extension tables: {', '.join(created_tables)}"
-        )
-    else:
-        logging.info("No extension tables needed to be created")
 
 
 def check_and_import_chain_steps(chain_name, chain_data, session, user_id=None):
@@ -708,7 +581,6 @@ def import_chains(user=DEFAULT_USER):
         if os.path.isfile(os.path.join(chain_dir, file)) and file.endswith(".json")
     ]
     if not chain_files:
-        logging.info("No JSON files found in chains directory.")
         return
 
     from Chain import Chain
@@ -751,13 +623,9 @@ def import_chains(user=DEFAULT_USER):
                     )
                     steps_imported = steps_imported or user_steps_imported
 
-            if steps_imported:
-                logging.info(f"Imported steps for existing chain: {chain_name}")
-            else:
+            if not steps_imported:
                 # If chain doesn't exist or already has steps, try normal import
                 result = chain_importer.import_chain(chain_name, chain_data)
-                if result:
-                    logging.info(result)
 
         except Exception as e:
             logging.error(f"Error importing chain from '{file}': {str(e)}")
@@ -784,7 +652,6 @@ def import_prompts(user=DEFAULT_USER):
         )
         session.add(default_category)
         session.commit()
-        logging.info("Imported Default prompt category")
 
     for root, dirs, files in os.walk("prompts"):
         for file in files:
@@ -821,9 +688,6 @@ def import_prompts(user=DEFAULT_USER):
             )
 
             if existing_prompt:
-                logging.info(
-                    f"Prompt {prompt_name} already exists in category {prompt_category.name}, skipping..."
-                )
                 continue
 
             with open(os.path.join(root, file), "r") as f:
@@ -839,7 +703,6 @@ def import_prompts(user=DEFAULT_USER):
             )
             session.add(prompt)
             session.commit()
-            logging.info(f"Imported prompt: {prompt_name}")
 
             # Add prompt arguments
             prompt_args = [
@@ -859,7 +722,6 @@ def import_prompts(user=DEFAULT_USER):
                         name=arg,
                     )
                     session.add(argument)
-                    logging.info(f"Imported prompt argument: {arg} for {prompt_name}")
 
             session.commit()
 
@@ -879,7 +741,6 @@ def import_providers():
             provider = Provider(name=provider_name)
             session.add(provider)
             session.commit()
-            logging.info(f"Imported provider: {provider_name}")
 
         # Update provider settings
         for option_name, option_value in provider_options.items():
@@ -896,14 +757,8 @@ def import_providers():
                     value=str(option_value),
                 )
                 session.add(provider_setting)
-                logging.info(
-                    f"Imported provider setting: {option_name} for provider: {provider_name}"
-                )
             else:
                 provider_setting.value = str(option_value)
-                logging.info(
-                    f"Updated provider setting: {option_name} for provider: {provider_name}"
-                )
 
     session.commit()
     session.close()
@@ -959,14 +814,11 @@ def cleanup_orphaned_data():
                     orphaned_extensions.append(db_extension)
 
         if orphaned_extensions:
-            logging.info(f"Found {len(orphaned_extensions)} truly orphaned extensions")
             for ext in orphaned_extensions:
                 # This will cascade delete commands due to foreign key relationships
                 session.delete(ext)
-                logging.info(f"Deleted orphaned extension: {ext.name}")
 
         session.commit()
-        logging.info("Orphaned data cleanup completed")
 
     except Exception as e:
         session.rollback()
@@ -980,7 +832,6 @@ def import_all_data():
     ensure_default_user()
 
     # Initialize extensions hub first to clone external extensions
-    logging.info("Initializing extensions hub...")
     try:
         from ExtensionsHub import ExtensionsHub
 
@@ -993,33 +844,19 @@ def import_all_data():
             from Extensions import invalidate_extension_cache
 
             invalidate_extension_cache()
-            logging.info("Extension cache invalidated after hub update")
     except Exception as e:
         logging.warning(f"Failed to initialize extensions hub: {e}")
 
     # Import extensions BEFORE providers to ensure all extensions are available
-    logging.info("Importing extensions...")
     import_extensions()
-
-    # Import providers after extensions
-    logging.info("Importing providers...")
     import_providers()
-
-    logging.info("Importing prompts...")
     import_prompts()
-    # logging.info("Importing agents...")
-    # import_agents()
-    # logging.info("Importing chains...")
-    # import_chains()
 
     # Register extension routers after all extensions are imported
     # This ensures hub extensions are available for router registration
-    logging.info("Registering extension routers...")
     try:
         from app import register_extension_routers
 
         register_extension_routers()
     except Exception as e:
         logging.warning(f"Failed to register extension routers: {e}")
-
-    logging.info("Imports complete.")

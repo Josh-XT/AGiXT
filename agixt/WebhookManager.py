@@ -471,6 +471,128 @@ class WebhookEventEmitter:
         """Generate HMAC signature for webhook payload"""
         return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
+    def _transform_payload_for_platform(
+        self, target_url: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Transform payload based on the target platform"""
+        # Discord webhook detection
+        if "discord.com/api/webhooks" in target_url:
+            return self._transform_for_discord(payload)
+
+        # Add other platform transformations here in the future
+        # elif "slack.com" in target_url:
+        #     return self._transform_for_slack(payload)
+        # elif "teams.microsoft.com" in target_url:
+        #     return self._transform_for_teams(payload)
+
+        return payload
+
+    def _transform_for_discord(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Transform payload for Discord webhook format - handles any event type"""
+        try:
+            event_type = payload.get("event_type", "Unknown Event")
+            agent_name = payload.get("agent_name", "AGiXT Agent")
+            timestamp = payload.get("timestamp", "")
+            data = payload.get("data", {})
+            user_id = payload.get("user_id", "Unknown User")
+
+            # Create emoji and message based on event type
+            emoji_map = {
+                "command.executed": "🤖",
+                "chat.completed": "💬",
+                "task.completed": "✅",
+                "task.started": "🚀",
+                "training.completed": "🎓",
+                "training.started": "📚",
+                "agent.created": "👤",
+                "agent.updated": "🔄",
+                "error.occurred": "❌",
+                "webhook.test": "🧪",
+                "conversation.started": "💭",
+                "conversation.ended": "🏁",
+                "file.processed": "📁",
+                "memory.stored": "🧠",
+                "extension.executed": "🔧",
+            }
+
+            emoji = emoji_map.get(event_type, "ℹ️")
+
+            # Create content message
+            if event_type == "command.executed":
+                content = f"{emoji} **{agent_name}** executed a command"
+                if "command" in data:
+                    content += f": `{data['command']}`"
+            elif event_type == "chat.completed":
+                content = f"{emoji} **{agent_name}** completed a chat"
+                if "message" in data:
+                    message = str(data["message"])[:100]
+                    if len(str(data.get("message", ""))) > 100:
+                        message += "..."
+                    content += f"\n> {message}"
+            elif event_type == "task.completed":
+                content = f"{emoji} **{agent_name}** completed a task"
+                if "task_name" in data:
+                    content += f": {data['task_name']}"
+            elif event_type == "webhook.test":
+                content = f"{emoji} **Test webhook** from **{agent_name}**"
+                if "message" in data:
+                    content += f"\n> {data['message']}"
+            else:
+                content = f"{emoji} **{agent_name}** triggered event: **{event_type}**"
+                # Add any key data fields to the message
+                if data and isinstance(data, dict):
+                    key_fields = ["message", "task_name", "command", "status", "result"]
+                    for field in key_fields:
+                        if field in data and data[field]:
+                            value = str(data[field])[:100]
+                            if len(str(data[field])) > 100:
+                                value += "..."
+                            content += (
+                                f"\n**{field.replace('_', ' ').title()}:** {value}"
+                            )
+                            break  # Only show the first key field found
+
+            # Create Discord-compatible payload
+            discord_payload = {
+                "content": content,
+                "embeds": [
+                    {
+                        "title": f"AGiXT Event: {event_type}",
+                        "color": 3447003,  # Blue color
+                        "fields": [
+                            {"name": "Agent", "value": agent_name, "inline": True},
+                            {"name": "Time", "value": timestamp, "inline": True},
+                        ],
+                        "footer": {"text": "AGiXT Webhook System"},
+                    }
+                ],
+            }
+
+            # Add additional fields from data
+            if data:
+                embed_fields = discord_payload["embeds"][0]["fields"]
+                for key, value in data.items():
+                    if (
+                        key not in ["command", "message", "task_name"]
+                        and len(embed_fields) < 25
+                    ):  # Discord limit
+                        embed_fields.append(
+                            {
+                                "name": key.replace("_", " ").title(),
+                                "value": str(value)[:1024],  # Discord field value limit
+                                "inline": True,
+                            }
+                        )
+
+            return discord_payload
+
+        except Exception as e:
+            logger.error(f"Error transforming payload for Discord: {e}")
+            # Fallback to simple message if transformation fails
+            return {
+                "content": f"AGiXT Event: {payload.get('event_type', 'Unknown')} from {payload.get('agent_name', 'Unknown Agent')}"
+            }
+
 
 class WebhookManager:
     """
@@ -874,6 +996,15 @@ CORE_WEBHOOK_EVENT_TYPES = [
     },
     {"type": "training.started", "description": "Triggered when training starts"},
     {"type": "training.completed", "description": "Triggered when training completes"},
+    {
+        "type": "conversation.started",
+        "description": "Triggered when a conversation starts",
+    },
+    {
+        "type": "conversation.ended",
+        "description": "Triggered when a conversation ends",
+    },
+    {"type": "webhook.test", "description": "Test webhook event"},
 ]
 
 

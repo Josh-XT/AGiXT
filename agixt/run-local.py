@@ -32,15 +32,10 @@ async def initialize_database(is_restart=False):
         if not is_restart:
             seed_data = str(getenv("SEED_DATA")).lower() == "true"
             if seed_data:
-                logger.info("Running seed data import (initial boot only)...")
                 from SeedImports import import_all_data
 
                 import_all_data()
-                logger.info("Seed data import completed")
-        else:
-            logger.info("Skipping seed data import (restart mode)")
 
-        logger.info("Database initialization completed")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
@@ -70,16 +65,6 @@ async def start_browser_use_mcp():
     """Start the browser-use MCP server for browser automation."""
     global browser_use_process
 
-    # Check if browser automation is enabled
-    enable_browser_automation = (
-        str(getenv("ENABLE_BROWSER_AUTOMATION", "true")).lower() == "true"
-    )
-    if not enable_browser_automation:
-        logger.info(
-            "Browser automation is disabled via ENABLE_BROWSER_AUTOMATION environment variable"
-        )
-        return
-
     try:
         # Check if uv/uvx is available
         uvx_path = None
@@ -103,8 +88,6 @@ async def start_browser_use_mcp():
             )
             return
 
-        logger.info("Starting browser-use MCP server...")
-
         # Start browser-use MCP server with simple configuration
         # LLM configuration is handled at the MCP client level with user-specific API keys
         cmd = [uvx_path, "browser-use[cli]", "--mcp"]
@@ -114,10 +97,6 @@ async def start_browser_use_mcp():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=os.environ.copy(),
-        )
-
-        logger.info(
-            f"Browser-use MCP server started with PID {browser_use_process.pid}"
         )
 
         # Wait a moment to check if it started successfully
@@ -132,8 +111,6 @@ async def start_browser_use_mcp():
             if stdout:
                 logger.error(f"Standard output: {stdout.decode()}")
             browser_use_process = None
-        else:
-            logger.info("Browser-use MCP server appears to be running successfully")
 
     except Exception as e:
         logger.error(f"Failed to start browser-use MCP server: {e}")
@@ -165,18 +142,11 @@ async def start_service(is_restart=False):
     """Start the uvicorn process for the first time."""
     global uvicorn_process
 
-    if is_restart:
-        logger.info("Restarting AGiXT service...")
-    else:
-        logger.info("Initializing AGiXT service...")
-
     try:
         # Initialize database first (like DB.py does)
-        logger.info("Initializing database...")
         await initialize_database(is_restart=is_restart)
 
         # Start uvicorn process
-        logger.info("Starting uvicorn server...")
         cmd = [
             sys.executable,
             "-m",
@@ -196,11 +166,6 @@ async def start_service(is_restart=False):
         # Working directory should be /agixt when running in Docker
         if os.path.exists("/.dockerenv"):
             work_dir = "/agixt"
-        logger.info(f"Starting uvicorn in directory: {work_dir}")
-        logger.info(f"Current working directory is: {os.getcwd()}")
-        logger.info(
-            f"Contents of {work_dir}: {os.listdir(work_dir) if os.path.exists(work_dir) else 'Directory does not exist'}"
-        )
 
         uvicorn_process = subprocess.Popen(
             cmd,
@@ -210,11 +175,8 @@ async def start_service(is_restart=False):
             env=os.environ.copy(),  # Pass through all environment variables
         )
 
-        logger.info(f"Uvicorn process started with PID {uvicorn_process.pid}")
-
         # Give it more time to start up, especially after restarts
         startup_wait = 15 if is_restart else 10
-        logger.info(f"Waiting {startup_wait} seconds for service to start...")
         await asyncio.sleep(startup_wait)
 
         if uvicorn_process.poll() is not None:
@@ -222,8 +184,6 @@ async def start_service(is_restart=False):
                 f"Uvicorn process died immediately with return code: {uvicorn_process.poll()}"
             )
             raise RuntimeError("Uvicorn failed to start")
-
-        logger.info("Uvicorn process appears to be running successfully")
 
         # Start browser-use MCP server after uvicorn is running
         await start_browser_use_mcp()
@@ -251,7 +211,6 @@ async def restart_service():
     try:
         # Kill existing uvicorn process if any
         if uvicorn_process and uvicorn_process.poll() is None:
-            logger.info("Killing existing uvicorn process...")
             uvicorn_process.terminate()
             try:
                 uvicorn_process.wait(timeout=15)
@@ -262,7 +221,6 @@ async def restart_service():
 
         # Kill existing browser-use MCP server if any
         if browser_use_process and browser_use_process.poll() is None:
-            logger.info("Killing existing browser-use MCP server...")
             browser_use_process.terminate()
             try:
                 browser_use_process.wait(timeout=10)
@@ -274,14 +232,12 @@ async def restart_service():
                 browser_use_process.wait()
 
         # Wait a bit before starting again
-        logger.info("Waiting 5 seconds before restart...")
         await asyncio.sleep(5)
 
         # Start the service again (with restart flag to skip seed imports)
         await start_service(is_restart=True)
 
         last_restart_time = datetime.now()
-        logger.info("Service restart completed")
 
     except Exception as e:
         logger.error(f"Failed to restart service: {e}")
@@ -291,13 +247,8 @@ async def monitor_loop():
     """Main monitoring loop."""
     global consecutive_failures
 
-    logger.info(
-        f"Starting health check monitor (interval: {CHECK_INTERVAL}s, timeout: {TIMEOUT}s)"
-    )
-
     # Initial startup delay
     initial_delay = int(getenv("INITIAL_STARTUP_DELAY"))
-    logger.info(f"Waiting {initial_delay} seconds for initial service startup...")
     await asyncio.sleep(initial_delay)
 
     while True:
@@ -305,10 +256,6 @@ async def monitor_loop():
             is_healthy = await check_health()
 
             if is_healthy:
-                if consecutive_failures > 0:
-                    logger.info(
-                        f"Service recovered after {consecutive_failures} failures"
-                    )
                 consecutive_failures = 0
             else:
                 consecutive_failures += 1
@@ -323,9 +270,6 @@ async def monitor_loop():
                     await restart_service()
                     consecutive_failures = 0
                     # Give extra time after restart for the service to fully start
-                    logger.info(
-                        "Waiting 90 seconds for service to fully restart before resuming health checks..."
-                    )
                     await asyncio.sleep(90)
                     continue
 
@@ -337,16 +281,13 @@ async def monitor_loop():
 
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
-    logger.info(f"Received signal {signum}, shutting down...")
 
     # Shutdown uvicorn process
     if uvicorn_process and uvicorn_process.poll() is None:
-        logger.info("Terminating uvicorn process...")
         uvicorn_process.terminate()
 
     # Shutdown browser-use MCP server
     if browser_use_process and browser_use_process.poll() is None:
-        logger.info("Terminating browser-use MCP server...")
         browser_use_process.terminate()
 
     sys.exit(0)

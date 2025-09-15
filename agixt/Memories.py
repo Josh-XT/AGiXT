@@ -15,7 +15,8 @@ from numpy import array, linalg, ndarray
 from collections import Counter
 from typing import List
 from Globals import getenv, DEFAULT_USER
-from textacy.extract.keyterms import textrank  # type: ignore
+
+# Removed textacy dependency - using spaCy-based keyword extraction
 from youtube_transcript_api import YouTubeTranscriptApi
 from onnxruntime import InferenceSession
 from tokenizers import Tokenizer
@@ -81,9 +82,44 @@ def embed(input: List[str]) -> List[Union[Sequence[float], Sequence[int]]]:
 
 
 def extract_keywords(doc=None, text="", limit=10):
+    """
+    SpaCy-based keyword extraction using named entities and noun chunks.
+    More sophisticated than basic frequency counting, leverages spaCy's NLP capabilities.
+    """
     if not doc:
         doc = nlp(text)
-    return [k for k, s in textrank(doc, topn=limit)]
+
+    keywords = set()
+
+    # Extract named entities (high-value keywords)
+    for ent in doc.ents:
+        if ent.label_ in ["PERSON", "ORG", "GPE", "PRODUCT", "EVENT"]:
+            keywords.add(ent.text.lower())
+
+    # Extract noun chunks (meaningful phrases)
+    for chunk in doc.noun_chunks:
+        if len(chunk.text) > 2 and not chunk.root.is_stop:
+            keywords.add(chunk.text.lower())
+
+    # Extract important individual tokens
+    for token in doc:
+        if (
+            not token.is_stop
+            and not token.is_punct
+            and not token.is_space
+            and len(token.text) > 2
+            and token.pos_ in ["NOUN", "PROPN", "ADJ"]
+            and token.dep_ not in ["det", "prep"]
+        ):  # Skip determiners and prepositions
+            keywords.add(token.lemma_.lower())
+
+    # Convert to list and return top N by frequency in original text
+    keyword_list = list(keywords)
+    text_lower = text.lower() if text else doc.text.lower()
+    keyword_counts = [(kw, text_lower.count(kw)) for kw in keyword_list]
+    keyword_counts.sort(key=lambda x: x[1], reverse=True)
+
+    return [kw for kw, count in keyword_counts[:limit]]
 
 
 def snake(old_str: str = ""):

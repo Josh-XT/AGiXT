@@ -11,7 +11,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from MagicalAuth import MagicalAuth, verify_api_key
+from MagicalAuth import MagicalAuth, verify_api_key, convert_time
 from Models import (
     WebhookIncomingCreate,
     WebhookIncomingUpdate,
@@ -131,6 +131,24 @@ async def create_incoming_webhook(
         if not user:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Handle agent_name to agent_id conversion if needed
+        if webhook_data.agent_name and not webhook_data.agent_id:
+            from DB import Agent
+
+            agent = (
+                session.query(Agent)
+                .filter_by(name=webhook_data.agent_name, user_id=user_id)
+                .first()
+            )
+            if not agent:
+                session.close()
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Agent '{webhook_data.agent_name}' not found",
+                )
+            webhook_data.agent_id = str(agent.id)
+
         session.close()
 
         # Create webhook
@@ -155,8 +173,16 @@ async def create_incoming_webhook(
             webhook_url=webhook_info["webhook_url"],
             description=webhook.description,
             active=webhook.active,
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
         )
 
     except Exception as e:
@@ -214,8 +240,16 @@ async def list_incoming_webhooks(
                     webhook_url=f"/api/webhook/{webhook.webhook_id}",
                     description=webhook.description,
                     active=webhook.active,
-                    created_at=webhook.created_at,
-                    updated_at=webhook.updated_at,
+                    created_at=(
+                        convert_time(webhook.created_at, user_id=user_id)
+                        if webhook.created_at
+                        else None
+                    ),
+                    updated_at=(
+                        convert_time(webhook.updated_at, user_id=user_id)
+                        if webhook.updated_at
+                        else None
+                    ),
                 )
             )
 
@@ -277,8 +311,16 @@ async def update_incoming_webhook(
             webhook_url=f"/api/webhook/{webhook.webhook_id}",
             description=webhook.description,
             active=webhook.active,
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
         )
 
         session.close()
@@ -405,11 +447,11 @@ async def create_outgoing_webhook(
         session.close()
 
         return WebhookOutgoingResponse(
-            id=webhook.id,
+            id=str(webhook.id),
             name=webhook.name,
             target_url=webhook.target_url,
             event_types=safe_json_loads(webhook.event_types, []),
-            company_id=webhook.company_id,
+            company_id=str(webhook.company_id),
             headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,
@@ -417,8 +459,16 @@ async def create_outgoing_webhook(
             timeout=webhook.timeout,
             active=webhook.active,
             filters=safe_json_loads(webhook.filters, {}),
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
             consecutive_failures=webhook.consecutive_failures,
             total_events_sent=webhook.total_events_sent,
             successful_deliveries=webhook.successful_deliveries,
@@ -470,11 +520,11 @@ async def list_outgoing_webhooks(
         for webhook in webhooks:
             result.append(
                 WebhookOutgoingResponse(
-                    id=webhook.id,
+                    id=str(webhook.id),
                     name=webhook.name,
                     target_url=webhook.target_url,
                     event_types=safe_json_loads(webhook.event_types, []),
-                    company_id=webhook.company_id,
+                    company_id=str(webhook.company_id),
                     headers=safe_json_loads(webhook.headers, {}),
                     secret=webhook.secret,
                     retry_count=webhook.retry_count,
@@ -482,8 +532,16 @@ async def list_outgoing_webhooks(
                     timeout=webhook.timeout,
                     active=webhook.active,
                     filters=safe_json_loads(webhook.filters, {}),
-                    created_at=webhook.created_at,
-                    updated_at=webhook.updated_at,
+                    created_at=(
+                        convert_time(webhook.created_at, user_id=user_id)
+                        if webhook.created_at
+                        else None
+                    ),
+                    updated_at=(
+                        convert_time(webhook.updated_at, user_id=user_id)
+                        if webhook.updated_at
+                        else None
+                    ),
                     consecutive_failures=webhook.consecutive_failures,
                     total_events_sent=webhook.total_events_sent,
                     successful_deliveries=webhook.successful_deliveries,
@@ -569,11 +627,11 @@ async def update_outgoing_webhook(
         session.commit()
 
         result = WebhookOutgoingResponse(
-            id=webhook.id,
+            id=str(webhook.id),
             name=webhook.name,
             target_url=webhook.target_url,
             event_types=safe_json_loads(webhook.event_types, []),
-            company_id=webhook.company_id,
+            company_id=str(webhook.company_id),
             headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,
@@ -581,8 +639,16 @@ async def update_outgoing_webhook(
             timeout=webhook.timeout,
             active=webhook.active,
             filters=safe_json_loads(webhook.filters, {}),
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
             consecutive_failures=webhook.consecutive_failures,
             total_events_sent=webhook.total_events_sent,
             successful_deliveries=webhook.successful_deliveries,
@@ -655,6 +721,137 @@ async def list_webhook_event_types():
     Get a list of all available webhook event types
     """
     return WebhookEventTypeList(event_types=get_all_webhook_event_types())
+
+
+@app.get(
+    "/api/webhooks/stats",
+    response_model=Dict[str, Any],
+    tags=["Webhooks"],
+    summary="Get global webhook statistics",
+)
+async def get_global_webhook_stats(
+    user_data: dict = Depends(verify_api_key),
+):
+    """
+    Get global webhook statistics for the user
+    """
+    try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
+        session = get_session()
+
+        # Get counts of webhooks
+        incoming_count = (
+            session.query(WebhookIncoming).filter_by(user_id=user_id).count()
+        )
+        outgoing_count = (
+            session.query(WebhookOutgoing).filter_by(user_id=user_id).count()
+        )
+
+        # Get active webhooks
+        active_incoming = (
+            session.query(WebhookIncoming)
+            .filter_by(user_id=user_id, active=True)
+            .count()
+        )
+        active_outgoing = (
+            session.query(WebhookOutgoing)
+            .filter_by(user_id=user_id, active=True)
+            .count()
+        )
+
+        session.close()
+
+        return {
+            "total_incoming_webhooks": incoming_count,
+            "total_outgoing_webhooks": outgoing_count,
+            "active_incoming_webhooks": active_incoming,
+            "active_outgoing_webhooks": active_outgoing,
+            "total_webhooks": incoming_count + outgoing_count,
+            "active_webhooks": active_incoming + active_outgoing,
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting global webhook stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(
+    "/api/webhooks/logs",
+    response_model=List[WebhookLogResponse],
+    tags=["Webhooks"],
+    summary="Get recent webhook logs",
+)
+async def get_recent_webhook_logs(
+    user_data: dict = Depends(verify_api_key),
+    limit: int = Query(10, description="Maximum number of logs to return"),
+    offset: int = Query(0, description="Number of logs to skip"),
+):
+    """
+    Get recent webhook logs for all user webhooks
+    """
+    try:
+        # Extract user ID from the user data dictionary
+        user_id = user_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user data")
+
+        session = get_session()
+
+        # Get all webhook IDs for the user
+        incoming_webhooks = (
+            session.query(WebhookIncoming).filter_by(user_id=user_id).all()
+        )
+        outgoing_webhooks = (
+            session.query(WebhookOutgoing).filter_by(user_id=user_id).all()
+        )
+
+        webhook_ids = []
+        for webhook in incoming_webhooks:
+            webhook_ids.append((webhook.id, "incoming"))
+        for webhook in outgoing_webhooks:
+            webhook_ids.append((str(webhook.id), "outgoing"))
+
+        # Get recent logs for all webhooks
+        logs = []
+        for webhook_id, webhook_type in webhook_ids:
+            webhook_logs = (
+                session.query(WebhookLog)
+                .filter_by(webhook_id=webhook_id, direction=webhook_type)
+                .order_by(desc(WebhookLog.timestamp))
+                .limit(limit)
+                .all()
+            )
+            logs.extend(webhook_logs)
+
+        # Sort by timestamp and limit
+        logs = sorted(logs, key=lambda x: x.timestamp, reverse=True)[:limit]
+
+        result = []
+        for log in logs:
+            result.append(
+                WebhookLogResponse(
+                    id=str(log.id),
+                    direction=log.direction,
+                    webhook_id=str(log.webhook_id),
+                    payload=log.payload,
+                    response=log.response,
+                    status_code=log.status_code,
+                    error_message=log.error_message,
+                    retry_count=log.retry_count,
+                    timestamp=log.timestamp,
+                )
+            )
+
+        session.close()
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting recent webhook logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post(
@@ -880,8 +1077,8 @@ async def get_webhook_logs(
 
             logs = (
                 session.query(WebhookLog)
-                .filter_by(webhook_id=webhook.id, webhook_type="incoming")
-                .order_by(desc(WebhookLog.created_at))
+                .filter_by(webhook_id=webhook.id, direction="incoming")
+                .order_by(desc(WebhookLog.timestamp))
                 .limit(limit)
                 .offset(offset)
                 .all()
@@ -900,8 +1097,8 @@ async def get_webhook_logs(
 
             logs = (
                 session.query(WebhookLog)
-                .filter_by(webhook_id=webhook_id, webhook_type="outgoing")
-                .order_by(desc(WebhookLog.created_at))
+                .filter_by(webhook_id=webhook_id, direction="outgoing")
+                .order_by(desc(WebhookLog.timestamp))
                 .limit(limit)
                 .offset(offset)
                 .all()
@@ -911,9 +1108,9 @@ async def get_webhook_logs(
         for log in logs:
             result.append(
                 WebhookLogResponse(
-                    id=log.id,
+                    id=str(log.id),
                     direction=log.direction,
-                    webhook_id=log.webhook_id,
+                    webhook_id=str(log.webhook_id),
                     payload=log.payload,
                     response=log.response,
                     status_code=log.status_code,
