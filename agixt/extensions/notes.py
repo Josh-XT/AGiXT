@@ -110,7 +110,7 @@ class notes(Extensions, ExtensionDatabaseMixin):
     - Always search existing notes before asking the user to repeat information
     """
 
-    CATEGORY = "Business & Productivity"
+    CATEGORY = "Core AI Capabilities"
 
     # Register extension models for automatic table creation
     extension_models = [Note]
