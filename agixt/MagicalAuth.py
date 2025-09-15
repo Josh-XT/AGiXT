@@ -3684,13 +3684,14 @@ def convert_time(utc_time, user_id) -> datetime:
 def convert_user_time_to_utc(user_time, user_id) -> datetime:
     """Convert a user's local time to UTC for database storage"""
     import pytz
+
     user_timezone = get_user_timezone(user_id)
     local_tz = pytz.timezone(user_timezone)
-    
+
     # If the user_time is a naive datetime, assume it's in user's timezone
     if user_time.tzinfo is None:
         user_time = local_tz.localize(user_time)
-    
+
     # Convert to UTC and return as naive datetime for database storage
     return user_time.astimezone(pytz.UTC).replace(tzinfo=None)
 
@@ -3698,6 +3699,7 @@ def convert_user_time_to_utc(user_time, user_id) -> datetime:
 def get_current_user_time(user_id) -> datetime:
     """Get the current time in the user's timezone"""
     import pytz
+
     user_timezone = get_user_timezone(user_id)
     local_tz = pytz.timezone(user_timezone)
     return datetime.now(local_tz)
