@@ -11,7 +11,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from MagicalAuth import MagicalAuth, verify_api_key
+from MagicalAuth import MagicalAuth, verify_api_key, convert_time
 from Models import (
     WebhookIncomingCreate,
     WebhookIncomingUpdate,
@@ -173,8 +173,16 @@ async def create_incoming_webhook(
             webhook_url=webhook_info["webhook_url"],
             description=webhook.description,
             active=webhook.active,
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
         )
 
     except Exception as e:
@@ -232,8 +240,16 @@ async def list_incoming_webhooks(
                     webhook_url=f"/api/webhook/{webhook.webhook_id}",
                     description=webhook.description,
                     active=webhook.active,
-                    created_at=webhook.created_at,
-                    updated_at=webhook.updated_at,
+                    created_at=(
+                        convert_time(webhook.created_at, user_id=user_id)
+                        if webhook.created_at
+                        else None
+                    ),
+                    updated_at=(
+                        convert_time(webhook.updated_at, user_id=user_id)
+                        if webhook.updated_at
+                        else None
+                    ),
                 )
             )
 
@@ -295,8 +311,16 @@ async def update_incoming_webhook(
             webhook_url=f"/api/webhook/{webhook.webhook_id}",
             description=webhook.description,
             active=webhook.active,
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
         )
 
         session.close()
@@ -435,8 +459,16 @@ async def create_outgoing_webhook(
             timeout=webhook.timeout,
             active=webhook.active,
             filters=safe_json_loads(webhook.filters, {}),
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
             consecutive_failures=webhook.consecutive_failures,
             total_events_sent=webhook.total_events_sent,
             successful_deliveries=webhook.successful_deliveries,
@@ -500,8 +532,16 @@ async def list_outgoing_webhooks(
                     timeout=webhook.timeout,
                     active=webhook.active,
                     filters=safe_json_loads(webhook.filters, {}),
-                    created_at=webhook.created_at,
-                    updated_at=webhook.updated_at,
+                    created_at=(
+                        convert_time(webhook.created_at, user_id=user_id)
+                        if webhook.created_at
+                        else None
+                    ),
+                    updated_at=(
+                        convert_time(webhook.updated_at, user_id=user_id)
+                        if webhook.updated_at
+                        else None
+                    ),
                     consecutive_failures=webhook.consecutive_failures,
                     total_events_sent=webhook.total_events_sent,
                     successful_deliveries=webhook.successful_deliveries,
@@ -599,8 +639,16 @@ async def update_outgoing_webhook(
             timeout=webhook.timeout,
             active=webhook.active,
             filters=safe_json_loads(webhook.filters, {}),
-            created_at=webhook.created_at,
-            updated_at=webhook.updated_at,
+            created_at=(
+                convert_time(webhook.created_at, user_id=user_id)
+                if webhook.created_at
+                else None
+            ),
+            updated_at=(
+                convert_time(webhook.updated_at, user_id=user_id)
+                if webhook.updated_at
+                else None
+            ),
             consecutive_failures=webhook.consecutive_failures,
             total_events_sent=webhook.total_events_sent,
             successful_deliveries=webhook.successful_deliveries,
