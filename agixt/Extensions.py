@@ -742,16 +742,18 @@ class Extensions:
                     except Exception as e:
                         logging.debug(f"Could not get category description: {e}")
 
-                    commands.append(
-                        {
-                            "extension_name": extension_name,
-                            "description": extension_description,
-                            "settings": extension_settings,
-                            "commands": extension_commands,
-                            "category": category_name,
-                            "category_description": category_description,
-                        }
-                    )
+                    # Only add extensions that have commands (filters out OAuth extensions without credentials)
+                    if extension_commands:
+                        commands.append(
+                            {
+                                "extension_name": extension_name,
+                                "description": extension_description,
+                                "settings": extension_settings,
+                                "commands": extension_commands,
+                                "category": category_name,
+                                "category_description": category_description,
+                            }
+                        )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:

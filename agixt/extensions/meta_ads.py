@@ -312,7 +312,7 @@ class meta_ads(Extensions):
     - api_key: AGiXT API key for MagicalAuth integration
     """
 
-    CATEGORY = "Business & Productivity"
+    CATEGORY = "Social & Communication"
 
     def __init__(self, **kwargs):
         """
