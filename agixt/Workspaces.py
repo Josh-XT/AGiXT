@@ -274,18 +274,34 @@ class WorkspaceManager(SecurityValidationMixin):
 
             endpoint = getenv("S3_ENDPOINT", "http://minio:9000")
             use_ssl = endpoint.startswith("https://")
-            # Strip the protocol from the endpoint
-            host = endpoint.split("://")[1]
+
+            # Parse endpoint to extract host and port
+            if "://" in endpoint:
+                protocol, host_port = endpoint.split("://", 1)
+                if ":" in host_port and not host_port.startswith("["):  # IPv6 check
+                    host, port = host_port.rsplit(":", 1)
+                    try:
+                        port = int(port)
+                    except ValueError:
+                        host = host_port
+                        port = 443 if use_ssl else 80
+                else:
+                    host = host_port
+                    port = 443 if use_ssl else 80
+            else:
+                host = endpoint
+                port = 443 if use_ssl else 80
 
             cls = get_driver(Provider.S3)
             return cls(
                 key=getenv("AWS_ACCESS_KEY_ID"),
                 secret=getenv("AWS_SECRET_ACCESS_KEY"),
                 region=getenv("AWS_STORAGE_REGION", "us-east-1"),
-                host=host,  # Just the host without protocol
-                use_ssl=use_ssl,
-                verify_ssl_cert=False,  # For self-signed certs
-                ex_force_http=use_ssl,
+                host=host,
+                port=port,
+                secure=use_ssl,
+                ex_force_service_region=True,
+                ex_force_bucket_style=True,  # Force path-style for MinIO
             )
 
         elif backend == "azure":
@@ -425,6 +441,9 @@ class WorkspaceManager(SecurityValidationMixin):
         # If not in cache, download first
         if not local_path.exists():
             try:
+                # Ensure parent directory exists before downloading
+                os.makedirs(local_path.parent, exist_ok=True)
+
                 obj = self.container.get_object(object_path)
                 obj.download(str(local_path))
 
