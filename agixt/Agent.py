@@ -163,14 +163,69 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
             value=value,
         )
         session.add(agent_setting)
+
+    # Auto-enable commands from essential_abilities and notes extensions
+    essential_extensions = ["Essential Abilities", "Notes"]
+    for extension_name in essential_extensions:
+        extension = (
+            session.query(Extension).filter(Extension.name == extension_name).first()
+        )
+        if extension:
+            # Get all commands from this extension
+            extension_commands = (
+                session.query(Command)
+                .filter(Command.extension_id == extension.id)
+                .all()
+            )
+            # Enable all commands from these extensions
+            for command in extension_commands:
+                # Check if agent command already exists (from commands parameter)
+                existing_agent_command = (
+                    session.query(AgentCommand)
+                    .filter(
+                        AgentCommand.agent_id == agent.id,
+                        AgentCommand.command_id == command.id,
+                    )
+                    .first()
+                )
+                if not existing_agent_command:
+                    agent_command = AgentCommand(
+                        agent_id=agent.id, command_id=command.id, state=True
+                    )
+                    session.add(agent_command)
+
+    # Handle any additional commands passed in the commands parameter
     if commands:
         for command_name, enabled in commands.items():
             command = session.query(Command).filter_by(name=command_name).first()
             if command:
-                agent_command = AgentCommand(
-                    agent_id=agent.id, command_id=command.id, state=enabled
+                # Check if agent command already exists (from auto-enabled extensions)
+                existing_agent_command = (
+                    session.query(AgentCommand)
+                    .filter(
+                        AgentCommand.agent_id == agent.id,
+                        AgentCommand.command_id == command.id,
+                    )
+                    .first()
                 )
-                session.add(agent_command)
+                if existing_agent_command:
+                    # Update existing command state
+                    existing_agent_command.state = enabled
+                else:
+                    # Create new agent command
+                    agent_command = AgentCommand(
+                        agent_id=agent.id, command_id=command.id, state=enabled
+                    )
+                    session.add(agent_command)
+
+    # Set onboarded2agixt to true for new agents since we auto-enabled essential commands
+    onboarded_setting = AgentSettingModel(
+        agent_id=agent.id,
+        name="onboarded2agixt",
+        value="true",
+    )
+    session.add(onboarded_setting)
+
     session.commit()
     session.close()
     return {"message": f"Agent {agent_name} created."}
@@ -330,8 +385,9 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Check if the agent is in the output already
         if agent.name in [a["name"] for a in output]:
             continue
-        # Get the agent settings `company_id` if defined
+        # Get the agent settings `company_id` and `onboarded2agixt` if defined
         company_id = None
+        onboarded2agixt = None
         agent_settings = (
             session.query(AgentSettingModel)
             .filter(AgentSettingModel.agent_id == agent.id)
@@ -340,7 +396,8 @@ def get_agents(user=DEFAULT_USER, company=None):
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-                break
+            elif setting.name == "onboarded2agixt":
+                onboarded2agixt = setting.value
         if company_id and company:
             if company_id != company:
                 continue
@@ -352,6 +409,52 @@ def get_agents(user=DEFAULT_USER, company=None):
                 agent_id=agent.id,
                 name="company_id",
                 value=company_id,
+            )
+            session.add(agent_setting)
+            session.commit()
+
+        # Check if agent needs onboarding (enable essential_abilities and notes commands)
+        if not onboarded2agixt or onboarded2agixt.lower() != "true":
+            # Auto-enable commands from essential_abilities and notes extensions
+            essential_extensions = ["Essential Abilities", "Notes"]
+            for extension_name in essential_extensions:
+                extension = (
+                    session.query(Extension)
+                    .filter(Extension.name == extension_name)
+                    .first()
+                )
+                if extension:
+                    # Get all commands from this extension
+                    extension_commands = (
+                        session.query(Command)
+                        .filter(Command.extension_id == extension.id)
+                        .all()
+                    )
+                    # Enable all commands from these extensions
+                    for command in extension_commands:
+                        # Check if agent command already exists
+                        existing_agent_command = (
+                            session.query(AgentCommand)
+                            .filter(
+                                AgentCommand.agent_id == agent.id,
+                                AgentCommand.command_id == command.id,
+                            )
+                            .first()
+                        )
+                        if not existing_agent_command:
+                            agent_command = AgentCommand(
+                                agent_id=agent.id, command_id=command.id, state=True
+                            )
+                            session.add(agent_command)
+                        elif not existing_agent_command.state:
+                            # Enable the command if it was disabled
+                            existing_agent_command.state = True
+
+            # Create the onboarded2agixt setting
+            agent_setting = AgentSettingModel(
+                agent_id=agent.id,
+                name="onboarded2agixt",
+                value="true",
             )
             session.add(agent_setting)
             session.commit()
