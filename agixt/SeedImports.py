@@ -42,28 +42,90 @@ def get_extension_category(session, extension_name):
     # Try to find the extension class and get its CATEGORY attribute
     try:
         extension_files = find_extension_files()
+        best_match_file = None
+        best_match_score = 0
+
+        logging.info(
+            f"Looking for extension '{extension_name}' among {len(extension_files)} files"
+        )
+
         for extension_file in extension_files:
-            # Match extension file to extension name
+            # Match extension file to extension name with better precision
             file_base = (
                 os.path.basename(extension_file)
                 .replace(".py", "")
                 .replace("_", " ")
                 .title()
             )
-            if (
-                file_base.lower() in extension_name.lower()
-                or extension_name.lower() in file_base.lower()
-            ):
-                module = import_extension_module(extension_file)
-                if module:
-                    class_name = get_extension_class_name(extension_file)
-                    if hasattr(module, class_name):
-                        extension_class = getattr(module, class_name)
-                        if hasattr(extension_class, "CATEGORY"):
-                            category_name = extension_class.CATEGORY
-                            break
+
+            # Also check the raw filename without transformation
+            raw_filename = os.path.basename(extension_file).replace(".py", "")
+
+            # Calculate match score - prioritize exact matches and longer matches
+            extension_lower = extension_name.lower()
+            file_base_lower = file_base.lower()
+            raw_filename_lower = raw_filename.lower()
+
+            match_score = 0
+
+            # Check for exact matches first (highest priority)
+            if extension_lower == file_base_lower:
+                match_score = 1000
+                logging.info(
+                    f"Exact match found: '{extension_name}' == '{file_base}' (from {extension_file})"
+                )
+            elif extension_lower == raw_filename_lower:
+                match_score = 900
+                logging.info(
+                    f"Raw filename match found: '{extension_name}' == '{raw_filename}' (from {extension_file})"
+                )
+            # Check for partial matches with proper scoring
+            elif extension_lower in file_base_lower and len(extension_lower) > 3:
+                match_score = len(extension_lower) / len(file_base_lower) * 100
+                logging.info(
+                    f"Partial match: '{extension_name}' in '{file_base}' (score: {match_score})"
+                )
+            elif file_base_lower in extension_lower and len(file_base_lower) > 3:
+                match_score = len(file_base_lower) / len(extension_lower) * 50
+                logging.info(
+                    f"Reverse partial match: '{file_base}' in '{extension_name}' (score: {match_score})"
+                )
+
+            if match_score > best_match_score:
+                best_match_score = match_score
+                best_match_file = extension_file
+                logging.info(f"New best match: {extension_file} (score: {match_score})")
+
+        # Use the best match if we found one
+        if best_match_file:
+            logging.info(
+                f"Using best match file: {best_match_file} (score: {best_match_score})"
+            )
+            module = import_extension_module(best_match_file)
+            if module:
+                class_name = get_extension_class_name(os.path.basename(best_match_file))
+                if hasattr(module, class_name):
+                    extension_class = getattr(module, class_name)
+                    if hasattr(extension_class, "CATEGORY"):
+                        category_name = extension_class.CATEGORY
+                        logging.info(
+                            f"Found category '{category_name}' for extension '{extension_name}' from file '{best_match_file}'"
+                        )
+                    else:
+                        logging.info(
+                            f"Extension class {class_name} in {best_match_file} has no CATEGORY attribute"
+                        )
+                else:
+                    logging.info(
+                        f"Could not find class {class_name} in module from {best_match_file}"
+                    )
+            else:
+                logging.info(f"Could not import module from {best_match_file}")
+        else:
+            logging.info(f"No matching file found for extension '{extension_name}'")
+
     except Exception as e:
-        logging.debug(
+        logging.warning(
             f"Could not determine category for extension {extension_name}: {e}"
         )
 
@@ -893,6 +955,15 @@ def cleanup_orphaned_data():
 def import_all_data():
     # Ensure default user exists
     ensure_default_user()
+
+    # Setup default extension categories before importing extensions
+    try:
+        from DB import setup_default_extension_categories
+
+        setup_default_extension_categories()
+        logging.info("Extension categories setup completed")
+    except Exception as e:
+        logging.warning(f"Failed to setup extension categories: {e}")
 
     # Initialize extensions hub first to clone external extensions
     try:
