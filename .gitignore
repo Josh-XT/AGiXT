@@ -34,6 +34,8 @@ agixt/LICENSE
 agixt/README.md
 agixt/hub_main.zip
 agixt/*_main.zip
+tests/qr.png
+tests/sample*
 # docs generation
 _book/
 streamlit/

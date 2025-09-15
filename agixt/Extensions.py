@@ -371,6 +371,11 @@ class Extensions:
         return commands
 
     def find_command(self, command_name: str):
+        # Protect against empty command names
+        if not command_name or command_name.strip() == "":
+            logging.error("Empty command name provided")
+            return None, None, None
+
         for name, module, function_name, params in self.commands:
             if module.__name__ in DISABLED_EXTENSIONS:
                 continue
@@ -474,7 +479,13 @@ class Extensions:
             f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
         )
         if command_function is None:
-            logging.error(f"Command {command_name} not found")
+            # Add more debugging for empty command names
+            if not command_name or command_name.strip() == "":
+                error_msg = "Empty command name provided"
+                logging.error(error_msg)
+            else:
+                error_msg = f"Command '{command_name}' not found"
+                logging.error(error_msg)
 
             # Emit webhook event for command execution failed
             asyncio.create_task(
@@ -487,12 +498,12 @@ class Extensions:
                         "command_args": command_args,
                         "agent_name": self.agent_name,
                         "conversation_id": self.conversation_id,
-                        "error": f"Command {command_name} not found",
+                        "error": error_msg,
                     },
                 )
             )
 
-            return f"Command {command_name} not found"
+            return error_msg
 
         if command_args is None:
             command_args = {}

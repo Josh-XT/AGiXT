@@ -71,7 +71,7 @@ class essential_abilities(Extensions):
         self.WORKING_DIRECTORY_RESTRICTED = True
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
-
+        self.user_id = kwargs.get("user_id", None)
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""

@@ -669,6 +669,20 @@ class notes(Extensions, ExtensionDatabaseMixin):
         """
         session = get_session()
         try:
+            # Handle 'None' string or None value for limit
+            if limit is None or str(limit).lower() == "none":
+                limit = 10  # Use default value
+            else:
+                try:
+                    limit = int(limit)
+                    # Ensure limit is within reasonable bounds
+                    if limit < 1:
+                        limit = 1
+                    elif limit > 100:
+                        limit = 100
+                except (ValueError, TypeError):
+                    limit = 10  # Use default if conversion fails
+
             search_term = f"%{query}%"
             notes = (
                 session.query(Note)

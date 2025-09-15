@@ -528,9 +528,19 @@ class Memories:
             session.commit()
 
             # Emit webhook event
+            from MagicalAuth import get_user_id, get_user_company_id_by_email
+
+            try:
+                user_id = get_user_id(self.user)
+                company_id = get_user_company_id_by_email(self.user)
+            except:
+                user_id = self.user
+                company_id = None
+
             await webhook_emitter.emit_event(
                 event_type="memory.wiped",
-                user_id=self.user,
+                user_id=str(user_id),
+                company_id=company_id,
                 agent_id=self.agent_id,
                 agent_name=self.agent_name,
                 data={
@@ -777,9 +787,19 @@ class Memories:
                 session.commit()
 
                 # Emit webhook event for memory creation
+                from MagicalAuth import get_user_id, get_user_company_id_by_email
+
+                try:
+                    user_id = get_user_id(self.user)
+                    company_id = get_user_company_id_by_email(self.user)
+                except:
+                    user_id = self.user
+                    company_id = None
+
                 await webhook_emitter.emit_event(
                     event_type="memory.created",
-                    user_id=self.user,
+                    user_id=str(user_id),
+                    company_id=company_id,
                     agent_id=self.agent_id,
                     agent_name=self.agent_name,
                     data={

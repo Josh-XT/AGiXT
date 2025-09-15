@@ -5,6 +5,16 @@ services:
       dockerfile: Dockerfile
     init: true
     restart: unless-stopped
+    # Add capabilities for bubblewrap sandbox
+    cap_add:
+      - SYS_ADMIN
+      - SYS_CHROOT
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - apparmor:unconfined
+    # Enable privileged mode for full bubblewrap support
+    privileged: true
     environment:
       DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
       DATABASE_NAME: ${DATABASE_NAME:-postgres}

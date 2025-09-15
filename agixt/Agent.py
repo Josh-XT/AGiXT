@@ -115,7 +115,9 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     if "company_id" not in provider_settings:
         token = impersonate_user(user_id=str(user_id))
         auth = MagicalAuth(token=token)
-        provider_settings["company_id"] = str(auth.company_id)
+        provider_settings["company_id"] = (
+            str(auth.company_id) if auth.company_id is not None else None
+        )
     # Iterate over DEFAULT_SETTINGS and add any missing keys
     for key in DEFAULT_SETTINGS:
         if key not in provider_settings:
@@ -137,6 +139,23 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
 
     # Emit webhook event for agent creation (async without await since this is sync function)
     import asyncio
+    from DB import UserCompany
+
+    # Try to get the user's company_id
+    company_id = None
+    try:
+        user_company = (
+            session.query(UserCompany)
+            .filter(UserCompany.user_id == str(user_id))
+            .first()
+        )
+        company_id = (
+            str(user_company.company_id)
+            if user_company and user_company.company_id is not None
+            else None
+        )
+    except:
+        pass
 
     try:
         asyncio.create_task(
@@ -150,6 +169,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=str(user_id),
+                company_id=company_id,
             )
         )
     except:
@@ -163,14 +183,69 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
             value=value,
         )
         session.add(agent_setting)
+
+    # Auto-enable commands from essential_abilities and notes extensions
+    essential_extensions = ["Essential Abilities", "Notes"]
+    for extension_name in essential_extensions:
+        extension = (
+            session.query(Extension).filter(Extension.name == extension_name).first()
+        )
+        if extension:
+            # Get all commands from this extension
+            extension_commands = (
+                session.query(Command)
+                .filter(Command.extension_id == extension.id)
+                .all()
+            )
+            # Enable all commands from these extensions
+            for command in extension_commands:
+                # Check if agent command already exists (from commands parameter)
+                existing_agent_command = (
+                    session.query(AgentCommand)
+                    .filter(
+                        AgentCommand.agent_id == agent.id,
+                        AgentCommand.command_id == command.id,
+                    )
+                    .first()
+                )
+                if not existing_agent_command:
+                    agent_command = AgentCommand(
+                        agent_id=agent.id, command_id=command.id, state=True
+                    )
+                    session.add(agent_command)
+
+    # Handle any additional commands passed in the commands parameter
     if commands:
         for command_name, enabled in commands.items():
             command = session.query(Command).filter_by(name=command_name).first()
             if command:
-                agent_command = AgentCommand(
-                    agent_id=agent.id, command_id=command.id, state=enabled
+                # Check if agent command already exists (from auto-enabled extensions)
+                existing_agent_command = (
+                    session.query(AgentCommand)
+                    .filter(
+                        AgentCommand.agent_id == agent.id,
+                        AgentCommand.command_id == command.id,
+                    )
+                    .first()
                 )
-                session.add(agent_command)
+                if existing_agent_command:
+                    # Update existing command state
+                    existing_agent_command.state = enabled
+                else:
+                    # Create new agent command
+                    agent_command = AgentCommand(
+                        agent_id=agent.id, command_id=command.id, state=enabled
+                    )
+                    session.add(agent_command)
+
+    # Set onboarded2agixt to true for new agents since we auto-enabled essential commands
+    onboarded_setting = AgentSettingModel(
+        agent_id=agent.id,
+        name="onboarded2agixt",
+        value="true",
+    )
+    session.add(onboarded_setting)
+
     session.commit()
     session.close()
     return {"message": f"Agent {agent_name} created."}
@@ -330,8 +405,9 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Check if the agent is in the output already
         if agent.name in [a["name"] for a in output]:
             continue
-        # Get the agent settings `company_id` if defined
+        # Get the agent settings `company_id` and `onboarded2agixt` if defined
         company_id = None
+        onboarded2agixt = None
         agent_settings = (
             session.query(AgentSettingModel)
             .filter(AgentSettingModel.agent_id == agent.id)
@@ -340,18 +416,65 @@ def get_agents(user=DEFAULT_USER, company=None):
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-                break
+            elif setting.name == "onboarded2agixt":
+                onboarded2agixt = setting.value
         if company_id and company:
             if company_id != company:
                 continue
         if not company_id:
             auth = MagicalAuth(token=impersonate_user(user_id=str(user_data.id)))
-            company_id = str(auth.company_id)
+            company_id = str(auth.company_id) if auth.company_id is not None else None
             # update agent settings
             agent_setting = AgentSettingModel(
                 agent_id=agent.id,
                 name="company_id",
                 value=company_id,
+            )
+            session.add(agent_setting)
+            session.commit()
+
+        # Check if agent needs onboarding (enable essential_abilities and notes commands)
+        if not onboarded2agixt or onboarded2agixt.lower() != "true":
+            # Auto-enable commands from essential_abilities and notes extensions
+            essential_extensions = ["Essential Abilities", "Notes"]
+            for extension_name in essential_extensions:
+                extension = (
+                    session.query(Extension)
+                    .filter(Extension.name == extension_name)
+                    .first()
+                )
+                if extension:
+                    # Get all commands from this extension
+                    extension_commands = (
+                        session.query(Command)
+                        .filter(Command.extension_id == extension.id)
+                        .all()
+                    )
+                    # Enable all commands from these extensions
+                    for command in extension_commands:
+                        # Check if agent command already exists
+                        existing_agent_command = (
+                            session.query(AgentCommand)
+                            .filter(
+                                AgentCommand.agent_id == agent.id,
+                                AgentCommand.command_id == command.id,
+                            )
+                            .first()
+                        )
+                        if not existing_agent_command:
+                            agent_command = AgentCommand(
+                                agent_id=agent.id, command_id=command.id, state=True
+                            )
+                            session.add(agent_command)
+                        elif not existing_agent_command.state:
+                            # Enable the command if it was disabled
+                            existing_agent_command.state = True
+
+            # Create the onboarded2agixt setting
+            agent_setting = AgentSettingModel(
+                agent_id=agent.id,
+                name="onboarded2agixt",
+                value="true",
             )
             session.add(agent_setting)
             session.commit()
@@ -519,16 +642,26 @@ class Agent:
         os.makedirs(agent_workspace, exist_ok=True)
         self.working_directory = agent_workspace
         if "company_id" in self.AGENT_CONFIG["settings"]:
-            self.company_id = str(self.AGENT_CONFIG["settings"]["company_id"])
-            if str(self.company_id).lower() == "none":
+            company_id_value = self.AGENT_CONFIG["settings"]["company_id"]
+            # Handle various None representations
+            if company_id_value is None or str(company_id_value).lower() in [
+                "none",
+                "null",
+                "",
+            ]:
                 self.company_id = None
+            else:
+                self.company_id = str(company_id_value)
+        else:
+            self.company_id = None
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
         self.company_agent = None
-        if self.company_id and str(self.company_id).lower() != "none":
+        if self.company_id:
             self.company_agent = self.get_company_agent()
 
     def get_company_agent(self):
-        if self.company_id:
+        # Check for actual None or "None" string
+        if self.company_id and str(self.company_id).lower() != "none":
             company_agent_session = self.auth.get_company_agent_session(
                 company_id=self.company_id
             )
@@ -1196,6 +1329,11 @@ class Agent:
 
         if config_key == "commands":
             for command_name, enabled in new_config.items():
+                # Protect against empty command names
+                if not command_name or command_name.strip() == "":
+                    logging.error("Empty command name provided in config, skipping")
+                    continue
+
                 # First try to find an existing command
                 command = session.query(Command).filter_by(name=command_name).first()
 
@@ -1366,6 +1504,20 @@ class Agent:
         )
         if not agent:
             return f"Agent {self.agent_name} not found."
+
+        # Handle conversation_id conversion - convert "0" or invalid UUIDs to None
+        if conversation_id == "0" or conversation_id == 0 or not conversation_id:
+            conversation_id = None
+        elif conversation_id:
+            # Validate that it's a proper UUID string
+            try:
+                import uuid
+
+                uuid.UUID(str(conversation_id))
+                conversation_id = str(conversation_id)
+            except (ValueError, TypeError):
+                conversation_id = None
+
         browsed_link = AgentBrowsedLink(
             agent_id=agent.id, link=url, conversation_id=conversation_id
         )

@@ -67,7 +67,7 @@ class Websearch:
         self.collection_number = collection_number
         browsed_links = self.agent.get_browsed_links()
         if browsed_links:
-            self.browsed_links = [link["url"] for link in browsed_links]
+            self.browsed_links = [link.link for link in browsed_links]
         else:
             self.browsed_links = []
         self.tasks = []
