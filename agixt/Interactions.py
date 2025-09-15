@@ -43,6 +43,7 @@ class Interactions:
         self.ApiClient = ApiClient
         self.user = user
         self.auth = MagicalAuth(token=impersonate_user(email=self.user))
+        self.user_id = self.auth.user_id
         self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
