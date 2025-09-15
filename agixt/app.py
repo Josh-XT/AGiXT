@@ -53,7 +53,6 @@ async def lifespan(app: FastAPI):
 
         workspace_manager.start_file_watcher()
         await task_monitor.start()
-        logging.info("AGiXT services started successfully")
         yield
     except Exception as e:
         logging.error(f"Error during startup: {e}")
@@ -138,7 +137,6 @@ def register_extension_routers():
     global _extension_routers_registered
 
     if _extension_routers_registered:
-        logging.info("Extension routers already registered, skipping")
         return
 
     try:
@@ -152,14 +150,8 @@ def register_extension_routers():
             router = extension_router["router"]
             # Don't add prefix - let extensions define their own full paths
             app.include_router(router)
-            logging.info(
-                f"Registered extension endpoints for '{extension_name}' with extension-defined paths"
-            )
 
         _extension_routers_registered = True
-        logging.info(
-            f"Successfully registered {len(extension_routers)} extension routers"
-        )
 
     except Exception as e:
         logging.error(f"Error registering extension endpoints: {e}")

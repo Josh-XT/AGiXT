@@ -4,8 +4,12 @@ services:
     init: true
     restart: unless-stopped
     environment:
-      DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}
-      DATABASE_NAME: ${DATABASE_NAME:-models/agixt}
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
+      DATABASE_NAME: ${DATABASE_NAME:-postgres}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       UVICORN_WORKERS: ${UVICORN_WORKERS:-10}
       AGIXT_API_KEY: ${AGIXT_API_KEY:-None}
       AGIXT_URI: ${AGIXT_URI:-http://agixt:7437}
@@ -44,7 +48,7 @@ services:
       WALMART_MARKETPLACE_ID: ${WALMART_MARKETPLACE_ID}
       X_CLIENT_ID: ${X_CLIENT_ID}
       X_CLIENT_SECRET: ${X_CLIENT_SECRET}
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
       STORAGE_CONTAINER: ${STORAGE_CONTAINER:-agixt-workspace}
       B2_KEY_ID: ${B2_KEY_ID:-}
       B2_APPLICATION_KEY: ${B2_APPLICATION_KEY:-}
@@ -93,8 +97,9 @@ services:
       - "${AGIXT_PORT:-7437}:7437"
     volumes:
       - ./models:/agixt/models
-      - ./WORKSPACE:/agixt/WORKSPACE
-      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - minio
+      - postgres
   agixtinteractive:
     image: joshxt/agixt-interactive:main
     init: true
@@ -121,3 +126,38 @@ services:
     restart: unless-stopped
     volumes:
       - ./node_modules:/app/node_modules
+  postgres:
+    image: postgres
+    container_name: postgres
+    ports:
+      - ${AGIXTDB_PORT:-5432}:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - ./models/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: agixt-minio
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./WORKSPACE:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped

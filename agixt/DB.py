@@ -1174,191 +1174,21 @@ def migrate_company_table():
     """
     Migration function to add new optional fields to the Company table if they don't exist.
     This should be run before setup_default_roles().
+
+    Note: For new installations, the SQLAlchemy model already includes all columns,
+    so this migration will typically be skipped.
     """
-    try:
-        with get_session() as session:
-            # Check if we need to add the new columns
-            try:
-                # Try to access the new columns to see if they exist
-                session.execute(text("SELECT status FROM Company LIMIT 1")).fetchone()
-                session.execute(text("SELECT address FROM Company LIMIT 1")).fetchone()
-                session.execute(
-                    text("SELECT phone_number FROM Company LIMIT 1")
-                ).fetchone()
-                session.execute(text("SELECT email FROM Company LIMIT 1")).fetchone()
-                session.execute(text("SELECT website FROM Company LIMIT 1")).fetchone()
-                session.execute(text("SELECT city FROM Company LIMIT 1")).fetchone()
-                session.execute(text("SELECT state FROM Company LIMIT 1")).fetchone()
-                session.execute(text("SELECT zip_code FROM Company LIMIT 1")).fetchone()
-                session.execute(text("SELECT country FROM Company LIMIT 1")).fetchone()
-                session.execute(text("SELECT notes FROM Company LIMIT 1")).fetchone()
-                logging.info("Company table migration: All columns already exist")
-                return
-            except Exception:
-                # Columns don't exist, we need to add them
-                logging.info("Company table migration: Adding new columns")
-                pass
-
-            if DATABASE_TYPE == "sqlite":
-                # SQLite ALTER TABLE syntax
-                columns_to_add = [
-                    ("status", "BOOLEAN DEFAULT 1"),
-                    ("address", "TEXT DEFAULT NULL"),
-                    ("phone_number", "TEXT DEFAULT NULL"),
-                    ("email", "TEXT DEFAULT NULL"),
-                    ("website", "TEXT DEFAULT NULL"),
-                    ("city", "TEXT DEFAULT NULL"),
-                    ("state", "TEXT DEFAULT NULL"),
-                    ("zip_code", "TEXT DEFAULT NULL"),
-                    ("country", "TEXT DEFAULT NULL"),
-                    ("notes", "TEXT DEFAULT NULL"),
-                ]
-
-                for column_name, column_def in columns_to_add:
-                    try:
-                        session.execute(
-                            text(
-                                f"ALTER TABLE Company ADD COLUMN {column_name} {column_def}"
-                            )
-                        )
-                        logging.info(f"Added {column_name} column to Company table")
-                    except Exception as e:
-                        if "duplicate column name" not in str(e).lower():
-                            logging.error(f"Error adding {column_name} column: {e}")
-            else:
-                # PostgreSQL ALTER TABLE syntax
-                columns_to_add = [
-                    ("status", "BOOLEAN DEFAULT TRUE"),
-                    ("address", "VARCHAR DEFAULT NULL"),
-                    ("phone_number", "VARCHAR DEFAULT NULL"),
-                    ("email", "VARCHAR DEFAULT NULL"),
-                    ("website", "VARCHAR DEFAULT NULL"),
-                    ("city", "VARCHAR DEFAULT NULL"),
-                    ("state", "VARCHAR DEFAULT NULL"),
-                    ("zip_code", "VARCHAR DEFAULT NULL"),
-                    ("country", "VARCHAR DEFAULT NULL"),
-                    ("notes", "TEXT DEFAULT NULL"),
-                ]
-
-                for column_name, column_def in columns_to_add:
-                    try:
-                        session.execute(
-                            text(
-                                f'ALTER TABLE "Company" ADD COLUMN {column_name} {column_def}'
-                            )
-                        )
-                        logging.info(f"Added {column_name} column to Company table")
-                    except Exception as e:
-                        if "already exists" not in str(e).lower():
-                            logging.error(f"Error adding {column_name} column: {e}")
-
-            session.commit()
-            logging.info("Company table migration completed successfully")
-
-    except Exception as e:
-        logging.error(f"Error during Company table migration: {e}")
+    return
 
 
 def migrate_webhook_outgoing_table():
     """
     Migration function to add missing fields to the WebhookOutgoing table if they don't exist.
+
+    Note: For new installations, the SQLAlchemy model already includes all columns,
+    so this migration will typically be skipped.
     """
-    try:
-        with get_session() as session:
-            # Check if we need to add the new columns
-            try:
-                # Try to access the new columns to see if they exist
-                session.execute(
-                    text("SELECT secret FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                session.execute(
-                    text("SELECT retry_delay FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                session.execute(
-                    text("SELECT timeout FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                session.execute(
-                    text("SELECT filters FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                session.execute(
-                    text("SELECT consecutive_failures FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                session.execute(
-                    text("SELECT total_events_sent FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                session.execute(
-                    text("SELECT successful_deliveries FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                session.execute(
-                    text("SELECT failed_deliveries FROM webhook_outgoing LIMIT 1")
-                ).fetchone()
-                logging.info(
-                    "WebhookOutgoing table migration: All columns already exist"
-                )
-                return
-            except Exception:
-                # Columns don't exist, we need to add them
-                logging.info("WebhookOutgoing table migration: Adding new columns")
-                pass
-
-            if DATABASE_TYPE == "sqlite":
-                # SQLite ALTER TABLE syntax
-                columns_to_add = [
-                    ("secret", "TEXT DEFAULT NULL"),
-                    ("retry_delay", "INTEGER DEFAULT 60"),
-                    ("timeout", "INTEGER DEFAULT 30"),
-                    ("filters", "TEXT DEFAULT NULL"),
-                    ("consecutive_failures", "INTEGER DEFAULT 0"),
-                    ("total_events_sent", "INTEGER DEFAULT 0"),
-                    ("successful_deliveries", "INTEGER DEFAULT 0"),
-                    ("failed_deliveries", "INTEGER DEFAULT 0"),
-                ]
-
-                for column_name, column_def in columns_to_add:
-                    try:
-                        session.execute(
-                            text(
-                                f"ALTER TABLE webhook_outgoing ADD COLUMN {column_name} {column_def}"
-                            )
-                        )
-                        logging.info(
-                            f"Added {column_name} column to webhook_outgoing table"
-                        )
-                    except Exception as e:
-                        if "duplicate column name" not in str(e).lower():
-                            logging.error(f"Error adding {column_name} column: {e}")
-            else:
-                # PostgreSQL ALTER TABLE syntax
-                columns_to_add = [
-                    ("secret", "VARCHAR DEFAULT NULL"),
-                    ("retry_delay", "INTEGER DEFAULT 60"),
-                    ("timeout", "INTEGER DEFAULT 30"),
-                    ("filters", "TEXT DEFAULT NULL"),
-                    ("consecutive_failures", "INTEGER DEFAULT 0"),
-                    ("total_events_sent", "INTEGER DEFAULT 0"),
-                    ("successful_deliveries", "INTEGER DEFAULT 0"),
-                    ("failed_deliveries", "INTEGER DEFAULT 0"),
-                ]
-
-                for column_name, column_def in columns_to_add:
-                    try:
-                        session.execute(
-                            text(
-                                f"ALTER TABLE webhook_outgoing ADD COLUMN {column_name} {column_def}"
-                            )
-                        )
-                        logging.info(
-                            f"Added {column_name} column to webhook_outgoing table"
-                        )
-                    except Exception as e:
-                        if "already exists" not in str(e).lower():
-                            logging.error(f"Error adding {column_name} column: {e}")
-
-            session.commit()
-            logging.info("WebhookOutgoing table migration completed successfully")
-
-    except Exception as e:
-        logging.error(f"Error during WebhookOutgoing table migration: {e}")
+    return
 
 
 def discover_extension_models():

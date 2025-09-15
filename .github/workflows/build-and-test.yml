@@ -66,6 +66,9 @@ jobs:
   
   deploy:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: read
     name: Deploy to dev server
     needs: build
     if: github.ref == 'refs/heads/main'
@@ -93,6 +96,9 @@ jobs:
 
   deploy-release:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: read
     name: Deploy to everything.software
     needs: build
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
