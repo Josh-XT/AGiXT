@@ -382,7 +382,8 @@ def get_agents(email, company=None):
                 company_id = setting.value
                 break
         if company_id and company:
-            if company_id != company:
+            # Ensure both are strings for comparison (PostgreSQL UUID compatibility)
+            if str(company_id) != str(company):
                 continue
         if not company_id:
             auth = MagicalAuth(token=impersonate_user(email))
