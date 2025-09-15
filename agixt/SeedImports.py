@@ -9,6 +9,7 @@ from DB import (
     PromptCategory,
     Argument,
     Extension,
+    ExtensionCategory,
     Setting,
     Command,
     User,
@@ -23,6 +24,60 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+def get_extension_category(session, extension_name):
+    """Get or create extension category based on extension class CATEGORY attribute"""
+    from ExtensionsHub import (
+        find_extension_files,
+        import_extension_module,
+        get_extension_class_name,
+    )
+    from Extensions import Extensions
+
+    # Default category if extension class doesn't define one
+    default_category_name = "Business & Productivity"
+    category_name = default_category_name
+
+    # Try to find the extension class and get its CATEGORY attribute
+    try:
+        extension_files = find_extension_files()
+        for extension_file in extension_files:
+            # Match extension file to extension name
+            file_base = (
+                os.path.basename(extension_file)
+                .replace(".py", "")
+                .replace("_", " ")
+                .title()
+            )
+            if (
+                file_base.lower() in extension_name.lower()
+                or extension_name.lower() in file_base.lower()
+            ):
+                module = import_extension_module(extension_file)
+                if module:
+                    class_name = get_extension_class_name(extension_file)
+                    if hasattr(module, class_name):
+                        extension_class = getattr(module, class_name)
+                        if hasattr(extension_class, "CATEGORY"):
+                            category_name = extension_class.CATEGORY
+                            break
+    except Exception as e:
+        logging.debug(
+            f"Could not determine category for extension {extension_name}: {e}"
+        )
+
+    # Get or create the category in the database
+    category = session.query(ExtensionCategory).filter_by(name=category_name).first()
+    if not category:
+        # If category doesn't exist, create it (this shouldn't happen if setup_default_extension_categories ran)
+        category = ExtensionCategory(
+            name=category_name, description=f"Extensions for {category_name.lower()}"
+        )
+        session.add(category)
+        session.flush()
+
+    return category.id
 
 
 def ensure_default_user():
@@ -178,8 +233,15 @@ def import_extensions():
 
         if extension:
             extension.description = description
+            # Update category if it has changed
+            category_id = get_extension_category(session, extension_name)
+            if extension.category_id != category_id:
+                extension.category_id = category_id
         else:
-            extension = Extension(name=extension_name, description=description)
+            category_id = get_extension_category(session, extension_name)
+            extension = Extension(
+                name=extension_name, description=description, category_id=category_id
+            )
             session.add(extension)
             session.flush()
 
@@ -296,7 +358,8 @@ def import_extensions():
     for extension_name, settings in extension_settings_data.items():
         extension = session.query(Extension).filter_by(name=extension_name).first()
         if not extension:
-            extension = Extension(name=extension_name)
+            category_id = get_extension_category(session, extension_name)
+            extension = Extension(name=extension_name, category_id=category_id)
             session.add(extension)
             session.flush()
 

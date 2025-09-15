@@ -108,12 +108,9 @@ class notes(Extensions, ExtensionDatabaseMixin):
     - Create notes to remember user preferences, important facts, or ongoing projects
     - Use tags to categorize information (e.g., "user-preferences", "project-alpha", "research")
     - Always search existing notes before asking the user to repeat information
-    - Update notes when you learn new information about existing topics
-    - Delete notes that become outdated or incorrect
-
-    This extension provides both programmatic access via agent commands and REST API endpoints
-    for external integrations.
     """
+
+    CATEGORY = "Business & Productivity"
 
     # Register extension models for automatic table creation
     extension_models = [Note]

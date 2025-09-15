@@ -18,6 +18,8 @@ class bags_fm(Extensions):
     - Fee claiming from various sources
     """
 
+    CATEGORY = "Finance & Crypto"
+
     def __init__(
         self,
         BAGS_FM_API_KEY: str = "",

@@ -226,6 +226,8 @@ class alexa(Extensions):
     All interactions use Amazon's official Alexa Voice Service API with proper OAuth authentication.
     """
 
+    CATEGORY = "Smart Home & IoT"
+
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
         self.access_token = kwargs.get("ALEXA_ACCESS_TOKEN", None)

@@ -17,6 +17,8 @@ class automation_helpers(Extensions):
     code generation, data processing, and API integration.
     """
 
+    CATEGORY = "Business & Productivity"
+
     def __init__(self, **kwargs):
         self.commands = {
             "Generate Extension from OpenAPI": self.generate_openapi_chain,

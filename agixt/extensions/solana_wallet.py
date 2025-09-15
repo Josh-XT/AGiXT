@@ -68,6 +68,8 @@ class solana_wallet(Extensions):
     - Transaction building and signing
     """
 
+    CATEGORY = "Finance & Crypto"
+
     JUPITER_API_BASE_URL = "https://quote-api.jup.ag/v6"
     JUPITER_PROGRAM_ID = Pubkey.from_string(
         "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"

@@ -10,6 +10,8 @@ class ai(Extensions):
     The AI extension for AGiXT. This extension provides a set of actions that can be performed by the AI agent.
     """
 
+    CATEGORY = "Core AI Capabilities"
+
     def __init__(self, **kwargs):
         self.commands = {
             "Chat Completion": self.chat_completions,

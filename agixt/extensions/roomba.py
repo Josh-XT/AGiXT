@@ -38,6 +38,8 @@ class roomba(Extensions):
     AI agents should use this when they need to control or monitor Roomba vacuum cleaners.
     """
 
+    CATEGORY = "Smart Home & IoT"
+
     def __init__(
         self,
         IROBOT_API_KEY: str = "",

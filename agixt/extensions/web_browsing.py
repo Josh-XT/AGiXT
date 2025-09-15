@@ -88,6 +88,8 @@ class web_browsing(Extensions):
     intelligent workflow management, error recovery, and detailed logging.
     """
 
+    CATEGORY = "Web & Search"
+
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
         self.user_id = kwargs.get("user_id", "")

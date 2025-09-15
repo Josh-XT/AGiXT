@@ -37,6 +37,8 @@ from typing import Dict, List, Optional, Any
 import tempfile
 import base64
 
+from Extensions import Extensions
+
 try:
     from hikvisionapi import AsyncClient
 
@@ -48,7 +50,7 @@ except ImportError:
     )
 
 
-class hikvision:
+class hikvision(Extensions):
     """
     AGiXT Extension for Hikvision camera systems
 
@@ -59,6 +61,8 @@ class hikvision:
     - Recording management
     - System configuration
     """
+
+    CATEGORY = "Smart Home & IoT"
 
     def __init__(
         self,

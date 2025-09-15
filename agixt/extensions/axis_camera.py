@@ -33,6 +33,7 @@ Version: 1.0.0
 import asyncio
 import logging
 from datetime import datetime
+from Extensions import Extensions
 
 try:
     from axis import AxisDevice
@@ -42,7 +43,7 @@ except ImportError:
     AXIS_AVAILABLE = False
 
 
-class axis_camera:
+class axis_camera(Extensions):
     """
     AGiXT Extension for Axis camera systems
 
@@ -54,6 +55,8 @@ class axis_camera:
     - Event monitoring
     - System configuration
     """
+
+    CATEGORY = "Smart Home & IoT"
 
     def __init__(
         self,
