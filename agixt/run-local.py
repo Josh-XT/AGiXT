@@ -24,8 +24,18 @@ async def initialize_database(is_restart=False):
 
         # Create tables
         DB.Base.metadata.create_all(DB.engine)
+
+        # Run all migrations
         DB.migrate_company_table()
+        DB.migrate_extension_table()
         DB.migrate_webhook_outgoing_table()
+
+        # Initialize extension tables
+        DB.initialize_extension_tables()
+
+        # Setup default data
+        DB.setup_default_extension_categories()
+        DB.migrate_extensions_to_new_categories()
         DB.setup_default_roles()
 
         # Handle seed data - only on initial boot, not on restarts

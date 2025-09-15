@@ -175,7 +175,14 @@ class WorkspaceEventHandler(FileSystemEventHandler):
                                 )
                                 obj.delete()
                             except Exception as e:
-                                logging.error(f"Failed to delete {object_path}: {e}")
+                                # Check if it's an ObjectDoesNotExistError (common for temp files)
+                                if "ObjectDoesNotExistError" in str(e):
+                                    # Silently ignore - temp/lock files that don't exist are normal
+                                    pass
+                                else:
+                                    logging.error(
+                                        f"Failed to delete {object_path}: {e}"
+                                    )
 
                 except Exception as e:
                     logging.error(f"Error in sync worker: {e}")

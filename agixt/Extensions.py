@@ -371,6 +371,11 @@ class Extensions:
         return commands
 
     def find_command(self, command_name: str):
+        # Protect against empty command names
+        if not command_name or command_name.strip() == "":
+            logging.error("Empty command name provided")
+            return None, None, None
+
         for name, module, function_name, params in self.commands:
             if module.__name__ in DISABLED_EXTENSIONS:
                 continue
@@ -474,7 +479,13 @@ class Extensions:
             f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
         )
         if command_function is None:
-            logging.error(f"Command {command_name} not found")
+            # Add more debugging for empty command names
+            if not command_name or command_name.strip() == "":
+                error_msg = "Empty command name provided"
+                logging.error(error_msg)
+            else:
+                error_msg = f"Command '{command_name}' not found"
+                logging.error(error_msg)
 
             # Emit webhook event for command execution failed
             asyncio.create_task(
@@ -487,12 +498,12 @@ class Extensions:
                         "command_args": command_args,
                         "agent_name": self.agent_name,
                         "conversation_id": self.conversation_id,
-                        "error": f"Command {command_name} not found",
+                        "error": error_msg,
                     },
                 )
             )
 
-            return f"Command {command_name} not found"
+            return error_msg
 
         if command_args is None:
             command_args = {}
@@ -707,12 +718,38 @@ class Extensions:
                             logging.error(f"Error getting commands: {e}")
                     if extension_name == "Agixt Actions":
                         extension_name = "AGiXT Actions"
+
+                    # Get category information from database or extension class
+                    category_name = "Automation"  # Default category
+                    category_description = ""
+
+                    # Try to get category from the extension class
+                    if hasattr(command_class, "CATEGORY"):
+                        category_name = command_class.CATEGORY
+
+                    # Get category description from database if available
+                    try:
+                        from DB import get_db_session, ExtensionCategory
+
+                        with get_db_session() as session:
+                            category = (
+                                session.query(ExtensionCategory)
+                                .filter_by(name=category_name)
+                                .first()
+                            )
+                            if category:
+                                category_description = category.description or ""
+                    except Exception as e:
+                        logging.debug(f"Could not get category description: {e}")
+
                     commands.append(
                         {
                             "extension_name": extension_name,
                             "description": extension_description,
                             "settings": extension_settings,
                             "commands": extension_commands,
+                            "category": category_name,
+                            "category_description": category_description,
                         }
                     )
 
@@ -739,6 +776,8 @@ class Extensions:
                     "description": "Execute a custom automation workflow.",
                     "settings": [],
                     "commands": chain_commands,
+                    "category": "Automation",
+                    "category_description": "Extensions for automation and workflow management",
                 }
             )
 

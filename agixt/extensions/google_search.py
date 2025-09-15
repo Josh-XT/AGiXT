@@ -7,6 +7,8 @@ class google_search(Extensions):
     The Google Search extension for AGiXT enables you to search Google using the Google Search API.
     """
 
+    CATEGORY = "Web & Search"
+
     def __init__(
         self,
         GOOGLE_API_KEY: str = "",

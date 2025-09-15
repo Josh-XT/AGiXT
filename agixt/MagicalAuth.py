@@ -317,6 +317,17 @@ def get_user_id(user: str):
     return user_id
 
 
+def get_user_company_id_by_email(email: str):
+    """Get company_id for a user by their email address"""
+    try:
+        user_id = get_user_id(email)
+        auth = MagicalAuth()
+        auth.email = email
+        return auth.get_user_company_id()
+    except:
+        return None
+
+
 def get_user_by_email(email: str):
     session = get_session()
     try:
@@ -363,6 +374,8 @@ from DB import Agent as AgentModel, AgentSetting as AgentSettingModel
 
 
 def get_agents(email, company=None):
+    from DB import Extension, Command, AgentCommand
+
     session = get_session()
     agents = session.query(AgentModel).filter(AgentModel.user.has(email=email)).all()
     output = []
@@ -377,10 +390,15 @@ def get_agents(email, company=None):
             .filter(AgentSettingModel.agent_id == agent.id)
             .all()
         )
+
+        # Check for onboarded2agixt setting
+        onboarded = False
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-                break
+            elif setting.name == "onboarded2agixt":
+                onboarded = True
+
         if company_id and company:
             # Ensure both are strings for comparison (PostgreSQL UUID compatibility)
             if str(company_id) != str(company):
@@ -394,6 +412,70 @@ def get_agents(email, company=None):
             )
             session.add(agent_setting)
             session.commit()
+
+        # Retroactive onboarding: Enable essential abilities if not already onboarded
+        if not onboarded:
+            try:
+                # Get essential_abilities and notes extensions
+                essential_ext = (
+                    session.query(Extension)
+                    .filter(Extension.name == "essential_abilities")
+                    .first()
+                )
+                notes_ext = (
+                    session.query(Extension).filter(Extension.name == "notes").first()
+                )
+
+                extensions_to_enable = []
+                if essential_ext:
+                    extensions_to_enable.append(essential_ext)
+                if notes_ext:
+                    extensions_to_enable.append(notes_ext)
+
+                # Enable all commands from these extensions for this agent
+                enabled_count = 0
+                for extension in extensions_to_enable:
+                    commands = (
+                        session.query(Command)
+                        .filter(Command.extension_id == extension.id)
+                        .all()
+                    )
+
+                    for command in commands:
+                        # Check if command is already enabled for this agent
+                        existing = (
+                            session.query(AgentCommand)
+                            .filter(
+                                AgentCommand.agent_id == agent.id,
+                                AgentCommand.command_id == command.id,
+                            )
+                            .first()
+                        )
+
+                        if not existing:
+                            agent_command = AgentCommand(
+                                agent_id=agent.id, command_id=command.id, state=True
+                            )
+                            session.add(agent_command)
+                            enabled_count += 1
+
+                # Mark as onboarded
+                onboarded_setting = AgentSettingModel(
+                    agent_id=agent.id, name="onboarded2agixt", value="true"
+                )
+                session.add(onboarded_setting)
+                session.commit()
+
+                logging.info(
+                    f"Retroactive onboarding completed for agent {agent.name}: enabled {enabled_count} commands"
+                )
+
+            except Exception as e:
+                session.rollback()
+                logging.error(
+                    f"Error during retroactive onboarding for agent {agent.name}: {str(e)}"
+                )
+
         output.append(
             {
                 "name": agent.name,
@@ -2574,13 +2656,23 @@ class MagicalAuth:
                     .filter(UserCompany.user_id == self.user_id)
                     .first()
                 )
-                return str(user_company.company_id) if user_company else None
+                if user_company and user_company.company_id is not None:
+                    company_id_str = str(user_company.company_id)
+                    # Don't return "None" string
+                    if company_id_str.lower() in ["none", "null", ""]:
+                        return None
+                    return company_id_str
+                return None
         except Exception as e:
             return None
 
     def get_user_company(self, company_id):
+        # Validate company_id before querying
+        if not company_id or str(company_id).lower() in ["none", "null", ""]:
+            return None
+
         with get_session() as db:
-            # Make sure the company ID is in the lsit of users companies
+            # Make sure the company ID is in the list of users companies
             user_company = (
                 db.query(UserCompany)
                 .filter(UserCompany.user_id == self.user_id)
@@ -3067,8 +3159,12 @@ class MagicalAuth:
         return agixt
 
     def get_company_agent_session(self, company_id: str = None) -> AGiXTSDK:
-        if not company_id:
+        # Handle None, "None" string, or empty string
+        if not company_id or str(company_id).lower() in ["none", "null", ""]:
             company_id = self.company_id
+        # If still no valid company_id, return None
+        if not company_id or str(company_id).lower() in ["none", "null", ""]:
+            return None
         company = self.get_user_company(company_id)
         if not company:
             return None

@@ -20,6 +20,8 @@ class postgres_database(Extensions):
     The PostgreSQL Database extension for AGiXT enables you to interact with a PostgreSQL database.
     """
 
+    CATEGORY = "Data & Databases"
+
     def __init__(
         self,
         POSTGRES_DATABASE_NAME: str = "",

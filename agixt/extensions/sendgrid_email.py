@@ -17,6 +17,8 @@ class sendgrid_email(Extensions):
     The Sendgrid Email extension for AGiXT enables you to send emails using the Sendgrid API.
     """
 
+    CATEGORY = "Social & Communication"
+
     def __init__(self, SENDGRID_API_KEY: str = "", SENDGRID_EMAIL: str = "", **kwargs):
         self.SENDGRID_API_KEY = SENDGRID_API_KEY
         self.SENDGRID_EMAIL = SENDGRID_EMAIL

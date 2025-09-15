@@ -93,6 +93,7 @@ class EzlocalaiProvider:
         max_tokens = int(self.MAX_TOKENS) if tokens == 0 else tokens
         openai.base_url = self.API_URI
         openai.api_key = self.EZLOCALAI_API_KEY
+        openai.api_type = "openai"
         messages = []
         if len(images) > 0:
             messages.append(

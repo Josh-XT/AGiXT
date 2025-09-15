@@ -108,12 +108,9 @@ class notes(Extensions, ExtensionDatabaseMixin):
     - Create notes to remember user preferences, important facts, or ongoing projects
     - Use tags to categorize information (e.g., "user-preferences", "project-alpha", "research")
     - Always search existing notes before asking the user to repeat information
-    - Update notes when you learn new information about existing topics
-    - Delete notes that become outdated or incorrect
-
-    This extension provides both programmatic access via agent commands and REST API endpoints
-    for external integrations.
     """
+
+    CATEGORY = "Business & Productivity"
 
     # Register extension models for automatic table creation
     extension_models = [Note]
@@ -672,6 +669,20 @@ class notes(Extensions, ExtensionDatabaseMixin):
         """
         session = get_session()
         try:
+            # Handle 'None' string or None value for limit
+            if limit is None or str(limit).lower() == "none":
+                limit = 10  # Use default value
+            else:
+                try:
+                    limit = int(limit)
+                    # Ensure limit is within reasonable bounds
+                    if limit < 1:
+                        limit = 1
+                    elif limit > 100:
+                        limit = 100
+                except (ValueError, TypeError):
+                    limit = 10  # Use default if conversion fails
+
             search_term = f"%{query}%"
             notes = (
                 session.query(Note)

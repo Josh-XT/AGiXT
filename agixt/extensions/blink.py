@@ -27,6 +27,8 @@ class blink(Extensions):
     Authentication: Username/password authentication with 2FA support
     """
 
+    CATEGORY = "Smart Home & IoT"
+
     def __init__(self, BLINK_USERNAME: str = "", BLINK_PASSWORD: str = "", **kwargs):
         self.username = BLINK_USERNAME
         self.password = BLINK_PASSWORD

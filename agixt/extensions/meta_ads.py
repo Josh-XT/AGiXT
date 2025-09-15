@@ -312,6 +312,8 @@ class meta_ads(Extensions):
     - api_key: AGiXT API key for MagicalAuth integration
     """
 
+    CATEGORY = "Business & Productivity"
+
     def __init__(self, **kwargs):
         """
         Initialize Meta Ads extension with required credentials

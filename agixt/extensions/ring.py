@@ -32,6 +32,8 @@ class ring(Extensions):
     Note: Ring uses token caching to minimize login frequency
     """
 
+    CATEGORY = "Smart Home & IoT"
+
     def __init__(
         self,
         RING_USERNAME: str = "",

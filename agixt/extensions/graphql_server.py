@@ -21,6 +21,8 @@ class graphql_server(Extensions):
     The GraphQL Server extension for AGiXT enables you to interact with a GraphQL API endpoint. By default, if a GraphQL endpoint is not provided, this extension is directly connected to the AGiXT GraphQL server.
     """
 
+    CATEGORY = "Development & Code"
+
     def __init__(
         self,
         GRAPHQL_ENDPOINT: str = "http://localhost:7437/graphql",

@@ -19,6 +19,8 @@ class mssql_database(Extensions):
     The MSSQL Database extension for AGiXT enables you to interact with a Microsoft SQL Server database.
     """
 
+    CATEGORY = "Data & Databases"
+
     def __init__(
         self,
         MSSQL_DATABASE_NAME: str = "",

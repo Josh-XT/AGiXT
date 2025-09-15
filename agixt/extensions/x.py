@@ -155,6 +155,8 @@ class x(Extensions):
     for tasks like posting updates, engaging with content, or monitoring trends.
     """
 
+    CATEGORY = "Social & Communication"
+
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key", None)
         self.access_token = kwargs.get("X_ACCESS_TOKEN", None)
