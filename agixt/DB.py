@@ -1231,6 +1231,38 @@ default_extension_categories = [
         "name": "Entertainment & Media",
         "description": "Create and manipulate media content, games, and entertainment",
     },
+    {
+        "name": "Remote Monitoring",
+        "description": "Remote monitoring and management platforms for IT infrastructure, endpoints, and network devices",
+    },
+    {
+        "name": "PSA & Ticketing",
+        "description": "Professional services automation and ticketing systems for service management and business operations",
+    },
+    {
+        "name": "Security & Compliance",
+        "description": "Cybersecurity platforms for threat detection, endpoint protection, and compliance management",
+    },
+    {
+        "name": "Documentation & Knowledge",
+        "description": "Documentation platforms and knowledge management systems for IT and business information",
+    },
+    {
+        "name": "Cloud Services",
+        "description": "Cloud-based productivity and business applications including Microsoft 365, Google Workspace, and more",
+    },
+    {
+        "name": "Backup & Recovery",
+        "description": "Data backup, disaster recovery, and business continuity solutions",
+    },
+    {
+        "name": "Security Training",
+        "description": "Cybersecurity awareness training and phishing simulation platforms",
+    },
+    {
+        "name": "Endpoint Security",
+        "description": "Endpoint detection and response (EDR) and endpoint protection platforms",
+    },
 ]
 
 
