@@ -1477,80 +1477,86 @@ def setup_default_extension_categories():
 
 
 def migrate_extensions_to_new_categories():
-    """Migrate existing extensions to use the new category mapping"""
+    """Migrate existing extensions to use their defined categories"""
+    import importlib
+
     try:
         with get_db_session() as session:
-            # Mapping from extension names to new categories
-            extension_category_mapping = {
-                # Core Abilities
-                "Ai": "Core Abilities",
-                "Essential Abilities": "Core Abilities",
-                # Web & Search
-                "Web Browsing": "Web & Search",
-                "Google Search": "Web & Search",
-                # Social & Communication
-                "Discord": "Social & Communication",
-                "Sendgrid Email": "Social & Communication",
-                "Microsoft": "Social & Communication",
-                "X": "Social & Communication",
-                # Productivity
-                "Notes": "Productivity",
-                "Automation Helpers": "Productivity",
-                "Walmart": "Productivity",
-                "Meta Ads": "Productivity",
-                "Google": "Productivity",
-                # Development & Code
-                "Github": "Development & Code",
-                "Graphql Server": "Development & Code",
-                "Microcontroller Development": "Development & Code",
-                # Data & Databases
-                "Postgres Database": "Data & Databases",
-                "Mysql Database": "Data & Databases",
-                "Mssql Database": "Data & Databases",
-                # Smart Home & IoT
-                "Ring": "Smart Home & IoT",
-                "Blink": "Smart Home & IoT",
-                "Axis Camera": "Smart Home & IoT",
-                "Hikvision": "Smart Home & IoT",
-                "Vivotek": "Smart Home & IoT",
-                "Roomba": "Smart Home & IoT",
-                "Dji Tello": "Smart Home & IoT",
-                "Tesla": "Smart Home & IoT",
-                "Alexa": "Smart Home & IoT",
-                # Health & Fitness
-                "Fitbit": "Health & Fitness",
-                "Garmin": "Health & Fitness",
-                "Oura": "Health & Fitness",
-                "Workout Tracker": "Health & Fitness",
-                # Finance & Crypto
-                "Solana Wallet": "Finance & Crypto",
-                "Raydium Integration": "Finance & Crypto",
-                "Bags Fm": "Finance & Crypto",
-                # E-commerce & Shopping
-                "Amazon": "E-commerce & Shopping",
-            }
-
-            # Get all extensions and update their categories
+            # Get all extensions from the database
             extensions = session.query(Extension).all()
+
             for extension in extensions:
-                if extension.name in extension_category_mapping:
-                    new_category_name = extension_category_mapping[extension.name]
-                    new_category = (
+                # Special case for Custom Automation
+                if extension.name == "Custom Automation":
+                    core_abilities_category = (
                         session.query(ExtensionCategory)
-                        .filter_by(name=new_category_name)
+                        .filter_by(name="Core Abilities")
                         .first()
                     )
-                    if new_category:
-                        extension.category_id = new_category.id
+                    if core_abilities_category:
+                        extension.category_id = core_abilities_category.id
                         logging.info(
-                            f"Updated extension '{extension.name}' to category '{new_category_name}'"
+                            f"Updated extension '{extension.name}' to category 'Core Abilities'"
+                        )
+                    continue
+
+                # Try to find and load the extension module to get its category
+                category_name = None
+                extension_paths = [
+                    f"extensions.{extension.name.lower().replace(' ', '_')}",  # AGiXT extensions
+                    f"xtsystems_extensions.{extension.name.lower().replace(' ', '_')}",  # XTSystems extensions
+                ]
+
+                for extension_path in extension_paths:
+                    try:
+                        module = importlib.import_module(extension_path)
+                        # Find the extension class
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if (
+                                isinstance(attr, type)
+                                and hasattr(attr, "CATEGORY")
+                                and attr.__name__.lower()
+                                == extension.name.lower().replace(" ", "_")
+                            ):
+                                category_name = attr.CATEGORY
+                                break
+
+                        if category_name:
+                            break
+                    except (ImportError, AttributeError) as e:
+                        logging.debug(f"Could not load extension {extension_path}: {e}")
+                        continue
+
+                # If we found a category, update the extension
+                if category_name:
+                    target_category = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name=category_name)
+                        .first()
+                    )
+                    if target_category:
+                        extension.category_id = target_category.id
+                        logging.info(
+                            f"Updated extension '{extension.name}' to category '{category_name}'"
                         )
                     else:
                         logging.warning(
-                            f"Category '{new_category_name}' not found for extension '{extension.name}'"
+                            f"Category '{category_name}' not found for extension '{extension.name}'"
                         )
+                        # Default to Productivity if category doesn't exist
+                        default_category = (
+                            session.query(ExtensionCategory)
+                            .filter_by(name="Productivity")
+                            .first()
+                        )
+                        if default_category:
+                            extension.category_id = default_category.id
+                            logging.info(
+                                f"Updated extension '{extension.name}' to default category 'Productivity'"
+                            )
                 else:
-                    # Default to Productivity for unmapped extensions
+                    # If we couldn't determine the category, default to Productivity
                     default_category = (
                         session.query(ExtensionCategory)
                         .filter_by(name="Productivity")
@@ -1559,11 +1565,11 @@ def migrate_extensions_to_new_categories():
                     if default_category:
                         extension.category_id = default_category.id
                         logging.info(
-                            f"Updated extension '{extension.name}' to default category 'Productivity'"
+                            f"Updated extension '{extension.name}' to default category 'Productivity' (category not found in code)"
                         )
 
             session.commit()
-            logging.info("Successfully migrated extensions to new categories")
+            logging.info("Successfully migrated extensions to their defined categories")
     except Exception as e:
         logging.error(f"Error migrating extensions to new categories: {e}")
 
