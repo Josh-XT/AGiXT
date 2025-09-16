@@ -87,6 +87,8 @@ class wordpress(Extensions):
             "Get WordPress Media": self.get_media,
             "List WordPress Media": self.list_media,
             "Delete WordPress Media": self.delete_media,
+            "Resize WordPress Media": self.resize_media,
+            "Generate WordPress Media Thumbnails": self.generate_thumbnails,
             # Categories and Tags
             "Create WordPress Category": self.create_category,
             "List WordPress Categories": self.list_categories,
@@ -100,15 +102,37 @@ class wordpress(Extensions):
             "List WordPress Users": self.list_users,
             "Get WordPress User": self.get_user,
             "Create WordPress User": self.create_user,
+            # Custom Post Types
+            "List WordPress Post Types": self.list_post_types,
+            "Get WordPress Post Type Details": self.get_post_type_details,
+            "Create Custom Post": self.create_custom_post,
+            "List Custom Posts": self.list_custom_posts,
+            # Plugin Management
+            "List WordPress Plugins": self.list_plugins,
+            "Get WordPress Plugin Details": self.get_plugin_details,
+            "Activate WordPress Plugin": self.activate_plugin,
+            "Deactivate WordPress Plugin": self.deactivate_plugin,
+            # Theme Management
+            "List WordPress Themes": self.list_themes,
+            "Get Active WordPress Theme": self.get_active_theme,
+            "Switch WordPress Theme": self.switch_theme,
             # Site Information
             "Get WordPress Site Info": self.get_site_info,
             "Get WordPress Site Statistics": self.get_site_statistics,
             # SEO and Analytics
             "Analyze WordPress Post SEO": self.analyze_post_seo,
+            "Advanced WordPress SEO Analysis": self.advanced_seo_analysis,
             "Get WordPress Site Health": self.get_site_health,
+            "Optimize WordPress Content": self.optimize_content,
+            "Check WordPress Broken Links": self.check_broken_links,
             # Content Management
             "Search WordPress Content": self.search_content,
             "Bulk Update WordPress Posts": self.bulk_update_posts,
+            "WordPress Content Audit": self.content_audit,
+            # Custom Fields & Meta
+            "Get WordPress Post Meta": self.get_post_meta,
+            "Update WordPress Post Meta": self.update_post_meta,
+            "List WordPress Custom Fields": self.list_custom_fields,
         }
 
     def _make_request(
@@ -170,6 +194,8 @@ class wordpress(Extensions):
         categories: List[str] = None,
         tags: List[str] = None,
         featured_media: int = None,
+        post_type: str = "posts",
+        meta: dict = None,
     ) -> str:
         """
         Create a new WordPress post.
@@ -182,6 +208,8 @@ class wordpress(Extensions):
             categories (List[str]): List of category names
             tags (List[str]): List of tag names
             featured_media (int): Featured image media ID
+            post_type (str): Post type (posts, pages, or custom post type)
+            meta (dict): Custom fields/meta data
 
         Returns:
             str: JSON string with post creation result
@@ -198,6 +226,9 @@ class wordpress(Extensions):
 
         if featured_media:
             post_data["featured_media"] = featured_media
+
+        if meta:
+            post_data["meta"] = meta
 
         # Handle categories
         if categories:
@@ -221,7 +252,7 @@ class wordpress(Extensions):
             if tag_ids:
                 post_data["tags"] = tag_ids
 
-        result = self._make_request("POST", "posts", data=post_data)
+        result = self._make_request("POST", post_type, data=post_data)
 
         if result.get("error"):
             return json.dumps(result)
@@ -327,6 +358,7 @@ class wordpress(Extensions):
         status: str = "any",
         search: str = None,
         author: int = None,
+        post_type: str = "posts",
     ) -> str:
         """
         List WordPress posts with optional filtering.
@@ -337,6 +369,7 @@ class wordpress(Extensions):
             status (str): Post status filter (publish, draft, private, any)
             search (str): Search term
             author (int): Author ID filter
+            post_type (str): Post type to list (posts, pages, or custom post type)
 
         Returns:
             str: JSON string with posts list
@@ -348,7 +381,7 @@ class wordpress(Extensions):
         if author:
             params["author"] = author
 
-        result = self._make_request("GET", "posts", params=params)
+        result = self._make_request("GET", post_type, params=params)
 
         if result.get("error"):
             return json.dumps(result)
@@ -1433,5 +1466,803 @@ class wordpress(Extensions):
                 "successful_updates": successful_updates,
                 "failed_updates": len(post_ids) - successful_updates,
                 "results": results,
+            }
+        )
+
+    # ===============================
+    # ENHANCED FUNCTIONALITY
+    # ===============================
+
+    # Custom Post Types Management
+    async def list_post_types(self) -> str:
+        """
+        List all registered WordPress post types.
+
+        Returns:
+            str: JSON string with post types list
+        """
+        result = self._make_request("GET", "types")
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        post_types = []
+        for key, post_type in result.items():
+            post_types.append(
+                {
+                    "name": key,
+                    "label": post_type.get("name"),
+                    "description": post_type.get("description"),
+                    "hierarchical": post_type.get("hierarchical"),
+                    "public": post_type.get("public"),
+                    "rest_base": post_type.get("rest_base"),
+                }
+            )
+
+        return json.dumps({"post_types": post_types})
+
+    async def get_post_type_details(self, post_type: str) -> str:
+        """
+        Get detailed information about a specific post type.
+
+        Args:
+            post_type (str): Post type name
+
+        Returns:
+            str: JSON string with post type details
+        """
+        result = self._make_request("GET", f"types/{post_type}")
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        return json.dumps(
+            {
+                "name": result.get("slug"),
+                "label": result.get("name"),
+                "description": result.get("description"),
+                "hierarchical": result.get("hierarchical"),
+                "public": result.get("public"),
+                "capabilities": result.get("capabilities"),
+                "supports": result.get("supports"),
+                "rest_base": result.get("rest_base"),
+            }
+        )
+
+    async def create_custom_post(
+        self,
+        post_type: str,
+        title: str,
+        content: str,
+        status: str = "draft",
+        meta: dict = None,
+    ) -> str:
+        """
+        Create a custom post of specified post type.
+
+        Args:
+            post_type (str): Custom post type name
+            title (str): Post title
+            content (str): Post content
+            status (str): Post status
+            meta (dict): Custom fields/meta data
+
+        Returns:
+            str: JSON string with creation result
+        """
+        if not self.auth:
+            return json.dumps({"error": "WordPress authentication not configured"})
+
+        post_data = {"title": title, "content": content, "status": status}
+
+        if meta:
+            post_data["meta"] = meta
+
+        result = self._make_request("POST", post_type, data=post_data)
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        return json.dumps(
+            {
+                "success": True,
+                "post_id": result.get("id"),
+                "post_type": post_type,
+                "title": result.get("title", {}).get("rendered"),
+                "status": result.get("status"),
+                "link": result.get("link"),
+            }
+        )
+
+    async def list_custom_posts(
+        self, post_type: str, per_page: int = 10, status: str = "publish"
+    ) -> str:
+        """
+        List posts of a specific custom post type.
+
+        Args:
+            post_type (str): Custom post type name
+            per_page (int): Number of posts per page
+            status (str): Post status filter
+
+        Returns:
+            str: JSON string with posts list
+        """
+        params = {"per_page": min(per_page, 100), "status": status}
+
+        result = self._make_request("GET", post_type, params=params)
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        posts = []
+        for post in result:
+            posts.append(
+                {
+                    "id": post.get("id"),
+                    "title": post.get("title", {}).get("rendered"),
+                    "content": post.get("content", {}).get("rendered"),
+                    "status": post.get("status"),
+                    "date": post.get("date"),
+                    "link": post.get("link"),
+                    "meta": post.get("meta", {}),
+                }
+            )
+
+        return json.dumps({"posts": posts, "post_type": post_type})
+
+    # Plugin Management
+    async def list_plugins(self) -> str:
+        """
+        List WordPress plugins (requires appropriate permissions).
+
+        Returns:
+            str: JSON string with plugins list
+        """
+        if not self.auth:
+            return json.dumps({"error": "WordPress authentication not configured"})
+
+        result = self._make_request("GET", "plugins")
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        plugins = []
+        for plugin_file, plugin_data in result.items():
+            plugins.append(
+                {
+                    "plugin": plugin_file,
+                    "name": plugin_data.get("name"),
+                    "version": plugin_data.get("version"),
+                    "status": plugin_data.get("status"),
+                    "description": plugin_data.get("description"),
+                    "author": plugin_data.get("author"),
+                    "plugin_uri": plugin_data.get("plugin_uri"),
+                }
+            )
+
+        return json.dumps({"plugins": plugins})
+
+    async def get_plugin_details(self, plugin: str) -> str:
+        """
+        Get detailed information about a specific plugin.
+
+        Args:
+            plugin (str): Plugin file path (e.g., 'plugin-folder/plugin-file.php')
+
+        Returns:
+            str: JSON string with plugin details
+        """
+        if not self.auth:
+            return json.dumps({"error": "WordPress authentication not configured"})
+
+        result = self._make_request("GET", f"plugins/{plugin}")
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        return json.dumps(
+            {
+                "plugin": result.get("plugin"),
+                "name": result.get("name"),
+                "version": result.get("version"),
+                "status": result.get("status"),
+                "description": result.get("description"),
+                "author": result.get("author"),
+                "plugin_uri": result.get("plugin_uri"),
+                "requires_wp": result.get("requires_wp"),
+                "requires_php": result.get("requires_php"),
+            }
+        )
+
+    async def activate_plugin(self, plugin: str) -> str:
+        """
+        Activate a WordPress plugin.
+
+        Args:
+            plugin (str): Plugin file path
+
+        Returns:
+            str: JSON string with activation result
+        """
+        if not self.auth:
+            return json.dumps({"error": "WordPress authentication not configured"})
+
+        result = self._make_request(
+            "PUT", f"plugins/{plugin}", data={"status": "active"}
+        )
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        return json.dumps(
+            {
+                "success": True,
+                "plugin": result.get("plugin"),
+                "name": result.get("name"),
+                "status": result.get("status"),
+            }
+        )
+
+    async def deactivate_plugin(self, plugin: str) -> str:
+        """
+        Deactivate a WordPress plugin.
+
+        Args:
+            plugin (str): Plugin file path
+
+        Returns:
+            str: JSON string with deactivation result
+        """
+        if not self.auth:
+            return json.dumps({"error": "WordPress authentication not configured"})
+
+        result = self._make_request(
+            "PUT", f"plugins/{plugin}", data={"status": "inactive"}
+        )
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        return json.dumps(
+            {
+                "success": True,
+                "plugin": result.get("plugin"),
+                "name": result.get("name"),
+                "status": result.get("status"),
+            }
+        )
+
+    # Theme Management
+    async def list_themes(self) -> str:
+        """
+        List WordPress themes.
+
+        Returns:
+            str: JSON string with themes list
+        """
+        result = self._make_request("GET", "themes")
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        themes = []
+        for theme_slug, theme_data in result.items():
+            themes.append(
+                {
+                    "slug": theme_slug,
+                    "name": theme_data.get("name", {}).get("rendered"),
+                    "description": theme_data.get("description", {}).get("rendered"),
+                    "version": theme_data.get("version"),
+                    "status": theme_data.get("status"),
+                    "screenshot": theme_data.get("screenshot"),
+                    "author": theme_data.get("author", {}).get("display_name"),
+                }
+            )
+
+        return json.dumps({"themes": themes})
+
+    async def get_active_theme(self) -> str:
+        """
+        Get information about the currently active theme.
+
+        Returns:
+            str: JSON string with active theme details
+        """
+        themes_response = await self.list_themes()
+        themes_data = json.loads(themes_response)
+
+        if themes_data.get("error"):
+            return json.dumps(themes_data)
+
+        active_theme = None
+        for theme in themes_data.get("themes", []):
+            if theme.get("status") == "active":
+                active_theme = theme
+                break
+
+        if active_theme:
+            return json.dumps({"active_theme": active_theme})
+        else:
+            return json.dumps({"error": "No active theme found"})
+
+    async def switch_theme(self, theme_slug: str) -> str:
+        """
+        Switch to a different WordPress theme.
+
+        Args:
+            theme_slug (str): Theme slug/folder name
+
+        Returns:
+            str: JSON string with switch result
+        """
+        if not self.auth:
+            return json.dumps({"error": "WordPress authentication not configured"})
+
+        # This typically requires admin privileges and may not be available via REST API
+        # Would need custom endpoint or WP-CLI integration
+        return json.dumps(
+            {
+                "error": "Theme switching requires admin access and may need custom implementation",
+                "suggestion": "Use WordPress admin interface or WP-CLI for theme switching",
+            }
+        )
+
+    # Advanced Media Management
+    async def resize_media(self, media_id: int, width: int, height: int = None) -> str:
+        """
+        Resize WordPress media (requires image editing capabilities).
+
+        Args:
+            media_id (int): Media ID to resize
+            width (int): Target width
+            height (int): Target height (optional, maintains aspect ratio if not provided)
+
+        Returns:
+            str: JSON string with resize result
+        """
+        # This would typically require a custom WordPress plugin or external service
+        return json.dumps(
+            {
+                "info": "Media resizing requires additional WordPress plugins or external services",
+                "media_id": media_id,
+                "requested_width": width,
+                "requested_height": height,
+                "suggestion": "Consider using WordPress image editing plugins or external APIs",
+            }
+        )
+
+    async def generate_thumbnails(self, media_id: int) -> str:
+        """
+        Regenerate thumbnails for a media file.
+
+        Args:
+            media_id (int): Media ID to regenerate thumbnails for
+
+        Returns:
+            str: JSON string with generation result
+        """
+        # Get media details first
+        media_response = await self.get_media(media_id)
+        media_data = json.loads(media_response)
+
+        if media_data.get("error"):
+            return json.dumps(media_data)
+
+        # WordPress automatically generates thumbnails, but regeneration requires plugins
+        return json.dumps(
+            {
+                "info": "Thumbnail regeneration requires WordPress plugins like 'Regenerate Thumbnails'",
+                "media_id": media_id,
+                "current_url": media_data.get("url"),
+                "media_type": media_data.get("media_type"),
+            }
+        )
+
+    # Enhanced SEO Analysis
+    async def advanced_seo_analysis(self, post_id: int) -> str:
+        """
+        Perform advanced SEO analysis on a WordPress post.
+
+        Args:
+            post_id (int): Post ID to analyze
+
+        Returns:
+            str: JSON string with comprehensive SEO analysis
+        """
+        post_response = await self.get_post(post_id)
+        post_data = json.loads(post_response)
+
+        if post_data.get("error"):
+            return json.dumps(post_data)
+
+        title = post_data.get("title", "")
+        content = post_data.get("content", "")
+
+        # Advanced SEO analysis
+        analysis = {"post_id": post_id, "title": title, "advanced_seo_analysis": {}}
+
+        # Content analysis
+        import re
+
+        clean_content = re.sub(r"<[^>]+>", "", content)
+        words = clean_content.split()
+        word_count = len(words)
+
+        # Readability analysis (simple Flesch Reading Ease approximation)
+        sentences = len(re.split(r"[.!?]+", clean_content))
+        if sentences > 0 and word_count > 0:
+            avg_words_per_sentence = word_count / sentences
+            readability_score = 206.835 - (1.015 * avg_words_per_sentence)
+
+            if readability_score >= 90:
+                readability_level = "Very Easy"
+            elif readability_score >= 80:
+                readability_level = "Easy"
+            elif readability_score >= 70:
+                readability_level = "Fairly Easy"
+            elif readability_score >= 60:
+                readability_level = "Standard"
+            elif readability_score >= 50:
+                readability_level = "Fairly Difficult"
+            elif readability_score >= 30:
+                readability_level = "Difficult"
+            else:
+                readability_level = "Very Difficult"
+        else:
+            readability_score = 0
+            readability_level = "Cannot calculate"
+
+        analysis["advanced_seo_analysis"]["readability"] = {
+            "score": round(readability_score, 2),
+            "level": readability_level,
+            "words_per_sentence": (
+                round(avg_words_per_sentence, 1) if sentences > 0 else 0
+            ),
+        }
+
+        # Keyword density (top 10 words)
+        word_freq = {}
+        for word in words:
+            word = re.sub(r"[^a-zA-Z0-9]", "", word.lower())
+            if len(word) > 3:  # Ignore short words
+                word_freq[word] = word_freq.get(word, 0) + 1
+
+        top_keywords = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]
+        keyword_analysis = []
+        for word, count in top_keywords:
+            density = (count / word_count) * 100 if word_count > 0 else 0
+            keyword_analysis.append(
+                {"keyword": word, "count": count, "density_percent": round(density, 2)}
+            )
+
+        analysis["advanced_seo_analysis"]["keywords"] = keyword_analysis
+
+        # Title analysis
+        title_length = len(title)
+        analysis["advanced_seo_analysis"]["title_analysis"] = {
+            "length": title_length,
+            "character_count": title_length,
+            "word_count": len(title.split()),
+            "status": "optimal" if 30 <= title_length <= 60 else "needs_improvement",
+            "recommendation": (
+                "Title length is good"
+                if 30 <= title_length <= 60
+                else "Keep title between 30-60 characters"
+            ),
+        }
+
+        # Content structure analysis
+        heading_pattern = r"<h([1-6])[^>]*>(.*?)</h[1-6]>"
+        headings = re.findall(heading_pattern, content, re.IGNORECASE)
+
+        analysis["advanced_seo_analysis"]["content_structure"] = {
+            "headings_count": len(headings),
+            "headings": [
+                {"level": h[0], "text": re.sub(r"<[^>]+>", "", h[1])} for h in headings
+            ],
+            "has_h1": any(h[0] == "1" for h in headings),
+            "structure_score": "good" if len(headings) > 0 else "needs_improvement",
+        }
+
+        return json.dumps(analysis)
+
+    async def optimize_content(self, post_id: int, target_keyword: str = None) -> str:
+        """
+        Provide content optimization suggestions for a WordPress post.
+
+        Args:
+            post_id (int): Post ID to optimize
+            target_keyword (str): Target keyword for optimization
+
+        Returns:
+            str: JSON string with optimization suggestions
+        """
+        seo_response = await self.advanced_seo_analysis(post_id)
+        seo_data = json.loads(seo_response)
+
+        if seo_data.get("error"):
+            return json.dumps(seo_data)
+
+        suggestions = {"post_id": post_id, "optimization_suggestions": []}
+
+        # Analyze current SEO data and provide suggestions
+        seo_analysis = seo_data.get("advanced_seo_analysis", {})
+
+        # Title suggestions
+        title_analysis = seo_analysis.get("title_analysis", {})
+        if title_analysis.get("status") == "needs_improvement":
+            suggestions["optimization_suggestions"].append(
+                {
+                    "category": "Title",
+                    "priority": "high",
+                    "suggestion": title_analysis.get("recommendation"),
+                    "current_length": title_analysis.get("length"),
+                }
+            )
+
+        # Content length suggestions
+        if seo_analysis.get("readability", {}).get("score", 0) < 60:
+            suggestions["optimization_suggestions"].append(
+                {
+                    "category": "Readability",
+                    "priority": "medium",
+                    "suggestion": "Consider simplifying sentences and using more common words to improve readability",
+                    "current_score": seo_analysis.get("readability", {}).get("score"),
+                }
+            )
+
+        # Heading structure suggestions
+        content_structure = seo_analysis.get("content_structure", {})
+        if not content_structure.get("has_h1"):
+            suggestions["optimization_suggestions"].append(
+                {
+                    "category": "Content Structure",
+                    "priority": "high",
+                    "suggestion": "Add an H1 heading to improve content structure",
+                    "current_headings": content_structure.get("headings_count", 0),
+                }
+            )
+
+        # Keyword optimization suggestions
+        if target_keyword:
+            keywords = seo_analysis.get("keywords", [])
+            keyword_found = any(
+                target_keyword.lower() in k["keyword"] for k in keywords
+            )
+            if not keyword_found:
+                suggestions["optimization_suggestions"].append(
+                    {
+                        "category": "Keywords",
+                        "priority": "medium",
+                        "suggestion": f"Consider including the target keyword '{target_keyword}' more prominently in the content",
+                        "target_keyword": target_keyword,
+                    }
+                )
+
+        return json.dumps(suggestions)
+
+    async def check_broken_links(self, post_id: int) -> str:
+        """
+        Check for broken links in a WordPress post.
+
+        Args:
+            post_id (int): Post ID to check for broken links
+
+        Returns:
+            str: JSON string with broken links analysis
+        """
+        post_response = await self.get_post(post_id)
+        post_data = json.loads(post_response)
+
+        if post_data.get("error"):
+            return json.dumps(post_data)
+
+        content = post_data.get("content", "")
+
+        # Extract links from content
+        import re
+
+        link_pattern = r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>'
+        links = re.findall(link_pattern, content, re.IGNORECASE)
+
+        broken_links = []
+        working_links = []
+
+        for link in links:
+            if link.startswith(("http://", "https://")):
+                try:
+                    response = self.session.head(link, timeout=10, allow_redirects=True)
+                    if response.status_code >= 400:
+                        broken_links.append(
+                            {
+                                "url": link,
+                                "status_code": response.status_code,
+                                "error": f"HTTP {response.status_code}",
+                            }
+                        )
+                    else:
+                        working_links.append(
+                            {"url": link, "status_code": response.status_code}
+                        )
+                except Exception as e:
+                    broken_links.append({"url": link, "error": str(e)})
+
+        return json.dumps(
+            {
+                "post_id": post_id,
+                "total_links": len(links),
+                "working_links": len(working_links),
+                "broken_links": len(broken_links),
+                "broken_link_details": broken_links,
+                "health_status": (
+                    "good" if len(broken_links) == 0 else "needs_attention"
+                ),
+            }
+        )
+
+    # Content Management Enhancements
+    async def content_audit(self, days_old: int = 365) -> str:
+        """
+        Perform a content audit to identify old or outdated content.
+
+        Args:
+            days_old (int): Consider content older than this many days as outdated
+
+        Returns:
+            str: JSON string with content audit results
+        """
+        from datetime import datetime, timedelta
+
+        cutoff_date = (datetime.now() - timedelta(days=days_old)).strftime("%Y-%m-%d")
+
+        # Get posts older than cutoff date
+        old_posts_response = await self.list_posts(per_page=50, status="publish")
+        posts_data = json.loads(old_posts_response)
+
+        if posts_data.get("error"):
+            return json.dumps(posts_data)
+
+        audit_results = {
+            "audit_date": datetime.now().isoformat(),
+            "cutoff_date": cutoff_date,
+            "outdated_content": [],
+            "recent_content": [],
+            "recommendations": [],
+        }
+
+        for post in posts_data.get("posts", []):
+            post_date = post.get("date", "")
+            if post_date < cutoff_date:
+                audit_results["outdated_content"].append(
+                    {
+                        "id": post.get("id"),
+                        "title": post.get("title"),
+                        "date": post_date,
+                        "link": post.get("link"),
+                    }
+                )
+            else:
+                audit_results["recent_content"].append(
+                    {
+                        "id": post.get("id"),
+                        "title": post.get("title"),
+                        "date": post_date,
+                    }
+                )
+
+        # Generate recommendations
+        outdated_count = len(audit_results["outdated_content"])
+        if outdated_count > 0:
+            audit_results["recommendations"].append(
+                {
+                    "priority": "high",
+                    "action": "Review and update outdated content",
+                    "details": f"Found {outdated_count} posts older than {days_old} days",
+                }
+            )
+
+        if outdated_count > 10:
+            audit_results["recommendations"].append(
+                {
+                    "priority": "medium",
+                    "action": "Consider consolidating or removing very old content",
+                    "details": "Large amount of outdated content may affect SEO",
+                }
+            )
+
+        return json.dumps(audit_results)
+
+    # Custom Fields & Meta Management
+    async def get_post_meta(self, post_id: int, meta_key: str = None) -> str:
+        """
+        Get custom fields/meta data for a WordPress post.
+
+        Args:
+            post_id (int): Post ID
+            meta_key (str): Specific meta key to retrieve (optional)
+
+        Returns:
+            str: JSON string with meta data
+        """
+        params = {"_embed": "true"} if not meta_key else {}
+        result = self._make_request("GET", f"posts/{post_id}", params=params)
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        meta_data = result.get("meta", {})
+
+        if meta_key:
+            return json.dumps(
+                {
+                    "post_id": post_id,
+                    "meta_key": meta_key,
+                    "meta_value": meta_data.get(meta_key),
+                }
+            )
+        else:
+            return json.dumps({"post_id": post_id, "meta_data": meta_data})
+
+    async def update_post_meta(
+        self, post_id: int, meta_key: str, meta_value: str
+    ) -> str:
+        """
+        Update custom field/meta data for a WordPress post.
+
+        Args:
+            post_id (int): Post ID
+            meta_key (str): Meta key to update
+            meta_value (str): New meta value
+
+        Returns:
+            str: JSON string with update result
+        """
+        if not self.auth:
+            return json.dumps({"error": "WordPress authentication not configured"})
+
+        meta_data = {meta_key: meta_value}
+        result = self._make_request("PUT", f"posts/{post_id}", data={"meta": meta_data})
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        return json.dumps(
+            {
+                "success": True,
+                "post_id": post_id,
+                "meta_key": meta_key,
+                "meta_value": meta_value,
+                "updated": True,
+            }
+        )
+
+    async def list_custom_fields(self, post_id: int) -> str:
+        """
+        List all custom fields for a WordPress post.
+
+        Args:
+            post_id (int): Post ID
+
+        Returns:
+            str: JSON string with custom fields list
+        """
+        result = self._make_request("GET", f"posts/{post_id}")
+
+        if result.get("error"):
+            return json.dumps(result)
+
+        meta_data = result.get("meta", {})
+
+        custom_fields = []
+        for key, value in meta_data.items():
+            if not key.startswith("_"):  # Exclude WordPress internal meta keys
+                custom_fields.append({"key": key, "value": value})
+
+        return json.dumps(
+            {
+                "post_id": post_id,
+                "custom_fields": custom_fields,
+                "total_fields": len(custom_fields),
             }
         )
