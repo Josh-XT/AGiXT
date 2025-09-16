@@ -773,7 +773,7 @@ class Extensions:
                 )
 
             # Get category information for Custom Automation
-            category_name = "Core AI Capabilities"
+            category_name = "Core Abilities"
             category_description = ""
             try:
                 from DB import get_db_session, ExtensionCategory

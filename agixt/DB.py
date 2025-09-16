@@ -1188,12 +1188,8 @@ default_roles = [
 
 default_extension_categories = [
     {
-        "name": "Core AI Capabilities",
-        "description": "Essential AI functions like text-to-speech, image generation, and chat completions",
-    },
-    {
-        "name": "Web & Search",
-        "description": "Browse websites, search the internet, and interact with web pages",
+        "name": "Core Abilities",
+        "description": "Essential artificial intelligence abilities like workspace file management, data analysis, note taking, and more",
     },
     {
         "name": "Social & Communication",
@@ -1230,10 +1226,6 @@ default_extension_categories = [
     {
         "name": "E-commerce & Shopping",
         "description": "Integrate with online marketplaces and shopping platforms",
-    },
-    {
-        "name": "File & Document Management",
-        "description": "Handle files, create documents, and manage data storage",
     },
     {
         "name": "Entertainment & Media",
@@ -1393,9 +1385,9 @@ def migrate_extensions_to_new_categories():
         with get_db_session() as session:
             # Mapping from extension names to new categories
             extension_category_mapping = {
-                # Core AI Capabilities
-                "Ai": "Core AI Capabilities",
-                "Essential Abilities": "Core AI Capabilities",
+                # Core Abilities
+                "Ai": "Core Abilities",
+                "Essential Abilities": "Core Abilities",
                 # Web & Search
                 "Web Browsing": "Web & Search",
                 "Google Search": "Web & Search",

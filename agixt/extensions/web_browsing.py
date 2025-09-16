@@ -88,7 +88,7 @@ class web_browsing(Extensions):
     intelligent workflow management, error recovery, and detailed logging.
     """
 
-    CATEGORY = "Core AI Capabilities"
+    CATEGORY = "Core Abilities"
 
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")

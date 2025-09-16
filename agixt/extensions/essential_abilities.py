@@ -33,7 +33,7 @@ class essential_abilities(Extensions):
     and proactive engagement such as reminders, progress checks, automated reports, and recurring check-ins.
     """
 
-    CATEGORY = "Core AI Capabilities"
+    CATEGORY = "Core Abilities"
 
     def __init__(self, **kwargs):
         self.commands = {

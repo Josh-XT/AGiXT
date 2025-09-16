@@ -39,9 +39,9 @@ def get_extension_category(session, extension_name):
     default_category_name = "Business & Productivity"
     category_name = default_category_name
 
-    # Special case for Custom Automation - it should be in Core AI Capabilities
+    # Special case for Custom Automation - it should be in Core Abilities
     if extension_name == "Custom Automation":
-        category_name = "Core AI Capabilities"
+        category_name = "Core Abilities"
     else:
         # Try to find the extension class and get its CATEGORY attribute
         try:
