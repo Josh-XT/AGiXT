@@ -190,7 +190,8 @@ async def get_extension_categories_v1(
                 # Find extensions that belong to this category
                 category_extensions = []
                 for extension in all_extensions:
-                    if extension.get("category_info", {}).get("id") == str(category.id):
+                    category_info = extension.get("category_info")
+                    if category_info and category_info.get("id") == str(category.id):
                         category_extensions.append(
                             {
                                 "name": extension["extension_name"],
