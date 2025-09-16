@@ -1,6 +1,7 @@
 import uuid
 import time
 import logging
+import os
 from sqlalchemy import (
     create_engine,
     Column,
@@ -101,8 +102,6 @@ try:
             LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}?sslmode={DATABASE_SSL}"
         DATABASE_URI = f"postgresql://{LOGIN_URI}"
     else:
-        import os
-
         if "/" in DATABASE_NAME:
             db_folder = os.path.dirname(DATABASE_NAME)
             if not os.path.exists(db_folder):
@@ -1274,7 +1273,74 @@ def migrate_company_table():
     Note: For new installations, the SQLAlchemy model already includes all columns,
     so this migration will typically be skipped.
     """
-    return
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # List of columns to add with their definitions
+            columns_to_add = [
+                ("status", "BOOLEAN DEFAULT 1"),
+                ("address", "TEXT"),
+                ("phone_number", "TEXT"),
+                ("email", "TEXT"),
+                ("website", "TEXT"),
+                ("city", "TEXT"),
+                ("state", "TEXT"),
+                ("zip_code", "TEXT"),
+                ("country", "TEXT"),
+                ("notes", "TEXT"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                # For SQLite, check existing columns
+                result = session.execute(text("PRAGMA table_info(Company)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        logging.info(
+                            f"Adding {column_name} column to Company table (SQLite)"
+                        )
+                        session.execute(
+                            text(
+                                f"ALTER TABLE Company ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+            else:
+                # For PostgreSQL, check existing columns
+                for column_name, _ in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_name = 'Company' AND column_name = :column_name
+                        """
+                        ),
+                        {"column_name": column_name},
+                    )
+
+                    if not result.fetchone():
+                        # Convert SQLite column definition to PostgreSQL
+                        if column_name == "status":
+                            pg_column_def = "BOOLEAN DEFAULT true"
+                        else:
+                            pg_column_def = "TEXT"
+
+                        logging.info(
+                            f"Adding {column_name} column to Company table (PostgreSQL)"
+                        )
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Company" ADD COLUMN {column_name} {pg_column_def}'
+                            )
+                        )
+                        session.commit()
+
+    except Exception as e:
+        logging.debug(f"Company table migration completed or not needed: {e}")
 
 
 def migrate_extension_table():
@@ -1341,7 +1407,6 @@ def discover_extension_models():
     """
     import importlib
     import glob
-    import os
 
     extension_models = []
     command_files = glob.glob("extensions/*.py")
