@@ -1196,8 +1196,8 @@ default_extension_categories = [
         "description": "Connect to social media platforms, messaging apps, and email services",
     },
     {
-        "name": "Business & Productivity",
-        "description": "Integrate with business tools, project management, and productivity apps",
+        "name": "Productivity",
+        "description": "Integrate with business tools, email, calendar, project management, and productivity apps",
     },
     {
         "name": "Development & Code",
@@ -1396,12 +1396,12 @@ def migrate_extensions_to_new_categories():
                 "Sendgrid Email": "Social & Communication",
                 "Microsoft": "Social & Communication",
                 "X": "Social & Communication",
-                # Business & Productivity
-                "Notes": "Business & Productivity",
-                "Automation Helpers": "Business & Productivity",
-                "Walmart": "Business & Productivity",
-                "Meta Ads": "Business & Productivity",
-                "Google": "Business & Productivity",
+                # Productivity
+                "Notes": "Productivity",
+                "Automation Helpers": "Productivity",
+                "Walmart": "Productivity",
+                "Meta Ads": "Productivity",
+                "Google": "Productivity",
                 # Development & Code
                 "Github": "Development & Code",
                 "Graphql Server": "Development & Code",
@@ -1453,16 +1453,16 @@ def migrate_extensions_to_new_categories():
                             f"Category '{new_category_name}' not found for extension '{extension.name}'"
                         )
                 else:
-                    # Default to Business & Productivity for unmapped extensions
+                    # Default to Productivity for unmapped extensions
                     default_category = (
                         session.query(ExtensionCategory)
-                        .filter_by(name="Business & Productivity")
+                        .filter_by(name="Productivity")
                         .first()
                     )
                     if default_category:
                         extension.category_id = default_category.id
                         logging.info(
-                            f"Updated extension '{extension.name}' to default category 'Business & Productivity'"
+                            f"Updated extension '{extension.name}' to default category 'Productivity'"
                         )
 
             session.commit()

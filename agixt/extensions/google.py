@@ -178,7 +178,7 @@ class google(Extensions):
     This extension uses the logged-in user's Google account through OAuth authentication.
     """
 
-    CATEGORY = "Business & Productivity"
+    CATEGORY = "Productivity"
 
     def __init__(
         self,

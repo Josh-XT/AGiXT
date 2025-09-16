@@ -36,7 +36,7 @@ def get_extension_category(session, extension_name):
     from Extensions import Extensions
 
     # Default category if extension class doesn't define one
-    default_category_name = "Business & Productivity"
+    default_category_name = "Productivity"
     category_name = default_category_name
 
     # Special case for Custom Automation - it should be in Core Abilities
