@@ -1479,13 +1479,18 @@ def setup_default_extension_categories():
 def migrate_extensions_to_new_categories():
     """Migrate existing extensions to use their defined categories"""
     import importlib
+    import sys
+    import os
 
     try:
         with get_db_session() as session:
             # Get all extensions from the database
             extensions = session.query(Extension).all()
+            logging.info(f"Found {len(extensions)} extensions to process")
 
             for extension in extensions:
+                logging.info(f"Processing extension: '{extension.name}'")
+
                 # Special case for Custom Automation
                 if extension.name == "Custom Automation":
                     core_abilities_category = (
@@ -1502,31 +1507,60 @@ def migrate_extensions_to_new_categories():
 
                 # Try to find and load the extension module to get its category
                 category_name = None
-                extension_paths = [
-                    f"extensions.{extension.name.lower().replace(' ', '_')}",  # AGiXT extensions
-                    f"xtsystems_extensions.{extension.name.lower().replace(' ', '_')}",  # XTSystems extensions
-                ]
 
-                for extension_path in extension_paths:
-                    try:
-                        module = importlib.import_module(extension_path)
-                        # Find the extension class
-                        for attr_name in dir(module):
-                            attr = getattr(module, attr_name)
-                            if (
-                                isinstance(attr, type)
-                                and hasattr(attr, "CATEGORY")
-                                and attr.__name__.lower()
-                                == extension.name.lower().replace(" ", "_")
-                            ):
-                                category_name = attr.CATEGORY
+                # Convert extension name to module name
+                module_name = extension.name.lower().replace(" ", "_").replace("-", "_")
+                extension_path = f"extensions.{module_name}"
+
+                logging.debug(f"Trying to import: {extension_path}")
+
+                try:
+                    module = importlib.import_module(extension_path)
+                    logging.debug(f"Successfully imported: {extension_path}")
+
+                    # Find the extension class - it could have various naming patterns
+                    possible_class_names = [
+                        extension.name.replace(" ", "").replace(
+                            "-", ""
+                        ),  # Remove spaces/hyphens
+                        extension.name.replace(" ", "_").replace(
+                            "-", "_"
+                        ),  # Replace with underscores
+                        module_name,  # Same as module name
+                        module_name.title().replace(
+                            "_", ""
+                        ),  # Title case without underscores
+                    ]
+
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
+                            # Check if this class name matches any of our possible patterns
+                            attr_name_lower = attr_name.lower()
+                            for possible_name in possible_class_names:
+                                if attr_name_lower == possible_name.lower():
+                                    category_name = attr.CATEGORY
+                                    logging.info(
+                                        f"Found category '{category_name}' for extension '{extension.name}' in class '{attr_name}'"
+                                    )
+                                    break
+
+                            if category_name:
                                 break
 
-                        if category_name:
-                            break
-                    except (ImportError, AttributeError) as e:
-                        logging.debug(f"Could not load extension {extension_path}: {e}")
-                        continue
+                    if not category_name:
+                        # If we didn't find a matching class, try the first class with CATEGORY
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
+                                category_name = attr.CATEGORY
+                                logging.info(
+                                    f"Found category '{category_name}' for extension '{extension.name}' in fallback class '{attr_name}'"
+                                )
+                                break
+
+                except (ImportError, AttributeError) as e:
+                    logging.warning(f"Could not load extension {extension_path}: {e}")
 
                 # If we found a category, update the extension
                 if category_name:
@@ -1542,7 +1576,7 @@ def migrate_extensions_to_new_categories():
                         )
                     else:
                         logging.warning(
-                            f"Category '{category_name}' not found for extension '{extension.name}'"
+                            f"Category '{category_name}' not found in database for extension '{extension.name}'"
                         )
                         # Default to Productivity if category doesn't exist
                         default_category = (
@@ -1557,6 +1591,9 @@ def migrate_extensions_to_new_categories():
                             )
                 else:
                     # If we couldn't determine the category, default to Productivity
+                    logging.warning(
+                        f"No category found for extension '{extension.name}', using default"
+                    )
                     default_category = (
                         session.query(ExtensionCategory)
                         .filter_by(name="Productivity")
@@ -1572,6 +1609,9 @@ def migrate_extensions_to_new_categories():
             logging.info("Successfully migrated extensions to their defined categories")
     except Exception as e:
         logging.error(f"Error migrating extensions to new categories: {e}")
+        import traceback
+
+        logging.error(traceback.format_exc())
 
 
 def setup_default_roles():
@@ -1604,6 +1644,7 @@ if __name__ == "__main__":
     migrate_extension_table()
     migrate_webhook_outgoing_table()
     setup_default_extension_categories()
+    migrate_extensions_to_new_categories()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:
