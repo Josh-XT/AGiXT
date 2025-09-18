@@ -42,6 +42,7 @@ class Todo(Base):
         nullable=False,
         index=True,
     )
+    parent_id = Column(Integer, ForeignKey("todos.id"), nullable=True, default=None)
     title = Column(String(500), nullable=False)
     description = Column(Text, nullable=False)
     status = Column(
@@ -52,15 +53,22 @@ class Todo(Base):
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )
 
+    # Self-referential relationship for parent-child todos
+    children = relationship("Todo", backref="parent", remote_side=[id])
+
     def to_dict(self):
         return {
             "id": self.id,
             "conversation_id": str(self.conversation_id),
+            "parent_id": self.parent_id,
             "title": self.title,
             "description": self.description,
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "has_children": (
+                len(self.children) > 0 if hasattr(self, "children") else False
+            ),
         }
 
 
@@ -119,8 +127,10 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Generate Image": self.generate_image,
             "Convert Text to Speech": self.text_to_speech,
             "Create Todo Item": self.create_todo_item,
+            "Create Sub-Todo Item": self.create_sub_todo_item,
             "Create Todo Items in Bulk": self.create_todo_items_bulk,
             "List Current Todos": self.list_current_todos,
+            "List Sub-Todos": self.list_sub_todos,
             "Mark Todo Item Completed": self.mark_todo_completed,
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
             "Update Todo Item": self.update_todo_item,
@@ -1247,7 +1257,9 @@ print(output)
             agent_name=self.agent_name,
         )
 
-    async def create_todo_item(self, title: str, description: str) -> str:
+    async def create_todo_item(
+        self, title: str, description: str, parent_id: int = None
+    ) -> str:
         """
         Create a new todo item in the current conversation.
 
@@ -1258,8 +1270,7 @@ print(output)
             title (str): A concise, action-oriented title for the todo item (3-7 words)
             description (str): Detailed description including context, requirements, file paths,
                              specific methods, or acceptance criteria
-
-        Returns:
+            parent_id (int, optional): ID of parent todo to create this as a sub-todo        Returns:
             str: JSON response with success status and created todo item details
 
         Usage Guidelines:
@@ -1285,9 +1296,25 @@ print(output)
                     {"success": False, "error": "Description cannot be empty"}
                 )
 
+            # Validate parent_id if provided
+            if parent_id is not None:
+                parent_todo = (
+                    session.query(Todo)
+                    .filter(
+                        Todo.id == parent_id,
+                        Todo.conversation_id == self.conversation_id,
+                    )
+                    .first()
+                )
+                if not parent_todo:
+                    return json.dumps(
+                        {"success": False, "error": "Parent todo not found"}
+                    )
+
             # Create new todo item
             todo = Todo(
                 conversation_id=self.conversation_id,
+                parent_id=parent_id,
                 title=title.strip(),
                 description=description.strip(),
                 status="not-started",
@@ -1301,6 +1328,85 @@ print(output)
                     "success": True,
                     "message": "Todo item created successfully",
                     "todo": todo.to_dict(),
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def create_sub_todo_item(
+        self, parent_todo_id: int, title: str, description: str
+    ) -> str:
+        """
+        Create a new sub-todo item under an existing parent todo.
+
+        Sub-todos are useful for breaking down complex tasks into smaller, more manageable steps.
+        They are linked to a parent todo and can be managed independently while maintaining hierarchy.
+
+        Args:
+            parent_todo_id (int): The ID of the parent todo to attach this sub-todo to
+            title (str): A concise, action-oriented title for the sub-todo item
+            description (str): Detailed description of the sub-task
+
+        Returns:
+            str: JSON response with success status and created sub-todo details
+
+        Usage Guidelines:
+        - Use when a main todo has multiple distinct sub-tasks
+        - Sub-todos can have their own status independent of parent
+        - Helps organize complex workflows hierarchically
+        - Parent todo remains visible even when sub-todos are completed
+
+        When to use:
+        - Breaking down large tasks into specific steps
+        - When a todo has multiple components that can be tracked separately
+        - Creating detailed checklists for complex processes
+        - Organizing multi-phase work within a larger task
+        """
+        session = get_session()
+        try:
+            if not title.strip():
+                return json.dumps({"success": False, "error": "Title cannot be empty"})
+
+            if not description.strip():
+                return json.dumps(
+                    {"success": False, "error": "Description cannot be empty"}
+                )
+
+            # Validate parent todo exists
+            parent_todo = (
+                session.query(Todo)
+                .filter(
+                    Todo.id == parent_todo_id,
+                    Todo.conversation_id == self.conversation_id,
+                )
+                .first()
+            )
+
+            if not parent_todo:
+                return json.dumps({"success": False, "error": "Parent todo not found"})
+
+            # Create new sub-todo item
+            sub_todo = Todo(
+                conversation_id=self.conversation_id,
+                parent_id=parent_todo_id,
+                title=title.strip(),
+                description=description.strip(),
+                status="not-started",
+            )
+
+            session.add(sub_todo)
+            session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Sub-todo item created successfully under '{parent_todo.title}'",
+                    "sub_todo": sub_todo.to_dict(),
+                    "parent_todo": parent_todo.to_dict(),
                 }
             )
 
@@ -1472,14 +1578,39 @@ print(output)
             in_progress_count = sum(1 for todo in todos if todo.status == "in-progress")
             not_started_count = sum(1 for todo in todos if todo.status == "not-started")
 
-            # Convert todos to dict format
-            todo_list = [todo.to_dict() for todo in todos]
+            # Convert todos to dict format with hierarchy
+            parent_todos = [todo for todo in todos if todo.parent_id is None]
+            child_todos = [todo for todo in todos if todo.parent_id is not None]
+
+            # Build hierarchical structure
+            todo_list = []
+            for parent in parent_todos:
+                parent_dict = parent.to_dict()
+                # Find children for this parent
+                children = [
+                    child.to_dict()
+                    for child in child_todos
+                    if child.parent_id == parent.id
+                ]
+                parent_dict["sub_todos"] = children
+                parent_dict["sub_todo_count"] = len(children)
+                todo_list.append(parent_dict)
+
+            # Add any orphaned children (shouldn't happen but just in case)
+            for child in child_todos:
+                if not any(p.id == child.parent_id for p in parent_todos):
+                    child_dict = child.to_dict()
+                    child_dict["sub_todos"] = []
+                    child_dict["sub_todo_count"] = 0
+                    todo_list.append(child_dict)
 
             summary = {
                 "total": total_count,
                 "completed": completed_count,
                 "in_progress": in_progress_count,
                 "not_started": not_started_count,
+                "parent_todos": len(parent_todos),
+                "sub_todos": len(child_todos),
             }
 
             # Find currently active todo
@@ -1495,6 +1626,91 @@ print(output)
                     "todos": todo_list,
                     "summary": summary,
                     "active_todo": active_todo,
+                }
+            )
+
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def list_sub_todos(self, parent_todo_id: int) -> str:
+        """
+        List all sub-todo items for a specific parent todo.
+
+        Use this to focus on the sub-tasks of a particular todo item.
+        Helpful when working through the details of a complex task.
+
+        Args:
+            parent_todo_id (int): The ID of the parent todo to list sub-todos for
+
+        Returns:
+            str: JSON response with sub-todos list and parent todo details
+
+        Usage Guidelines:
+        - Use when you need to see all sub-tasks for a specific parent
+        - Helpful for planning work on a complex todo
+        - Shows the breakdown of a larger task
+        - Provides focused view of related sub-tasks
+        """
+        session = get_session()
+        try:
+            # Verify parent todo exists and belongs to this conversation
+            parent_todo = (
+                session.query(Todo)
+                .filter(
+                    Todo.id == parent_todo_id,
+                    Todo.conversation_id == self.conversation_id,
+                )
+                .first()
+            )
+
+            if not parent_todo:
+                return json.dumps({"success": False, "error": "Parent todo not found"})
+
+            # Get all sub-todos for this parent
+            sub_todos = (
+                session.query(Todo)
+                .filter(
+                    Todo.parent_id == parent_todo_id,
+                    Todo.conversation_id == self.conversation_id,
+                )
+                .order_by(Todo.created_at)
+                .all()
+            )
+
+            # Generate statistics for sub-todos
+            total_count = len(sub_todos)
+            completed_count = sum(1 for todo in sub_todos if todo.status == "completed")
+            in_progress_count = sum(
+                1 for todo in sub_todos if todo.status == "in-progress"
+            )
+            not_started_count = sum(
+                1 for todo in sub_todos if todo.status == "not-started"
+            )
+
+            # Convert to dict format
+            sub_todo_list = [todo.to_dict() for todo in sub_todos]
+
+            # Find active sub-todo
+            active_sub_todo = None
+            for todo in sub_todos:
+                if todo.status == "in-progress":
+                    active_sub_todo = todo.to_dict()
+                    break
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "parent_todo": parent_todo.to_dict(),
+                    "sub_todos": sub_todo_list,
+                    "summary": {
+                        "total": total_count,
+                        "completed": completed_count,
+                        "in_progress": in_progress_count,
+                        "not_started": not_started_count,
+                    },
+                    "active_sub_todo": active_sub_todo,
                 }
             )
 
