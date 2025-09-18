@@ -188,7 +188,7 @@ class microcontroller_development(Extensions, ExtensionDatabaseMixin):
             "Generate 3D Model": self.generate_3d_model,
             "Design Circuit": self.design_circuit,
             "Generate Firmware": self.generate_firmware,
-            "Create Enclosure": self.create_enclosure,
+            "Create 3D Printed Parts": self.create_3d_printed_parts,
             "Generate Documentation": self.generate_documentation,
             # Component inventory management commands
             "Add Component to Parts Inventory": self.add_component,
@@ -376,11 +376,11 @@ class microcontroller_development(Extensions, ExtensionDatabaseMixin):
             results.append("\n## 💻 Firmware\n" + firmware)
             logging.info("Firmware generation completed")
 
-            # Step 5: Create enclosure
-            logging.info("Starting enclosure creation...")
-            enclosure = await self.create_enclosure(components)
-            results.append("\n## 📦 Enclosure Design\n" + enclosure)
-            logging.info("Enclosure creation completed")
+            # Step 5: Create 3D printed parts
+            logging.info("Starting 3D printed parts creation...")
+            printed_parts = await self.create_3d_printed_parts(components)
+            results.append("\n## �️ 3D Printed Parts\n" + printed_parts)
+            logging.info("3D printed parts creation completed")
 
             # Step 6: Generate documentation
             logging.info("Starting documentation generation...")
@@ -859,174 +859,247 @@ Return ONLY the complete, fixed Arduino code in a code block."""
 
         return response
 
-    async def create_enclosure(self, components: str) -> str:
+    async def create_3d_printed_parts(self, components: str) -> str:
         """
-        Create a 3D printable enclosure for the hardware components.
+        Analyze the project and create all necessary 3D printed parts with interactive previews.
 
         Args:
             components (str): Component specifications and dimensions
 
         Returns:
-            str: OpenSCAD model with preview and download links
+            str: Complete report with all 3D printed parts, previews, and downloads
         """
-        prompt = f"""Design a 3D printable enclosure for these components:
+        try:
+            # Step 1: Analyze what 3D printed parts are needed
+            analysis_prompt = f"""Analyze this hardware project and identify all 3D printed parts that would be needed:
 
 {components}
 
-The assistant is an expert OpenSCAD programmer specializing in translating natural language descriptions into precise, printable 3D enclosures. The assistant's deep understanding spans mechanical engineering, 3D printing constraints, and programmatic modeling techniques.
+Consider these common categories of 3D printed parts for electronic projects:
 
-Core Knowledge Base:
-1. OpenSCAD Fundamentals
-- All measurements are in millimeters
-- Basic primitives: cube(), cylinder(), sphere()
-- Boolean operations: union(), difference(), intersection()
-- Transformations: translate(), rotate(), scale()
-- Hull(), minkowski() for advanced shapes
-- Linear_extrude() and rotate_extrude() for 2D to 3D operations
+1. **Main Enclosure/Case**
+   - Protective housing for main electronics
+   - Access panels for connectors
+   - Ventilation requirements
+   - Mounting features
 
-2. 3D Printing Considerations
-- Minimum wall thickness: 2mm for stability
-- Standard tolerances: 0.2mm for fitting parts
-- Support structures: Design to minimize overhangs >45°
-- Base layer: Ensure adequate surface area
-- Bridging: Keep unsupported spans under 10mm
+2. **Component Mounts and Brackets**
+   - PCB standoffs and mounting brackets
+   - Sensor housings and mounts
+   - Display bezels and frames
+   - Cable management clips
 
-3. Code Structure Requirements
-- Parameterized designs using variables
-- Modular construction with clear module definitions
-- Descriptive variable names (e.g., wall_thickness, base_diameter)
-- Comprehensive comments explaining design choices
-- $fn parameter for controlling curve resolution
+3. **User Interface Elements**
+   - Button caps and knobs
+   - Light pipes for LEDs
+   - Display windows
+   - Access covers
 
-4. Enclosure Design Requirements:
-   - Component Compartments: Precise cavities with 0.5mm tolerance, support posts with screw holes
-   - Connectors and Ports: Accurate cutouts for USB, power, sensors, LEDs with light pipes
-   - Assembly Design: Snap-fit or screw assembly with alignment features
-   - Thermal Management: Ventilation slots, heat sink mounting, airflow channels
-   - Mounting Features: Wall mount points, stand-offs, keyhole slots
-   - Wire Management: Cable routing channels, strain relief, wire clips
-   - Environmental Protection: Gasket grooves, drainage channels
-   - User Interface: Display windows, button caps, status LED light pipes
+4. **Structural Components**
+   - Support brackets
+   - Spacers and standoffs
+   - Strain relief elements
+   - Mounting plates
 
-Solution Development Process:
-1. Theory Crafting (in <thinking> tags)
-   - Generate multiple possible approaches to the enclosure design
-   - Consider different primitive combinations
-   - Explore alternative module structures
-   - Brainstorm potential parameterization schemes
-   - Document pros and cons of each approach
+5. **Specialized Parts**
+   - Custom connectors or adapters
+   - Lens holders for sensors
+   - Antenna housings
+   - Heat sinks or cooling features
 
-2. Implementation Testing (in <step> tags)
-   - Implement most promising approaches
-   - Test edge cases and parameter ranges
-   - Verify printability constraints
-   - Validate structural integrity
+For each identified part, provide:
+- **Part Name**: Descriptive name
+- **Purpose**: What it does and why it's needed  
+- **Key Requirements**: Size constraints, mounting points, material considerations
+- **Design Priority**: Essential, Recommended, or Optional
+- **Estimated Print Time**: rough estimate in hours
 
-3. Solution Evaluation (in <reflection> tags)
-   - Rate each approach using <reward> tags (0.0-1.0)
-   - Consider:
-     * Code maintainability
-     * Print reliability
-     * Customization flexibility
-     * Resource efficiency
-     * Structural integrity
-   - Justify ratings with specific criteria
-   - Identify potential improvements
+Create a comprehensive list prioritized by importance, focusing on parts that are essential for the project to function properly. Include brief descriptions of the design requirements for each part."""
 
-4. Final Solution (in <answer> tags)
-   - Present the highest-rated implementation
-   - Include comprehensive documentation
-   - Provide printer settings
-   - Note any important usage considerations
+            parts_analysis = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": analysis_prompt,
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
 
-For the enclosure design:
-1. Analyze key requirements and constraints
-2. Break down complex shapes into primitive components
-3. Consider printability and structural integrity
-4. Include necessary tolerances for moving parts
-5. Document all assumptions about measurements
+            results = [
+                "## 📋 3D Printed Parts Analysis\n",
+                parts_analysis,
+                "\n---\n"
+            ]
 
-The assistant's output must follow strict formatting:
-1. Theory crafting and analysis in <thinking> tags
-2. Implementation attempts in <step> tags
-3. Evaluation and scoring in <reflection> tags
-4. Final, complete OpenSCAD code in <answer> tags
-5. Code must be thoroughly commented and properly indented
+            # Step 2: Extract part names for individual design
+            part_extraction_prompt = f"""From this parts analysis, extract just the essential and recommended part names as a simple list:
 
-Sample measurements if not specified:
-- Wall thickness: 2mm
-- Base stability ratio: 2:3 (height:base width)
-- Clearance for moving parts: 0.2mm
-- Minimum feature size: 0.8mm
-- Default curve resolution: $fn=100
+{parts_analysis}
 
-Error prevention:
-- Validate all boolean operations
-- Check for non-manifold geometry
-- Ensure proper nesting of transformations
-- Verify wall thickness throughout
-- Test for printability constraints
+Return only the part names, one per line, starting with the most critical parts first. Maximum 5 parts to keep the response manageable. Format as:
+- Main Enclosure
+- PCB Mounting Bracket
+- Display Bezel
+- etc."""
 
-The goal is to produce OpenSCAD code that is:
-1. Immediately printable without modification
-2. Highly parameterized for customization
-3. Well-documented and maintainable
-4. Optimized for 3D printing
-5. Structurally sound and functional
+            parts_list_response = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": part_extraction_prompt,
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
 
-Remember to:
-- Consider multiple approaches before settling on a solution
-- Rate each attempt with <reward> tags
-- Provide detailed justification for design choices
-- Only proceed with approaches scoring 0.8 or higher
-- Backtrack and try new approaches if scores are low
-- Put the full OpenSCAD code in the <answer> tag inside of a OpenSCAD code block like: ```openscad\\nOpenSCAD code block\\n```"""
+            # Parse the parts list
+            parts_to_design = []
+            for line in parts_list_response.split('\n'):
+                line = line.strip()
+                if line.startswith('- ') or line.startswith('* '):
+                    part_name = line[2:].strip()
+                    if part_name and len(parts_to_design) < 5:  # Limit to 5 parts
+                        parts_to_design.append(part_name)
 
-        scad_prompt_response = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": prompt,
-                "log_user_input": False,
-                "disable_commands": True,
-                "log_output": False,
-                "browse_links": False,
-                "websearch": False,
-                "analyze_user_input": False,
-                "tts": False,
-                "conversation_name": self.conversation_name,
-            },
-        )
+            if not parts_to_design:
+                # Fallback if parsing fails
+                parts_to_design = ["Main Enclosure", "PCB Mounting Bracket"]
 
-        # Generate SCAD file using proper extraction method
-        scad_filepath = self._generate_scad_file(scad_prompt_response)
+            results.append(f"## 🎯 Designing {len(parts_to_design)} Critical Parts\n")
 
-        if not scad_filepath:
-            return "Error: Failed to generate OpenSCAD file"
+            # Step 3: Design each part using the generate_3d_model method
+            for i, part_name in enumerate(parts_to_design, 1):
+                try:
+                    logging.info(f"Designing part {i}/{len(parts_to_design)}: {part_name}")
+                    
+                    # Create detailed design prompt for this specific part
+                    part_design_prompt = f"""Design a 3D printable {part_name} for this electronics project:
 
-        # Extract clean code for validation and display
-        with open(scad_filepath, "r") as f:
-            scad_code = f.read()
+PROJECT COMPONENTS:
+{components}
 
-        # Validate and generate files
-        if not self._validate_scad_code(scad_code):
-            logging.info("OpenSCAD code may have syntax issues")
+DESIGN REQUIREMENTS FOR {part_name.upper()}:
+Based on the project components above, design a functional {part_name} that:
 
-        # Generate preview and STL
-        preview_path = self._generate_preview(scad_filepath)
-        stl_path = self._generate_stl(scad_filepath)
+1. **Fits the Components**: Analyze the component list and create appropriate spaces/mounts
+2. **Provides Access**: Include cutouts for connectors, buttons, displays, and cables  
+3. **Ensures Protection**: Protect sensitive electronics while allowing ventilation
+4. **Enables Assembly**: Include mounting holes, snap-fits, or screw bosses
+5. **Optimizes Printing**: Design for minimal supports and good bed adhesion
 
-        response = f"```openscad\n{scad_code}\n```\n\n"
+SPECIFIC CONSIDERATIONS:
+- Use standard electronics mounting patterns (2.54mm spacing, M3 screws, etc.)
+- Include 0.2mm tolerances for moving parts
+- Add 0.5mm clearance around electronic components
+- Design for FDM printing with 0.2mm layer height
+- Include chamfers and fillets for better printing results
 
-        if preview_path:
-            response += f"![Enclosure Preview]({self.output_url}/{os.path.basename(preview_path)})\n\n"
+Create a parametric OpenSCAD design that is immediately printable and functional."""
 
-        response += "### Download Files\n"
-        response += f"- 📥 [OpenSCAD Source]({self.output_url}/{os.path.basename(scad_filepath)})\n"
-        if stl_path:
-            response += f"- 🖨️ [STL for 3D Printing]({self.output_url}/{os.path.basename(stl_path)})\n"
+                    # Generate the 3D model using the existing method
+                    part_result = await self.generate_3d_model(part_design_prompt)
+                    
+                    results.extend([
+                        f"### {i}. {part_name}\n",
+                        part_result,
+                        "\n---\n"
+                    ])
+                    
+                    logging.info(f"Successfully designed part: {part_name}")
+                    
+                except Exception as part_error:
+                    logging.error(f"Error designing part {part_name}: {str(part_error)}")
+                    results.extend([
+                        f"### {i}. {part_name}\n",
+                        f"❌ **Error generating {part_name}**: {str(part_error)}\n",
+                        "Please try designing this part individually.\n",
+                        "\n---\n"
+                    ])
 
-        return response
+            # Step 4: Create assembly instructions
+            assembly_prompt = f"""Create assembly instructions for these 3D printed parts:
+
+PARTS DESIGNED:
+{', '.join(parts_to_design)}
+
+PROJECT COMPONENTS:
+{components}
+
+Provide step-by-step assembly instructions that cover:
+
+1. **Print Settings Recommendations**
+   - Layer height, infill, supports needed
+   - Estimated print times
+   - Post-processing requirements
+
+2. **Parts Preparation**
+   - Support removal
+   - Hole drilling or cleanup
+   - Test fitting procedures
+
+3. **Assembly Order**
+   - Which parts to assemble first
+   - Component installation sequence
+   - Cable routing and management
+
+4. **Hardware Required**
+   - Screws, nuts, bolts needed
+   - Adhesives or fasteners
+   - Tools required
+
+5. **Quality Check**
+   - Fit and function verification
+   - Troubleshooting common issues
+   - Final inspection checklist
+
+Make it clear and detailed enough for someone to follow without prior experience."""
+
+            assembly_instructions = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": assembly_prompt,
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
+
+            results.extend([
+                "## 🔧 Assembly Instructions\n",
+                assembly_instructions
+            ])
+
+            # Save assembly instructions
+            assembly_file = self._save_file(assembly_instructions, "assembly_instructions.md")
+            if assembly_file:
+                results.append(f"\n📥 [Download Assembly Instructions]({self.output_url}/assembly_instructions.md)")
+
+            logging.info("3D printed parts creation completed successfully")
+            return "\n".join(results)
+
+        except Exception as e:
+            logging.error(f"Error in create_3d_printed_parts: {e}")
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            return f"**Error creating 3D printed parts:**\n\n{str(e)}\n\nPlease try again or design parts individually using the 'Generate 3D Model' command."
 
     async def generate_documentation(self, project_info: str) -> str:
         """
