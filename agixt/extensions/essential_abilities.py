@@ -4,6 +4,7 @@ import subprocess
 import asyncio
 import logging
 import datetime
+import threading
 from typing import Optional, List
 from sqlalchemy import Column, String, Text, Integer, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
@@ -179,6 +180,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Create Todo Items in Bulk": self.create_todo_items_bulk,
             "List Current Todos": self.list_current_todos,
             "List Runnable Todos": self.list_runnable_todos,
+            "Run Todo List": self.run_todo_list,
             "List Sub-Todos": self.list_sub_todos,
             "Mark Todo Item Completed": self.mark_todo_completed,
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
@@ -201,6 +203,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self.conversation_id = (
             kwargs["conversation_id"] if "conversation_id" in kwargs else ""
         )
+        self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
         self.ApiClient = (
             kwargs["ApiClient"]
             if "ApiClient" in kwargs
@@ -2154,6 +2157,235 @@ print(output)
 
         except Exception as e:
             session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def run_todo_list(
+        self,
+        max_concurrent: int = 3,
+        auto_complete: bool = True,
+        execution_agent: str = None,
+    ) -> str:
+        """
+        Execute runnable todos asynchronously using background threads with prompt_agent calls.
+
+        This command identifies todos that can be started immediately (no incomplete dependencies)
+        and executes them as background threads. Each thread makes a prompt_agent call to execute
+        the task. Tasks without dependencies can run in parallel up to max_concurrent limit.
+
+        Args:
+            max_concurrent (int): Maximum number of todos to run concurrently (default: 3)
+            auto_complete (bool): Whether to automatically mark todos as completed after successful execution (default: True)
+            execution_agent (str, optional): Specific agent to use for execution. If None, uses current agent.
+
+        Returns:
+            str: JSON response with execution status and running thread information
+
+        Usage Guidelines:
+        - Use for executing planned workflows automatically
+        - Tasks run in background threads using direct prompt_agent calls
+        - Dependencies are respected - dependent tasks wait for prerequisites
+        - Monitor progress with List Current Todos to see status updates
+        - Use max_concurrent to control resource usage
+        - Each thread executes the task description as a prompt
+
+        Threading Execution:
+        - Identifies all runnable todos (no incomplete dependencies)
+        - Starts up to max_concurrent threads in parallel
+        - Each thread makes a prompt_agent call via existing ApiClient
+        - Tasks auto-complete if auto_complete is enabled
+        - Continues until all possible tasks are running or completed
+        """
+        session = get_session()
+        try:
+            # Get all runnable todos
+            runnable_response = await self.list_runnable_todos(include_completed=False)
+            runnable_data = json.loads(runnable_response)
+
+            if not runnable_data.get("success"):
+                return json.dumps(
+                    {"success": False, "error": "Failed to get runnable todos"}
+                )
+
+            runnable_todos = runnable_data.get("runnable_todos", [])
+
+            if not runnable_todos:
+                return json.dumps(
+                    {
+                        "success": True,
+                        "message": "No runnable todos found",
+                        "running_tasks": [],
+                        "total_started": 0,
+                    }
+                )
+
+            # Filter to only not-started todos (don't re-run in-progress)
+            pending_todos = [
+                todo for todo in runnable_todos if todo.get("status") == "not-started"
+            ]
+
+            if not pending_todos:
+                return json.dumps(
+                    {
+                        "success": True,
+                        "message": "All runnable todos are already in progress or completed",
+                        "running_tasks": [],
+                        "total_started": 0,
+                    }
+                )
+
+            # Limit by max_concurrent
+            todos_to_start = pending_todos[:max_concurrent]
+
+            started_tasks = []
+            agent_to_use = execution_agent or self.agent_name
+
+            def execute_todo_task(
+                todo_id, title, description, agent_name, auto_complete_flag
+            ):
+                """Execute a single todo task in a separate thread"""
+                try:
+                    # Create the prompt for the agent
+                    prompt = f"""Execute the following task:
+
+Task: {title}
+
+Description: {description}
+
+Instructions:
+- Complete the task as described
+- Provide detailed output of what was accomplished
+- If the task involves code, include the code and execution results
+- If the task involves files, mention which files were created/modified
+- If the task encounters errors, provide debugging information
+
+Execute this task thoroughly and report on the completion."""
+
+                    # Execute the prompt with the agent using the existing ApiClient
+                    response = self.ApiClient.prompt_agent(
+                        agent_name=agent_name,
+                        prompt_name="Think About It",
+                        prompt_args={
+                            "user_input": prompt,
+                            "conversation_name": self.conversation_name,
+                            "disable_commands": False,
+                            "running_command": "Run Todo List",
+                            "log_user_input": False,
+                            "log_output": False,
+                            "tts": False,
+                        },
+                    )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] {response}",
+                        conversation_name=self.conversation_name,
+                    )
+
+                    logging.info(
+                        f"Todo {todo_id} ({title}) completed with response: {response}"
+                    )
+
+                    # Auto-complete the todo if requested
+                    if auto_complete_flag:
+                        # We need to run this in the event loop since it's async
+                        import asyncio
+
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            session = get_session()
+                            todo = (
+                                session.query(EssentialTodo)
+                                .filter_by(id=todo_id)
+                                .first()
+                            )
+                            if todo:
+                                todo.status = "completed"
+                                todo.updated_at = datetime.datetime.utcnow()
+                                session.commit()
+                            session.close()
+                        except Exception as e:
+                            logging.error(
+                                f"Failed to auto-complete todo {todo_id}: {str(e)}"
+                            )
+                        finally:
+                            loop.close()
+
+                except Exception as e:
+                    logging.error(f"Error executing todo {todo_id}: {str(e)}")
+                    # Try to revert status back to not-started
+                    try:
+                        session = get_session()
+                        todo = (
+                            session.query(EssentialTodo).filter_by(id=todo_id).first()
+                        )
+                        if todo:
+                            todo.status = "not-started"
+                            todo.updated_at = datetime.datetime.utcnow()
+                            session.commit()
+                        session.close()
+                    except Exception as revert_e:
+                        logging.error(
+                            f"Failed to revert todo {todo_id} status: {str(revert_e)}"
+                        )
+
+            # Start each todo as a background thread
+            for todo in todos_to_start:
+                todo_id = todo.get("id")
+                title = todo.get("title")
+                description = todo.get("description")
+
+                try:
+                    # Mark todo as in-progress first
+                    await self.mark_todo_incomplete(
+                        todo_id=todo_id, status="in-progress"
+                    )
+
+                    # Start the task in a separate thread
+                    thread = threading.Thread(
+                        target=execute_todo_task,
+                        args=(todo_id, title, description, agent_to_use, auto_complete),
+                        daemon=True,
+                        name=f"TodoTask-{todo_id}",
+                    )
+                    thread.start()
+
+                    # Store task info for tracking
+                    started_tasks.append(
+                        {
+                            "todo_id": todo_id,
+                            "title": title,
+                            "thread_name": thread.name,
+                            "agent": agent_to_use,
+                            "status": "started",
+                            "auto_complete": auto_complete,
+                        }
+                    )
+
+                except Exception as e:
+                    logging.error(f"Failed to start todo {todo_id}: {str(e)}")
+                    # Revert status back to not-started if thread creation failed
+                    await self.mark_todo_incomplete(
+                        todo_id=todo_id, status="not-started"
+                    )
+                    continue
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Started {len(started_tasks)} todo tasks in background threads",
+                    "running_tasks": started_tasks,
+                    "total_started": len(started_tasks),
+                    "max_concurrent": max_concurrent,
+                    "auto_complete": auto_complete,
+                    "execution_agent": agent_to_use,
+                    "guidance": "Use 'List Current Todos' to monitor progress. Tasks marked as 'in-progress' are currently executing in background threads.",
+                },
+                indent=2,
+            )
+
+        except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()

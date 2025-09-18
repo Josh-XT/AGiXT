@@ -433,7 +433,8 @@ class Interactions:
         agent_commands = ""
         if "disable_commands" not in kwargs:
             agent_commands = self.agent.get_commands_prompt(
-                conversation_id=conversation_id
+                conversation_id=conversation_id,
+                running_prompt=kwargs.get("running_command", None),
             )
         formatted_prompt = self.custom_format(
             string=prompt,
