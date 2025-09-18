@@ -118,7 +118,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Modify Scheduled Follow-Up": self.modify_task,
             "Generate Image": self.generate_image,
             "Convert Text to Speech": self.text_to_speech,
-            "Create Todo List": self.create_todo_list,
+            "Create Todo Item": self.create_todo_item,
+            "Create Todo Items in Bulk": self.create_todo_items_bulk,
             "List Current Todos": self.list_current_todos,
             "Mark Todo Item Completed": self.mark_todo_completed,
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
@@ -1246,7 +1247,7 @@ print(output)
             agent_name=self.agent_name,
         )
 
-    async def create_todo_list(self, title: str, description: str) -> str:
+    async def create_todo_item(self, title: str, description: str) -> str:
         """
         Create a new todo item in the current conversation.
 
@@ -1300,6 +1301,131 @@ print(output)
                     "success": True,
                     "message": "Todo item created successfully",
                     "todo": todo.to_dict(),
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def create_todo_items_bulk(
+        self,
+        todo_1_title: str = "",
+        todo_1_description: str = "",
+        todo_2_title: str = "",
+        todo_2_description: str = "",
+        todo_3_title: str = "",
+        todo_3_description: str = "",
+        todo_4_title: str = "",
+        todo_4_description: str = "",
+        todo_5_title: str = "",
+        todo_5_description: str = "",
+        todo_6_title: str = "",
+        todo_6_description: str = "",
+        todo_7_title: str = "",
+        todo_7_description: str = "",
+        todo_8_title: str = "",
+        todo_8_description: str = "",
+        todo_9_title: str = "",
+        todo_9_description: str = "",
+        todo_10_title: str = "",
+        todo_10_description: str = "",
+    ) -> str:
+        """
+        Create multiple todo items in bulk (up to 10 at once).
+
+        Use this when breaking down complex tasks into multiple actionable steps.
+        Only fill in as many todo items as needed - empty title/description pairs will be ignored.
+        This is much more efficient than creating todos individually when you have multiple tasks.
+
+        Args:
+            todo_1_title to todo_10_title (str): Titles for up to 10 todo items
+            todo_1_description to todo_10_description (str): Descriptions for up to 10 todo items
+
+        Returns:
+            str: JSON response with success status and created todo items details
+
+        Usage Guidelines:
+        - Use when you have 2-10 related tasks to create at once
+        - Only fill in the todo pairs you need (1-10)
+        - Leave unused title/description parameters empty
+        - Perfect for breaking down user requests into actionable steps
+        - More efficient than multiple individual create_todo_item calls
+
+        When to use:
+        - User provides a complex multi-step request
+        - Breaking down projects into manageable tasks
+        - Planning workflows that require multiple steps
+        - Initial task planning for new projects
+
+        Example:
+        - todo_1_title="Read requirements", todo_1_description="Review user specifications..."
+        - todo_2_title="Design architecture", todo_2_description="Create system design..."
+        - Leave todo_3_title="" and beyond if only 2 tasks needed
+        """
+        session = get_session()
+        try:
+            # Collect all the todo pairs into a list
+            todo_pairs = [
+                (todo_1_title, todo_1_description),
+                (todo_2_title, todo_2_description),
+                (todo_3_title, todo_3_description),
+                (todo_4_title, todo_4_description),
+                (todo_5_title, todo_5_description),
+                (todo_6_title, todo_6_description),
+                (todo_7_title, todo_7_description),
+                (todo_8_title, todo_8_description),
+                (todo_9_title, todo_9_description),
+                (todo_10_title, todo_10_description),
+            ]
+
+            # Filter out empty pairs and validate
+            valid_todos = []
+            for i, (title, description) in enumerate(todo_pairs, 1):
+                if title.strip() and description.strip():
+                    valid_todos.append((title.strip(), description.strip()))
+                elif title.strip() or description.strip():
+                    # One is filled but not the other
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": f"Todo {i}: Both title and description must be provided or both must be empty",
+                        }
+                    )
+
+            if not valid_todos:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "At least one todo item (title and description) must be provided",
+                    }
+                )
+
+            # Create all the todo items
+            created_todos = []
+            for title, description in valid_todos:
+                todo = Todo(
+                    conversation_id=self.conversation_id,
+                    title=title,
+                    description=description,
+                    status="not-started",
+                )
+                session.add(todo)
+                created_todos.append(todo)
+
+            session.commit()
+
+            # Convert to dict format for response
+            created_todos_dict = [todo.to_dict() for todo in created_todos]
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Successfully created {len(created_todos)} todo items",
+                    "todos": created_todos_dict,
+                    "count": len(created_todos),
                 }
             )
 
