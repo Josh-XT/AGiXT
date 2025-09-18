@@ -61,6 +61,7 @@ class EssentialTodo(Base):
         backref="parent",
         remote_side=[id],
         cascade="all, delete-orphan",
+        single_parent=True,
     )
 
     def to_dict(self):
