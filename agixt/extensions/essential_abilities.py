@@ -55,14 +55,15 @@ class EssentialTodo(Base):
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )
 
-    # Self-referential relationship for parent-child todos
-    children = relationship(
-        "EssentialTodo",
-        backref="parent",
-        remote_side=[id],
-        cascade="all, delete-orphan",
-        single_parent=True,
-    )
+    # Note: Self-referential relationship for parent-child todos
+    # Commented out temporarily to resolve SQLAlchemy registry conflicts
+    # children = relationship(
+    #     "agixt.extensions.essential_abilities.EssentialTodo",
+    #     backref="parent",
+    #     remote_side=[id],
+    #     cascade="all, delete-orphan",
+    #     single_parent=True,
+    # )
 
     def to_dict(self):
         return {
@@ -74,9 +75,8 @@ class EssentialTodo(Base):
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "has_children": (
-                len(self.children) > 0 if hasattr(self, "children") else False
-            ),
+            # Note: has_children calculation disabled due to relationship temporarily removed
+            "has_children": False,
         }
 
 
