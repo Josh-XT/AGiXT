@@ -4,7 +4,9 @@ import subprocess
 import asyncio
 import logging
 import datetime
-from typing import Optional
+from typing import Optional, List
+from sqlalchemy import Column, String, Text, Integer, DateTime, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
 from MagicalAuth import (
     convert_time,
     get_user_timezone,
@@ -16,13 +18,57 @@ from safeexecute import execute_python_code
 from agixtsdk import AGiXTSDK
 from Globals import getenv
 from Task import Task
+from DB import (
+    get_session,
+    Base,
+    DATABASE_TYPE,
+    UUID,
+    get_new_id,
+    ExtensionDatabaseMixin,
+)
+import uuid
 
 
-class essential_abilities(Extensions):
+# Database Model for Todos
+class Todo(Base):
+    """Database model for storing todo items"""
+
+    __tablename__ = "todos"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        nullable=False,
+        index=True,
+    )
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=False)
+    status = Column(
+        String(20), nullable=False, default="not-started"
+    )  # not-started, in-progress, completed
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "conversation_id": str(self.conversation_id),
+            "title": self.title,
+            "description": self.description,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class essential_abilities(Extensions, ExtensionDatabaseMixin):
     """
     The Essential Abilities extension provides core functionality for agents,
     including file system operations within the agent's workspace, data analysis, Python code execution,
-    scheduling follow-up messages, and other fundamental capabilities.
+    scheduling follow-up messages, todo list management, and other fundamental capabilities.
 
     The agent's workspace is a safe sandboxed environment where the agent has access to uploaded files, files it downloads,
     and files it creates. This allows the agent to perform tasks such as reading and writing files, searching file contents,
@@ -31,9 +77,16 @@ class essential_abilities(Extensions):
     The scheduling capabilities enable the AI to proactively schedule follow-up messages and interactions with users at specific times.
     When scheduled times arrive, the AI can execute commands and notify users of task completion, enabling time-based automation
     and proactive engagement such as reminders, progress checks, automated reports, and recurring check-ins.
+
+    The todo list management capabilities allow the AI to create, track, and manage structured todo lists with database persistence.
+    Each todo is linked to the current conversation and supports status tracking (not-started, in-progress, completed).
+    This ensures proper task visibility, planning, and completion tracking for complex workflows across conversation sessions.
     """
 
     CATEGORY = "Core Abilities"
+
+    # Register extension models for automatic table creation
+    extension_models = [Todo]
 
     def __init__(self, **kwargs):
         self.commands = {
@@ -65,6 +118,13 @@ class essential_abilities(Extensions):
             "Modify Scheduled Follow-Up": self.modify_task,
             "Generate Image": self.generate_image,
             "Convert Text to Speech": self.text_to_speech,
+            "Create Todo Item": self.create_todo_item,
+            "Create Todo Items in Bulk": self.create_todo_items_bulk,
+            "List Current Todos": self.list_current_todos,
+            "Mark Todo Item Completed": self.mark_todo_completed,
+            "Mark Todo Item Incomplete": self.mark_todo_incomplete,
+            "Update Todo Item": self.update_todo_item,
+            "Delete Todo Item": self.delete_todo_item,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -91,6 +151,10 @@ class essential_abilities(Extensions):
             )
         )
         self.output_url = kwargs.get("output_url", "")
+        self.api_key = kwargs.get("api_key", "")
+
+        # Register models with ExtensionDatabaseMixin
+        self.register_models()
 
     def safe_join(self, paths) -> str:
         """
@@ -1182,3 +1246,504 @@ print(output)
             text=text,
             agent_name=self.agent_name,
         )
+
+    async def create_todo_item(self, title: str, description: str) -> str:
+        """
+        Create a new todo item in the current conversation.
+
+        Use this to break down complex tasks into manageable steps and track progress.
+        Each todo item is linked to the current conversation for context.
+
+        Args:
+            title (str): A concise, action-oriented title for the todo item (3-7 words)
+            description (str): Detailed description including context, requirements, file paths,
+                             specific methods, or acceptance criteria
+
+        Returns:
+            str: JSON response with success status and created todo item details
+
+        Usage Guidelines:
+        - Create todos for multi-step work requiring planning and tracking
+        - Use descriptive titles that clearly indicate the action needed
+        - Include comprehensive descriptions with all necessary context
+        - Break down larger tasks into smaller, actionable steps
+        - Create todos BEFORE starting work to ensure proper tracking
+
+        When to use:
+        - User provides multiple tasks or complex requests
+        - Breaking down large projects into manageable pieces
+        - Planning multi-step workflows or processes
+        - Tracking progress on ongoing work
+        """
+        session = get_session()
+        try:
+            if not title.strip():
+                return json.dumps({"success": False, "error": "Title cannot be empty"})
+
+            if not description.strip():
+                return json.dumps(
+                    {"success": False, "error": "Description cannot be empty"}
+                )
+
+            # Create new todo item
+            todo = Todo(
+                conversation_id=self.conversation_id,
+                title=title.strip(),
+                description=description.strip(),
+                status="not-started",
+            )
+
+            session.add(todo)
+            session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": "Todo item created successfully",
+                    "todo": todo.to_dict(),
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def create_todo_items_bulk(
+        self,
+        todo_1_title: str = "",
+        todo_1_description: str = "",
+        todo_2_title: str = "",
+        todo_2_description: str = "",
+        todo_3_title: str = "",
+        todo_3_description: str = "",
+        todo_4_title: str = "",
+        todo_4_description: str = "",
+        todo_5_title: str = "",
+        todo_5_description: str = "",
+        todo_6_title: str = "",
+        todo_6_description: str = "",
+        todo_7_title: str = "",
+        todo_7_description: str = "",
+        todo_8_title: str = "",
+        todo_8_description: str = "",
+        todo_9_title: str = "",
+        todo_9_description: str = "",
+        todo_10_title: str = "",
+        todo_10_description: str = "",
+    ) -> str:
+        """
+        Create multiple todo items in bulk (up to 10 at once).
+
+        Use this when breaking down complex tasks into multiple actionable steps.
+        Only fill in as many todo items as needed - empty title/description pairs will be ignored.
+        This is much more efficient than creating todos individually when you have multiple tasks.
+
+        Args:
+            todo_1_title to todo_10_title (str): Titles for up to 10 todo items
+            todo_1_description to todo_10_description (str): Descriptions for up to 10 todo items
+
+        Returns:
+            str: JSON response with success status and created todo items details
+
+        Usage Guidelines:
+        - Use when you have 2-10 related tasks to create at once
+        - Only fill in the todo pairs you need (1-10)
+        - Leave unused title/description parameters empty
+        - Perfect for breaking down user requests into actionable steps
+        - More efficient than multiple individual create_todo_item calls
+
+        When to use:
+        - User provides a complex multi-step request
+        - Breaking down projects into manageable tasks
+        - Planning workflows that require multiple steps
+        - Initial task planning for new projects
+
+        Example:
+        - todo_1_title="Read requirements", todo_1_description="Review user specifications..."
+        - todo_2_title="Design architecture", todo_2_description="Create system design..."
+        - Leave todo_3_title="" and beyond if only 2 tasks needed
+        """
+        session = get_session()
+        try:
+            # Collect all the todo pairs into a list
+            todo_pairs = [
+                (todo_1_title, todo_1_description),
+                (todo_2_title, todo_2_description),
+                (todo_3_title, todo_3_description),
+                (todo_4_title, todo_4_description),
+                (todo_5_title, todo_5_description),
+                (todo_6_title, todo_6_description),
+                (todo_7_title, todo_7_description),
+                (todo_8_title, todo_8_description),
+                (todo_9_title, todo_9_description),
+                (todo_10_title, todo_10_description),
+            ]
+
+            # Filter out empty pairs and validate
+            valid_todos = []
+            for i, (title, description) in enumerate(todo_pairs, 1):
+                if title.strip() and description.strip():
+                    valid_todos.append((title.strip(), description.strip()))
+                elif title.strip() or description.strip():
+                    # One is filled but not the other
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": f"Todo {i}: Both title and description must be provided or both must be empty",
+                        }
+                    )
+
+            if not valid_todos:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "At least one todo item (title and description) must be provided",
+                    }
+                )
+
+            # Create all the todo items
+            created_todos = []
+            for title, description in valid_todos:
+                todo = Todo(
+                    conversation_id=self.conversation_id,
+                    title=title,
+                    description=description,
+                    status="not-started",
+                )
+                session.add(todo)
+                created_todos.append(todo)
+
+            session.commit()
+
+            # Convert to dict format for response
+            created_todos_dict = [todo.to_dict() for todo in created_todos]
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Successfully created {len(created_todos)} todo items",
+                    "todos": created_todos_dict,
+                    "count": len(created_todos),
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def list_current_todos(self, include_completed: bool = False) -> str:
+        """
+        List all todo items for the current conversation.
+
+        Use this to get an overview of all tasks and their current status.
+        Helps track progress and identify what work remains.
+
+        Args:
+            include_completed (bool): Whether to include completed todos in the list
+
+        Returns:
+            str: JSON response with list of todos and summary statistics
+
+        Usage Guidelines:
+        - Use this frequently to stay aware of current tasks
+        - Check before starting work to prioritize properly
+        - Review regularly to track overall progress
+        - Use to identify bottlenecks or stalled tasks
+        """
+        session = get_session()
+        try:
+            # Build query based on completion filter
+            query = session.query(Todo).filter(
+                Todo.conversation_id == self.conversation_id
+            )
+
+            if not include_completed:
+                query = query.filter(Todo.status != "completed")
+
+            todos = query.order_by(Todo.created_at).all()
+
+            # Generate summary statistics
+            total_count = len(todos)
+            completed_count = sum(1 for todo in todos if todo.status == "completed")
+            in_progress_count = sum(1 for todo in todos if todo.status == "in-progress")
+            not_started_count = sum(1 for todo in todos if todo.status == "not-started")
+
+            # Convert todos to dict format
+            todo_list = [todo.to_dict() for todo in todos]
+
+            summary = {
+                "total": total_count,
+                "completed": completed_count,
+                "in_progress": in_progress_count,
+                "not_started": not_started_count,
+            }
+
+            # Find currently active todo
+            active_todo = None
+            for todo in todos:
+                if todo.status == "in-progress":
+                    active_todo = todo.to_dict()
+                    break
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "todos": todo_list,
+                    "summary": summary,
+                    "active_todo": active_todo,
+                }
+            )
+
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def mark_todo_completed(self, todo_id: int) -> str:
+        """
+        Mark a todo item as completed.
+
+        Use this immediately after finishing work on a todo item.
+        This helps track progress and keeps the todo list current.
+
+        Args:
+            todo_id (int): The unique ID of the todo item to mark as completed
+
+        Returns:
+            str: JSON response with success status and updated todo details
+
+        Usage Guidelines:
+        - Mark todos as completed IMMEDIATELY when finished
+        - Don't batch completions - update as you go
+        - This helps maintain accurate progress tracking
+        - Completed todos provide a record of work done
+        """
+        session = get_session()
+        try:
+            todo = (
+                session.query(Todo)
+                .filter(
+                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                )
+                .first()
+            )
+
+            if not todo:
+                return json.dumps({"success": False, "error": "Todo item not found"})
+
+            todo.status = "completed"
+            todo.updated_at = datetime.datetime.utcnow()
+            session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Todo '{todo.title}' marked as completed",
+                    "todo": todo.to_dict(),
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def mark_todo_incomplete(
+        self, todo_id: int, status: str = "not-started"
+    ) -> str:
+        """
+        Mark a todo item as incomplete (either not-started or in-progress).
+
+        Use this to revert completed todos or update status when starting work.
+        Only one todo can be in-progress at a time.
+
+        Args:
+            todo_id (int): The unique ID of the todo item to update
+            status (str): The new status - either "not-started" or "in-progress"
+
+        Returns:
+            str: JSON response with success status and updated todo details
+
+        Usage Guidelines:
+        - Mark as "in-progress" when starting work on a todo
+        - Only one todo should be "in-progress" at a time
+        - Use "not-started" to reset a todo back to initial state
+        - Change status before beginning work for proper tracking
+        """
+        session = get_session()
+        try:
+            if status not in ["not-started", "in-progress"]:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "Status must be either 'not-started' or 'in-progress'",
+                    }
+                )
+
+            # If setting to in-progress, ensure no other todo is in-progress
+            if status == "in-progress":
+                existing_in_progress = (
+                    session.query(Todo)
+                    .filter(
+                        Todo.conversation_id == self.conversation_id,
+                        Todo.status == "in-progress",
+                        Todo.id != todo_id,
+                    )
+                    .first()
+                )
+
+                if existing_in_progress:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": f"Another todo is already in-progress: '{existing_in_progress.title}'",
+                        }
+                    )
+
+            todo = (
+                session.query(Todo)
+                .filter(
+                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                )
+                .first()
+            )
+
+            if not todo:
+                return json.dumps({"success": False, "error": "Todo item not found"})
+
+            old_status = todo.status
+            todo.status = status
+            todo.updated_at = datetime.datetime.utcnow()
+            session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Todo '{todo.title}' status changed from '{old_status}' to '{status}'",
+                    "todo": todo.to_dict(),
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def update_todo_item(
+        self, todo_id: int, title: str = None, description: str = None
+    ) -> str:
+        """
+        Update the title or description of an existing todo item.
+
+        Use this when requirements change or you need to clarify a todo item.
+        Helps keep todos accurate and up-to-date.
+
+        Args:
+            todo_id (int): The unique ID of the todo item to update
+            title (str, optional): New title for the todo item
+            description (str, optional): New description for the todo item
+
+        Returns:
+            str: JSON response with success status and updated todo details
+
+        Usage Guidelines:
+        - Update todos when requirements become clearer
+        - Refine descriptions as you learn more about the task
+        - Keep titles concise and action-oriented
+        - Update when scope or approach changes
+        """
+        session = get_session()
+        try:
+            todo = (
+                session.query(Todo)
+                .filter(
+                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                )
+                .first()
+            )
+
+            if not todo:
+                return json.dumps({"success": False, "error": "Todo item not found"})
+
+            updates = []
+            if title is not None and title.strip():
+                todo.title = title.strip()
+                updates.append("title")
+
+            if description is not None and description.strip():
+                todo.description = description.strip()
+                updates.append("description")
+
+            if not updates:
+                return json.dumps(
+                    {"success": False, "error": "No valid updates provided"}
+                )
+
+            todo.updated_at = datetime.datetime.utcnow()
+            session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Todo '{todo.title}' updated successfully ({', '.join(updates)} changed)",
+                    "todo": todo.to_dict(),
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def delete_todo_item(self, todo_id: int) -> str:
+        """
+        Delete a todo item permanently.
+
+        Use this to remove todos that are no longer relevant or were created in error.
+        This action cannot be undone.
+
+        Args:
+            todo_id (int): The unique ID of the todo item to delete
+
+        Returns:
+            str: JSON response with success status and confirmation
+
+        Usage Guidelines:
+        - Only delete todos that are completely irrelevant
+        - Consider marking as completed instead of deleting
+        - Use when requirements change and the todo is no longer needed
+        - Be cautious - this action cannot be undone
+        """
+        session = get_session()
+        try:
+            todo = (
+                session.query(Todo)
+                .filter(
+                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                )
+                .first()
+            )
+
+            if not todo:
+                return json.dumps({"success": False, "error": "Todo item not found"})
+
+            title = todo.title  # Store for confirmation message
+            session.delete(todo)
+            session.commit()
+
+            return json.dumps(
+                {"success": True, "message": f"Todo '{title}' deleted successfully"}
+            )
+
+        except Exception as e:
+            session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
