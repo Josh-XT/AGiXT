@@ -1804,7 +1804,7 @@ class Agent:
             return agent_commands
         return ""
 
-    def get_commands_prompt(self, conversation_id):
+    def get_commands_prompt(self, conversation_id, running_command=None):
         command_list = [
             available_command["friendly_name"]
             for available_command in self.available_commands
@@ -1845,6 +1845,13 @@ class Agent:
                     for command in extension["commands"]
                     if command["enabled"] == True
                 ]
+                if running_command:
+                    # Remove the running command from enabled commands
+                    enabled_commands = [
+                        command
+                        for command in enabled_commands
+                        if command["friendly_name"] != running_command
+                    ]
                 if enabled_commands == []:
                     continue
                 agent_commands += (

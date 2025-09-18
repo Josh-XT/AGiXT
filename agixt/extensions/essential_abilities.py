@@ -4,6 +4,7 @@ import subprocess
 import asyncio
 import logging
 import datetime
+import threading
 from typing import Optional, List
 from sqlalchemy import Column, String, Text, Integer, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
@@ -50,6 +51,9 @@ class EssentialTodo(Base):
     status = Column(
         String(20), nullable=False, default="not-started"
     )  # not-started, in-progress, completed
+    depends_on = Column(
+        Text, nullable=True, default=None
+    )  # Comma-separated list of task IDs that must be completed first
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
@@ -65,6 +69,40 @@ class EssentialTodo(Base):
     #     single_parent=True,
     # )
 
+    def _parse_dependencies(self):
+        """Parse the comma-separated depends_on field into a list of integers"""
+        if not self.depends_on:
+            return []
+        try:
+            return [int(id.strip()) for id in self.depends_on.split(",") if id.strip()]
+        except ValueError:
+            return []
+
+    def _can_start(self):
+        """Check if this task can be started (all dependencies are completed)"""
+        dependencies = self._parse_dependencies()
+        if not dependencies:
+            return True
+
+        # This will be called from to_dict, so we need to import get_session here
+        from DB import get_session
+
+        session = get_session()
+        try:
+            # Check if all dependencies are completed
+            completed_deps = (
+                session.query(EssentialTodo)
+                .filter(
+                    EssentialTodo.id.in_(dependencies),
+                    EssentialTodo.conversation_id == self.conversation_id,
+                    EssentialTodo.status == "completed",
+                )
+                .count()
+            )
+            return completed_deps == len(dependencies)
+        finally:
+            session.close()
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -73,6 +111,9 @@ class EssentialTodo(Base):
             "title": self.title,
             "description": self.description,
             "status": self.status,
+            "depends_on": self.depends_on,
+            "dependencies": self._parse_dependencies(),
+            "can_start": self._can_start(),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             # Note: has_children calculation disabled due to relationship temporarily removed
@@ -138,6 +179,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Create Sub-Todo Item": self.create_sub_todo_item,
             "Create Todo Items in Bulk": self.create_todo_items_bulk,
             "List Current Todos": self.list_current_todos,
+            "List Runnable Todos": self.list_runnable_todos,
+            "Run Todo List": self.run_todo_list,
             "List Sub-Todos": self.list_sub_todos,
             "Mark Todo Item Completed": self.mark_todo_completed,
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
@@ -160,6 +203,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self.conversation_id = (
             kwargs["conversation_id"] if "conversation_id" in kwargs else ""
         )
+        self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
         self.ApiClient = (
             kwargs["ApiClient"]
             if "ApiClient" in kwargs
@@ -1266,7 +1310,11 @@ print(output)
         )
 
     async def create_todo_item(
-        self, title: str, description: str, parent_id: int = None
+        self,
+        title: str,
+        description: str,
+        parent_id: int = None,
+        depends_on: str = None,
     ) -> str:
         """
         Create a new todo item in the current conversation.
@@ -1278,7 +1326,11 @@ print(output)
             title (str): A concise, action-oriented title for the todo item (3-7 words)
             description (str): Detailed description including context, requirements, file paths,
                              specific methods, or acceptance criteria
-            parent_id (int, optional): ID of parent todo to create this as a sub-todo        Returns:
+            parent_id (int, optional): ID of parent todo to create this as a sub-todo
+            depends_on (str, optional): Comma-separated list of task IDs that must be completed first
+                                      Example: "1,2,5" means tasks 1, 2, and 5 must be completed
+
+        Returns:
             str: JSON response with success status and created todo item details
 
         Usage Guidelines:
@@ -1287,6 +1339,9 @@ print(output)
         - Include comprehensive descriptions with all necessary context
         - Break down larger tasks into smaller, actionable steps
         - Create todos BEFORE starting work to ensure proper tracking
+        - Use depends_on for sequential workflows: "1,2" means tasks 1&2 must complete first
+        - Tasks without dependencies can run async/parallel
+        - Use List Runnable Todos to see what can be started immediately
 
         When to use:
         - User provides multiple tasks or complex requests
@@ -1303,6 +1358,39 @@ print(output)
                 return json.dumps(
                     {"success": False, "error": "Description cannot be empty"}
                 )
+
+            # Validate dependencies if provided
+            validated_depends_on = None
+            if depends_on:
+                try:
+                    dep_ids = [
+                        int(id.strip()) for id in depends_on.split(",") if id.strip()
+                    ]
+                    if dep_ids:
+                        # Verify all dependency todos exist and belong to this conversation
+                        existing_deps = (
+                            session.query(EssentialTodo)
+                            .filter(
+                                EssentialTodo.id.in_(dep_ids),
+                                EssentialTodo.conversation_id == self.conversation_id,
+                            )
+                            .count()
+                        )
+                        if existing_deps != len(dep_ids):
+                            return json.dumps(
+                                {
+                                    "success": False,
+                                    "error": f"One or more dependency tasks not found in this conversation",
+                                }
+                            )
+                        validated_depends_on = ",".join(str(id) for id in dep_ids)
+                except ValueError:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "Invalid depends_on format. Use comma-separated task IDs like '1,2,5'",
+                        }
+                    )
 
             # Validate parent_id if provided
             if parent_id is not None:
@@ -1326,6 +1414,7 @@ print(output)
                 title=title.strip(),
                 description=description.strip(),
                 status="not-started",
+                depends_on=validated_depends_on,
             )
 
             session.add(todo)
@@ -1346,7 +1435,7 @@ print(output)
             session.close()
 
     async def create_sub_todo_item(
-        self, parent_todo_id: int, title: str, description: str
+        self, parent_todo_id: int, title: str, description: str, depends_on: str = None
     ) -> str:
         """
         Create a new sub-todo item under an existing parent todo.
@@ -1358,6 +1447,7 @@ print(output)
             parent_todo_id (int): The ID of the parent todo to attach this sub-todo to
             title (str): A concise, action-oriented title for the sub-todo item
             description (str): Detailed description of the sub-task
+            depends_on (str, optional): Comma-separated list of task IDs that must be completed first
 
         Returns:
             str: JSON response with success status and created sub-todo details
@@ -1397,6 +1487,39 @@ print(output)
             if not parent_todo:
                 return json.dumps({"success": False, "error": "Parent todo not found"})
 
+            # Validate dependencies if provided
+            validated_depends_on = None
+            if depends_on:
+                try:
+                    dep_ids = [
+                        int(id.strip()) for id in depends_on.split(",") if id.strip()
+                    ]
+                    if dep_ids:
+                        # Verify all dependency todos exist and belong to this conversation
+                        existing_deps = (
+                            session.query(EssentialTodo)
+                            .filter(
+                                EssentialTodo.id.in_(dep_ids),
+                                EssentialTodo.conversation_id == self.conversation_id,
+                            )
+                            .count()
+                        )
+                        if existing_deps != len(dep_ids):
+                            return json.dumps(
+                                {
+                                    "success": False,
+                                    "error": f"One or more dependency tasks not found in this conversation",
+                                }
+                            )
+                        validated_depends_on = ",".join(str(id) for id in dep_ids)
+                except ValueError:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "Invalid depends_on format. Use comma-separated task IDs like '1,2,5'",
+                        }
+                    )
+
             # Create new sub-todo item
             sub_todo = EssentialTodo(
                 conversation_id=self.conversation_id,
@@ -1404,6 +1527,7 @@ print(output)
                 title=title.strip(),
                 description=description.strip(),
                 status="not-started",
+                depends_on=validated_depends_on,
             )
 
             session.add(sub_todo)
@@ -1636,6 +1760,67 @@ print(output)
                     "active_todo": active_todo,
                 }
             )
+
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def list_runnable_todos(self, include_completed: bool = False) -> str:
+        """
+        List all todo items that can be started now (no incomplete dependencies).
+
+        Use this to identify which tasks are ready to work on based on their dependencies.
+        Tasks without dependencies or with all dependencies completed will be included.
+
+        Args:
+            include_completed (bool): Whether to include completed todos in the results
+
+        Returns:
+            str: JSON response with runnable todos and their status
+
+        Usage Guidelines:
+        - Use to identify next actionable tasks in complex workflows
+        - Helps prioritize work when tasks have dependencies
+        - Shows only tasks that can be started immediately
+        - Useful for async task execution planning
+        """
+        session = get_session()
+        try:
+            # Get all todos for this conversation
+            query = session.query(EssentialTodo).filter(
+                EssentialTodo.conversation_id == self.conversation_id
+            )
+
+            if not include_completed:
+                query = query.filter(EssentialTodo.status != "completed")
+
+            all_todos = query.order_by(EssentialTodo.created_at).all()
+
+            # Filter to only runnable todos (no incomplete dependencies)
+            runnable_todos = []
+            for todo in all_todos:
+                if todo._can_start():
+                    runnable_todos.append(todo)
+
+            # Generate summary
+            total_runnable = len(runnable_todos)
+            not_started = len([t for t in runnable_todos if t.status == "not-started"])
+            in_progress = len([t for t in runnable_todos if t.status == "in-progress"])
+            completed = len([t for t in runnable_todos if t.status == "completed"])
+
+            response = {
+                "success": True,
+                "total_runnable": total_runnable,
+                "runnable_todos": [todo.to_dict() for todo in runnable_todos],
+                "summary": {
+                    "not_started": not_started,
+                    "in_progress": in_progress,
+                    "completed": completed,
+                },
+            }
+
+            return json.dumps(response, indent=2)
 
         except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
@@ -1972,6 +2157,235 @@ print(output)
 
         except Exception as e:
             session.rollback()
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def run_todo_list(
+        self,
+        max_concurrent: int = 3,
+        auto_complete: bool = True,
+        execution_agent: str = None,
+    ) -> str:
+        """
+        Execute runnable todos asynchronously using background threads with prompt_agent calls.
+
+        This command identifies todos that can be started immediately (no incomplete dependencies)
+        and executes them as background threads. Each thread makes a prompt_agent call to execute
+        the task. Tasks without dependencies can run in parallel up to max_concurrent limit.
+
+        Args:
+            max_concurrent (int): Maximum number of todos to run concurrently (default: 3)
+            auto_complete (bool): Whether to automatically mark todos as completed after successful execution (default: True)
+            execution_agent (str, optional): Specific agent to use for execution. If None, uses current agent.
+
+        Returns:
+            str: JSON response with execution status and running thread information
+
+        Usage Guidelines:
+        - Use for executing planned workflows automatically
+        - Tasks run in background threads using direct prompt_agent calls
+        - Dependencies are respected - dependent tasks wait for prerequisites
+        - Monitor progress with List Current Todos to see status updates
+        - Use max_concurrent to control resource usage
+        - Each thread executes the task description as a prompt
+
+        Threading Execution:
+        - Identifies all runnable todos (no incomplete dependencies)
+        - Starts up to max_concurrent threads in parallel
+        - Each thread makes a prompt_agent call via existing ApiClient
+        - Tasks auto-complete if auto_complete is enabled
+        - Continues until all possible tasks are running or completed
+        """
+        session = get_session()
+        try:
+            # Get all runnable todos
+            runnable_response = await self.list_runnable_todos(include_completed=False)
+            runnable_data = json.loads(runnable_response)
+
+            if not runnable_data.get("success"):
+                return json.dumps(
+                    {"success": False, "error": "Failed to get runnable todos"}
+                )
+
+            runnable_todos = runnable_data.get("runnable_todos", [])
+
+            if not runnable_todos:
+                return json.dumps(
+                    {
+                        "success": True,
+                        "message": "No runnable todos found",
+                        "running_tasks": [],
+                        "total_started": 0,
+                    }
+                )
+
+            # Filter to only not-started todos (don't re-run in-progress)
+            pending_todos = [
+                todo for todo in runnable_todos if todo.get("status") == "not-started"
+            ]
+
+            if not pending_todos:
+                return json.dumps(
+                    {
+                        "success": True,
+                        "message": "All runnable todos are already in progress or completed",
+                        "running_tasks": [],
+                        "total_started": 0,
+                    }
+                )
+
+            # Limit by max_concurrent
+            todos_to_start = pending_todos[:max_concurrent]
+
+            started_tasks = []
+            agent_to_use = execution_agent or self.agent_name
+
+            def execute_todo_task(
+                todo_id, title, description, agent_name, auto_complete_flag
+            ):
+                """Execute a single todo task in a separate thread"""
+                try:
+                    # Create the prompt for the agent
+                    prompt = f"""Execute the following task:
+
+Task: {title}
+
+Description: {description}
+
+Instructions:
+- Complete the task as described
+- Provide detailed output of what was accomplished
+- If the task involves code, include the code and execution results
+- If the task involves files, mention which files were created/modified
+- If the task encounters errors, provide debugging information
+
+Execute this task thoroughly and report on the completion."""
+
+                    # Execute the prompt with the agent using the existing ApiClient
+                    response = self.ApiClient.prompt_agent(
+                        agent_name=agent_name,
+                        prompt_name="Think About It",
+                        prompt_args={
+                            "user_input": prompt,
+                            "conversation_name": self.conversation_name,
+                            "disable_commands": False,
+                            "running_command": "Run Todo List",
+                            "log_user_input": False,
+                            "log_output": False,
+                            "tts": False,
+                        },
+                    )
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] {response}",
+                        conversation_name=self.conversation_name,
+                    )
+
+                    logging.info(
+                        f"Todo {todo_id} ({title}) completed with response: {response}"
+                    )
+
+                    # Auto-complete the todo if requested
+                    if auto_complete_flag:
+                        # We need to run this in the event loop since it's async
+                        import asyncio
+
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            session = get_session()
+                            todo = (
+                                session.query(EssentialTodo)
+                                .filter_by(id=todo_id)
+                                .first()
+                            )
+                            if todo:
+                                todo.status = "completed"
+                                todo.updated_at = datetime.datetime.utcnow()
+                                session.commit()
+                            session.close()
+                        except Exception as e:
+                            logging.error(
+                                f"Failed to auto-complete todo {todo_id}: {str(e)}"
+                            )
+                        finally:
+                            loop.close()
+
+                except Exception as e:
+                    logging.error(f"Error executing todo {todo_id}: {str(e)}")
+                    # Try to revert status back to not-started
+                    try:
+                        session = get_session()
+                        todo = (
+                            session.query(EssentialTodo).filter_by(id=todo_id).first()
+                        )
+                        if todo:
+                            todo.status = "not-started"
+                            todo.updated_at = datetime.datetime.utcnow()
+                            session.commit()
+                        session.close()
+                    except Exception as revert_e:
+                        logging.error(
+                            f"Failed to revert todo {todo_id} status: {str(revert_e)}"
+                        )
+
+            # Start each todo as a background thread
+            for todo in todos_to_start:
+                todo_id = todo.get("id")
+                title = todo.get("title")
+                description = todo.get("description")
+
+                try:
+                    # Mark todo as in-progress first
+                    await self.mark_todo_incomplete(
+                        todo_id=todo_id, status="in-progress"
+                    )
+
+                    # Start the task in a separate thread
+                    thread = threading.Thread(
+                        target=execute_todo_task,
+                        args=(todo_id, title, description, agent_to_use, auto_complete),
+                        daemon=True,
+                        name=f"TodoTask-{todo_id}",
+                    )
+                    thread.start()
+
+                    # Store task info for tracking
+                    started_tasks.append(
+                        {
+                            "todo_id": todo_id,
+                            "title": title,
+                            "thread_name": thread.name,
+                            "agent": agent_to_use,
+                            "status": "started",
+                            "auto_complete": auto_complete,
+                        }
+                    )
+
+                except Exception as e:
+                    logging.error(f"Failed to start todo {todo_id}: {str(e)}")
+                    # Revert status back to not-started if thread creation failed
+                    await self.mark_todo_incomplete(
+                        todo_id=todo_id, status="not-started"
+                    )
+                    continue
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Started {len(started_tasks)} todo tasks in background threads",
+                    "running_tasks": started_tasks,
+                    "total_started": len(started_tasks),
+                    "max_concurrent": max_concurrent,
+                    "auto_complete": auto_complete,
+                    "execution_agent": agent_to_use,
+                    "guidance": "Use 'List Current Todos' to monitor progress. Tasks marked as 'in-progress' are currently executing in background threads.",
+                },
+                indent=2,
+            )
+
+        except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()
