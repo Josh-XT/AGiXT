@@ -50,6 +50,9 @@ class EssentialTodo(Base):
     status = Column(
         String(20), nullable=False, default="not-started"
     )  # not-started, in-progress, completed
+    depends_on = Column(
+        Text, nullable=True, default=None
+    )  # Comma-separated list of task IDs that must be completed first
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
@@ -65,6 +68,40 @@ class EssentialTodo(Base):
     #     single_parent=True,
     # )
 
+    def _parse_dependencies(self):
+        """Parse the comma-separated depends_on field into a list of integers"""
+        if not self.depends_on:
+            return []
+        try:
+            return [int(id.strip()) for id in self.depends_on.split(",") if id.strip()]
+        except ValueError:
+            return []
+
+    def _can_start(self):
+        """Check if this task can be started (all dependencies are completed)"""
+        dependencies = self._parse_dependencies()
+        if not dependencies:
+            return True
+
+        # This will be called from to_dict, so we need to import get_session here
+        from DB import get_session
+
+        session = get_session()
+        try:
+            # Check if all dependencies are completed
+            completed_deps = (
+                session.query(EssentialTodo)
+                .filter(
+                    EssentialTodo.id.in_(dependencies),
+                    EssentialTodo.conversation_id == self.conversation_id,
+                    EssentialTodo.status == "completed",
+                )
+                .count()
+            )
+            return completed_deps == len(dependencies)
+        finally:
+            session.close()
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -73,6 +110,9 @@ class EssentialTodo(Base):
             "title": self.title,
             "description": self.description,
             "status": self.status,
+            "depends_on": self.depends_on,
+            "dependencies": self._parse_dependencies(),
+            "can_start": self._can_start(),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             # Note: has_children calculation disabled due to relationship temporarily removed
@@ -138,6 +178,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Create Sub-Todo Item": self.create_sub_todo_item,
             "Create Todo Items in Bulk": self.create_todo_items_bulk,
             "List Current Todos": self.list_current_todos,
+            "List Runnable Todos": self.list_runnable_todos,
             "List Sub-Todos": self.list_sub_todos,
             "Mark Todo Item Completed": self.mark_todo_completed,
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
@@ -1266,7 +1307,11 @@ print(output)
         )
 
     async def create_todo_item(
-        self, title: str, description: str, parent_id: int = None
+        self,
+        title: str,
+        description: str,
+        parent_id: int = None,
+        depends_on: str = None,
     ) -> str:
         """
         Create a new todo item in the current conversation.
@@ -1278,7 +1323,11 @@ print(output)
             title (str): A concise, action-oriented title for the todo item (3-7 words)
             description (str): Detailed description including context, requirements, file paths,
                              specific methods, or acceptance criteria
-            parent_id (int, optional): ID of parent todo to create this as a sub-todo        Returns:
+            parent_id (int, optional): ID of parent todo to create this as a sub-todo
+            depends_on (str, optional): Comma-separated list of task IDs that must be completed first
+                                      Example: "1,2,5" means tasks 1, 2, and 5 must be completed
+
+        Returns:
             str: JSON response with success status and created todo item details
 
         Usage Guidelines:
@@ -1287,6 +1336,9 @@ print(output)
         - Include comprehensive descriptions with all necessary context
         - Break down larger tasks into smaller, actionable steps
         - Create todos BEFORE starting work to ensure proper tracking
+        - Use depends_on for sequential workflows: "1,2" means tasks 1&2 must complete first
+        - Tasks without dependencies can run async/parallel
+        - Use List Runnable Todos to see what can be started immediately
 
         When to use:
         - User provides multiple tasks or complex requests
@@ -1303,6 +1355,39 @@ print(output)
                 return json.dumps(
                     {"success": False, "error": "Description cannot be empty"}
                 )
+
+            # Validate dependencies if provided
+            validated_depends_on = None
+            if depends_on:
+                try:
+                    dep_ids = [
+                        int(id.strip()) for id in depends_on.split(",") if id.strip()
+                    ]
+                    if dep_ids:
+                        # Verify all dependency todos exist and belong to this conversation
+                        existing_deps = (
+                            session.query(EssentialTodo)
+                            .filter(
+                                EssentialTodo.id.in_(dep_ids),
+                                EssentialTodo.conversation_id == self.conversation_id,
+                            )
+                            .count()
+                        )
+                        if existing_deps != len(dep_ids):
+                            return json.dumps(
+                                {
+                                    "success": False,
+                                    "error": f"One or more dependency tasks not found in this conversation",
+                                }
+                            )
+                        validated_depends_on = ",".join(str(id) for id in dep_ids)
+                except ValueError:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "Invalid depends_on format. Use comma-separated task IDs like '1,2,5'",
+                        }
+                    )
 
             # Validate parent_id if provided
             if parent_id is not None:
@@ -1326,6 +1411,7 @@ print(output)
                 title=title.strip(),
                 description=description.strip(),
                 status="not-started",
+                depends_on=validated_depends_on,
             )
 
             session.add(todo)
@@ -1346,7 +1432,7 @@ print(output)
             session.close()
 
     async def create_sub_todo_item(
-        self, parent_todo_id: int, title: str, description: str
+        self, parent_todo_id: int, title: str, description: str, depends_on: str = None
     ) -> str:
         """
         Create a new sub-todo item under an existing parent todo.
@@ -1358,6 +1444,7 @@ print(output)
             parent_todo_id (int): The ID of the parent todo to attach this sub-todo to
             title (str): A concise, action-oriented title for the sub-todo item
             description (str): Detailed description of the sub-task
+            depends_on (str, optional): Comma-separated list of task IDs that must be completed first
 
         Returns:
             str: JSON response with success status and created sub-todo details
@@ -1397,6 +1484,39 @@ print(output)
             if not parent_todo:
                 return json.dumps({"success": False, "error": "Parent todo not found"})
 
+            # Validate dependencies if provided
+            validated_depends_on = None
+            if depends_on:
+                try:
+                    dep_ids = [
+                        int(id.strip()) for id in depends_on.split(",") if id.strip()
+                    ]
+                    if dep_ids:
+                        # Verify all dependency todos exist and belong to this conversation
+                        existing_deps = (
+                            session.query(EssentialTodo)
+                            .filter(
+                                EssentialTodo.id.in_(dep_ids),
+                                EssentialTodo.conversation_id == self.conversation_id,
+                            )
+                            .count()
+                        )
+                        if existing_deps != len(dep_ids):
+                            return json.dumps(
+                                {
+                                    "success": False,
+                                    "error": f"One or more dependency tasks not found in this conversation",
+                                }
+                            )
+                        validated_depends_on = ",".join(str(id) for id in dep_ids)
+                except ValueError:
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": "Invalid depends_on format. Use comma-separated task IDs like '1,2,5'",
+                        }
+                    )
+
             # Create new sub-todo item
             sub_todo = EssentialTodo(
                 conversation_id=self.conversation_id,
@@ -1404,6 +1524,7 @@ print(output)
                 title=title.strip(),
                 description=description.strip(),
                 status="not-started",
+                depends_on=validated_depends_on,
             )
 
             session.add(sub_todo)
@@ -1636,6 +1757,67 @@ print(output)
                     "active_todo": active_todo,
                 }
             )
+
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def list_runnable_todos(self, include_completed: bool = False) -> str:
+        """
+        List all todo items that can be started now (no incomplete dependencies).
+
+        Use this to identify which tasks are ready to work on based on their dependencies.
+        Tasks without dependencies or with all dependencies completed will be included.
+
+        Args:
+            include_completed (bool): Whether to include completed todos in the results
+
+        Returns:
+            str: JSON response with runnable todos and their status
+
+        Usage Guidelines:
+        - Use to identify next actionable tasks in complex workflows
+        - Helps prioritize work when tasks have dependencies
+        - Shows only tasks that can be started immediately
+        - Useful for async task execution planning
+        """
+        session = get_session()
+        try:
+            # Get all todos for this conversation
+            query = session.query(EssentialTodo).filter(
+                EssentialTodo.conversation_id == self.conversation_id
+            )
+
+            if not include_completed:
+                query = query.filter(EssentialTodo.status != "completed")
+
+            all_todos = query.order_by(EssentialTodo.created_at).all()
+
+            # Filter to only runnable todos (no incomplete dependencies)
+            runnable_todos = []
+            for todo in all_todos:
+                if todo._can_start():
+                    runnable_todos.append(todo)
+
+            # Generate summary
+            total_runnable = len(runnable_todos)
+            not_started = len([t for t in runnable_todos if t.status == "not-started"])
+            in_progress = len([t for t in runnable_todos if t.status == "in-progress"])
+            completed = len([t for t in runnable_todos if t.status == "completed"])
+
+            response = {
+                "success": True,
+                "total_runnable": total_runnable,
+                "runnable_todos": [todo.to_dict() for todo in runnable_todos],
+                "summary": {
+                    "not_started": not_started,
+                    "in_progress": in_progress,
+                    "completed": completed,
+                },
+            }
+
+            return json.dumps(response, indent=2)
 
         except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
