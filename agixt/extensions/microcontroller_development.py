@@ -932,11 +932,7 @@ Create a comprehensive list prioritized by importance, focusing on parts that ar
                 },
             )
 
-            results = [
-                "## 📋 3D Printed Parts Analysis\n",
-                parts_analysis,
-                "\n---\n"
-            ]
+            results = ["## 📋 3D Printed Parts Analysis\n", parts_analysis, "\n---\n"]
 
             # Step 2: Extract part names for individual design
             part_extraction_prompt = f"""From this parts analysis, extract just the essential and recommended part names as a simple list:
@@ -967,9 +963,9 @@ Return only the part names, one per line, starting with the most critical parts 
 
             # Parse the parts list
             parts_to_design = []
-            for line in parts_list_response.split('\n'):
+            for line in parts_list_response.split("\n"):
                 line = line.strip()
-                if line.startswith('- ') or line.startswith('* '):
+                if line.startswith("- ") or line.startswith("* "):
                     part_name = line[2:].strip()
                     if part_name and len(parts_to_design) < 5:  # Limit to 5 parts
                         parts_to_design.append(part_name)
@@ -983,8 +979,10 @@ Return only the part names, one per line, starting with the most critical parts 
             # Step 3: Design each part using the generate_3d_model method
             for i, part_name in enumerate(parts_to_design, 1):
                 try:
-                    logging.info(f"Designing part {i}/{len(parts_to_design)}: {part_name}")
-                    
+                    logging.info(
+                        f"Designing part {i}/{len(parts_to_design)}: {part_name}"
+                    )
+
                     # Create detailed design prompt for this specific part
                     part_design_prompt = f"""Design a 3D printable {part_name} for this electronics project:
 
@@ -1011,23 +1009,23 @@ Create a parametric OpenSCAD design that is immediately printable and functional
 
                     # Generate the 3D model using the existing method
                     part_result = await self.generate_3d_model(part_design_prompt)
-                    
-                    results.extend([
-                        f"### {i}. {part_name}\n",
-                        part_result,
-                        "\n---\n"
-                    ])
-                    
+
+                    results.extend([f"### {i}. {part_name}\n", part_result, "\n---\n"])
+
                     logging.info(f"Successfully designed part: {part_name}")
-                    
+
                 except Exception as part_error:
-                    logging.error(f"Error designing part {part_name}: {str(part_error)}")
-                    results.extend([
-                        f"### {i}. {part_name}\n",
-                        f"❌ **Error generating {part_name}**: {str(part_error)}\n",
-                        "Please try designing this part individually.\n",
-                        "\n---\n"
-                    ])
+                    logging.error(
+                        f"Error designing part {part_name}: {str(part_error)}"
+                    )
+                    results.extend(
+                        [
+                            f"### {i}. {part_name}\n",
+                            f"❌ **Error generating {part_name}**: {str(part_error)}\n",
+                            "Please try designing this part individually.\n",
+                            "\n---\n",
+                        ]
+                    )
 
             # Step 4: Create assembly instructions
             assembly_prompt = f"""Create assembly instructions for these 3D printed parts:
@@ -1083,15 +1081,16 @@ Make it clear and detailed enough for someone to follow without prior experience
                 },
             )
 
-            results.extend([
-                "## 🔧 Assembly Instructions\n",
-                assembly_instructions
-            ])
+            results.extend(["## 🔧 Assembly Instructions\n", assembly_instructions])
 
             # Save assembly instructions
-            assembly_file = self._save_file(assembly_instructions, "assembly_instructions.md")
+            assembly_file = self._save_file(
+                assembly_instructions, "assembly_instructions.md"
+            )
             if assembly_file:
-                results.append(f"\n📥 [Download Assembly Instructions]({self.output_url}/assembly_instructions.md)")
+                results.append(
+                    f"\n📥 [Download Assembly Instructions]({self.output_url}/assembly_instructions.md)"
+                )
 
             logging.info("3D printed parts creation completed successfully")
             return "\n".join(results)
