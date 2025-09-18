@@ -30,10 +30,10 @@ import uuid
 
 
 # Database Model for Todos
-class Todo(Base):
-    """Database model for storing todo items"""
+class EssentialTodo(Base):
+    """Database model for storing todo items in essential abilities"""
 
-    __tablename__ = "todos"
+    __tablename__ = "essential_todos"
     __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -42,7 +42,9 @@ class Todo(Base):
         nullable=False,
         index=True,
     )
-    parent_id = Column(Integer, ForeignKey("todos.id"), nullable=True, default=None)
+    parent_id = Column(
+        Integer, ForeignKey("essential_todos.id"), nullable=True, default=None
+    )
     title = Column(String(500), nullable=False)
     description = Column(Text, nullable=False)
     status = Column(
@@ -54,7 +56,12 @@ class Todo(Base):
     )
 
     # Self-referential relationship for parent-child todos
-    children = relationship("Todo", backref="parent", remote_side=[id])
+    children = relationship(
+        "EssentialTodo",
+        backref="parent",
+        remote_side=[id],
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self):
         return {
@@ -94,7 +101,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
     CATEGORY = "Core Abilities"
 
     # Register extension models for automatic table creation
-    extension_models = [Todo]
+    extension_models = [EssentialTodo]
 
     def __init__(self, **kwargs):
         self.commands = {
@@ -1299,10 +1306,10 @@ print(output)
             # Validate parent_id if provided
             if parent_id is not None:
                 parent_todo = (
-                    session.query(Todo)
+                    session.query(EssentialTodo)
                     .filter(
-                        Todo.id == parent_id,
-                        Todo.conversation_id == self.conversation_id,
+                        EssentialTodo.id == parent_id,
+                        EssentialTodo.conversation_id == self.conversation_id,
                     )
                     .first()
                 )
@@ -1312,7 +1319,7 @@ print(output)
                     )
 
             # Create new todo item
-            todo = Todo(
+            todo = EssentialTodo(
                 conversation_id=self.conversation_id,
                 parent_id=parent_id,
                 title=title.strip(),
@@ -1378,10 +1385,10 @@ print(output)
 
             # Validate parent todo exists
             parent_todo = (
-                session.query(Todo)
+                session.query(EssentialTodo)
                 .filter(
-                    Todo.id == parent_todo_id,
-                    Todo.conversation_id == self.conversation_id,
+                    EssentialTodo.id == parent_todo_id,
+                    EssentialTodo.conversation_id == self.conversation_id,
                 )
                 .first()
             )
@@ -1390,7 +1397,7 @@ print(output)
                 return json.dumps({"success": False, "error": "Parent todo not found"})
 
             # Create new sub-todo item
-            sub_todo = Todo(
+            sub_todo = EssentialTodo(
                 conversation_id=self.conversation_id,
                 parent_id=parent_todo_id,
                 title=title.strip(),
@@ -1512,7 +1519,7 @@ print(output)
             # Create all the todo items
             created_todos = []
             for title, description in valid_todos:
-                todo = Todo(
+                todo = EssentialTodo(
                     conversation_id=self.conversation_id,
                     title=title,
                     description=description,
@@ -1563,14 +1570,14 @@ print(output)
         session = get_session()
         try:
             # Build query based on completion filter
-            query = session.query(Todo).filter(
-                Todo.conversation_id == self.conversation_id
+            query = session.query(EssentialTodo).filter(
+                EssentialTodo.conversation_id == self.conversation_id
             )
 
             if not include_completed:
-                query = query.filter(Todo.status != "completed")
+                query = query.filter(EssentialTodo.status != "completed")
 
-            todos = query.order_by(Todo.created_at).all()
+            todos = query.order_by(EssentialTodo.created_at).all()
 
             # Generate summary statistics
             total_count = len(todos)
@@ -1657,10 +1664,10 @@ print(output)
         try:
             # Verify parent todo exists and belongs to this conversation
             parent_todo = (
-                session.query(Todo)
+                session.query(EssentialTodo)
                 .filter(
-                    Todo.id == parent_todo_id,
-                    Todo.conversation_id == self.conversation_id,
+                    EssentialTodo.id == parent_todo_id,
+                    EssentialTodo.conversation_id == self.conversation_id,
                 )
                 .first()
             )
@@ -1670,12 +1677,12 @@ print(output)
 
             # Get all sub-todos for this parent
             sub_todos = (
-                session.query(Todo)
+                session.query(EssentialTodo)
                 .filter(
-                    Todo.parent_id == parent_todo_id,
-                    Todo.conversation_id == self.conversation_id,
+                    EssentialTodo.parent_id == parent_todo_id,
+                    EssentialTodo.conversation_id == self.conversation_id,
                 )
-                .order_by(Todo.created_at)
+                .order_by(EssentialTodo.created_at)
                 .all()
             )
 
@@ -1741,9 +1748,10 @@ print(output)
         session = get_session()
         try:
             todo = (
-                session.query(Todo)
+                session.query(EssentialTodo)
                 .filter(
-                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                    EssentialTodo.id == todo_id,
+                    EssentialTodo.conversation_id == self.conversation_id,
                 )
                 .first()
             )
@@ -1804,11 +1812,11 @@ print(output)
             # If setting to in-progress, ensure no other todo is in-progress
             if status == "in-progress":
                 existing_in_progress = (
-                    session.query(Todo)
+                    session.query(EssentialTodo)
                     .filter(
-                        Todo.conversation_id == self.conversation_id,
-                        Todo.status == "in-progress",
-                        Todo.id != todo_id,
+                        EssentialTodo.conversation_id == self.conversation_id,
+                        EssentialTodo.status == "in-progress",
+                        EssentialTodo.id != todo_id,
                     )
                     .first()
                 )
@@ -1822,9 +1830,10 @@ print(output)
                     )
 
             todo = (
-                session.query(Todo)
+                session.query(EssentialTodo)
                 .filter(
-                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                    EssentialTodo.id == todo_id,
+                    EssentialTodo.conversation_id == self.conversation_id,
                 )
                 .first()
             )
@@ -1877,9 +1886,10 @@ print(output)
         session = get_session()
         try:
             todo = (
-                session.query(Todo)
+                session.query(EssentialTodo)
                 .filter(
-                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                    EssentialTodo.id == todo_id,
+                    EssentialTodo.conversation_id == self.conversation_id,
                 )
                 .first()
             )
@@ -1940,9 +1950,10 @@ print(output)
         session = get_session()
         try:
             todo = (
-                session.query(Todo)
+                session.query(EssentialTodo)
                 .filter(
-                    Todo.id == todo_id, Todo.conversation_id == self.conversation_id
+                    EssentialTodo.id == todo_id,
+                    EssentialTodo.conversation_id == self.conversation_id,
                 )
                 .first()
             )
