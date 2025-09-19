@@ -77,3 +77,4 @@ hikvisionapi>=0.3.2
 djitellopy
 axis
 google-ads
+moviepy

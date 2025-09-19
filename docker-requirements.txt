@@ -1,5 +1,4 @@
 pyodbc
-python-pptx
 pyvirtualdisplay
 requests-toolbelt
 solana
@@ -11,7 +10,6 @@ blinkpy>=0.23.0
 ring_doorbell>=0.9.13
 aiohttp
 hikvisionapi>=0.3.2
-moviepy
 azure-ai-inference
 djitellopy
 axis
