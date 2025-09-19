@@ -433,8 +433,7 @@ class Interactions:
         agent_commands = ""
         if "disable_commands" not in kwargs:
             agent_commands = self.agent.get_commands_prompt(
-                conversation_id=conversation_id,
-                running_command=kwargs.get("running_command", None),
+                conversation_id=conversation_id
             )
         formatted_prompt = self.custom_format(
             string=prompt,
@@ -1333,18 +1332,13 @@ class Interactions:
                             command_name=command_name,
                             command_args=command_args,
                         )
-                        command_output = command_output.replace("```", "``'")
                         try:
                             command_output = json.dumps(
                                 command_output, indent=2, ensure_ascii=False
                             )
-                            # Escape any ``` in the output to prevent markdown issues
-
-                            # Wrap in json code block for better formatting
                             command_output = "```json\n" + command_output + "\n```"
                         except:
                             pass
-
                         c.log_interaction(
                             role=self.agent_name,
                             message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] `{command_name}` was executed successfully.\n{command_output}",
