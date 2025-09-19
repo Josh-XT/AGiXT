@@ -1,6 +1,7 @@
 import uuid
 import time
 import logging
+import os
 from sqlalchemy import (
     create_engine,
     Column,
@@ -101,8 +102,6 @@ try:
             LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}?sslmode={DATABASE_SSL}"
         DATABASE_URI = f"postgresql://{LOGIN_URI}"
     else:
-        import os
-
         if "/" in DATABASE_NAME:
             db_folder = os.path.dirname(DATABASE_NAME)
             if not os.path.exists(db_folder):
@@ -1231,6 +1230,38 @@ default_extension_categories = [
         "name": "Entertainment & Media",
         "description": "Create and manipulate media content, games, and entertainment",
     },
+    {
+        "name": "Remote Monitoring",
+        "description": "Remote monitoring and management platforms for IT infrastructure, endpoints, and network devices",
+    },
+    {
+        "name": "PSA & Ticketing",
+        "description": "Professional services automation and ticketing systems for service management and business operations",
+    },
+    {
+        "name": "Security & Compliance",
+        "description": "Cybersecurity platforms for threat detection, endpoint protection, and compliance management",
+    },
+    {
+        "name": "Documentation & Knowledge",
+        "description": "Documentation platforms and knowledge management systems for IT and business information",
+    },
+    {
+        "name": "Cloud Services",
+        "description": "Cloud-based productivity and business applications including Microsoft 365, Google Workspace, and more",
+    },
+    {
+        "name": "Backup & Recovery",
+        "description": "Data backup, disaster recovery, and business continuity solutions",
+    },
+    {
+        "name": "Security Training",
+        "description": "Cybersecurity awareness training and phishing simulation platforms",
+    },
+    {
+        "name": "Endpoint Security",
+        "description": "Endpoint detection and response (EDR) and endpoint protection platforms",
+    },
 ]
 
 
@@ -1242,7 +1273,74 @@ def migrate_company_table():
     Note: For new installations, the SQLAlchemy model already includes all columns,
     so this migration will typically be skipped.
     """
-    return
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # List of columns to add with their definitions
+            columns_to_add = [
+                ("status", "BOOLEAN DEFAULT 1"),
+                ("address", "TEXT"),
+                ("phone_number", "TEXT"),
+                ("email", "TEXT"),
+                ("website", "TEXT"),
+                ("city", "TEXT"),
+                ("state", "TEXT"),
+                ("zip_code", "TEXT"),
+                ("country", "TEXT"),
+                ("notes", "TEXT"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                # For SQLite, check existing columns
+                result = session.execute(text("PRAGMA table_info(Company)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        logging.info(
+                            f"Adding {column_name} column to Company table (SQLite)"
+                        )
+                        session.execute(
+                            text(
+                                f"ALTER TABLE Company ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+            else:
+                # For PostgreSQL, check existing columns
+                for column_name, _ in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_name = 'Company' AND column_name = :column_name
+                        """
+                        ),
+                        {"column_name": column_name},
+                    )
+
+                    if not result.fetchone():
+                        # Convert SQLite column definition to PostgreSQL
+                        if column_name == "status":
+                            pg_column_def = "BOOLEAN DEFAULT true"
+                        else:
+                            pg_column_def = "TEXT"
+
+                        logging.info(
+                            f"Adding {column_name} column to Company table (PostgreSQL)"
+                        )
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Company" ADD COLUMN {column_name} {pg_column_def}'
+                            )
+                        )
+                        session.commit()
+
+    except Exception as e:
+        logging.debug(f"Company table migration completed or not needed: {e}")
 
 
 def migrate_extension_table():
@@ -1309,7 +1407,6 @@ def discover_extension_models():
     """
     import importlib
     import glob
-    import os
 
     extension_models = []
     command_files = glob.glob("extensions/*.py")
@@ -1380,80 +1477,123 @@ def setup_default_extension_categories():
 
 
 def migrate_extensions_to_new_categories():
-    """Migrate existing extensions to use the new category mapping"""
+    """Migrate existing extensions to use their defined categories"""
+    import importlib
+    import sys
+    import os
+
     try:
         with get_db_session() as session:
-            # Mapping from extension names to new categories
-            extension_category_mapping = {
-                # Core Abilities
-                "Ai": "Core Abilities",
-                "Essential Abilities": "Core Abilities",
-                # Web & Search
-                "Web Browsing": "Web & Search",
-                "Google Search": "Web & Search",
-                # Social & Communication
-                "Discord": "Social & Communication",
-                "Sendgrid Email": "Social & Communication",
-                "Microsoft": "Social & Communication",
-                "X": "Social & Communication",
-                # Productivity
-                "Notes": "Productivity",
-                "Automation Helpers": "Productivity",
-                "Walmart": "Productivity",
-                "Meta Ads": "Productivity",
-                "Google": "Productivity",
-                # Development & Code
-                "Github": "Development & Code",
-                "Graphql Server": "Development & Code",
-                "Microcontroller Development": "Development & Code",
-                # Data & Databases
-                "Postgres Database": "Data & Databases",
-                "Mysql Database": "Data & Databases",
-                "Mssql Database": "Data & Databases",
-                # Smart Home & IoT
-                "Ring": "Smart Home & IoT",
-                "Blink": "Smart Home & IoT",
-                "Axis Camera": "Smart Home & IoT",
-                "Hikvision": "Smart Home & IoT",
-                "Vivotek": "Smart Home & IoT",
-                "Roomba": "Smart Home & IoT",
-                "Dji Tello": "Smart Home & IoT",
-                "Tesla": "Smart Home & IoT",
-                "Alexa": "Smart Home & IoT",
-                # Health & Fitness
-                "Fitbit": "Health & Fitness",
-                "Garmin": "Health & Fitness",
-                "Oura": "Health & Fitness",
-                "Workout Tracker": "Health & Fitness",
-                # Finance & Crypto
-                "Solana Wallet": "Finance & Crypto",
-                "Raydium Integration": "Finance & Crypto",
-                "Bags Fm": "Finance & Crypto",
-                # E-commerce & Shopping
-                "Amazon": "E-commerce & Shopping",
-            }
-
-            # Get all extensions and update their categories
+            # Get all extensions from the database
             extensions = session.query(Extension).all()
+            logging.info(f"Found {len(extensions)} extensions to process")
+
             for extension in extensions:
-                if extension.name in extension_category_mapping:
-                    new_category_name = extension_category_mapping[extension.name]
-                    new_category = (
+                logging.info(f"Processing extension: '{extension.name}'")
+
+                # Special case for Custom Automation
+                if extension.name == "Custom Automation":
+                    core_abilities_category = (
                         session.query(ExtensionCategory)
-                        .filter_by(name=new_category_name)
+                        .filter_by(name="Core Abilities")
                         .first()
                     )
-                    if new_category:
-                        extension.category_id = new_category.id
+                    if core_abilities_category:
+                        extension.category_id = core_abilities_category.id
                         logging.info(
-                            f"Updated extension '{extension.name}' to category '{new_category_name}'"
+                            f"Updated extension '{extension.name}' to category 'Core Abilities'"
+                        )
+                    continue
+
+                # Try to find and load the extension module to get its category
+                category_name = None
+
+                # Convert extension name to module name
+                module_name = extension.name.lower().replace(" ", "_").replace("-", "_")
+                extension_path = f"extensions.{module_name}"
+
+                logging.debug(f"Trying to import: {extension_path}")
+
+                try:
+                    module = importlib.import_module(extension_path)
+                    logging.debug(f"Successfully imported: {extension_path}")
+
+                    # Find the extension class - it could have various naming patterns
+                    possible_class_names = [
+                        extension.name.replace(" ", "").replace(
+                            "-", ""
+                        ),  # Remove spaces/hyphens
+                        extension.name.replace(" ", "_").replace(
+                            "-", "_"
+                        ),  # Replace with underscores
+                        module_name,  # Same as module name
+                        module_name.title().replace(
+                            "_", ""
+                        ),  # Title case without underscores
+                    ]
+
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
+                            # Check if this class name matches any of our possible patterns
+                            attr_name_lower = attr_name.lower()
+                            for possible_name in possible_class_names:
+                                if attr_name_lower == possible_name.lower():
+                                    category_name = attr.CATEGORY
+                                    logging.info(
+                                        f"Found category '{category_name}' for extension '{extension.name}' in class '{attr_name}'"
+                                    )
+                                    break
+
+                            if category_name:
+                                break
+
+                    if not category_name:
+                        # If we didn't find a matching class, try the first class with CATEGORY
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
+                                category_name = attr.CATEGORY
+                                logging.info(
+                                    f"Found category '{category_name}' for extension '{extension.name}' in fallback class '{attr_name}'"
+                                )
+                                break
+
+                except (ImportError, AttributeError) as e:
+                    logging.warning(f"Could not load extension {extension_path}: {e}")
+
+                # If we found a category, update the extension
+                if category_name:
+                    target_category = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name=category_name)
+                        .first()
+                    )
+                    if target_category:
+                        extension.category_id = target_category.id
+                        logging.info(
+                            f"Updated extension '{extension.name}' to category '{category_name}'"
                         )
                     else:
                         logging.warning(
-                            f"Category '{new_category_name}' not found for extension '{extension.name}'"
+                            f"Category '{category_name}' not found in database for extension '{extension.name}'"
                         )
+                        # Default to Productivity if category doesn't exist
+                        default_category = (
+                            session.query(ExtensionCategory)
+                            .filter_by(name="Productivity")
+                            .first()
+                        )
+                        if default_category:
+                            extension.category_id = default_category.id
+                            logging.info(
+                                f"Updated extension '{extension.name}' to default category 'Productivity'"
+                            )
                 else:
-                    # Default to Productivity for unmapped extensions
+                    # If we couldn't determine the category, default to Productivity
+                    logging.warning(
+                        f"No category found for extension '{extension.name}', using default"
+                    )
                     default_category = (
                         session.query(ExtensionCategory)
                         .filter_by(name="Productivity")
@@ -1462,13 +1602,16 @@ def migrate_extensions_to_new_categories():
                     if default_category:
                         extension.category_id = default_category.id
                         logging.info(
-                            f"Updated extension '{extension.name}' to default category 'Productivity'"
+                            f"Updated extension '{extension.name}' to default category 'Productivity' (category not found in code)"
                         )
 
             session.commit()
-            logging.info("Successfully migrated extensions to new categories")
+            logging.info("Successfully migrated extensions to their defined categories")
     except Exception as e:
         logging.error(f"Error migrating extensions to new categories: {e}")
+        import traceback
+
+        logging.error(traceback.format_exc())
 
 
 def setup_default_roles():
@@ -1501,6 +1644,7 @@ if __name__ == "__main__":
     migrate_extension_table()
     migrate_webhook_outgoing_table()
     setup_default_extension_categories()
+    migrate_extensions_to_new_categories()
     setup_default_roles()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:

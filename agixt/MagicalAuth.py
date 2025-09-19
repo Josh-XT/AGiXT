@@ -272,9 +272,6 @@ def verify_api_key(authorization: str = Header(None)):
             )
             if blacklisted_token:
                 db.close()
-                logging.info(
-                    f"Blocked blacklisted token for user {blacklisted_token.user_id}"
-                )
                 raise HTTPException(
                     status_code=401,
                     detail="Token has been revoked. Please log in again.",
@@ -466,10 +463,6 @@ def get_agents(email, company=None):
                 session.add(onboarded_setting)
                 session.commit()
 
-                logging.info(
-                    f"Retroactive onboarding completed for agent {agent.name}: enabled {enabled_count} commands"
-                )
-
             except Exception as e:
                 session.rollback()
                 logging.error(
@@ -552,9 +545,6 @@ class MagicalAuth:
 
     def validate_user(self):
         if self.user_id is None:
-            logging.info(f"Email: {self.email}")
-            logging.info(f"Token: {self.token}")
-            logging.info(f"User ID: {self.user_id}")
             raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
         return True
 
@@ -781,9 +771,6 @@ class MagicalAuth:
         )
         if blacklisted_token:
             session.close()
-            logging.info(
-                f"Blocked blacklisted token for user {blacklisted_token.user_id}"
-            )
             raise HTTPException(
                 status_code=401,
                 detail="Token has been revoked. Please log in again.",
@@ -880,7 +867,6 @@ class MagicalAuth:
 
             if needs_refresh:
                 try:
-                    logging.info(f"Refreshing OAuth token for {provider}")
                     sso_instance = get_sso_instance(provider)(
                         access_token=user_oauth.access_token,
                         refresh_token=user_oauth.refresh_token,
@@ -917,7 +903,6 @@ class MagicalAuth:
                         )
 
                     session.commit()
-                    logging.info(f"Successfully refreshed OAuth token for {provider}")
                     return user_oauth.access_token
 
                 except Exception as e:
@@ -1017,9 +1002,6 @@ class MagicalAuth:
                 if (
                     e.status_code == 401 or e.status_code == 403
                 ) and attempt < max_retries - 1:
-                    logging.info(
-                        f"OAuth API call failed with auth error, forcing token refresh for {provider}"
-                    )
                     try:
                         # Force refresh the token
                         self.refresh_oauth_token(provider, force_refresh=True)
@@ -1049,9 +1031,6 @@ class MagicalAuth:
                     )
                     and attempt < max_retries - 1
                 ):
-                    logging.info(
-                        f"OAuth API call failed with token error, forcing token refresh for {provider}: {str(e)}"
-                    )
                     try:
                         # Force refresh the token
                         self.refresh_oauth_token(provider, force_refresh=True)
@@ -1108,9 +1087,6 @@ class MagicalAuth:
                         )
 
                     if needs_refresh and user_oauth.refresh_token:
-                        logging.info(
-                            f"Proactively refreshing token for {provider_name}"
-                        )
                         new_token = self.refresh_oauth_token(provider_name)
                         results[provider_name] = {
                             "status": "refreshed",
@@ -1539,7 +1515,6 @@ class MagicalAuth:
         import traceback
 
         if not stripe:
-            logging.error("Stripe library is not installed or imported correctly.")
             return []
 
         stripe.api_key = stripe_api_key
@@ -1550,7 +1525,6 @@ class MagicalAuth:
             customers = stripe.Customer.list(email=user_email, limit=100)
 
             if not customers.data:
-                logging.info(f"No Stripe customers found for email: {user_email}.")
                 return []
 
             # Step 2 & 3: Check active subscriptions for each customer
@@ -3400,9 +3374,7 @@ class MagicalAuth:
                 user_oauth.refresh_token = refresh_token
         session.commit()
         session.close()
-        logging.info(
-            f"[{provider_name.capitalize()}] OAuth2 credentials updated. Access Token {access_token}"
-        )
+
         if provider_name == "github":
             try:
                 response = requests.get(
@@ -3447,7 +3419,6 @@ class MagicalAuth:
                     "refresh_token": oauth.refresh_token,
                 }
             )
-        logging.info(f"User {self.user_id} has SSO connections: {creds}")
         session.close()
         return response
 
@@ -3690,9 +3661,6 @@ def refresh_expiring_oauth_tokens():
                 auth.refresh_oauth_token(provider.name, force_refresh=True)
 
                 summary["tokens_refreshed"] += 1
-                logging.info(
-                    f"Successfully refreshed token for user {user.email}, provider {provider.name}"
-                )
 
             except Exception as e:
                 summary["tokens_failed"] += 1
@@ -3737,7 +3705,6 @@ def cleanup_expired_oauth_tokens():
             session.delete(token)
 
         session.commit()
-        logging.info(f"Cleaned up {count} expired OAuth tokens")
         return count
 
     except Exception as e:
@@ -3819,7 +3786,6 @@ def cleanup_expired_tokens():
             session.delete(token)
 
         session.commit()
-        logging.info(f"Cleaned up {count} expired tokens from blacklist.")
         return count
 
     except Exception as e:
