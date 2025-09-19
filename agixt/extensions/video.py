@@ -5,12 +5,27 @@ import os
 import json
 import requests
 import subprocess
+import sys
 import asyncio
+import logging
 import cv2
 import numpy as np
 import tempfile
 from soundfile import SoundFile, write as sf_write
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip
+try:
+    from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip
+except ImportError:
+    import sys
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "moviepy"])
+    from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, TextClip, CompositeVideoClip
+try:
+    from pptx import Presentation
+except ImportError:
+    import sys
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "python-pptx"])
+    from pptx import Presentation
 
 class video(Extensions):
     """
@@ -462,3 +477,168 @@ class video(Extensions):
         
         except Exception as e:
             return f"Error applying fade transition: {str(e)}"
+
+    async def extract_pptx_text(self, pptx_path: str) -> list[str]:
+        """
+        Extract text from each slide in a PPTX file, including slide content and notes.
+
+        Args:
+            pptx_path (str): Path to the PPTX file.
+
+        Returns:
+            list[str]: List of strings where each string is the concatenated text for that slide.
+                       Returns an empty list if parsing fails.
+        """
+        try:
+            presentation = Presentation(pptx_path)
+            slides_text = []
+            for slide in presentation.slides:
+                slide_text = ""
+                # Extract text from slide content
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"):
+                        slide_text += shape.text + " "
+                # Extract text from notes
+                if slide.notes_slide and slide.notes_slide.notes_text_frame:
+                    slide_text += slide.notes_slide.notes_text_frame.text + " "
+                slides_text.append(slide_text.strip())
+            return slides_text
+        except Exception as e:
+            return []
+    async def extract_pptx_images(self, pptx_path: str, output_prefix: str = "photoname") -> list[str]:
+        """
+        Extract images from each slide in a PPTX file by converting slides to PNG images.
+
+        Args:
+            pptx_path (str): Path to the PPTX file.
+            output_prefix (str, optional): Prefix for the output image filenames. Defaults to "photoname".
+
+        Returns:
+            list[str]: List of file paths to the saved PNG images. Returns an empty list if conversion fails.
+        """
+        try:
+            presentation = Presentation(pptx_path)
+            image_paths = []
+            for idx, slide in enumerate(presentation.slides):
+                image_path = os.path.join(self.WORKING_DIRECTORY, f"{output_prefix}{idx + 1}.png")
+                await asyncio.to_thread(slide.export, image_path, 'PNG')
+                image_paths.append(image_path)
+            return image_paths
+        except Exception as e:
+            return []
+    async def generate_slide_audios(self, texts: list[str], output_prefix: str = "audioname") -> list[str]:
+        """
+        Generate TTS audio for each slide text and download to workspace directory.
+
+        Args:
+            texts (list[str]): List of texts, one per slide.
+            output_prefix (str, optional): Prefix for output filenames. Defaults to "audioname".
+
+        Returns:
+            list[str]: List of saved audio file paths.
+        """
+        audio_paths = []
+        for idx, text in enumerate(texts):
+            try:
+                # Generate TTS audio
+                audio_url = await self.ApiClient.text_to_speech(
+                    text=text,
+                    agent_name=self.agent_name,
+                )
+                # Download audio
+                audio_path = os.path.join(self.WORKING_DIRECTORY, f"{output_prefix}{idx + 1}.mp3")
+                audio_response = requests.get(audio_url)
+                audio_response.raise_for_status()
+                with open(audio_path, 'wb') as f:
+                    f.write(audio_response.content)
+                audio_paths.append(audio_path)
+            except Exception as e:
+                # Skip failed generations
+                continue
+        return audio_paths
+
+    async def create_video_from_local_files(self, image_paths: list[str], audio_paths: list[str], output_filename: str = "Videoname.mp4", fps: int = 30) -> str:
+        """
+        Create a video from local image and audio files by pairing them by index.
+
+        Args:
+            image_paths (list[str]): List of paths to image files.
+            audio_paths (list[str]): List of paths to audio files.
+            output_filename (str, optional): Name of the output video file. Defaults to "Videoname.mp4".
+            fps (int, optional): Frames per second for the video. Defaults to 30.
+
+        Returns:
+            str: Path to the created video file or error message.
+        """
+        try:
+            min_len = min(len(image_paths), len(audio_paths))
+            if len(image_paths) != len(audio_paths):
+                logging.warning(f"Image and audio lists have different lengths: {len(image_paths)} vs {len(audio_paths)}. Using first {min_len} pairs.")
+
+            clips = []
+            for i in range(min_len):
+                try:
+                    img_clip = ImageClip(image_paths[i])
+                    audio_clip = AudioFileClip(audio_paths[i])
+                    img_clip = img_clip.set_duration(audio_clip.duration).set_audio(audio_clip)
+                    clips.append(img_clip)
+                except Exception as e:
+                    logging.error(f"Error processing pair {i}: {e}")
+                    continue
+
+            if not clips:
+                return "Error: No valid clips to create video."
+
+            final_clip = concatenate_videoclips(clips)
+            output_path = os.path.join(self.WORKING_DIRECTORY, output_filename)
+            final_clip.write_videofile(output_path, fps=fps)
+
+            final_clip.close()
+            for clip in clips:
+                clip.close()
+
+            return output_path
+
+        except Exception as e:
+            return f"Error creating video from local files: {str(e)}"
+    async def generate_video_from_pptx(self, pptx_path: str, output_filename: str = "Videoname.mp4") -> str:
+        """
+        Generate a video from a PPTX file by extracting text and images, generating audio for each slide,
+        and combining them into a final video.
+
+        Args:
+            pptx_path (str): Path to the PPTX file.
+            output_filename (str, optional): Name of the output video file. Defaults to "Videoname.mp4".
+
+        Returns:
+            str: Path to the generated video file or an error message.
+        """
+        try:
+            # Extract text from PPTX
+            texts = await self.extract_pptx_text(pptx_path)
+            if not texts:
+                return "Error: No text extracted from PPTX file."
+
+            # Extract images from PPTX
+            images = await self.extract_pptx_images(pptx_path)
+            if not images:
+                return "Error: No images extracted from PPTX file."
+
+            # Generate audio for each text slide
+            audios = await self.generate_slide_audios(texts)
+            if not audios:
+                return "Error: Failed to generate audio for any slides."
+
+            # Check for mismatches
+            if len(images) != len(audios):
+                return f"Error: Mismatch in number of images ({len(images)}) and audios ({len(audios)})."
+
+            # Create the final video
+            video_path = await self.create_video_from_local_files(images, audios, output_filename)
+            if video_path.startswith("Error"):
+                return video_path
+
+            return video_path
+
+        except Exception as e:
+            return f"Error generating video from PPTX: {str(e)}"
