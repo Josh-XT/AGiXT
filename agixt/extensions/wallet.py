@@ -191,8 +191,8 @@ class WalletSSO:
 
         return {
             "email": synthetic_email,
-            "first_name": "Wallet",
-            "last_name": truncated_address,
+            "first_name": "Anonymous",
+            "last_name": "User",
             "wallet_address": self.wallet_address,
             "wallet_type": self.wallet_type,
             "chain": self.chain,
