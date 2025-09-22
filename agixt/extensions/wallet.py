@@ -349,7 +349,8 @@ class wallet(Extensions):
         )
         async def verify_wallet_signature_endpoint(request: Request):
             """
-            Verify wallet signature and create user session
+            Verify wallet signature and authenticate
+            Handles both login authentication and wallet connection for existing users
 
             Request body:
             - wallet_address: The user's wallet address
@@ -363,6 +364,7 @@ class wallet(Extensions):
             """
             data = await request.json()
             client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+            auth_header = request.headers.get("Authorization")
 
             required_fields = ["wallet_address", "signature", "message", "nonce"]
             for field in required_fields:
@@ -382,68 +384,98 @@ class wallet(Extensions):
             if not wallet_auth or not wallet_auth.user_info:
                 raise HTTPException(status_code=401, detail="Invalid wallet signature")
 
-            # Create or get user with the synthetic email
-            auth = MagicalAuth()
-            auth.email = wallet_auth.user_info["email"]
+            # Check if this is a wallet connection request from an existing authenticated user
+            if auth_header and auth_header.startswith("Bearer "):
+                try:
+                    # This is a wallet connection for existing user
+                    existing_auth = MagicalAuth(token=auth_header.split(" ")[1])
+                    existing_user_email = existing_auth.email
 
-            # Check if user exists
-            user_exists = auth.user_exists(email=auth.email)
-
-            if not user_exists:
-                # Register new wallet user
-                register = Register(
-                    email=wallet_auth.user_info["email"],
-                    first_name=wallet_auth.user_info["first_name"],
-                    last_name=wallet_auth.user_info["last_name"],
-                    invitation_id=data.get("invitation_id"),
-                )
-
-                result = auth.register(
-                    new_user=register,
-                    invitation_id=data.get("invitation_id"),
-                    verify_email=True,  # Wallet signature serves as verification
-                )
-
-                if result["status_code"] != 200:
-                    raise HTTPException(
-                        status_code=result["status_code"], detail=result["error"]
+                    # Store wallet metadata in the authenticated user's preferences
+                    existing_auth.update_user(
+                        wallet_address=data["wallet_address"],
+                        wallet_type=data.get("wallet_type", "unknown"),
+                        wallet_chain=data.get("chain", "unknown"),
                     )
 
-            # Create login session
-            # Get user's MFA token for login
-            session = get_session()
-            user = session.query(User).filter(User.email == auth.email).first()
-            session.close()
+                    return {
+                        "detail": None,  # No redirect for wallet association
+                        "email": existing_user_email,
+                        "token": None,  # Keep existing session
+                        "wallet_address": data["wallet_address"],
+                        "connected": True,
+                    }
+                except Exception as e:
+                    logging.error(
+                        f"Failed to connect wallet to existing user: {str(e)}"
+                    )
+                    raise HTTPException(
+                        status_code=401, detail="Invalid authentication token"
+                    )
+            else:
+                # This is a wallet login/authentication request
+                # Create or get user with the synthetic email
+                auth = MagicalAuth()
+                auth.email = wallet_auth.user_info["email"]
 
-            if not user:
-                raise HTTPException(status_code=404, detail="User not found")
+                # Check if user exists
+                user_exists = auth.user_exists(email=auth.email)
 
-            # Use TOTP for internal login
-            totp = pyotp.TOTP(user.mfa_token)
-            login = Login(email=auth.email, token=totp.now())
+                if not user_exists:
+                    # Register new wallet user
+                    register = Register(
+                        email=wallet_auth.user_info["email"],
+                        first_name=wallet_auth.user_info["first_name"],
+                        last_name=wallet_auth.user_info["last_name"],
+                        invitation_id=data.get("invitation_id"),
+                    )
 
-            # Get magic link (JWT token)
-            referrer = data.get("referrer", getenv("APP_URI"))
-            magic_link = auth.send_magic_link(
-                ip_address=client_ip,
-                login=login,
-                referrer=referrer,
-                send_link=False,
-            )
+                    result = auth.register(
+                        new_user=register,
+                        invitation_id=data.get("invitation_id"),
+                        verify_email=True,  # Wallet signature serves as verification
+                    )
 
-            # Store wallet metadata in user preferences
-            auth.update_user(
-                wallet_address=data["wallet_address"],
-                wallet_type=data.get("wallet_type", "unknown"),
-                wallet_chain=data.get("chain", "unknown"),
-            )
+                    if result["status_code"] != 200:
+                        raise HTTPException(
+                            status_code=result["status_code"], detail=result["error"]
+                        )
 
-            return {
-                "detail": magic_link,
-                "email": auth.email,
-                "token": auth.token,
-                "wallet_address": data["wallet_address"],
-            }
+                # Create login session
+                # Get user's MFA token for login
+                session = get_session()
+                user = session.query(User).filter(User.email == auth.email).first()
+                session.close()
+
+                if not user:
+                    raise HTTPException(status_code=404, detail="User not found")
+
+                # Use TOTP for internal login
+                totp = pyotp.TOTP(user.mfa_token)
+                login = Login(email=auth.email, token=totp.now())
+
+                # Get magic link (JWT token)
+                referrer = data.get("referrer", getenv("APP_URI"))
+                magic_link = auth.send_magic_link(
+                    ip_address=client_ip,
+                    login=login,
+                    referrer=referrer,
+                    send_link=False,
+                )
+
+                # Store wallet metadata in user preferences
+                auth.update_user(
+                    wallet_address=data["wallet_address"],
+                    wallet_type=data.get("wallet_type", "unknown"),
+                    wallet_chain=data.get("chain", "unknown"),
+                )
+
+                return {
+                    "detail": magic_link,
+                    "email": auth.email,
+                    "token": auth.token,
+                    "wallet_address": data["wallet_address"],
+                }
 
         @self.router.get(
             "/v1/wallet/session",
