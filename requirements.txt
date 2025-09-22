@@ -77,3 +77,5 @@ hikvisionapi>=0.3.2
 djitellopy
 axis
 google-ads
+PyNaCl>=1.5.0
+eth-account>=0.13.0
