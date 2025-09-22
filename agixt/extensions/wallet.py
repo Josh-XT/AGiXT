@@ -268,7 +268,7 @@ class wallet(Extensions):
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
-        self.user_email = kwargs.get("user_email", kwargs.get("email"))
+        self.user_email = kwargs.get("user", None)
 
         # Clean up expired nonces periodically
         cleanup_expired_nonces()
@@ -283,6 +283,12 @@ class wallet(Extensions):
             "Prepare Swap Transaction": self.prepare_swap_transaction,
             "Get Connected Wallet Info": self.get_connected_wallet_info,
         }
+
+        # Debug logging
+        logging.info(f"Wallet extension initialized for user: {self.user_email}")
+        logging.info(
+            f"Wallet extension commands available: {list(self.commands.keys())}"
+        )
 
         # Set up FastAPI router for REST endpoints
         from fastapi import APIRouter, HTTPException, Request, Header, Depends
