@@ -699,15 +699,6 @@ print(output)
         - Use descriptive variable names and add comments for complex operations
         - Import required packages at the beginning (auto-installation supported)
 
-        **File Discovery Examples:**
-        ```python
-        import os
-        # Discover all files in workspace
-        all_files = os.listdir('.')
-        csv_files = [f for f in all_files if f.endswith('.csv')]
-        image_files = [f for f in all_files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        ```
-
         Remember: This is an incredibly powerful tool - use it creatively to solve complex problems that would be difficult or impossible with other commands. The combination of workspace file access, multi-file processing, and advanced Python libraries makes this suitable for professional-grade data analysis and automation tasks.
         `Can't` is for humans, not for you.
         """
