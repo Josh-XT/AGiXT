@@ -637,14 +637,79 @@ print(output)
 
     async def execute_python_code_internal(self, code: str, text: str = "") -> str:
         """
-        Execute Python code
+        Execute Python code in a powerful sandboxed environment with full workspace access
 
         Args:
-        code (str): The Python code
-        text (str): The text
+        code (str): The Python code to execute
+        text (str): Optional CSV data that will be automatically saved as 'data.csv' in workspace
 
         Returns:
-        str: The result of the Python code
+        str: The result of the Python code execution
+
+        POWERFUL PYTHON CODE EXECUTION CAPABILITIES:
+
+        **Workspace File System Access:**
+        - Full read/write access to all files in your dedicated workspace directory
+        - Automatically discovers and works with uploaded files, downloaded content, and previously created files
+        - Can process multiple files simultaneously (CSV, Excel, images, PDFs, text files, etc.)
+        - Files you create are immediately accessible to users via download links
+        - Use standard Python file operations: open(), pandas.read_csv(), PIL.Image.open(), etc.
+
+        **Multi-File Operations:**
+        - Process entire directories of files at once
+        - Combine data from multiple sources automatically
+        - Cross-reference and merge datasets from different files
+        - Batch process images, documents, or data files
+        - Example: `import os; files = [f for f in os.listdir('.') if f.endswith('.csv')]`
+
+        **Mathematical & Analytical Power:**
+        - NEVER attempt math problems manually - ALWAYS use Python code for accurate calculations
+        - Supports complex mathematics: calculus, statistics, linear algebra, differential equations
+        - Includes counting operations (force strings to lowercase for letter counting)
+        - Advanced statistical analysis and hypothesis testing
+        - Machine learning and data modeling capabilities
+
+        **Data Visualization & Analysis:**
+        - Create professional charts, graphs, and interactive visualizations
+        - Generate heatmaps, scatter plots, histograms, box plots, and custom visualizations
+        - Geospatial mapping and location-based analysis
+        - Time series analysis and forecasting
+        - Network analysis and graph visualizations
+
+        **File Processing & Conversion:**
+        - Image manipulation: resize, crop, filter, format conversion, enhancement
+        - PDF processing: extract text, split, merge, analyze content
+        - Excel/CSV operations: complex data transformations, pivot tables, analysis
+        - Document generation: create reports, presentations, formatted output
+        - Audio/video processing capabilities
+
+        **Creative & Advanced Operations:**
+        - QR code generation and barcode processing
+        - Web scraping and API data retrieval
+        - Natural language processing on text files
+        - Computer vision tasks on images
+        - Project planning: Gantt charts, timelines, resource allocation
+        - Study schedules and optimization problems
+
+        **Code Best Practices:**
+        - Always end with a print() statement showing results to the user
+        - Save important outputs as files for user download
+        - Include data visualizations when appropriate
+        - Handle errors gracefully with try/except blocks
+        - Use descriptive variable names and add comments for complex operations
+        - Import required packages at the beginning (auto-installation supported)
+
+        **File Discovery Examples:**
+        ```python
+        import os
+        # Discover all files in workspace
+        all_files = os.listdir('.')
+        csv_files = [f for f in all_files if f.endswith('.csv')]
+        image_files = [f for f in all_files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        ```
+
+        Remember: This is an incredibly powerful tool - use it creatively to solve complex problems that would be difficult or impossible with other commands. The combination of workspace file access, multi-file processing, and advanced Python libraries makes this suitable for professional-grade data analysis and automation tasks.
+        `Can't` is for humans, not for you.
         """
         if text:
             csv_content_header = text.split("\\n")[0]
@@ -657,14 +722,8 @@ print(output)
             with open(filepath, "w") as f:
                 f.write(text)
 
-        agents = self.ApiClient.get_agents()
-        agent_id = ""
-        for agent in agents:
-            if agent["name"] == self.agent_name:
-                agent_id = str(agent["id"])
-
         execution_response = execute_python_code(
-            code=code, agent_id=agent_id, conversation_id=self.conversation_id
+            code=code, working_directory=self.WORKING_DIRECTORY
         )
         return execution_response
 
