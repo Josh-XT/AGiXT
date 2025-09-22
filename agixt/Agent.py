@@ -1210,10 +1210,20 @@ class Agent:
                         if str(provider.name).lower() in sso_providers:
                             sso_providers[str(provider.name).lower()] = True
         for extension in extensions:
-            if str(extension["extension_name"]).lower() in sso_providers:
-                if not sso_providers[str(extension["extension_name"]).lower()]:
-                    continue
-                if str(extension["extension_name"]).lower() == "github":
+            extension_name_lower = str(extension["extension_name"]).lower()
+            if extension_name_lower in sso_providers:
+                # Special handling for wallet extension
+                if extension_name_lower == "wallet":
+                    # For wallet extensions, check if user is authenticated via wallet
+                    # (user email ends with @crypto.wallet)
+                    is_wallet_user = user and str(user.email).endswith("@crypto.wallet")
+                    if not is_wallet_user:
+                        continue  # Skip wallet extension for non-wallet users
+                else:
+                    # Regular OAuth provider logic
+                    if not sso_providers[extension_name_lower]:
+                        continue
+                if extension_name_lower == "github":
                     extension["settings"] = []
             required_keys = extension["settings"]
             new_extension = extension.copy()

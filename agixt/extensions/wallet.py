@@ -284,12 +284,6 @@ class wallet(Extensions):
             "Get Connected Wallet Info": self.get_connected_wallet_info,
         }
 
-        # Debug logging
-        logging.info(f"Wallet extension initialized for user: {self.user_email}")
-        logging.info(
-            f"Wallet extension commands available: {list(self.commands.keys())}"
-        )
-
         # Set up FastAPI router for REST endpoints
         from fastapi import APIRouter, HTTPException, Request, Header, Depends
         from MagicalAuth import MagicalAuth, verify_api_key
