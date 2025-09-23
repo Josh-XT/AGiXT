@@ -1333,17 +1333,33 @@ class Interactions:
                             command_name=command_name,
                             command_args=command_args,
                         )
-                        command_output = command_output.replace("```", "``'")
-                        try:
-                            command_output = json.dumps(
-                                command_output, indent=2, ensure_ascii=False
-                            )
-                            # Escape any ``` in the output to prevent markdown issues
-
-                            # Wrap in json code block for better formatting
-                            command_output = "```json\n" + command_output + "\n```"
-                        except:
-                            pass
+                        # Handle different types of command output
+                        if isinstance(command_output, (dict, list)):
+                            # Already a structured object, serialize directly to JSON
+                            try:
+                                command_output = json.dumps(
+                                    command_output, indent=2, ensure_ascii=False
+                                )
+                                # Wrap in json code block for better formatting
+                                command_output = "```json\n" + command_output + "\n```"
+                            except Exception as e:
+                                # Fallback to string representation
+                                command_output = str(command_output)
+                        else:
+                            # Convert to string and handle any ``` characters
+                            command_output = str(command_output)
+                            command_output = command_output.replace("```", "``'")
+                            try:
+                                # Try to parse as JSON in case it's a JSON string
+                                parsed = json.loads(command_output)
+                                command_output = json.dumps(
+                                    parsed, indent=2, ensure_ascii=False
+                                )
+                                # Wrap in json code block for better formatting
+                                command_output = "```json\n" + command_output + "\n```"
+                            except:
+                                # Not valid JSON, leave as is
+                                pass
 
                         c.log_interaction(
                             role=self.agent_name,

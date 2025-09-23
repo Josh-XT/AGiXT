@@ -3277,13 +3277,26 @@ class Mutation:
             command_name=input.command_name, command_args=command_args
         )
 
-        if input.conversation_name and command_output:
+        # Convert command output to string for logging and response
+        if isinstance(command_output, (dict, list)):
+            try:
+                command_output_str = json.dumps(
+                    command_output, indent=2, ensure_ascii=False
+                )
+            except Exception:
+                command_output_str = str(command_output)
+        else:
+            command_output_str = (
+                str(command_output) if command_output is not None else ""
+            )
+
+        if input.conversation_name and command_output_str:
             conversation = Conversations(
                 conversation_name=input.conversation_name, user=user
             )
-            conversation.log_interaction(role=agent_name, message=command_output)
+            conversation.log_interaction(role=agent_name, message=command_output_str)
 
-        return CommandResult(response=command_output if command_output else "")
+        return CommandResult(response=command_output_str)
 
     @strawberry.mutation
     async def create_chain(self, info, input: ChainInput) -> bool:
