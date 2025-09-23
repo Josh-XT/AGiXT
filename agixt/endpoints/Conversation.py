@@ -779,12 +779,46 @@ async def conversation_stream(
         # Track the last message count to detect new messages
         last_message_count = len(messages) if messages else 0
         last_check_time = datetime.now()
+        last_heartbeat_time = datetime.now()
 
         # Main streaming loop
         while True:
             try:
-                # Check for new messages every 2 seconds
-                await asyncio.sleep(2)
+                # Use wait_for with a timeout to check for incoming messages
+                # This allows us to handle both incoming messages and periodic updates
+                try:
+                    # Wait for incoming message with a 2-second timeout
+                    message_data = await asyncio.wait_for(
+                        websocket.receive_json(), timeout=2.0
+                    )
+
+                    # Handle incoming messages
+                    if message_data.get("type") == "ping":
+                        # Respond to ping with pong
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "pong",
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
+                        )
+                        logging.info(
+                            f"Responded to ping for conversation {conversation_id}"
+                        )
+
+                except asyncio.TimeoutError:
+                    # No incoming message, continue to check for updates
+                    pass
+                except WebSocketDisconnect:
+                    # Client disconnected
+                    logging.info(
+                        f"WebSocket client disconnected for conversation {conversation_id}"
+                    )
+                    break
+                except Exception as e:
+                    # Error receiving message, but don't break the connection
+                    logging.warning(f"Error receiving WebSocket message: {e}")
 
                 # Get current conversation state
                 current_history = c.get_conversation()
@@ -854,15 +888,22 @@ async def conversation_stream(
                 last_check_time = datetime.now()
 
                 # Send heartbeat every 30 seconds to keep connection alive
-                if datetime.now().timestamp() % 30 < 2:
+                current_time = datetime.now()
+                time_since_last_heartbeat = (
+                    current_time - last_heartbeat_time
+                ).total_seconds()
+
+                if time_since_last_heartbeat >= 30:
                     await websocket.send_text(
                         json.dumps(
                             {
                                 "type": "heartbeat",
-                                "timestamp": datetime.now().isoformat(),
+                                "timestamp": current_time.isoformat(),
                             }
                         )
                     )
+                    last_heartbeat_time = current_time
+                    logging.info(f"Sent heartbeat for conversation {conversation_id}")
 
             except WebSocketDisconnect:
                 logging.info(
