@@ -82,11 +82,20 @@ async def cleanup():
 def signal_handler(signum, frame):
     logging.info(f"Received signal {signum}, shutting down gracefully...")
     try:
-        asyncio.run(cleanup())
+        # If we're in a running event loop (e.g., under uvicorn), schedule cleanup safely
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Schedule the coroutine thread-safely; don't block the signal handler
+            loop.call_soon_threadsafe(asyncio.create_task, cleanup())
+        else:
+            # No running loop; it's safe to run the async cleanup synchronously
+            asyncio.run(cleanup())
     except Exception as e:
         logging.error(f"Error in signal handler: {e}")
-    finally:
-        sys.exit(0)
 
 
 signal.signal(signal.SIGTERM, signal_handler)
