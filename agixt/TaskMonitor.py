@@ -116,6 +116,8 @@ class TaskMonitor:
                     self._initial_delay_done = True
 
                 async with self._process_lock:
+                    # Each worker only processes the tasks hashed to its ID.
+                    # Tasks are executed individually to avoid cross-worker duplication.
                     pending_tasks = await self.get_all_pending_tasks()
 
                     for pending_task in pending_tasks:
@@ -136,19 +138,25 @@ class TaskMonitor:
                                 token=impersonate_user(user_id=pending_task.user_id)
                             )
 
-                            # Create task
+                            # Execute the specific task
                             execution_task = asyncio.create_task(
-                                task_manager.execute_pending_tasks(), name=task_id
+                                task_manager.execute_task_by_id(str(pending_task.id)),
+                                name=task_id,
                             )
 
                             # Execute task with timeout
                             try:
-                                await asyncio.wait_for(
+                                result = await asyncio.wait_for(
                                     execution_task, timeout=180
                                 )  # Reduced to 3 minutes
-                                logging.info(
-                                    f"Task {pending_task.id} completed successfully"
-                                )
+                                if result:
+                                    logging.info(
+                                        f"Task {pending_task.id} completed successfully"
+                                    )
+                                else:
+                                    logging.info(
+                                        f"Task {pending_task.id} already handled or skipped"
+                                    )
                             except asyncio.TimeoutError:
                                 logging.error(
                                     f"Task {pending_task.id} timed out after 3 minutes"

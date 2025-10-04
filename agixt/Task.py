@@ -350,83 +350,116 @@ class Task:
             task.completed_at = datetime.datetime.now(datetime.timezone.utc).replace(
                 tzinfo=None
             )
+            task.scheduled = False
             session.commit()
         session.close()
 
-    async def execute_pending_tasks(self):
-        """Check and execute all tasks that are due"""
+    async def execute_task_by_id(self, task_id: str) -> bool:
+        """Execute a single task by its ID.
+
+        This method atomically claims the task before running it so that
+        multiple workers checking the same schedule cannot process it twice.
+        If execution fails, the task is released for another retry.
+        """
         session = None
         try:
             session = get_session()
-            # Get all tasks that are due
-            tasks_data = await self.get_due_tasks()
+            now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
-            for task_data in tasks_data:
-                try:
-                    # Get the actual task object from the database
-                    task = session.query(TaskItem).get(task_data["id"])
-                    if not task:
-                        continue
+            # Attempt to claim the task by flipping scheduled to False
+            claimed = (
+                session.query(TaskItem)
+                .filter(
+                    TaskItem.id == task_id,
+                    TaskItem.user_id == self.user_id,
+                    TaskItem.completed == False,
+                    TaskItem.scheduled == True,
+                    TaskItem.due_date <= now,
+                )
+                .update(
+                    {
+                        TaskItem.scheduled: False,
+                        TaskItem.updated_at: now,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            if claimed == 0:
+                session.commit()
+                return False
 
-                    if task.agent_id:
-                        agent = session.query(Agent).get(task.agent_id)
-                        if agent:
-                            prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
+            session.commit()
+            task = session.query(TaskItem).get(task_id)
+            if not task or task.completed:
+                return False
 
-                            try:
-                                # Use async approach instead of ThreadPoolExecutor
-                                response = await asyncio.wait_for(
-                                    asyncio.to_thread(
-                                        self.ApiClient.prompt_agent,
-                                        agent_name=agent.name,
-                                        prompt_name="Think About It",
-                                        prompt_args={
-                                            "user_input": prompt,
-                                            "conversation_name": task.memory_collection,
-                                            "websearch": False,
-                                            "analyze_user_input": False,
-                                            "log_user_input": False,
-                                            "log_output": True,
-                                            "tts": False,
-                                        },
-                                    ),
-                                    timeout=120,  # Reduced to 2 minutes
-                                )
-                                logging.info(
-                                    f"Follow-up task {task.id} executed: {response[:100] if response else 'No response'}..."
-                                )
-                            except asyncio.TimeoutError:
-                                logging.error(
-                                    f"Task {task.id} timed out after 2 minutes"
-                                )
-                                # Don't raise - continue with other tasks
-                                continue
-                            except Exception as prompt_e:
-                                logging.error(
-                                    f"Error executing prompt for task {task.id}: {str(prompt_e)}"
-                                )
-                                # Don't raise - continue with other tasks
-                                continue
+            succeeded = True
 
-                    # Mark the current task as completed
-                    await self.mark_task_completed(str(task.id))
+            if task.agent_id:
+                agent = session.query(Agent).get(task.agent_id)
+                if agent:
+                    prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
+                    try:
+                        response = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                self.ApiClient.prompt_agent,
+                                agent_name=agent.name,
+                                prompt_name="Think About It",
+                                prompt_args={
+                                    "user_input": prompt,
+                                    "conversation_name": task.memory_collection,
+                                    "websearch": False,
+                                    "analyze_user_input": False,
+                                    "log_user_input": False,
+                                    "log_output": True,
+                                    "tts": False,
+                                },
+                            ),
+                            timeout=120,
+                        )
+                        logging.info(
+                            f"Follow-up task {task.id} executed: {response[:100] if response else 'No response'}..."
+                        )
+                    except asyncio.TimeoutError:
+                        logging.error(f"Task {task.id} timed out after 2 minutes")
+                        succeeded = False
+                    except Exception as prompt_e:
+                        logging.error(
+                            f"Error executing prompt for task {task.id}: {str(prompt_e)}"
+                        )
+                        succeeded = False
 
-                except Exception as e:
-                    logging.error(
-                        f"Error executing task {task_data.get('id', 'unknown')}: {str(e)}"
-                    )
-                    continue
+            if succeeded:
+                await self.mark_task_completed(str(task.id))
+            else:
+                # Release the task for future attempts
+                task.scheduled = True
+                task.updated_at = now
+                session.add(task)
+                session.commit()
 
+            return succeeded
         except Exception as e:
-            logging.error(f"Error in execute_pending_tasks: {str(e)}")
-            raise
+            logging.error(f"Error executing task {task_id}: {str(e)}")
+            return False
         finally:
-            # Ensure cleanup
             if session:
                 try:
                     session.close()
                 except Exception as session_e:
-                    logging.error(f"Error closing session: {session_e}")
+                    logging.error(
+                        f"Error closing session while executing task {task_id}: {session_e}"
+                    )
+
+    async def execute_pending_tasks(self):
+        """Check and execute all tasks that are due"""
+        try:
+            tasks_data = await self.get_due_tasks()
+            for task_data in tasks_data:
+                await self.execute_task_by_id(task_data["id"])
+        except Exception as e:
+            logging.error(f"Error in execute_pending_tasks: {str(e)}")
+            raise
 
     async def get_tasks_by_category(self, category_name: str) -> list:
         """Get all tasks in a category"""
