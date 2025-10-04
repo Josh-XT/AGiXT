@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import datetime
 import logging
 import asyncio
+from typing import Optional
 
 
 class Task:
@@ -16,6 +17,14 @@ class Task:
         self.auth = MagicalAuth(token=token)
         self.user_id = self.auth.user_id
         self.ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_URI"), api_key=token)
+
+    @staticmethod
+    def _to_utc_naive(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
 
     async def create_category(
         self,
@@ -83,16 +92,18 @@ class Task:
             if agent:
                 agent_id = agent.id
 
+        normalized_due_date = self._to_utc_naive(due_date)
+
         task = TaskItem(
             user_id=self.user_id,
             category_id=category.id,
             title=title,
             description=description,
             agent_id=agent_id,
-            due_date=due_date,
+            due_date=normalized_due_date,
             estimated_hours=estimated_hours,
             priority=priority,
-            scheduled=bool(due_date),
+            scheduled=bool(normalized_due_date),
             memory_collection=memory_collection,
         )
         session.add(task)
@@ -155,7 +166,7 @@ class Task:
                     title=title,
                     description=description,
                     agent_id=agent_id,
-                    due_date=current_date,
+                    due_date=self._to_utc_naive(current_date),
                     estimated_hours=estimated_hours,
                     priority=priority,
                     scheduled=True,
@@ -183,7 +194,7 @@ class Task:
                                 title=title,
                                 description=description,
                                 agent_id=agent_id,
-                                due_date=current_date,
+                                due_date=self._to_utc_naive(current_date),
                                 estimated_hours=estimated_hours,
                                 priority=priority,
                                 scheduled=True,
@@ -202,7 +213,7 @@ class Task:
                         title=title,
                         description=description,
                         agent_id=agent_id,
-                        due_date=current_date,
+                        due_date=self._to_utc_naive(current_date),
                         estimated_hours=estimated_hours,
                         priority=priority,
                         scheduled=True,
@@ -220,7 +231,7 @@ class Task:
                     title=title,
                     description=description,
                     agent_id=agent_id,
-                    due_date=current_date,
+                    due_date=self._to_utc_naive(current_date),
                     estimated_hours=estimated_hours,
                     priority=priority,
                     scheduled=True,
@@ -245,7 +256,7 @@ class Task:
                     title=title,
                     description=description,
                     agent_id=agent_id,
-                    due_date=current_date,
+                    due_date=self._to_utc_naive(current_date),
                     estimated_hours=estimated_hours,
                     priority=priority,
                     scheduled=True,
@@ -261,7 +272,7 @@ class Task:
                     title=title,
                     description=description,
                     agent_id=agent_id,
-                    due_date=current_date,
+                    due_date=self._to_utc_naive(current_date),
                     estimated_hours=estimated_hours,
                     priority=priority,
                     scheduled=True,
@@ -336,7 +347,9 @@ class Task:
         task = session.query(TaskItem).get(task_id)
         if task and task.user_id == self.user_id:
             task.completed = True
-            task.completed_at = datetime.datetime.now()
+            task.completed_at = datetime.datetime.now(datetime.timezone.utc).replace(
+                tzinfo=None
+            )
             session.commit()
         session.close()
 
@@ -455,8 +468,9 @@ class Task:
             if description is not None:
                 task.description = description
             if due_date is not None:
-                task.due_date = due_date
-                task.scheduled = bool(due_date)
+                normalized_due = self._to_utc_naive(due_date)
+                task.due_date = normalized_due
+                task.scheduled = bool(normalized_due)
             if estimated_hours is not None:
                 task.estimated_hours = estimated_hours
             if priority is not None:
@@ -464,7 +478,9 @@ class Task:
             if completed is not None:
                 task.completed = completed
                 if completed:
-                    task.completed_at = datetime.datetime.now()
+                    task.completed_at = datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).replace(tzinfo=None)
             session.commit()
         session.close()
         return "Task updated successfully"
@@ -495,11 +511,7 @@ class Task:
     async def get_due_tasks(self) -> list:
         """Get all tasks that are due or overdue"""
         session = get_session()
-        try:
-            tz_info = ZoneInfo(getenv("TZ"))
-            now = datetime.datetime.now(tz_info)
-        except:
-            now = datetime.datetime.now()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         tasks = (
             session.query(TaskItem)
             .options(joinedload(TaskItem.category))  # Eager load the category

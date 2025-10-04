@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 from ApiClient import verify_api_key
 from Models import ResponseMessage
 from pydantic import BaseModel
 from Globals import getenv
 from Task import Task
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import datetime
 import logging
 
@@ -89,6 +90,42 @@ class TasksModel(BaseModel):
     tasks: list[TaskItemModel]
 
 
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime.datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime.datetime):
+        return value
+    try:
+        normalized = value.replace("Z", "+00:00")
+        return datetime.datetime.fromisoformat(normalized)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _apply_timezone(
+    dt: Optional[datetime.datetime], timezone_name: Optional[str]
+) -> Optional[datetime.datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt
+
+    tz_name = (timezone_name or getenv("TZ") or "UTC").strip()
+    try:
+        tz_info = ZoneInfo(tz_name) if tz_name else ZoneInfo("UTC")
+    except ZoneInfoNotFoundError:
+        tz_info = datetime.timezone.utc
+    return dt.replace(tzinfo=tz_info)
+
+
+def _normalize_to_utc(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+
+
 @app.post(
     "/v1/task",
     tags=["Tasks"],
@@ -104,41 +141,35 @@ async def new_task(
 ) -> ResponseMessage:
     try:
         days = int(task.days)
-    except:
+    except Exception:
         days = 0
     try:
         hours = int(task.hours)
-    except:
+    except Exception:
         hours = 0
     try:
         minutes = int(task.minutes)
-    except:
+    except Exception:
         minutes = 0
 
-    # Calculate the due date - support both absolute and relative times
+    due_date: Optional[datetime.datetime] = None
     if task.start_date:
-        # Use absolute start_date if provided
-        try:
-            due_date = datetime.datetime.fromisoformat(
-                task.start_date.replace("Z", "+00:00")
+        parsed_start = _parse_iso_datetime(task.start_date)
+        if parsed_start is None:
+            logging.warning(
+                "Failed to parse start_date '%s'; falling back to relative scheduling",
+                task.start_date,
             )
-            # Handle timezone conversion if provided
-            if task.timezone:
-                from zoneinfo import ZoneInfo
+        else:
+            due_date = _apply_timezone(parsed_start, task.timezone)
 
-                tz = ZoneInfo(task.timezone)
-                if due_date.tzinfo is None:
-                    due_date = due_date.replace(tzinfo=tz)
-        except ValueError:
-            # Fallback to relative time if date parsing fails
-            due_date = datetime.datetime.now() + datetime.timedelta(
-                days=days, hours=hours, minutes=minutes
-            )
-    else:
-        # Use relative time (backward compatibility)
-        due_date = datetime.datetime.now() + datetime.timedelta(
+    if due_date is None:
+        base_time = datetime.datetime.now(datetime.timezone.utc)
+        due_date = base_time + datetime.timedelta(
             days=days, hours=hours, minutes=minutes
         )
+
+    due_date_utc = _normalize_to_utc(due_date)
 
     # Set task description to "NA" if None
     task_description = (
@@ -176,7 +207,7 @@ async def new_task(
         description=task_description,
         category_name="Follow-ups",
         agent_name=task.agent_name,
-        due_date=due_date,
+        due_date=due_date_utc,
         priority=task.priority if task.priority else 1,
         estimated_hours=task.estimated_hours,
         memory_collection=task.conversation_id,  # This ensures context preservation
@@ -207,13 +238,23 @@ async def new_reoccurring_task(
     title_preview = task.title.split("\n")[0][:50] + (
         "..." if len(task.title) > 50 else ""
     )
+
+    start_date = _apply_timezone(_parse_iso_datetime(task.start_date), task.timezone)
+    end_date = _apply_timezone(_parse_iso_datetime(task.end_date), task.timezone)
+
+    if start_date is None or end_date is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid start_date or end_date. Expected ISO 8601 formatted strings.",
+        )
+
     task_ids = await task_manager.create_reoccurring_task(
         title=title_preview,
         description=task_description,
         category_name="Follow-ups",
         agent_name=task.agent_name,
-        start_date=task.start_date,
-        end_date=task.end_date,
+        start_date=start_date,
+        end_date=end_date,
         frequency=task.frequency,
         weekdays=task.weekdays,  # NEW: Support for specific weekdays
         timezone=task.timezone,  # NEW: Timezone support
@@ -240,6 +281,16 @@ async def modify_task(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     task_manager = Task(token=authorization)
+    due_date_update: Optional[datetime.datetime] = None
+    if task.due_date:
+        parsed_due = _parse_iso_datetime(task.due_date)
+        if parsed_due is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid due_date. Expected ISO 8601 formatted string.",
+            )
+        due_date_update = _apply_timezone(parsed_due, None)
+
     if str(task.cancel_task).lower() == "true":
         response = await task_manager.delete_task(task.task_id)
     else:
@@ -248,7 +299,7 @@ async def modify_task(
             task_id=task.task_id,
             title=task.title,
             description=task.description,
-            due_date=task.due_date,
+            due_date=_normalize_to_utc(due_date_update) if due_date_update else None,
             estimated_hours=task.estimated_hours,
             priority=task.priority,
         )

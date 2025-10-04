@@ -3,10 +3,9 @@ import logging
 from DB import get_session, TaskItem, User
 from Globals import getenv
 from Task import Task
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from hashlib import sha256
-from zoneinfo import ZoneInfo
 import jwt
 import random
 import socket
@@ -76,7 +75,7 @@ class TaskMonitor:
         session = None
         try:
             session = get_session()
-            now = datetime.now(tz=ZoneInfo(getenv("TZ", "UTC")))
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             all_tasks = (
                 session.query(TaskItem)
                 .filter(
