@@ -67,6 +67,7 @@ AGiXT is not just another AI framework—it's a complete automation platform tha
 ```bash
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
+pip install tzlocal python-dotenv
 python start.py
 ```
 
@@ -77,10 +78,11 @@ The script automatically handles Docker setup and starts all services.
 ```bash
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
-pip install -r requirements.txt
-cd agixt
-python run-local.py
+pip install -e .
+agixt start --local
 ```
+
+> 💡 **Tip:** `agixt start --local` runs the existing `agixt/run-local.py` health monitor in the background and writes logs to `~/.agixt/agixt-local.log`.
 
 ### 🎯 Access AGiXT
 

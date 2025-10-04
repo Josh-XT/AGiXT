@@ -31,4 +31,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.10",
     install_requires=requirements,
+    entry_points={
+        "console_scripts": ["agixt=agixt.cli:main"],
+    },
 )

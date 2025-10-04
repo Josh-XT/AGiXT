@@ -9,6 +9,7 @@ import io
 import hashlib
 import time
 import importlib
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,9 @@ class web_browsing(Extensions):
             int(websearch_timeout)
         except:
             websearch_timeout = 0
-        return self.ApiClient.prompt_agent(
+        websearch_llm_timeout = getattr(self, "websearch_timeout_seconds", 60)
+        return await self._call_prompt_agent(
+            timeout=websearch_llm_timeout,
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -264,6 +267,27 @@ class web_browsing(Extensions):
             logging.error(f"Error initializing browser: {e}")
             await self.ensure_cleanup()
             raise
+
+    async def _call_prompt_agent(self, timeout: int = None, **kwargs):
+        """Call ApiClient.prompt_agent in a background thread with a timeout."""
+        if not self.ApiClient:
+            raise RuntimeError("ApiClient is not configured.")
+
+        effective_timeout = timeout or getattr(self, "prompt_timeout_seconds", 90)
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self.ApiClient.prompt_agent, **kwargs),
+                timeout=effective_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            logging.error(
+                "LLM request timed out after %s seconds (kwargs keys: %s)",
+                effective_timeout,
+                list(kwargs.keys()),
+            )
+            raise RuntimeError(
+                f"LLM request timed out after {effective_timeout} seconds."
+            ) from exc
 
     def get_text_safely(self, element) -> str:
         """
@@ -2455,7 +2479,11 @@ Current Page Content Snippet (for context):
 {new_content[:2000]}...
 """
                     if self.ApiClient:
-                        summary = self.ApiClient.prompt_agent(
+                        summary_timeout = getattr(
+                            self, "step_summary_timeout_seconds", 45
+                        )
+                        summary = await self._call_prompt_agent(
+                            timeout=summary_timeout,
                             agent_name=self.agent_name,
                             prompt_name="Think About It",  # Or a dedicated summarization prompt
                             prompt_args={
@@ -2846,6 +2874,13 @@ Current Page Content Snippet (for context):
                 current_page_content = await self.get_page_content()
 
                 form_fields_info = await self.get_form_fields()
+                if isinstance(form_fields_info, str):
+                    logging.info(
+                        "Form field summary length: %s characters",
+                        len(form_fields_info),
+                    )
+                else:
+                    logging.info("Form field summary unavailable or non-textual.")
                 # Extract only the stable selectors from form_fields_info for the prompt
                 available_selectors = []
                 if isinstance(form_fields_info, str):
@@ -2862,6 +2897,11 @@ Current Page Content Snippet (for context):
                                     available_selectors.append(sel)
                 else:
                     logging.warning("Could not parse form fields for stable selectors.")
+
+                logging.info(
+                    "Detected %d stable selectors for planning.",
+                    len(available_selectors),
+                )
 
                 digest_source = current_page_content or ""
                 if self.page and not self.page.is_closed():
@@ -2946,10 +2986,14 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
 """
 
             try:
-                if not self.ApiClient:
-                    raise RuntimeError("ApiClient is not configured.")
-
-                raw_plan = self.ApiClient.prompt_agent(
+                plan_timeout = getattr(self, "plan_step_timeout_seconds", 90)
+                logging.info(
+                    "Requesting LLM plan for iteration %d (timeout %ss)...",
+                    iteration_count,
+                    plan_timeout,
+                )
+                raw_plan = await self._call_prompt_agent(
+                    timeout=plan_timeout,
                     agent_name=self.agent_name,
                     prompt_name="Think About It",
                     prompt_args={
@@ -2963,6 +3007,9 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
                         "browse_links": False,
                         "websearch": False,
                     },
+                )
+                logging.info(
+                    "Received plan response for iteration %d.", iteration_count
                 )
 
                 if not raw_plan or not isinstance(raw_plan, str):
@@ -3416,7 +3463,9 @@ Focus your analysis on the elements relevant to the task. Describe:
 Analyze the attached screenshot.
 """
             logging.info(f"Sending screenshot ({image_ref}) to LLM for analysis.")
-            analysis_result = self.ApiClient.prompt_agent(
+            analysis_timeout = getattr(self, "visual_analysis_timeout_seconds", 120)
+            analysis_result = await self._call_prompt_agent(
+                timeout=analysis_timeout,
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
