@@ -2795,8 +2795,15 @@ class Mutation:
         websearch = Websearch(collection_number="0", agent=agent, user=user)
         await websearch.agent_memory.wipe_memory()
 
-        result = delete_agent(agent_name=name, user=user)
-        return AgentResponse(success=True, message=f"Agent {name} deleted successfully")
+        result, status_code = delete_agent(
+            agent_name=name, agent_id=agent.agent_id, user=user
+        )
+        if status_code != 200:
+            raise Exception(result.get("message", "Failed to delete agent."))
+        return AgentResponse(
+            success=True,
+            message=result.get("message", f"Agent {name} deleted successfully"),
+        )
 
     @strawberry.mutation
     async def rename_agent(self, info, old_name: str, new_name: str) -> AgentResponse:

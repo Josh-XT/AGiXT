@@ -18,6 +18,8 @@ from DB import (
     UserOAuth,
     OAuthProvider,
     TaskItem,
+    WebhookIncoming,
+    WebhookOutgoing,
 )
 from Providers import Providers
 from Extensions import Extensions
@@ -37,6 +39,7 @@ from solders.keypair import Keypair
 from typing import Tuple
 import binascii
 from WebhookManager import WebhookEventEmitter
+from sqlalchemy.exc import IntegrityError
 
 # Initialize webhook event emitter
 webhook_emitter = WebhookEventEmitter()
@@ -251,54 +254,117 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     return {"message": f"Agent {agent_name} created."}
 
 
-def delete_agent(agent_name, user=DEFAULT_USER):
+def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
+    """Delete an agent and all dependent data.
+
+    Supports targeting by either agent name or agent ID to avoid ambiguity.
+    Returns a tuple of ({"message": str}, http_status_code).
+    """
+
+    if agent_name is None and agent_id is None:
+        return {"message": "agent_name or agent_id is required."}, 400
+
     session = get_session()
-    user_data = session.query(User).filter(User.email == user).first()
-    user_id = user_data.id
-    agent = (
-        session.query(AgentModel)
-        .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
-        .first()
-    )
-    if not agent:
+    deleted = False
+    agent_name_value = agent_name
+    agent_id_value = agent_id
+    user_id = None
+
+    try:
+        user_data = session.query(User).filter(User.email == user).first()
+        if not user_data:
+            logging.warning(f"User {user} not found while deleting agent.")
+            return {"message": f"User {user} not found."}, 404
+
+        user_id = user_data.id
+
+        agent_query = session.query(AgentModel).filter(AgentModel.user_id == user_id)
+        if agent_id is not None:
+            agent = agent_query.filter(AgentModel.id == agent_id).first()
+        else:
+            agent = agent_query.filter(AgentModel.name == agent_name).first()
+
+        if not agent:
+            return {
+                "message": (
+                    f"Agent {agent_name or agent_id} not found for user {user}."
+                )
+            }, 404
+
+        agent_name_value = agent.name
+        agent_id_value = str(agent.id)
+
+        total_agents = agent_query.count()
+        if total_agents <= 1:
+            return {"message": "You cannot delete your last agent."}, 401
+
+        # Delete associated browsed links
+        session.query(AgentBrowsedLink).filter_by(agent_id=agent.id).delete(
+            synchronize_session=False
+        )
+
+        # Delete associated chain steps, arguments, and responses
+        chain_steps = session.query(ChainStep).filter_by(agent_id=agent.id).all()
+        for chain_step in chain_steps:
+            session.query(ChainStepArgument).filter_by(
+                chain_step_id=chain_step.id
+            ).delete(synchronize_session=False)
+            session.query(ChainStepResponse).filter_by(
+                chain_step_id=chain_step.id
+            ).delete(synchronize_session=False)
+            session.delete(chain_step)
+
+        # Delete associated agent commands
+        agent_commands = session.query(AgentCommand).filter_by(agent_id=agent.id).all()
+        for agent_command in agent_commands:
+            session.delete(agent_command)
+
+        # Delete associated agent provider records and settings
+        agent_providers = (
+            session.query(AgentProvider).filter_by(agent_id=agent.id).all()
+        )
+        for agent_provider in agent_providers:
+            session.query(AgentProviderSetting).filter_by(
+                agent_provider_id=agent_provider.id
+            ).delete(synchronize_session=False)
+            session.delete(agent_provider)
+
+        # Delete associated agent settings
+        session.query(AgentSettingModel).filter_by(agent_id=agent.id).delete(
+            synchronize_session=False
+        )
+
+        # Null out optional relationships referencing the agent
+        session.query(TaskItem).filter(TaskItem.agent_id == agent.id).update(
+            {TaskItem.agent_id: None}, synchronize_session=False
+        )
+        session.query(WebhookOutgoing).filter(
+            WebhookOutgoing.agent_id == agent.id
+        ).update({WebhookOutgoing.agent_id: None}, synchronize_session=False)
+
+        # Delete dependent records that require the agent
+        session.query(WebhookIncoming).filter_by(agent_id=agent.id).delete(
+            synchronize_session=False
+        )
+
+        # Finally delete the agent
+        session.delete(agent)
+        session.commit()
+        deleted = True
+    except IntegrityError as e:
+        session.rollback()
+        logging.error(
+            f"Integrity error deleting agent {agent_name or agent_id}: {str(e)}"
+        )
+        return {
+            "message": "Failed to delete agent due to related records.",
+            "details": str(e),
+        }, 500
+    finally:
         session.close()
-        return {"message": f"Agent {agent_name} not found."}, 404
-    agents = session.query(AgentModel).filter(AgentModel.user_id == user_id).all()
-    if len(agents) == 1:
-        session.close()
-        return {"message": "You cannot delete your last agent."}, 401
-    # First delete associated browsed links
-    session.query(AgentBrowsedLink).filter_by(agent_id=agent.id).delete()
 
-    # Delete associated chain steps
-    chain_steps = session.query(ChainStep).filter_by(agent_id=agent.id).all()
-    for chain_step in chain_steps:
-        # Delete associated chain step arguments
-        session.query(ChainStepArgument).filter_by(chain_step_id=chain_step.id).delete()
-        # Delete associated chain step responses
-        session.query(ChainStepResponse).filter_by(chain_step_id=chain_step.id).delete()
-        session.delete(chain_step)
-
-    # Delete associated agent commands
-    agent_commands = session.query(AgentCommand).filter_by(agent_id=agent.id).all()
-    for agent_command in agent_commands:
-        session.delete(agent_command)
-
-    # Delete associated agent_provider records
-    agent_providers = session.query(AgentProvider).filter_by(agent_id=agent.id).all()
-    for agent_provider in agent_providers:
-        # Delete associated agent_provider_settings
-        session.query(AgentProviderSetting).filter_by(
-            agent_provider_id=agent_provider.id
-        ).delete()
-        session.delete(agent_provider)
-
-    # Delete associated agent settings
-    session.query(AgentSettingModel).filter_by(agent_id=agent.id).delete()
-
-    # Delete the agent
-    session.delete(agent)
-    session.commit()
+    if not deleted:
+        return {"message": "Agent deletion was not completed."}, 500
 
     # Emit webhook event for agent deletion
     import asyncio
@@ -308,19 +374,20 @@ def delete_agent(agent_name, user=DEFAULT_USER):
             webhook_emitter.emit_event(
                 event_type="agent.deleted",
                 data={
-                    "agent_id": str(agent.id),
-                    "agent_name": agent_name,
-                    "user_id": str(user_id),
+                    "agent_id": agent_id_value,
+                    "agent_name": agent_name_value,
+                    "user_id": str(user_id) if user_id else None,
                     "timestamp": datetime.now().isoformat(),
                 },
-                user_id=str(user_id),
+                user_id=str(user_id) if user_id else None,
             )
         )
-    except:
-        logging.debug(f"Could not emit webhook event for agent deletion: {agent_name}")
+    except Exception:
+        logging.debug(
+            f"Could not emit webhook event for agent deletion: {agent_name_value}"
+        )
 
-    session.close()
-    return {"message": f"Agent {agent_name} deleted."}, 200
+    return {"message": f"Agent {agent_name_value} deleted."}, 200
 
 
 def rename_agent(agent_name, new_name, user=DEFAULT_USER, company_id=None):

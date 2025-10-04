@@ -335,8 +335,13 @@ async def deleteagent(
         user=user,
         ApiClient=ApiClient,
     ).agent_memory.wipe_memory()
-    delete_agent(agent_name=agent_name, user=user)
-    return ResponseMessage(message=f"Agent {agent_name} deleted.")
+    delete_result, status_code = delete_agent(
+        agent_name=agent_name, agent_id=agent.agent_id, user=user
+    )
+    if status_code != 200:
+        detail = delete_result.get("message", "Failed to delete agent.")
+        raise HTTPException(status_code=status_code, detail=detail)
+    return ResponseMessage(message=delete_result.get("message", "Agent deleted."))
 
 
 @app.get(
