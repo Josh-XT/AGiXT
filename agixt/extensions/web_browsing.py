@@ -6,6 +6,8 @@ import sys
 import os
 import re
 import io
+import hashlib
+import time
 
 try:
     from bs4 import BeautifulSoup
@@ -2737,12 +2739,37 @@ Current Page Content Snippet (for context):
         attempt_history = []  # Internal history for LLM planning context
 
         last_url = None
+        max_runtime_seconds = getattr(self, "interaction_timeout_seconds", 600)
+        start_time = time.monotonic()
+        last_step_signature = None
+        stalled_plan_count = 0
+        stalled_plan_threshold = 5
+        last_observed_content_digest = None
+        operation = ""
 
         while iteration_count < max_iterations:
             iteration_count += 1
             logging.info(
                 f"--- Interaction Iteration {iteration_count}/{max_iterations} ---"
             )
+
+            elapsed_seconds = time.monotonic() - start_time
+            if elapsed_seconds > max_runtime_seconds:
+                runtime_msg = f"Interaction stopped after {int(elapsed_seconds)} seconds without completion."
+                logging.warning(runtime_msg)
+                results_summary.append(
+                    f"[Iteration {iteration_count}] Warning: {runtime_msg}"
+                )
+                attempt_history.append(
+                    f"TIMEOUT Iteration {iteration_count}: exceeded {max_runtime_seconds} seconds"
+                )
+                if self.ApiClient:
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {runtime_msg}",
+                        conversation_name=self.conversation_name,
+                    )
+                break
 
             if self.page is None or self.page.is_closed():
                 error_msg = "Page closed unexpectedly during interaction. Stopping."
@@ -2763,6 +2790,9 @@ Current Page Content Snippet (for context):
             last_url = current_url
 
             # --- 1. Analyze Current State ---
+            content_changed_since_last = True
+            current_content_digest = None
+
             try:
                 current_page_content = await self.get_page_content()
 
@@ -2783,6 +2813,23 @@ Current Page Content Snippet (for context):
                                     available_selectors.append(sel)
                 else:
                     logging.warning("Could not parse form fields for stable selectors.")
+
+                digest_source = current_page_content or ""
+                if self.page and not self.page.is_closed():
+                    try:
+                        digest_source = await self.page.content()
+                    except Exception as digest_error:
+                        logging.debug(
+                            f"Unable to capture raw page HTML for digest: {digest_error}"
+                        )
+
+                current_content_digest = hashlib.md5(
+                    digest_source.encode("utf-8", "ignore")
+                ).hexdigest()
+                content_changed_since_last = (
+                    last_observed_content_digest is None
+                    or current_content_digest != last_observed_content_digest
+                )
 
             except Exception as analysis_error:
                 error_msg = f"Error analyzing page state: {analysis_error}. Stopping interaction."
@@ -2937,6 +2984,39 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
                     )
                     break  # Exit the main loop
 
+                step_signature = (operation, selector or "", value or "")
+                repeated_plan = step_signature == last_step_signature
+                dynamic_stall_threshold = (
+                    stalled_plan_threshold + 3
+                    if operation in {"wait", "get_content", "get_fields"}
+                    else stalled_plan_threshold
+                )
+
+                if repeated_plan and not content_changed_since_last and not url_changed:
+                    stalled_plan_count += 1
+                else:
+                    stalled_plan_count = 0
+
+                if stalled_plan_count >= dynamic_stall_threshold:
+                    stall_msg = (
+                        f"No page changes detected after repeating '{operation}' {stalled_plan_count} times."
+                        " Stopping to prevent the workflow from hanging."
+                    )
+                    logging.warning(stall_msg)
+                    results_summary.append(
+                        f"[Iteration {iteration_count}] Warning: {stall_msg}"
+                    )
+                    attempt_history.append(
+                        f"STALLED Iteration {iteration_count}: {operation}|{selector}|{value}"
+                    )
+                    if self.ApiClient:
+                        self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{self.activity_id}][WARNING] {stall_msg}",
+                            conversation_name=self.conversation_name,
+                        )
+                    break
+
                 # Check for repeated failed actions to prevent loops
                 if self.is_repeat_failure(operation, selector, value, attempt_history):
                     error_msg = f"Preventing repeated failed action: '{operation}' on '{selector}'. Need a different approach. Stopping."
@@ -3001,6 +3081,8 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
                     attempt_history.append(
                         f"{attempt_record} -> Outcome: SUCCESS - {step_result}"
                     )
+
+                last_step_signature = step_signature
 
             except (ET.ParseError, ValueError, RuntimeError) as plan_exec_error:
                 error_msg = f"Error processing or executing plan on iteration {iteration_count}: {str(plan_exec_error)}"
@@ -3069,6 +3151,10 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
                         conversation_name=self.conversation_name,
                     )
                 break  # Stop interaction
+
+            finally:
+                if current_content_digest is not None:
+                    last_observed_content_digest = current_content_digest
 
         # --- End of Loop ---
         if iteration_count >= max_iterations and operation != "done":
