@@ -8,3 +8,8 @@ examples/
 models/
 streamlit/
 text-generation-webui/
+node_modules/
+tests/
+docs/
+.github/
+*.ipynb
