@@ -105,7 +105,7 @@ async def chat_completion(
     # prompt.model is the agent name
     # prompt.user is the conversation name
     # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
-    prompt.messages[0]["disable_commands"] = True
+    prompt.messages[0]["running_command"] = "Browser Automation"
     conversation_name = prompt.user
     if conversation_name != "-":
         try:

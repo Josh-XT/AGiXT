@@ -1427,6 +1427,8 @@ class AGiXT:
             include_sources = (
                 str(self.agent_settings["include_sources"]).lower() == "true"
             )
+        disable_commands = False
+        running_command = None
         additional_context = ""
         for message in prompt.messages:
             if "mode" in message:
@@ -1491,6 +1493,10 @@ class AGiXT:
                     if isinstance(message["download_headers"], str)
                     else message["download_headers"]
                 )
+            if "disable_commands" in message:
+                disable_commands = str(message["disable_commands"]).lower() == "true"
+            if "running_command" in message:
+                running_command = message["running_command"]
             if "content" not in message:
                 continue
             if isinstance(message["content"], str):
@@ -1774,7 +1780,10 @@ class AGiXT:
             del prompt_args["shots"]
         if "data_analysis" in prompt_args:
             del prompt_args["data_analysis"]
-
+        if disable_commands:
+            prompt_args["disable_commands"] = True
+        if running_command:
+            prompt_args["running_command"] = running_command
         await self.learn_from_websites(
             urls=urls,
             summarize_content=False,
