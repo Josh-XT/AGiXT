@@ -8,8 +8,10 @@ ENV PIP_NO_CACHE_DIR=1
 
 WORKDIR /
 COPY docker-requirements.txt .
-RUN --mount=type=tmpfs,target=/tmp \
-	pip install --no-cache-dir -r docker-requirements.txt
+RUN mkdir -p /var/tmp/pip-build \
+	&& TMPDIR=/var/tmp/pip-build PIP_TMPDIR=/var/tmp/pip-build \
+	   pip install --no-cache-dir -r docker-requirements.txt \
+	&& rm -rf /var/tmp/pip-build
 COPY . .
 WORKDIR /agixt
 EXPOSE 7437
