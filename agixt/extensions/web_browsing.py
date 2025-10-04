@@ -8,57 +8,78 @@ import re
 import io
 import hashlib
 import time
+import importlib
 
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "beautifulsoup4==4.12.2"]
-    )
-    from bs4 import BeautifulSoup
-try:
-    from playwright.async_api import (
-        async_playwright,
-        TimeoutError as PlaywrightTimeoutError,
-    )
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
-    from playwright.async_api import (
-        async_playwright,
-        TimeoutError as PlaywrightTimeoutError,
-    )
+logger = logging.getLogger(__name__)
 
-# Additional dependencies
-try:
-    import pyotp
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyotp"])
-    import pyotp
-try:
-    import cv2
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python"])
-    import cv2
-try:
-    import numpy as np
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
-    import numpy as np
-try:
-    from pyzbar.pyzbar import decode
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyzbar"])
-    from pyzbar.pyzbar import decode
-try:
-    import pytesseract
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pytesseract"])
-    import pytesseract
-try:
-    from PIL import Image
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
-    from PIL import Image
+
+def _import_optional(module_path: str, package_name: str = None):
+    """Import an optional dependency, attempting installation if needed.
+
+    Returns the imported module (or attribute for dotted names) on success, or None on failure.
+    This helper prevents import failures from breaking extension registration during startup.
+    """
+
+    target_attr = None
+    module_name = module_path
+
+    if "." in module_path:
+        module_name, target_attr = module_path.rsplit(".", 1)
+
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as initial_error:
+        if package_name is None:
+            logger.warning(
+                "Optional dependency '%s' is unavailable: %s",
+                module_path,
+                initial_error,
+            )
+            return None
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", package_name]
+            )
+            module = importlib.import_module(module_name)
+        except Exception as install_error:
+            logger.warning(
+                "Failed to install optional dependency '%s': %s",
+                package_name,
+                install_error,
+            )
+            return None
+    except Exception as unexpected_error:
+        logger.warning(
+            "Unexpected error importing optional dependency '%s': %s",
+            module_path,
+            unexpected_error,
+        )
+        return None
+
+    if target_attr:
+        return getattr(module, target_attr, None)
+    return module
+
+
+BeautifulSoup = _import_optional("bs4.BeautifulSoup", "beautifulsoup4==4.12.2")
+_playwright_module = _import_optional("playwright.async_api", "playwright")
+if _playwright_module:
+    async_playwright = getattr(_playwright_module, "async_playwright", None)
+    PlaywrightTimeoutError = getattr(_playwright_module, "TimeoutError", TimeoutError)
+else:
+    async_playwright = None
+
+    class PlaywrightTimeoutError(Exception):
+        pass
+
+
+pyotp = _import_optional("pyotp", "pyotp")
+cv2 = _import_optional("cv2", "opencv-python")
+np = _import_optional("numpy", "numpy")
+_pyzbar = _import_optional("pyzbar.pyzbar", "pyzbar")
+decode = getattr(_pyzbar, "decode", None) if _pyzbar else None
+pytesseract = _import_optional("pytesseract", "pytesseract")
+Image = _import_optional("PIL.Image", "Pillow")
 
 from Extensions import Extensions
 from Websearch import search_the_web
@@ -202,6 +223,10 @@ class web_browsing(Extensions):
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
         try:
+            if async_playwright is None:
+                raise RuntimeError(
+                    "Playwright is not available. Please install the 'playwright' package to use browser automation."
+                )
             if self.page is None:
                 logging.info("Initializing Playwright browser...")
                 self.playwright = await async_playwright().start()
@@ -849,6 +874,23 @@ class web_browsing(Extensions):
         """
         if self.page is None or self.page.is_closed():
             return "Error: No page loaded. Please navigate to a URL first."
+
+        missing_dependencies = []
+        if np is None:
+            missing_dependencies.append("numpy")
+        if cv2 is None:
+            missing_dependencies.append("opencv-python (cv2)")
+        if decode is None:
+            missing_dependencies.append("pyzbar")
+        if pyotp is None:
+            missing_dependencies.append("pyotp")
+
+        if missing_dependencies:
+            return (
+                "Error: Missing dependencies for MFA handling: "
+                + ", ".join(missing_dependencies)
+                + "."
+            )
 
         logging.info("Attempting to handle MFA via QR code...")
         try:
@@ -1863,6 +1905,10 @@ class web_browsing(Extensions):
         """
         if self.page is None or self.page.is_closed():
             return "Error: No page loaded or page is closed."
+        if pytesseract is None or Image is None:
+            return (
+                "Error: Missing dependencies for OCR (requires Pillow and pytesseract)."
+            )
 
         logging.info(
             f"Attempting to extract text from image '{image_selector}' using OCR..."
@@ -1897,19 +1943,22 @@ class web_browsing(Extensions):
             error_msg = f"Error extracting text from image '{image_selector}': Image not found or not visible within timeout."
             logging.error(error_msg)
             return error_msg
-        except ImportError:
-            logging.error(
-                "ImportError during OCR: Pillow or pytesseract might be missing."
-            )
-            return "Error: Missing dependency for OCR (Pillow or pytesseract). Please install them."
-        except pytesseract.TesseractNotFoundError:
-            logging.error(
-                "Tesseract OCR engine not found. Please install Tesseract and ensure it's in the system PATH."
-            )
-            return (
-                "Error: Tesseract OCR not found. Install Tesseract and add it to PATH."
-            )
         except Exception as e:
+            tesseract_error = (
+                getattr(pytesseract, "TesseractNotFoundError", None)
+                if pytesseract
+                else None
+            )
+            if isinstance(e, ImportError):
+                logging.error(
+                    "ImportError during OCR: Pillow or pytesseract might be missing."
+                )
+                return "Error: Missing dependency for OCR (Pillow or pytesseract). Please install them."
+            if tesseract_error and isinstance(e, tesseract_error):
+                logging.error(
+                    "Tesseract OCR engine not found. Please install Tesseract and ensure it's in the system PATH."
+                )
+                return "Error: Tesseract OCR not found. Install Tesseract and add it to PATH."
             logging.error(
                 f"Error extracting text from image '{image_selector}': {str(e)}",
                 exc_info=True,
@@ -3195,6 +3244,8 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
         """
         if self.page is None or self.page.is_closed():
             return "Error: No page loaded or page is closed."
+        if BeautifulSoup is None:
+            return "Error: BeautifulSoup is not available. Please install beautifulsoup4 to parse page content."
 
         logging.info("Retrieving and structuring page content...")
         try:

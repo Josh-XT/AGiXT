@@ -36,9 +36,10 @@ async def search_the_web(
     c = Conversations(conversation_name=conversation_name, user=user)
     conversaton_id = c.get_conversation_id()
     websearch = Websearch(
+        collection_number=conversaton_id,
         agent=Agent(agent_name=agent_name, ApiClient=ApiClient, user=user),
         user=user,
-        collection_number=conversaton_id,
+        ApiClient=ApiClient,
     )
     text_content, link_list = await websearch.web_search(
         query=query, conversation_id=conversaton_id
