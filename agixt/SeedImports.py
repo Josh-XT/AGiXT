@@ -197,21 +197,15 @@ def import_extensions():
         # Ensure automation chains are always treated as valid commands so their
         # enabled state isn't cleared during startup sync.
         try:
-            chain_names = (
-                session.query(Chain.name).filter(Chain.name.isnot(None)).all()
-            )
+            chain_names = session.query(Chain.name).filter(Chain.name.isnot(None)).all()
             for (chain_name,) in chain_names:
                 if not chain_name:
                     continue
                 normalized_name = chain_name.strip().lower()
                 if normalized_name:
-                    current_command_map.setdefault(
-                        normalized_name, "Custom Automation"
-                    )
+                    current_command_map.setdefault(normalized_name, "Custom Automation")
         except Exception as e:
-            logging.warning(
-                f"Could not include automation chains in command sync: {e}"
-            )
+            logging.warning(f"Could not include automation chains in command sync: {e}")
 
         # Find agent commands that reference non-existent or moved commands
         orphaned_count = 0
