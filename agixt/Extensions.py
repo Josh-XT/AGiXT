@@ -519,9 +519,13 @@ class Extensions:
 
         if module is None:  # It's a chain
             try:
-                result = await command_function(
-                    chain_name=command_name, user_input="", **args
-                )
+                args = args.copy()
+                if "chain_name" not in args or not args["chain_name"]:
+                    args["chain_name"] = command_name
+                if "user_input" not in args or args["user_input"] is None:
+                    args["user_input"] = ""
+
+                result = await command_function(**args)
 
                 # Emit webhook event for command execution completed
                 import asyncio
