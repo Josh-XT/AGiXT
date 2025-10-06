@@ -451,8 +451,16 @@ class AGiXT:
         chain_name="",
         user_input="",
         agent_override="",
-        chain_args={},
+        chain_args=None,
+        running_command=None,
     ):
+        if chain_args is None or not isinstance(chain_args, dict):
+            chain_args = {}
+        current_running_command = running_command
+        if not current_running_command and isinstance(chain_args, dict):
+            current_running_command = chain_args.get("running_command")
+        if not current_running_command:
+            current_running_command = chain_name
         if not chain_run_id:
             chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
         if step:
@@ -476,9 +484,15 @@ class AGiXT:
                     user_input=user_input,
                     agent_name=agent_name,
                 )
-                if chain_args != {}:
+                if chain_args:
                     for arg, value in chain_args.items():
                         args[arg] = value
+                if (
+                    current_running_command
+                    and not args.get("running_command")
+                    and isinstance(args, dict)
+                ):
+                    args["running_command"] = current_running_command
                 if "chain_name" in args:
                     args["chain"] = args["chain_name"]
                 if "chain" not in args:
@@ -503,21 +517,23 @@ class AGiXT:
                         message=f"[ACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
                     if prompt_name != "":
-                        if "browse_links" not in args:
-                            args["browse_links"] = False
-                        args["prompt_name"] = prompt_name
-                        args["log_user_input"] = False
-                        args["voice_response"] = False
-                        args["log_output"] = (
+                        prompt_args = args.copy()
+                        prompt_args.pop("chain_args", None)
+                        if "browse_links" not in prompt_args:
+                            prompt_args["browse_links"] = False
+                        prompt_args["prompt_name"] = prompt_name
+                        prompt_args["log_user_input"] = False
+                        prompt_args["voice_response"] = False
+                        prompt_args["log_output"] = (
                             False
-                            if "log_output" not in args
-                            else str(args["log_output"]).lower() == "true"
+                            if "log_output" not in prompt_args
+                            else str(prompt_args["log_output"]).lower() == "true"
                         )
-                        args["user_input"] = user_input
+                        prompt_args["user_input"] = user_input
                         result = self.ApiClient.prompt_agent(
                             agent_name=agent_name,
                             prompt_name=prompt_name,
-                            prompt_args=args,
+                            prompt_args=prompt_args,
                         )
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
@@ -528,16 +544,28 @@ class AGiXT:
                         args["chain"] = args["chain_name"]
                     if "user_input" in args:
                         args["input"] = args["user_input"]
+                    elif "input" not in args:
+                        args["input"] = user_input
+                    if isinstance(args.get("chain_args"), dict):
+                        nested_chain_args = args["chain_args"].copy()
+                    elif "conversation_name" in args:
+                        nested_chain_args = {
+                            "conversation_name": args["conversation_name"]
+                        }
+                    else:
+                        nested_chain_args = {}
+                    if (
+                        current_running_command
+                        and "running_command" not in nested_chain_args
+                    ):
+                        nested_chain_args["running_command"] = current_running_command
                     result = await self.execute_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],
                         agent_override=agent_name,
                         from_step=args["from_step"] if "from_step" in args else 1,
-                        chain_args=(
-                            args["chain_args"]
-                            if "chain_args" in args
-                            else {"conversation_name": args["conversation_name"]}
-                        ),
+                        chain_args=nested_chain_args,
+                        running_command=current_running_command,
                         log_user_input=False,
                         voice_response=False,
                     )
@@ -567,10 +595,20 @@ class AGiXT:
         user_input=None,
         agent_override="",
         from_step=1,
-        chain_args={},
+        chain_args=None,
+        running_command=None,
         log_user_input=False,
         voice_response=False,
     ):
+        if isinstance(chain_args, dict):
+            merged_chain_args = chain_args.copy()
+        else:
+            merged_chain_args = {}
+        active_running_command = (
+            running_command or merged_chain_args.get("running_command") or chain_name
+        )
+        if active_running_command:
+            merged_chain_args["running_command"] = active_running_command
         chain_data = self.chain.get_chain(chain_name=chain_name)
         if not chain_run_id:
             chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
@@ -611,7 +649,8 @@ class AGiXT:
                         chain_name=chain_name,
                         user_input=user_input,
                         agent_override=agent_override,
-                        chain_args=chain_args,
+                        chain_args=merged_chain_args,
+                        running_command=active_running_command,
                     )
                     step_responses.append(task)
         if step_responses:

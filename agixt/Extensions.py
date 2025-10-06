@@ -524,6 +524,12 @@ class Extensions:
                     args["chain_name"] = command_name
                 if "user_input" not in args or args["user_input"] is None:
                     args["user_input"] = ""
+                if "running_command" not in command_args or not command_args.get(
+                    "running_command"
+                ):
+                    command_args["running_command"] = command_name
+                if "running_command" not in args or not args.get("running_command"):
+                    args["running_command"] = command_args["running_command"]
 
                 result = await command_function(**args)
 
