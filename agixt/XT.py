@@ -521,14 +521,13 @@ class AGiXT:
                         prompt_args.pop("chain_args", None)
                         if "browse_links" not in prompt_args:
                             prompt_args["browse_links"] = False
+                        if current_running_command:
+                            prompt_args["running_command"] = current_running_command
+                        prompt_args["disable_commands"] = True
                         prompt_args["prompt_name"] = prompt_name
                         prompt_args["log_user_input"] = False
                         prompt_args["voice_response"] = False
-                        prompt_args["log_output"] = (
-                            False
-                            if "log_output" not in prompt_args
-                            else str(prompt_args["log_output"]).lower() == "true"
-                        )
+                        prompt_args["log_output"] = False
                         prompt_args["user_input"] = user_input
                         result = self.ApiClient.prompt_agent(
                             agent_name=agent_name,
@@ -625,6 +624,7 @@ class AGiXT:
         )
         response = ""
         step_responses = []
+        step_summaries = []
         if "steps" not in chain_data:
             return f"Chain `{chain_name}` has no steps."
         if len(chain_data["steps"]) == 0:
@@ -653,8 +653,33 @@ class AGiXT:
                         running_command=active_running_command,
                     )
                     step_responses.append(task)
+                    if task:
+                        if not isinstance(task, str):
+                            try:
+                                task = json.dumps(task)
+                            except Exception:
+                                task = str(task)
+                        step_type = step.get("prompt_type", "").title()
+                        step_prompt = step.get("prompt", {})
+                        step_identifier = ""
+                        if isinstance(step_prompt, dict):
+                            step_identifier = (
+                                step_prompt.get("prompt_name")
+                                or step_prompt.get("command_name")
+                                or step_prompt.get("chain_name")
+                                or ""
+                            )
+                        if step_identifier:
+                            step_label = (
+                                f"Step {step['step']} ({step_type} - {step_identifier})"
+                            )
+                        else:
+                            step_label = f"Step {step['step']} ({step_type})"
+                        step_summaries.append(f"{step_label} Output:\n{task}")
         if step_responses:
             response = step_responses[-1]
+            if step_summaries:
+                response = "\n\n".join(step_summaries)
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
         self.conversation.log_interaction(role=self.agent_name, message=response)
