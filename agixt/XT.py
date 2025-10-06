@@ -497,10 +497,19 @@ class AGiXT:
                     args["chain"] = args["chain_name"]
                 if "chain" not in args:
                     args["chain"] = chain_name
-                if "conversation_name" not in args:
-                    args["conversation_name"] = f"Chain Execution History: {chain_name}"
-                if "conversation" in args:
+                if not args.get("conversation_name"):
+                    args["conversation_name"] = (
+                        chain_args.get("conversation_name")
+                        or self.conversation_name
+                        or f"Chain Execution History: {chain_name}"
+                    )
+                if args.get("conversation"):
                     args["conversation_name"] = args["conversation"]
+                if not args.get("conversation_id"):
+                    if chain_args.get("conversation_id"):
+                        args["conversation_id"] = chain_args["conversation_id"]
+                    elif self.conversation_id:
+                        args["conversation_id"] = self.conversation_id
                 if prompt_type == "command":
                     self.conversation.log_interaction(
                         role=self.agent_name,
@@ -603,6 +612,10 @@ class AGiXT:
             merged_chain_args = chain_args.copy()
         else:
             merged_chain_args = {}
+        if self.conversation_name and not merged_chain_args.get("conversation_name"):
+            merged_chain_args["conversation_name"] = self.conversation_name
+        if self.conversation_id and not merged_chain_args.get("conversation_id"):
+            merged_chain_args["conversation_id"] = self.conversation_id
         active_running_command = (
             running_command or merged_chain_args.get("running_command") or chain_name
         )

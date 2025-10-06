@@ -524,6 +524,18 @@ class Extensions:
                     args["chain_name"] = command_name
                 if "user_input" not in args or args["user_input"] is None:
                     args["user_input"] = ""
+                if (
+                    "chain_args" not in args
+                    or args["chain_args"] is None
+                    or not isinstance(args["chain_args"], dict)
+                ):
+                    args["chain_args"] = {}
+                chain_args = args["chain_args"]
+                if self.conversation_name and not chain_args.get("conversation_name"):
+                    chain_args["conversation_name"] = self.conversation_name
+                if self.conversation_id and not chain_args.get("conversation_id"):
+                    chain_args["conversation_id"] = self.conversation_id
+                args["chain_args"] = chain_args
                 if "running_command" not in command_args or not command_args.get(
                     "running_command"
                 ):
