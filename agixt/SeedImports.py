@@ -15,6 +15,7 @@ from DB import (
     User,
     Agent,
     AgentCommand,
+    Chain,
 )
 from Providers import get_providers, get_provider_options
 from Agent import add_agent
@@ -193,6 +194,25 @@ def import_extensions():
                 command_name = command["friendly_name"]
                 current_command_map[command_name.lower()] = extension_name
 
+        # Ensure automation chains are always treated as valid commands so their
+        # enabled state isn't cleared during startup sync.
+        try:
+            chain_names = (
+                session.query(Chain.name).filter(Chain.name.isnot(None)).all()
+            )
+            for (chain_name,) in chain_names:
+                if not chain_name:
+                    continue
+                normalized_name = chain_name.strip().lower()
+                if normalized_name:
+                    current_command_map.setdefault(
+                        normalized_name, "Custom Automation"
+                    )
+        except Exception as e:
+            logging.warning(
+                f"Could not include automation chains in command sync: {e}"
+            )
+
         # Find agent commands that reference non-existent or moved commands
         orphaned_count = 0
         updated_count = 0
@@ -255,6 +275,11 @@ def import_extensions():
 
                         updated_count += 1
             else:
+                if current_extension.lower() == "custom automation":
+                    # Custom automation commands are dynamic per-user chains.
+                    # If they are missing from the cached map, keep the
+                    # reference so enabled chain commands survive restarts.
+                    continue
                 # Command no longer exists - remove the reference
                 session.delete(agent_command)
                 orphaned_count += 1

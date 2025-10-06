@@ -627,6 +627,7 @@ class AGiXT:
         chain_args=None,
         running_command=None,
         log_user_input=False,
+        log_output=True,
         voice_response=False,
     ):
         if isinstance(chain_args, dict):
@@ -637,12 +638,6 @@ class AGiXT:
             merged_chain_args["conversation_name"] = self.conversation_name
         if self.conversation_id and not merged_chain_args.get("conversation_id"):
             merged_chain_args["conversation_id"] = self.conversation_id
-        raw_log_output_flag = merged_chain_args.get("log_output", True)
-        if isinstance(raw_log_output_flag, str):
-            should_log_output = raw_log_output_flag.lower() not in ["false", "0", "no"]
-        else:
-            should_log_output = bool(raw_log_output_flag)
-        merged_chain_args["log_output"] = should_log_output
         active_running_command = (
             running_command or merged_chain_args.get("running_command") or chain_name
         )
@@ -722,7 +717,7 @@ class AGiXT:
                 response = "\n\n".join(step_summaries)
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
-        if should_log_output:
+        if log_output:
             self.conversation.log_interaction(role=self.agent_name, message=response)
         if "tts_provider" in self.agent_settings and voice_response:
             if (
