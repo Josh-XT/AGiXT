@@ -487,6 +487,7 @@ class AGiXT:
                 if chain_args:
                     for arg, value in chain_args.items():
                         args[arg] = value
+                log_output_flag = args.pop("log_output", None)
                 if (
                     current_running_command
                     and not args.get("running_command")
@@ -513,7 +514,7 @@ class AGiXT:
                 if prompt_type == "command":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
@@ -523,7 +524,7 @@ class AGiXT:
                 elif prompt_type == "prompt":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
                     if prompt_name != "":
                         prompt_args = args.copy()
@@ -536,7 +537,16 @@ class AGiXT:
                         prompt_args["prompt_name"] = prompt_name
                         prompt_args["log_user_input"] = False
                         prompt_args["voice_response"] = False
-                        prompt_args["log_output"] = False
+                        if log_output_flag is None:
+                            prompt_args["log_output"] = False
+                        else:
+                            prompt_args["log_output"] = str(
+                                log_output_flag
+                            ).lower() not in [
+                                "false",
+                                "0",
+                                "no",
+                            ]
                         prompt_args["user_input"] = user_input
                         result = self.ApiClient.prompt_agent(
                             agent_name=agent_name,
@@ -546,7 +556,7 @@ class AGiXT:
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Running chain: `{args['chain']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Running chain: `{args['chain']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
                     if "chain_name" in args:
                         args["chain"] = args["chain_name"]
@@ -567,6 +577,17 @@ class AGiXT:
                         and "running_command" not in nested_chain_args
                     ):
                         nested_chain_args["running_command"] = current_running_command
+                    if (
+                        log_output_flag is not None
+                        and "log_output" not in nested_chain_args
+                    ):
+                        nested_chain_args["log_output"] = str(
+                            log_output_flag
+                        ).lower() not in [
+                            "false",
+                            "0",
+                            "no",
+                        ]
                     result = await self.execute_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],
@@ -616,6 +637,12 @@ class AGiXT:
             merged_chain_args["conversation_name"] = self.conversation_name
         if self.conversation_id and not merged_chain_args.get("conversation_id"):
             merged_chain_args["conversation_id"] = self.conversation_id
+        raw_log_output_flag = merged_chain_args.get("log_output", True)
+        if isinstance(raw_log_output_flag, str):
+            should_log_output = raw_log_output_flag.lower() not in ["false", "0", "no"]
+        else:
+            should_log_output = bool(raw_log_output_flag)
+        merged_chain_args["log_output"] = should_log_output
         active_running_command = (
             running_command or merged_chain_args.get("running_command") or chain_name
         )
@@ -633,7 +660,7 @@ class AGiXT:
             )
         self.conversation.log_interaction(
             role=self.agent_name,
-            message=f"[ACTIVITY] Running chain `{chain_name}`.",
+            message=f"[SUBACTIVITY] Running chain `{chain_name}`.",
         )
         response = ""
         step_responses = []
@@ -695,7 +722,8 @@ class AGiXT:
                 response = "\n\n".join(step_summaries)
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
-        self.conversation.log_interaction(role=self.agent_name, message=response)
+        if should_log_output:
+            self.conversation.log_interaction(role=self.agent_name, message=response)
         if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"

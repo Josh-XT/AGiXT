@@ -531,6 +531,8 @@ class Extensions:
                 ):
                     args["chain_args"] = {}
                 chain_args = args["chain_args"]
+                if "log_output" not in chain_args:
+                    chain_args["log_output"] = False
                 if self.conversation_name and not chain_args.get("conversation_name"):
                     chain_args["conversation_name"] = self.conversation_name
                 if self.conversation_id and not chain_args.get("conversation_id"):
