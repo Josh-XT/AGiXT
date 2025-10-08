@@ -184,6 +184,23 @@ class microsoft(Extensions):
     """
 
     CATEGORY = "Productivity"
+    _GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0/me"
+    WELL_KNOWN_FOLDER_ALIASES = {
+        "inbox": "Inbox",
+        "sent": "SentItems",
+        "sentitems": "SentItems",
+        "sent items": "SentItems",
+        "drafts": "Drafts",
+        "deleted": "DeletedItems",
+        "deleted items": "DeletedItems",
+        "trash": "DeletedItems",
+        "junk": "JunkEmail",
+        "junk email": "JunkEmail",
+        "spam": "JunkEmail",
+        "archive": "Archive",
+        "outbox": "Outbox",
+    }
+    WELL_KNOWN_FOLDER_CANONICALS = set(WELL_KNOWN_FOLDER_ALIASES.values())
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
@@ -286,6 +303,159 @@ class microsoft(Extensions):
         return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[
             :-3
         ]  # Remove last 3 digits of microseconds
+
+    def _normalize_folder_segments(self, folder_name):
+        """
+        Break a folder path into normalized segments, mapping the first segment to
+        a well-known folder name when possible (Inbox, SentItems, etc.).
+        """
+        if not folder_name:
+            return []
+
+        normalized = []
+        path = folder_name.replace("\\", "/")
+        for index, raw_segment in enumerate(path.split("/")):
+            segment = raw_segment.strip()
+            if not segment:
+                continue
+
+            key = segment.lower()
+            if index == 0 and key in self.WELL_KNOWN_FOLDER_ALIASES:
+                normalized.append(self.WELL_KNOWN_FOLDER_ALIASES[key])
+            else:
+                normalized.append(segment)
+
+        return normalized
+
+    def _resolve_mail_folder_id(self, folder_segments, headers):
+        """
+        Resolve a folder path (already normalized into segments) to its unique ID
+        by walking down the folder tree using Microsoft Graph.
+        """
+        if not folder_segments:
+            return None
+
+        traversal_headers = headers.copy()
+        traversal_headers.setdefault("ConsistencyLevel", "eventual")
+        traversal_headers.pop("Prefer", None)
+
+        current_id = None
+        for index, segment in enumerate(folder_segments):
+            if index == 0:
+                direct_url = f"{self._GRAPH_BASE_URL}/mailFolders/{segment}"
+                response = requests.get(direct_url, headers=traversal_headers)
+                if response.status_code == 200:
+                    folder_info = response.json() or {}
+                    current_id = folder_info.get("id") or segment
+                    if len(folder_segments) == 1:
+                        return current_id
+                    # Continue resolving child segments using the resolved ID
+                    continue
+
+                logging.debug(
+                    f"Direct folder lookup for '{segment}' returned status {response.status_code}"
+                )
+
+            parent_hint = "root" if current_id is None else folder_segments[index - 1]
+            search_url = (
+                f"{self._GRAPH_BASE_URL}/mailFolders/{current_id}/childFolders"
+                if current_id
+                else f"{self._GRAPH_BASE_URL}/mailFolders"
+            )
+            filter_name = segment.replace("'", "''")
+            params = {"$filter": f"displayName eq '{filter_name}'", "$top": "1"}
+            response = requests.get(
+                search_url, headers=traversal_headers, params=params
+            )
+
+            if response.status_code != 200:
+                logging.error(
+                    f"Failed to search for folder '{segment}' under '{parent_hint}' "
+                    f"(status {response.status_code}): {response.text}"
+                )
+                return None
+
+            results = response.json().get("value", [])
+            if not results:
+                logging.warning(
+                    f"No folder named '{segment}' found under '{parent_hint}'"
+                )
+                return None
+
+            current_id = results[0].get("id")
+            if not current_id:
+                logging.warning(
+                    f"Folder search result missing id for segment '{segment}'"
+                )
+                return None
+
+        return current_id
+
+    def _build_messages_endpoint(self, folder_name, headers):
+        """
+        Build the messages endpoint for the requested folder. Falls back to the
+        default mailbox when the folder cannot be resolved.
+        """
+        segments = self._normalize_folder_segments(folder_name)
+        if not segments:
+            return f"{self._GRAPH_BASE_URL}/messages"
+
+        if len(segments) == 1 and segments[0] in self.WELL_KNOWN_FOLDER_CANONICALS:
+            return f"{self._GRAPH_BASE_URL}/mailFolders/{segments[0]}/messages"
+
+        folder_id = self._resolve_mail_folder_id(segments, headers)
+        if folder_id:
+            return f"{self._GRAPH_BASE_URL}/mailFolders/{folder_id}/messages"
+
+        logging.warning(
+            f"Falling back to primary mailbox because folder '{folder_name}' could not be resolved."
+        )
+        return f"{self._GRAPH_BASE_URL}/messages"
+
+    def _format_email_message(self, message):
+        """
+        Normalize a Graph message payload into the structure expected by the
+        extension consumers.
+        """
+        if not isinstance(message, dict):
+            return None
+
+        message_id = message.get("id")
+        if not message_id:
+            logging.debug("Skipping message without an 'id' field")
+            return None
+
+        sender_info = message.get("from") or message.get("sender") or {}
+        if isinstance(sender_info, dict):
+            email_address = (
+                (sender_info.get("emailAddress") or {}).get("address")
+                if sender_info
+                else None
+            )
+        else:
+            email_address = None
+
+        email_address = email_address or "unknown"
+
+        body_data = message.get("body")
+        if isinstance(body_data, dict):
+            body_content = body_data.get("content", "")
+        elif body_data is None:
+            body_content = ""
+        else:
+            body_content = str(body_data)
+
+        return {
+            "id": message_id,
+            "subject": message.get("subject") or "(No Subject)",
+            "sender": email_address,
+            "received_time": message.get("receivedDateTime", ""),
+            "body": body_content,
+            "body_preview": message.get("bodyPreview", ""),
+            "has_attachments": message.get("hasAttachments", False),
+            "web_link": message.get("webLink", ""),
+            "importance": message.get("importance", "normal"),
+        }
 
     def verify_user(self):
         """
@@ -547,81 +717,76 @@ class microsoft(Extensions):
         try:
             self.verify_user()
 
-            headers = {
+            if max_emails <= 0:
+                logging.info("Requested max_emails <= 0, returning no emails.")
+                return []
+
+            per_page = max(1, min((page_size or 10), 100, max_emails))
+
+            base_headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
+                "Prefer": 'outlook.body-content-type="text"',
+                "ConsistencyLevel": "eventual",
             }
 
-            # Try getting messages directly from the well-known folder name first
-            # This is more reliable than searching for folders by display name
-            try:
-                url = f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder_name}/messages?$top={page_size}&$orderby=receivedDateTime desc"
-                response = requests.get(url, headers=headers)
-                if response.status_code != 200:
-                    # If direct lookup fails, try to find folder by display name
-                    folder_response = requests.get(
-                        f"https://graph.microsoft.com/v1.0/me/mailFolders?$filter=displayName eq '{folder_name}'",
-                        headers=headers,
+            folder_headers = base_headers.copy()
+            folder_headers.pop("Prefer", None)
+
+            messages_url = self._build_messages_endpoint(folder_name, folder_headers)
+
+            emails = []
+            params = {
+                "$top": str(per_page),
+                "$orderby": "receivedDateTime DESC",
+            }
+            next_link = None
+
+            while len(emails) < max_emails:
+                if next_link:
+                    response = requests.get(next_link, headers=base_headers)
+                else:
+                    response = requests.get(
+                        messages_url, headers=base_headers, params=params
                     )
 
-                    if (
-                        folder_response.status_code != 200
-                        or not folder_response.json().get("value")
-                    ):
-                        logging.error(f"Folder search response: {folder_response.text}")
-                        raise Exception(
-                            f"Failed to find folder '{folder_name}': {folder_response.text}"
-                        )
-
-                    folder_id = folder_response.json()["value"][0]["id"]
-                    url = f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder_id}/messages?$top={page_size}&$orderby=receivedDateTime desc"
-            except Exception as e:
-                logging.error(f"Error finding folder: {str(e)}")
-                # Fall back to all messages in case folder can't be found
-                url = f"https://graph.microsoft.com/v1.0/me/messages?$top={page_size}&$orderby=receivedDateTime desc"
-
-            # Then get the messages
-            emails = []
-            while len(emails) < max_emails:
-                response = requests.get(url, headers=headers)
                 if response.status_code != 200:
-                    logging.error(f"Failed to fetch emails: {response.text}")
-                    break  # Don't raise exception here - return what we have
-
-                data = response.json()
-                if not data.get("value"):
-                    logging.warning("No emails found in response")
+                    logging.error(
+                        f"Failed to fetch emails (status {response.status_code}): {response.text}"
+                    )
                     break
 
-                for message in data["value"]:
-                    try:
-                        emails.append(
-                            {
-                                "id": message["id"],
-                                "subject": message.get("subject", "(No Subject)"),
-                                "sender": message.get("from", {})
-                                .get("emailAddress", {})
-                                .get("address", "unknown"),
-                                "received_time": message.get("receivedDateTime", ""),
-                                "body": message.get("body", {}).get("content", ""),
-                                "has_attachments": message.get("hasAttachments", False),
-                            }
-                        )
-                        if len(emails) >= max_emails:
-                            break
-                    except KeyError as ke:
-                        logging.error(f"Key error processing message: {ke}")
-                        continue  # Skip this message and continue with others
+                try:
+                    payload = response.json() or {}
+                except ValueError as json_err:
+                    logging.error(f"Failed to parse email response JSON: {json_err}")
+                    break
 
-                if "@odata.nextLink" in data and len(emails) < max_emails:
-                    url = data["@odata.nextLink"]
-                else:
+                messages = payload.get("value", [])
+                if not messages:
+                    logging.info(
+                        "Microsoft Graph returned no messages for the requested folder."
+                    )
+                    break
+
+                for message in messages:
+                    formatted = self._format_email_message(message)
+                    if formatted:
+                        emails.append(formatted)
+                    if len(emails) >= max_emails:
+                        break
+
+                next_link = payload.get("@odata.nextLink")
+                if not next_link:
                     break
 
             return emails
 
         except Exception as e:
             logging.error(f"Error retrieving emails: {str(e)}")
+            import traceback
+
+            logging.error(f"Traceback: {traceback.format_exc()}")
             return []
 
     async def microsoft_modify_calendar_item(
