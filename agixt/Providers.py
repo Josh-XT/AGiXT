@@ -156,13 +156,15 @@ class Providers:
                     f"Error loading provider '{name}': {str(e)}",
                     exc_info=True,
                 )
-            raise
+            raise AttributeError(f"module {__name__} has no provider '{name}'") from e
         except Exception as e:
             logging.error(
                 f"Unexpected error initializing provider '{name}': {str(e)}",
                 exc_info=True,
             )
-            raise
+            raise AttributeError(
+                f"module {__name__} could not initialize provider '{name}'"
+            ) from e
 
     def __getattr__(self, attr):
         if self.instance is None:
@@ -183,4 +185,6 @@ class Providers:
 
 
 def __getattr__(name, ApiClient=None):
+    if isinstance(name, str) and name.startswith("__"):
+        raise AttributeError(f"module {__name__} has no attribute {name}")
     return Providers(name=name, ApiClient=ApiClient)
