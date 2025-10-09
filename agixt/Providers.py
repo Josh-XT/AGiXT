@@ -135,8 +135,12 @@ def get_providers_by_service(service="llm"):
 
 class Providers:
     def __init__(self, name, ApiClient=None, **kwargs):
+        self.provider_name = name
+        self.instance = None
+
         if name in DISABLED_PROVIDERS:
             raise AttributeError(f"module {__name__} has no attribute {name}")
+
         try:
             kwargs["ApiClient"] = ApiClient
             module = importlib.import_module(f"providers.{name}")
@@ -147,10 +151,24 @@ class Providers:
             # self.install_requirements()
 
         except (ModuleNotFoundError, AttributeError) as e:
-            if name != None and name != "None" and not str(name).startswith("__"):
-                logging.error(f"Error loading provider: {name}")
+            if name is not None and str(name).lower() not in ["none", ""]:
+                logging.error(
+                    f"Error loading provider '{name}': {str(e)}",
+                    exc_info=True,
+                )
+            raise
+        except Exception as e:
+            logging.error(
+                f"Unexpected error initializing provider '{name}': {str(e)}",
+                exc_info=True,
+            )
+            raise
 
     def __getattr__(self, attr):
+        if self.instance is None:
+            raise AttributeError(
+                f"Provider '{self.provider_name}' is not available; failed to initialize."
+            )
         return getattr(self.instance, attr)
 
     def install_requirements(self):

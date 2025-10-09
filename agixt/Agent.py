@@ -21,7 +21,7 @@ from DB import (
     WebhookIncoming,
     WebhookOutgoing,
 )
-from Providers import Providers
+from Providers import Providers, get_provider_services
 from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
@@ -670,9 +670,23 @@ class Agent:
             if "image_provider" in self.AGENT_CONFIG["settings"]
             else "default"
         )
-        self.IMAGE_PROVIDER = Providers(
-            name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
+        image_services = get_provider_services(image_provider)
+        if "image" in image_services:
+            try:
+                self.IMAGE_PROVIDER = Providers(
+                    name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+                )
+            except Exception as e:
+                logging.error(
+                    f"Error loading image provider '{image_provider}': {str(e)}"
+                )
+                self.IMAGE_PROVIDER = None
+        else:
+            if image_provider not in [None, "None", "", "default"]:
+                logging.warning(
+                    f"Configured image provider '{image_provider}' does not advertise image support; disabling image generation."
+                )
+            self.IMAGE_PROVIDER = None
         embeddings_provider = (
             self.AGENT_CONFIG["settings"]["embeddings_provider"]
             if "embeddings_provider" in self.AGENT_CONFIG["settings"]
@@ -1171,6 +1185,13 @@ class Agent:
         return await self.TRANSLATION_PROVIDER.translate_audio(audio_path=audio_path)
 
     async def generate_image(self, prompt: str):
+        if not self.IMAGE_PROVIDER or not hasattr(
+            self.IMAGE_PROVIDER, "generate_image"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="This agent is not configured with an image-capable provider.",
+            )
         return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
 
     async def text_to_speech(self, text: str):
