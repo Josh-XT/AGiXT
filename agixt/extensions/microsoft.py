@@ -186,19 +186,19 @@ class microsoft(Extensions):
     CATEGORY = "Productivity"
     _GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0/me"
     WELL_KNOWN_FOLDER_ALIASES = {
-        "inbox": "Inbox",
-        "sent": "SentItems",
-        "sentitems": "SentItems",
-        "sent items": "SentItems",
-        "drafts": "Drafts",
-        "deleted": "DeletedItems",
-        "deleted items": "DeletedItems",
-        "trash": "DeletedItems",
-        "junk": "JunkEmail",
-        "junk email": "JunkEmail",
-        "spam": "JunkEmail",
-        "archive": "Archive",
-        "outbox": "Outbox",
+        "inbox": "inbox",
+        "sent": "sentitems",
+        "sentitems": "sentitems",
+        "sent items": "sentitems",
+        "drafts": "drafts",
+        "deleted": "deleteditems",
+        "deleted items": "deleteditems",
+        "trash": "deleteditems",
+        "junk": "junkemail",
+        "junk email": "junkemail",
+        "spam": "junkemail",
+        "archive": "archive",
+        "outbox": "outbox",
     }
     WELL_KNOWN_FOLDER_CANONICALS = set(WELL_KNOWN_FOLDER_ALIASES.values())
 

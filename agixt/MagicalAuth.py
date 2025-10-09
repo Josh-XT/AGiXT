@@ -2699,6 +2699,82 @@ class MagicalAuth:
         else:
             return obj
 
+    def get_markdown_companies(self) -> str:
+        """
+                Similar to get_all_companies, we want to make a function that will get company names, ids, and any child companies names and IDs for the authenticated user. We'll want it to return in string format like:
+
+        "The user has {len(companies including children}), they are as following:
+        | Company ID | Company Name | Parent Company ID |"
+        """
+        self.validate_user()
+
+        companies = self.get_all_companies()
+        flattened_companies = []
+        seen_company_ids = set()
+
+        for company in companies:
+            company_id_raw = company.get("id")
+            company_id_value = str(company_id_raw) if company_id_raw is not None else ""
+            if company_id_value not in seen_company_ids:
+                parent_id_raw = company.get("company_id")
+                parent_id_value = (
+                    str(parent_id_raw) if parent_id_raw not in [None, ""] else "none"
+                )
+                flattened_companies.append(
+                    {
+                        "id": company_id_value,
+                        "name": company.get("name", ""),
+                        "parent_id": parent_id_value,
+                    }
+                )
+                seen_company_ids.add(company_id_value)
+
+            for child in company.get("children", []) or []:
+                child_id_raw = child.get("id")
+                child_id_value = str(child_id_raw) if child_id_raw is not None else ""
+                if child_id_value in seen_company_ids:
+                    continue
+                child_parent_raw = child.get("company_id")
+                child_parent_value = (
+                    str(child_parent_raw)
+                    if child_parent_raw not in [None, ""]
+                    else "none"
+                )
+                flattened_companies.append(
+                    {
+                        "id": child_id_value,
+                        "name": child.get("name", ""),
+                        "parent_id": child_parent_value,
+                    }
+                )
+                seen_company_ids.add(child_id_value)
+
+        total_companies = len(flattened_companies)
+
+        header_line = (
+            f"The user has {total_companies} companies, they are as following:"
+        )
+
+        table_lines = [
+            "| Company ID | Company Name | Parent Company ID |",
+            "| --- | --- | --- |",
+        ]
+
+        for company in flattened_companies:
+            company_id = str(company["id"]) if company["id"] is not None else ""
+            company_name = str(company["name"]) if company["name"] is not None else ""
+            parent_id = (
+                str(company["parent_id"]) if company["parent_id"] is not None else ""
+            )
+
+            company_id = company_id.replace("|", "\\|")
+            company_name = company_name.replace("|", "\\|")
+            parent_id = parent_id.replace("|", "\\|")
+
+            table_lines.append(f"| {company_id} | {company_name} | {parent_id} |")
+
+        return "\n".join([header_line, *table_lines])
+
     def get_all_companies(self) -> List[CompanyResponse]:
         """
         Get all companies accessible to the current user with proper deduplication of users.

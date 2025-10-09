@@ -322,6 +322,7 @@ class Interactions:
                             context.append(metadata)
         except Exception as e:
             pass
+        context.append(self.auth.get_markdown_companies())
         if persona != "":
             context.append(
                 f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\nThe assistant is {self.agent_name} and is an AGiXT agent created by DevXT, empowered with AGiXT abilities."
