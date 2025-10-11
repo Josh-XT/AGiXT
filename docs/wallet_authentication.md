@@ -44,6 +44,7 @@ This is implemented as an extension that integrates with AGiXT's existing authen
 - **Brave Wallet** - Multi-chain support
 - **MetaMask** - EVM chains (Ethereum, Polygon, BSC, Avalanche, Arbitrum, Optimism)
 - **Solflare** - Solana-specific wallet
+- **Solana Mobile Wallet (Seeker Vault)** - Native wallet shipping with Solana Mobile devices
 
 ### Blockchain Support
 - **Full Support**: Solana (authentication + all operations)

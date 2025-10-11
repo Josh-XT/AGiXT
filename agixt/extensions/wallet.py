@@ -960,6 +960,12 @@ WALLET_PROVIDERS = {
         "primary_chain": "solana",
         "icon": "solflare",
     },
+    "solana_mobile_stack": {
+        "name": "Solana Mobile Wallet",
+        "chains": ["solana"],
+        "primary_chain": "solana",
+        "icon": "solana",
+    },
 }
 
 # This is required for the OAuth discovery mechanism to find this as a provider
