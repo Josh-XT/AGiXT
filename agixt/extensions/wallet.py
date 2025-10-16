@@ -5,15 +5,45 @@ import time
 import json
 import base64
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+
 from Extensions import Extensions
 from Globals import getenv
-from MagicalAuth import MagicalAuth
-from fastapi import HTTPException
+from MagicalAuth import MagicalAuth, verify_api_key
 import nacl.encoding
 import nacl.signing
-from eth_account.messages import encode_defunct
-from eth_account import Account
-from typing import Optional, Dict, Any
+
+try:
+    from eth_account.messages import encode_defunct  # type: ignore[import]
+    from eth_account import Account  # type: ignore[import]
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    encode_defunct = None
+    Account = None
+
+import pyotp
+
+from DB import get_session, User, PaymentTransaction
+from Models import (
+    Detail,
+    Login,
+    Register,
+    CryptoInvoiceRequest,
+    CryptoInvoiceResponse,
+    CryptoVerifyRequest,
+    PaymentQuoteRequest,
+    PaymentQuoteResponse,
+    PaymentTransactionResponse,
+    StripePaymentIntentRequest,
+    StripePaymentIntentResponse,
+)
+from payments import (
+    CryptoPaymentService,
+    PriceService,
+    StripePaymentService,
+    SUPPORTED_CURRENCIES,
+)
 
 """
 Crypto Wallet Authentication Extension
@@ -137,6 +167,9 @@ class WalletSSO:
         Verify EIP-191 signature for Ethereum/EVM wallets
         """
         try:
+            if not encode_defunct or not Account:
+                logging.error("eth_account package is not available")
+                return False
             # Create the message hash
             message_hash = encode_defunct(text=self.message)
 
@@ -285,14 +318,12 @@ class wallet(Extensions):
         }
 
         # Set up FastAPI router for REST endpoints
-        from fastapi import APIRouter, HTTPException, Request, Header, Depends
-        from MagicalAuth import MagicalAuth, verify_api_key
-        from Models import Detail
-        from DB import get_session, User
-        import pyotp
-        from Models import Login, Register
+        self.router = APIRouter(tags=["Wallet"], prefix="")
 
-        self.router = APIRouter(tags=["Wallet Auth"], prefix="")
+        # Initialize payment services reused for billing endpoints
+        self.price_service = PriceService()
+        self.crypto_service = CryptoPaymentService(price_service=self.price_service)
+        self.stripe_service = StripePaymentService(price_service=self.price_service)
 
         @self.router.get(
             "/v1/wallet/providers",
@@ -501,6 +532,168 @@ class wallet(Extensions):
                 "wallet_chain": user_preferences.get("wallet_chain"),
                 "email": auth.email,
             }
+
+        # ----------------------------
+        # Billing / Payments endpoints
+        # ----------------------------
+
+        @self.router.get("/v1/billing/currencies", tags=["Billing"])
+        async def get_supported_currencies():
+            currencies = [
+                {
+                    "symbol": symbol,
+                    "network": details.get("network"),
+                    "decimals": details.get("decimals"),
+                    "mint": details.get("mint"),
+                }
+                for symbol, details in SUPPORTED_CURRENCIES.items()
+            ]
+            return {
+                "base_price_usd": float(self.price_service.base_price_usd),
+                "wallet_address": getenv("PAYMENT_WALLET_ADDRESS"),
+                "currencies": currencies,
+            }
+
+        @self.router.post(
+            "/v1/billing/quote",
+            response_model=PaymentQuoteResponse,
+            tags=["Billing"],
+        )
+        async def get_payment_quote(payload: PaymentQuoteRequest):
+            quote = await self.price_service.get_quote(
+                payload.currency, payload.seat_count
+            )
+            return PaymentQuoteResponse(
+                reference_code=None,
+                seat_count=quote["seat_count"],
+                currency=quote["currency"],
+                network=quote.get("network"),
+                amount_usd=quote["amount_usd"],
+                amount_currency=quote["amount_currency"],
+                exchange_rate=quote["exchange_rate"],
+                wallet_address=getenv("PAYMENT_WALLET_ADDRESS"),
+                expires_at=None,
+            )
+
+        @self.router.post(
+            "/v1/billing/crypto/invoice",
+            response_model=CryptoInvoiceResponse,
+            tags=["Billing"],
+        )
+        async def create_crypto_invoice(
+            payload: CryptoInvoiceRequest,
+            authorization: str = Header(None),
+            user=Depends(verify_api_key),
+        ):
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+
+            company_id: Optional[str] = None
+            if authorization:
+                company_auth = MagicalAuth(token=authorization)
+                company_id = getattr(company_auth, "company_id", None)
+
+            invoice = await self.crypto_service.create_invoice(
+                seat_count=payload.seat_count,
+                currency=payload.currency,
+                expires_in_minutes=payload.expires_in_minutes,
+                memo=payload.memo,
+                user_id=user_id,
+                company_id=company_id,
+            )
+            return CryptoInvoiceResponse(**invoice)
+
+        @self.router.post(
+            "/v1/billing/crypto/verify",
+            response_model=PaymentTransactionResponse,
+            tags=["Billing"],
+        )
+        async def verify_crypto_invoice(
+            payload: CryptoVerifyRequest,
+            user=Depends(verify_api_key),
+        ):
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+
+            record = await self.crypto_service.verify_transaction(
+                reference_code=payload.reference_code,
+                transaction_hash=payload.transaction_hash,
+                expected_user_id=user_id,
+            )
+            if record.get("status") != "completed":
+                raise HTTPException(status_code=400, detail="Payment not confirmed")
+            return PaymentTransactionResponse(**record)
+
+        @self.router.post(
+            "/v1/billing/stripe/payment-intent",
+            response_model=StripePaymentIntentResponse,
+            tags=["Billing"],
+        )
+        async def create_stripe_payment_intent(
+            payload: StripePaymentIntentRequest,
+            user=Depends(verify_api_key),
+        ):
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+            try:
+                result = await self.stripe_service.create_payment_intent(
+                    seat_count=payload.seat_count,
+                    metadata=payload.metadata,
+                    user_id=user_id,
+                    company_id=None,
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive guardrail
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            return StripePaymentIntentResponse(
+                client_secret=result["client_secret"],
+                payment_intent_id=result["payment_intent_id"],
+                amount_usd=result["amount_usd"],
+                seat_count=result["seat_count"],
+                reference_code=result.get("reference_code"),
+            )
+
+        @self.router.get(
+            "/v1/billing/transactions",
+            response_model=List[PaymentTransactionResponse],
+            tags=["Billing"],
+        )
+        async def list_payment_transactions(
+            status: Optional[str] = None,
+            limit: int = 50,
+            user=Depends(verify_api_key),
+        ):
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+            is_admin = self._is_admin(user)
+            limit_value = max(1, min(limit, 200))
+            status_value = status.lower() if status else None
+
+            session = get_session()
+            try:
+                query = session.query(PaymentTransaction)
+                if not is_admin:
+                    query = query.filter(PaymentTransaction.user_id == user_id)
+                if status_value:
+                    query = query.filter(PaymentTransaction.status == status_value)
+                records = (
+                    query.order_by(PaymentTransaction.created_at.desc())
+                    .limit(limit_value)
+                    .all()
+                )
+                return [
+                    PaymentTransactionResponse(
+                        **self.crypto_service._serialize_record(r)
+                    )
+                    for r in records
+                ]
+            finally:
+                session.close()
 
     async def generate_wallet_nonce(
         self, wallet_address: str, chain: str = "unknown"
