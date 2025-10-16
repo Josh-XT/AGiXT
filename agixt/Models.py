@@ -404,6 +404,73 @@ class ChainStepV1(BaseModel):
     prompt: dict
 
 
+# Billing Models
+class PaymentQuoteRequest(BaseModel):
+    seat_count: int = Field(default=1, ge=1)
+    currency: str = Field(description="Target currency for payment")
+
+
+class PaymentQuoteResponse(BaseModel):
+    reference_code: Optional[str] = None
+    seat_count: int
+    currency: str
+    network: Optional[str] = None
+    amount_usd: float
+    amount_currency: float
+    exchange_rate: float
+    wallet_address: Optional[str] = None
+    memo: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+
+class StripePaymentIntentRequest(BaseModel):
+    seat_count: int = Field(default=1, ge=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class StripePaymentIntentResponse(BaseModel):
+    client_secret: str
+    payment_intent_id: str
+    amount_usd: float
+    seat_count: int
+    reference_code: Optional[str] = None
+
+
+class CryptoInvoiceRequest(BaseModel):
+    seat_count: int = Field(default=1, ge=1)
+    currency: str = Field(description="Crypto currency code")
+    expires_in_minutes: int = Field(default=60, ge=5, le=1440)
+    memo: Optional[str] = None
+
+
+class CryptoInvoiceResponse(PaymentQuoteResponse):
+    reference_code: str
+    wallet_address: str
+    expires_at: datetime
+
+
+class CryptoVerifyRequest(BaseModel):
+    reference_code: str
+    transaction_hash: str
+
+
+class PaymentTransactionResponse(BaseModel):
+    reference_code: str
+    status: str
+    currency: str
+    amount_usd: float
+    amount_currency: float
+    exchange_rate: float
+    seat_count: int
+    transaction_hash: Optional[str] = None
+    wallet_address: Optional[str] = None
+    memo: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    expires_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
 class ResponseMessage(BaseModel):
     message: str
 
