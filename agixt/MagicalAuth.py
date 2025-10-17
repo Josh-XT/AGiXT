@@ -10,6 +10,7 @@ from DB import (
     Invitation,
     default_roles,
     TokenBlacklist,
+    PaymentTransaction,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -1264,6 +1265,32 @@ class MagicalAuth:
         session.close()
         return True
 
+    def _has_active_payment_transaction(self, session, user_companies) -> bool:
+        direct_payment = (
+            session.query(PaymentTransaction)
+            .filter(PaymentTransaction.status == "completed")
+            .filter(PaymentTransaction.user_id == self.user_id)
+            .first()
+        )
+        if direct_payment:
+            return True
+
+        company_ids = {
+            user_company.company_id
+            for user_company in user_companies
+            if getattr(user_company, "company_id", None)
+        }
+        if company_ids:
+            company_payment = (
+                session.query(PaymentTransaction)
+                .filter(PaymentTransaction.status == "completed")
+                .filter(PaymentTransaction.company_id.in_(list(company_ids)))
+                .first()
+            )
+            if company_payment:
+                return True
+        return False
+
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
@@ -1626,6 +1653,21 @@ class MagicalAuth:
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+        user_companies = (
+            session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
+        )
+        wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+        price_env = getenv("MONTHLY_PRICE_PER_USER_USD", "0")
+        try:
+            price_value = float(str(price_env))
+        except (TypeError, ValueError):
+            price_value = 0.0
+        wallet_paywall_enabled = (
+            bool(wallet_address)
+            and str(wallet_address).lower() != "none"
+            and price_value > 0
+        )
+        has_active_subscription = False
         user_requirements = self.registration_requirements()
         if not user_preferences:
             user_preferences = {}
@@ -1639,13 +1681,6 @@ class MagicalAuth:
                 import stripe
 
                 stripe.api_key = api_key
-                # Get list of users companies
-                user_companies = (
-                    session.query(UserCompany)
-                    .filter(UserCompany.user_id == self.user_id)
-                    .all()
-                )
-                is_subscription = False
                 if not user.email.endswith(".xt"):
                     # Check if this user has their own subscription first
                     if "stripe_id" in user_preferences:
@@ -1653,10 +1688,10 @@ class MagicalAuth:
                             api_key, user.email
                         )
                         if relevant_subscriptions:
-                            is_subscription = True
+                            has_active_subscription = True
 
                     # Only check company subscriptions if the user doesn't have their own
-                    if not is_subscription:
+                    if not has_active_subscription:
                         for user_company in user_companies:
                             # Get the company admins
                             company_admins = (
@@ -1693,9 +1728,9 @@ class MagicalAuth:
                                         )
                                     )
                                     if relevant_subscriptions:
-                                        is_subscription = True
+                                        has_active_subscription = True
                                         break
-                        if not is_subscription:
+                        if not has_active_subscription:
                             if (
                                 "stripe_id" not in user_preferences
                                 or not user_preferences["stripe_id"].startswith("cus_")
@@ -1752,6 +1787,22 @@ class MagicalAuth:
                                             ],
                                         },
                                     )
+            if not has_active_subscription and not user.email.endswith(".xt"):
+                if wallet_paywall_enabled and not self._has_active_payment_transaction(
+                    session, user_companies
+                ):
+                    user.is_active = False
+                    session.commit()
+                    session.close()
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": "No active payments found.",
+                            "customer_session": {"client_secret": None},
+                            "wallet_address": wallet_address,
+                            "monthly_price_usd": price_value,
+                        },
+                    )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
@@ -1776,6 +1827,9 @@ class MagicalAuth:
             del user_preferences["verify_email"]
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
+        if wallet_paywall_enabled:
+            user_preferences.setdefault("wallet_address", wallet_address)
+            user_preferences.setdefault("monthly_price_usd", price_value)
         session.close()
         return user_preferences
 
@@ -1851,7 +1905,7 @@ class MagicalAuth:
                 # Send SMS with the pyotp code
                 totp = pyotp.TOTP(user.mfa_token)
                 code = totp.now()
-                from twilio.rest import Client
+                from twilio.rest import Client  # type: ignore
 
                 client = Client(
                     getenv("TWILIO_ACCOUNT_SID"), getenv("TWILIO_AUTH_TOKEN")
