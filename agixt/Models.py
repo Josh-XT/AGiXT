@@ -821,13 +821,17 @@ class WebhookOutgoingCreate(BaseModel):
     company_id: Optional[str] = (
         None  # Company ID - if not provided, uses user's default company
     )
-    headers: Optional[Dict[str, str]] = Field(default_factory=dict)  # Custom headers to include
+    headers: Optional[Dict[str, str]] = Field(
+        default_factory=dict
+    )  # Custom headers to include
     secret: Optional[str] = None  # Secret for webhook signature verification
     retry_count: Optional[int] = 3
     retry_delay: Optional[int] = 60  # Seconds between retries
     timeout: Optional[int] = 30  # Request timeout in seconds
     active: Optional[bool] = True
-    filters: Optional[Dict[str, Any]] = Field(default_factory=dict)  # Event filters (e.g., agent_name, user_id)
+    filters: Optional[Dict[str, Any]] = Field(
+        default_factory=dict
+    )  # Event filters (e.g., agent_name, user_id)
 
 
 class WebhookOutgoingUpdate(BaseModel):

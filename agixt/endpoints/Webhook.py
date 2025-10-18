@@ -300,9 +300,8 @@ async def update_incoming_webhook(
         # Update fields
         if webhook_update.name is not None:
             webhook.name = webhook_update.name
-        if (
-            webhook_update.description is not None
-            or "description" in getattr(webhook_update, "model_fields_set", set())
+        if webhook_update.description is not None or "description" in getattr(
+            webhook_update, "model_fields_set", set()
         ):
             webhook.description = webhook_update.description
         if webhook_update.active is not None:
@@ -628,9 +627,8 @@ async def update_outgoing_webhook(
             webhook.target_url = webhook_update.target_url
         if webhook_update.event_types is not None:
             webhook.event_types = json.dumps(webhook_update.event_types)
-        if (
-            webhook_update.company_id is not None
-            or "company_id" in getattr(webhook_update, "model_fields_set", set())
+        if webhook_update.company_id is not None or "company_id" in getattr(
+            webhook_update, "model_fields_set", set()
         ):
             company_id_value = webhook_update.company_id
             if company_id_value in (None, ""):
