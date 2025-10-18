@@ -552,7 +552,6 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
                                 filepath = os.path.join(
                                     conversation_workspace, filename
                                 )
-                                )
 
                                 with open(filepath, "wb") as f:
                                     f.write(response.content)
