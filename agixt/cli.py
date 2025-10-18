@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -70,6 +71,76 @@ def _is_process_running(pid: int) -> bool:
     return True
 
 
+def _find_processes_on_port(port: int) -> list[int]:
+    """Find all process IDs listening on the specified port."""
+    pids = []
+
+    # Try using lsof first (common on Unix-like systems)
+    if shutil.which("lsof"):
+        try:
+            result = subprocess.run(
+                ["lsof", "-t", f"-i:{port}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    try:
+                        pid = int(line.strip())
+                        if pid > 0:
+                            pids.append(pid)
+                    except ValueError:
+                        pass
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+    # Fallback to netstat/ss if lsof is not available
+    if not pids:
+        if shutil.which("ss"):
+            try:
+                result = subprocess.run(
+                    ["ss", "-tlnp"], capture_output=True, text=True, check=False
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if f":{port}" in line:
+                            # Extract PID from lines like "users:(("python",pid=12345,fd=3))"
+                            match = re.search(r"pid=(\d+)", line)
+                            if match:
+                                try:
+                                    pid = int(match.group(1))
+                                    if pid > 0 and pid not in pids:
+                                        pids.append(pid)
+                                except ValueError:
+                                    pass
+            except (subprocess.SubprocessError, OSError):
+                pass
+
+        elif shutil.which("netstat"):
+            try:
+                result = subprocess.run(
+                    ["netstat", "-tlnp"], capture_output=True, text=True, check=False
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if f":{port}" in line:
+                            # Extract PID from lines like "12345/python"
+                            parts = line.split()
+                            for part in parts:
+                                if "/" in part:
+                                    try:
+                                        pid = int(part.split("/")[0])
+                                        if pid > 0 and pid not in pids:
+                                            pids.append(pid)
+                                    except (ValueError, IndexError):
+                                        pass
+            except (subprocess.SubprocessError, OSError):
+                pass
+
+    return pids
+
+
 def _start_local() -> None:
     _ensure_local_requirements()
 
@@ -102,29 +173,41 @@ def _start_local() -> None:
 
 
 def _stop_local() -> None:
+    # First, try to stop using the PID file
     pid = _read_pid(LOCAL_PID_FILE)
-    if not pid:
-        print("AGiXT local is not running.")
-        LOCAL_PID_FILE.unlink(missing_ok=True)
-        return
+    stopped_by_pid = False
 
-    if not _is_process_running(pid):
-        print("AGiXT local process not found. Cleaning up stale PID file.")
-        LOCAL_PID_FILE.unlink(missing_ok=True)
-        return
+    if pid and _is_process_running(pid):
+        os.kill(pid, signal.SIGTERM)
+        start_time = time.time()
+        timeout = 30
+        while _is_process_running(pid) and (time.time() - start_time) < timeout:
+            time.sleep(0.5)
 
-    os.kill(pid, signal.SIGTERM)
-    start_time = time.time()
-    timeout = 30
-    while _is_process_running(pid) and (time.time() - start_time) < timeout:
-        time.sleep(0.5)
+        if _is_process_running(pid):
+            os.kill(pid, signal.SIGKILL)
+            print(f"AGiXT local (PID {pid}) did not stop gracefully; sent SIGKILL.")
+        else:
+            print(f"Stopped AGiXT local (PID {pid}).")
+        stopped_by_pid = True
 
-    if _is_process_running(pid):
-        os.kill(pid, signal.SIGKILL)
-        print("AGiXT local did not stop gracefully; sent SIGKILL.")
-    else:
-        print("Stopped AGiXT local.")
+    # Also check for processes on port 7437
+    pids_on_port = _find_processes_on_port(7437)
+    if pids_on_port:
+        for port_pid in pids_on_port:
+            if port_pid != pid:  # Don't kill the same PID twice
+                try:
+                    os.kill(port_pid, signal.SIGKILL)
+                    print(f"Killed process {port_pid} listening on port 7437.")
+                except ProcessLookupError:
+                    pass  # Process already gone
+                except PermissionError as e:
+                    print(f"Permission denied killing process {port_pid}: {e}")
 
+    elif not stopped_by_pid:
+        print("No AGiXT local processes found running.")
+
+    # Clean up PID file
     LOCAL_PID_FILE.unlink(missing_ok=True)
 
 

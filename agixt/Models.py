@@ -404,6 +404,84 @@ class ChainStepV1(BaseModel):
     prompt: dict
 
 
+# Billing Models
+class PaymentQuoteRequest(BaseModel):
+    seat_count: int = Field(default=1, ge=1)
+    currency: str = Field(description="Target currency for payment")
+
+
+class PaymentQuoteResponse(BaseModel):
+    reference_code: Optional[str] = None
+    seat_count: int
+    currency: str
+    network: Optional[str] = None
+    amount_usd: float
+    amount_currency: float
+    exchange_rate: float
+    wallet_address: Optional[str] = None
+    memo: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+
+class StripePaymentIntentRequest(BaseModel):
+    seat_count: int = Field(default=1, ge=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class StripePaymentIntentResponse(BaseModel):
+    client_secret: str
+    payment_intent_id: str
+    amount_usd: float
+    seat_count: int
+    reference_code: Optional[str] = None
+
+
+class StripeCustomerPortalRequest(BaseModel):
+    seat_count: Optional[int] = Field(default=None, ge=1)
+    return_url: Optional[str] = None
+
+
+class StripeCustomerPortalResponse(BaseModel):
+    url: str
+    customer_id: str
+    seat_count: Optional[int] = None
+
+
+class CryptoInvoiceRequest(BaseModel):
+    seat_count: int = Field(default=1, ge=1)
+    currency: str = Field(description="Crypto currency code")
+    expires_in_minutes: int = Field(default=60, ge=5, le=1440)
+    memo: Optional[str] = None
+
+
+class CryptoInvoiceResponse(PaymentQuoteResponse):
+    reference_code: str
+    wallet_address: str
+    expires_at: datetime
+
+
+class CryptoVerifyRequest(BaseModel):
+    reference_code: str
+    transaction_hash: str
+
+
+class PaymentTransactionResponse(BaseModel):
+    reference_code: str
+    status: str
+    currency: str
+    amount_usd: float
+    amount_currency: float
+    exchange_rate: float
+    seat_count: int
+    transaction_hash: Optional[str] = None
+    wallet_address: Optional[str] = None
+    memo: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    expires_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
 class ResponseMessage(BaseModel):
     message: str
 
@@ -737,24 +815,30 @@ class WebhookOutgoingCreate(BaseModel):
     """Model for creating an outgoing webhook subscription"""
 
     name: str
+    description: Optional[str] = None
     target_url: str
     event_types: List[str]  # List of event types to subscribe to
     company_id: Optional[str] = (
         None  # Company ID - if not provided, uses user's default company
     )
-    headers: Optional[Dict[str, str]] = {}  # Custom headers to include
+    headers: Optional[Dict[str, str]] = Field(
+        default_factory=dict
+    )  # Custom headers to include
     secret: Optional[str] = None  # Secret for webhook signature verification
     retry_count: Optional[int] = 3
     retry_delay: Optional[int] = 60  # Seconds between retries
     timeout: Optional[int] = 30  # Request timeout in seconds
     active: Optional[bool] = True
-    filters: Optional[Dict[str, Any]] = {}  # Event filters (e.g., agent_name, user_id)
+    filters: Optional[Dict[str, Any]] = Field(
+        default_factory=dict
+    )  # Event filters (e.g., agent_name, user_id)
 
 
 class WebhookOutgoingUpdate(BaseModel):
     """Model for updating an outgoing webhook"""
 
     name: Optional[str] = None
+    description: Optional[str] = None
     target_url: Optional[str] = None
     event_types: Optional[List[str]] = None
     company_id: Optional[str] = None
@@ -772,18 +856,19 @@ class WebhookOutgoingResponse(BaseModel):
 
     id: str
     name: str
+    description: Optional[str] = None
     target_url: str
     event_types: List[str]
-    company_id: str
-    headers: Dict[str, str]
+    company_id: Optional[str] = None
+    headers: Dict[str, str] = Field(default_factory=dict)
     secret: Optional[str] = None
     retry_count: int
     retry_delay: int
     timeout: int
     active: bool
-    filters: Dict[str, Any]
-    created_at: datetime
-    updated_at: datetime
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     consecutive_failures: int
     total_events_sent: int
     successful_deliveries: int

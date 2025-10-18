@@ -1051,6 +1051,45 @@ class TokenBlacklist(Base):
     user = relationship("User", backref="blacklisted_tokens")
 
 
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transaction"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    reference_code = Column(String, nullable=False, unique=True)
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=True,
+    )
+    seat_count = Column(Integer, nullable=False, default=1)
+    payment_method = Column(String, nullable=False)  # stripe, crypto
+    currency = Column(String, nullable=False)
+    network = Column(String, nullable=True)
+    amount_usd = Column(Float, nullable=False)
+    amount_currency = Column(Float, nullable=False)
+    exchange_rate = Column(Float, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    transaction_hash = Column(String, nullable=True, unique=True)
+    stripe_payment_intent_id = Column(String, nullable=True, unique=True)
+    wallet_address = Column(String, nullable=True)
+    memo = Column(String, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", backref="payment_transactions")
+    company = relationship("Company", backref="payment_transactions")
+
+
 class Memory(Base):
     __tablename__ = "memory"
     id = Column(
