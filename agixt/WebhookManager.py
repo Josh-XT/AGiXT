@@ -881,6 +881,7 @@ class WebhookManager:
             webhook = WebhookOutgoing(
                 id=webhook_id,
                 name=webhook_data.name,
+                description=webhook_data.description,
                 user_id=user_id,
                 company_id=company_id,
                 target_url=webhook_data.target_url,

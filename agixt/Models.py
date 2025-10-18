@@ -815,24 +815,26 @@ class WebhookOutgoingCreate(BaseModel):
     """Model for creating an outgoing webhook subscription"""
 
     name: str
+    description: Optional[str] = None
     target_url: str
     event_types: List[str]  # List of event types to subscribe to
     company_id: Optional[str] = (
         None  # Company ID - if not provided, uses user's default company
     )
-    headers: Optional[Dict[str, str]] = {}  # Custom headers to include
+    headers: Optional[Dict[str, str]] = Field(default_factory=dict)  # Custom headers to include
     secret: Optional[str] = None  # Secret for webhook signature verification
     retry_count: Optional[int] = 3
     retry_delay: Optional[int] = 60  # Seconds between retries
     timeout: Optional[int] = 30  # Request timeout in seconds
     active: Optional[bool] = True
-    filters: Optional[Dict[str, Any]] = {}  # Event filters (e.g., agent_name, user_id)
+    filters: Optional[Dict[str, Any]] = Field(default_factory=dict)  # Event filters (e.g., agent_name, user_id)
 
 
 class WebhookOutgoingUpdate(BaseModel):
     """Model for updating an outgoing webhook"""
 
     name: Optional[str] = None
+    description: Optional[str] = None
     target_url: Optional[str] = None
     event_types: Optional[List[str]] = None
     company_id: Optional[str] = None
@@ -850,18 +852,19 @@ class WebhookOutgoingResponse(BaseModel):
 
     id: str
     name: str
+    description: Optional[str] = None
     target_url: str
     event_types: List[str]
-    company_id: str
-    headers: Dict[str, str]
+    company_id: Optional[str] = None
+    headers: Dict[str, str] = Field(default_factory=dict)
     secret: Optional[str] = None
     retry_count: int
     retry_delay: int
     timeout: int
     active: bool
-    filters: Dict[str, Any]
-    created_at: datetime
-    updated_at: datetime
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     consecutive_failures: int
     total_events_sent: int
     successful_deliveries: int

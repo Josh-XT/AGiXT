@@ -9,6 +9,7 @@ import logging
 import asyncio
 import warnings
 import os
+import re
 from datetime import datetime
 from typing import Optional, Tuple
 from sqlalchemy import (
@@ -499,7 +500,6 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
                         media_urls.append(
                             {"url": media_url, "content_type": media_content_type}
                         )
-
                         if not requests or not conversation_workspace:
                             logging.debug(
                                 "Skipping media download due to missing requests library or workspace path"
@@ -507,10 +507,26 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
                             continue
 
                         try:
+                            parsed_url = requests.utils.urlparse(media_url)
+                            if parsed_url.scheme != "https":
+                                logging.warning(
+                                    f"Skipping media download with invalid scheme: {media_url}"
+                                )
+                                continue
+                            host = parsed_url.netloc.lower()
+                            if not (
+                                host == "twilio.com" or host.endswith(".twilio.com")
+                            ):
+                                logging.warning(
+                                    f"Skipping media download from untrusted host: {media_url}"
+                                )
+                                continue
                             response = requests.get(
-                                media_url, auth=(self.account_sid, self.auth_token)
+                                media_url,
+                                auth=(self.account_sid, self.auth_token),
+                                timeout=10,
+                                allow_redirects=False,
                             )
-
                             if response.status_code == 200:
                                 ext_map = {
                                     "image/jpeg": ".jpg",
@@ -523,12 +539,19 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
                                 }
                                 ext = ext_map.get(media_content_type, ".bin")
 
+                                sanitized_from_number = re.sub(
+                                    r"[^0-9A-Za-z]", "_", from_number or ""
+                                )[:32]
+                                if not sanitized_from_number:
+                                    sanitized_from_number = "unknown"
                                 filename = (
                                     f"{datetime.utcnow().strftime('%H%M%S')}"
-                                    f"_{from_number.replace('+', '')}_{i}{ext}"
+                                    f"_{sanitized_from_number}_{i}{ext}"
                                 )
+                                filename = os.path.basename(filename)
                                 filepath = os.path.join(
                                     conversation_workspace, filename
+                                )
                                 )
 
                                 with open(filepath, "wb") as f:

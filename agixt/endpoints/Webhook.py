@@ -10,6 +10,7 @@ import logging
 import asyncio
 import json
 from datetime import datetime
+import uuid
 
 from MagicalAuth import MagicalAuth, verify_api_key, convert_time
 from Models import (
@@ -35,6 +36,7 @@ from DB import (
     WebhookOutgoing,
     WebhookLog,
     get_session,
+    DATABASE_TYPE,
 )
 from sqlalchemy import and_, or_, desc
 
@@ -185,9 +187,11 @@ async def create_incoming_webhook(
             ),
         )
 
+    except HTTPException as http_exc:
+        raise http_exc
     except Exception as e:
         logger.error(f"Error creating incoming webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get(
@@ -296,7 +300,10 @@ async def update_incoming_webhook(
         # Update fields
         if webhook_update.name is not None:
             webhook.name = webhook_update.name
-        if webhook_update.description is not None:
+        if (
+            webhook_update.description is not None
+            or "description" in getattr(webhook_update, "model_fields_set", set())
+        ):
             webhook.description = webhook_update.description
         if webhook_update.active is not None:
             webhook.active = webhook_update.active
@@ -449,9 +456,10 @@ async def create_outgoing_webhook(
         return WebhookOutgoingResponse(
             id=str(webhook.id),
             name=webhook.name,
+            description=webhook.description,
             target_url=webhook.target_url,
             event_types=safe_json_loads(webhook.event_types, []),
-            company_id=str(webhook.company_id),
+            company_id=str(webhook.company_id) if webhook.company_id else None,
             headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,
@@ -479,7 +487,7 @@ async def create_outgoing_webhook(
         raise
     except Exception as e:
         logger.error(f"Error creating outgoing webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get(
@@ -522,9 +530,10 @@ async def list_outgoing_webhooks(
                 WebhookOutgoingResponse(
                     id=str(webhook.id),
                     name=webhook.name,
+                    description=webhook.description,
                     target_url=webhook.target_url,
                     event_types=safe_json_loads(webhook.event_types, []),
-                    company_id=str(webhook.company_id),
+                    company_id=str(webhook.company_id) if webhook.company_id else None,
                     headers=safe_json_loads(webhook.headers, {}),
                     secret=webhook.secret,
                     retry_count=webhook.retry_count,
@@ -571,6 +580,7 @@ async def update_outgoing_webhook(
     """
     Update an existing outgoing webhook subscription
     """
+    session = None
     try:
         # Extract user ID from the user data dictionary
         user_id = user_data.get("id")
@@ -579,10 +589,21 @@ async def update_outgoing_webhook(
 
         session = get_session()
 
-        # Find webhook
+        # Determine correct ID type based on database configuration
+        webhook_identifier: Any = webhook_id
+        if DATABASE_TYPE != "sqlite":
+            try:
+                webhook_identifier = uuid.UUID(str(webhook_id))
+            except (ValueError, AttributeError):
+                raise HTTPException(status_code=400, detail="Invalid webhook id")
+
+        # Find webhook scoped to requesting user
         webhook = (
             session.query(WebhookOutgoing)
-            .filter_by(id=webhook_id, user_id=user_id)
+            .filter(
+                WebhookOutgoing.id == webhook_identifier,
+                WebhookOutgoing.user_id == user_id,
+            )
             .first()
         )
 
@@ -601,12 +622,26 @@ async def update_outgoing_webhook(
         # Update fields
         if webhook_update.name is not None:
             webhook.name = webhook_update.name
+        if webhook_update.description is not None:
+            webhook.description = webhook_update.description
         if webhook_update.target_url is not None:
             webhook.target_url = webhook_update.target_url
         if webhook_update.event_types is not None:
             webhook.event_types = json.dumps(webhook_update.event_types)
-        if webhook_update.company_id is not None:
-            webhook.company_id = webhook_update.company_id
+        if (
+            webhook_update.company_id is not None
+            or "company_id" in getattr(webhook_update, "model_fields_set", set())
+        ):
+            company_id_value = webhook_update.company_id
+            if company_id_value in (None, ""):
+                webhook.company_id = None
+            elif DATABASE_TYPE != "sqlite":
+                try:
+                    webhook.company_id = uuid.UUID(str(company_id_value))
+                except (ValueError, AttributeError):
+                    raise HTTPException(status_code=400, detail="Invalid company id")
+            else:
+                webhook.company_id = company_id_value
         if webhook_update.headers is not None:
             webhook.headers = json.dumps(webhook_update.headers)
         if webhook_update.secret is not None:
@@ -626,12 +661,13 @@ async def update_outgoing_webhook(
 
         session.commit()
 
-        result = WebhookOutgoingResponse(
+        return WebhookOutgoingResponse(
             id=str(webhook.id),
             name=webhook.name,
+            description=webhook.description,
             target_url=webhook.target_url,
             event_types=safe_json_loads(webhook.event_types, []),
-            company_id=str(webhook.company_id),
+            company_id=str(webhook.company_id) if webhook.company_id else None,
             headers=safe_json_loads(webhook.headers, {}),
             secret=webhook.secret,
             retry_count=webhook.retry_count,
@@ -655,14 +691,21 @@ async def update_outgoing_webhook(
             failed_deliveries=webhook.failed_deliveries,
         )
 
-        session.close()
-        return result
-
     except HTTPException:
+        if session is not None:
+            session.rollback()
         raise
     except Exception as e:
+        if session is not None:
+            session.rollback()
         logger.error(f"Error updating outgoing webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        if session is not None:
+            try:
+                session.close()
+            except Exception as close_error:
+                logger.error(f"Error closing session: {close_error}")
 
 
 @app.delete(
