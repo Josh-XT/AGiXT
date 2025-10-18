@@ -18,7 +18,14 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
-from DB import WebhookIncoming, WebhookOutgoing, WebhookLog, get_session
+from DB import (
+    WebhookIncoming,
+    WebhookOutgoing,
+    WebhookLog,
+    Agent,
+    AgentSetting,
+    get_session,
+)
 from Models import (
     WebhookEventPayload,
     WebhookIncomingCreate,
@@ -109,6 +116,15 @@ class WebhookEventEmitter:
             )
             agent_id = str(agent_id)
 
+        # If an agent is provided and no explicit company was supplied, try to derive it from the agent settings
+        if agent_id and not company_id:
+            agent_company_id = self._get_agent_company_id(agent_id)
+            if agent_company_id:
+                logger.debug(
+                    f"Resolved company_id {agent_company_id} from agent {agent_id} settings"
+                )
+                company_id = agent_company_id
+
         # Ensure company_id is a string if provided (handle case where UUID object is passed)
         if company_id:
             logger.debug(
@@ -149,6 +165,40 @@ class WebhookEventEmitter:
             asyncio.create_task(self._process_events())
 
         return event_id
+
+    def _get_agent_company_id(self, agent_id: str) -> Optional[str]:
+        """Attempt to resolve the company associated with a given agent."""
+        session: Optional[Session] = None
+        try:
+            agent_id_str = str(agent_id)
+            session = get_session()
+
+            # Look for a cached company_id in the agent settings first
+            setting = (
+                session.query(AgentSetting)
+                .filter(
+                    AgentSetting.agent_id == agent_id_str,
+                    AgentSetting.name == "company_id",
+                )
+                .first()
+            )
+            if setting and setting.value:
+                return str(setting.value)
+
+            # Fall back to the agent's owning user to infer the company
+            agent = session.query(Agent).filter(Agent.id == agent_id_str).first()
+            if agent and agent.user_id:
+                inferred_company = self._get_user_company_id(agent.user_id)
+                if inferred_company:
+                    return inferred_company
+
+            return None
+        except Exception as exc:
+            logger.warning(f"Could not resolve company_id for agent {agent_id}: {exc}")
+            return None
+        finally:
+            if session:
+                session.close()
 
     def _get_user_company_id(self, user_id: str) -> Optional[str]:
         """Get user's default company_id"""
