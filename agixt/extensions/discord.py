@@ -273,9 +273,14 @@ class discord(Extensions):
                         "Failed to refresh Discord token, attempting with existing token."
                     )
             else:
-                self.access_token = (
-                    refreshed_token  # Update with the new or existing token
-                )
+                # Extract the access_token string from the response if it's a dict
+                if isinstance(refreshed_token, dict):
+                    self.access_token = refreshed_token.get(
+                        "access_token",
+                        refreshed_token.get("discord_access_token", self.access_token),
+                    )
+                else:
+                    self.access_token = refreshed_token
             logging.info("Discord token verified/refreshed successfully.")
         except Exception as e:
             logging.error(f"Error verifying/refreshing Discord token: {str(e)}")
