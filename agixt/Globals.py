@@ -73,7 +73,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "EXTENSIONS_HUB_TOKEN": "",
         "PAYMENT_WALLET_ADDRESS": "EmMgRcfTuyoX577SmRhjFVkWRFRvTwFfiY8wf5preXC1",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
-        "MONTHLY_PRICE_PER_USER_USD": "99",
+        "MONTHLY_PRICE_PER_USER_USD": "0",
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"

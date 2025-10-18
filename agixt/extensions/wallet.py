@@ -37,6 +37,8 @@ from Models import (
     PaymentTransactionResponse,
     StripePaymentIntentRequest,
     StripePaymentIntentResponse,
+    StripeCustomerPortalRequest,
+    StripeCustomerPortalResponse,
 )
 from payments import (
     CryptoPaymentService,
@@ -657,6 +659,33 @@ class wallet(Extensions):
                 reference_code=result.get("reference_code"),
             )
 
+        @self.router.post(
+            "/v1/billing/stripe/customer-portal",
+            response_model=StripeCustomerPortalResponse,
+            tags=["Billing"],
+        )
+        async def create_stripe_customer_portal(
+            payload: StripeCustomerPortalRequest,
+            user=Depends(verify_api_key),
+        ):
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+
+            try:
+                result = await self.stripe_service.create_customer_portal_session(
+                    user_id=user_id,
+                    email=self._get_user_email(user),
+                    seat_count=payload.seat_count,
+                    return_url=payload.return_url,
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive guardrail
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+            return StripeCustomerPortalResponse(**result)
+
         @self.router.get(
             "/v1/billing/transactions",
             response_model=List[PaymentTransactionResponse],
@@ -1125,6 +1154,32 @@ class wallet(Extensions):
         except Exception as e:
             logging.error(f"Error preparing swap transaction: {str(e)}")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _get_user_id(user: Any) -> Optional[str]:
+        if user is None:
+            return None
+        if isinstance(user, dict):
+            value = user.get("id") or user.get("user_id")
+        else:
+            value = getattr(user, "id", None)
+        return str(value) if value else None
+
+    @staticmethod
+    def _get_user_email(user: Any) -> Optional[str]:
+        if user is None:
+            return None
+        if isinstance(user, dict):
+            return user.get("email")
+        return getattr(user, "email", None)
+
+    @staticmethod
+    def _is_admin(user: Any) -> bool:
+        if user is None:
+            return False
+        if isinstance(user, dict):
+            return bool(user.get("admin"))
+        return bool(getattr(user, "admin", False))
 
 
 # Configuration for wallet providers

@@ -110,9 +110,21 @@ app = FastAPI(
 )
 
 
+raw_allowed_origins = getenv("ALLOWED_DOMAINS", "*")
+allowed_origins = [
+    origin.strip()
+    for origin in raw_allowed_origins.split(",")
+    if origin.strip() and origin.strip() != "*"
+]
+
+# When '*' is present or no explicit domains are provided, fall back to a permissive regex
+# so the middleware mirrors the requesting Origin instead of replying with '*'.
+use_origin_regex = "*" in raw_allowed_origins or not allowed_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=".*" if use_origin_regex else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

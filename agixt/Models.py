@@ -436,6 +436,17 @@ class StripePaymentIntentResponse(BaseModel):
     reference_code: Optional[str] = None
 
 
+class StripeCustomerPortalRequest(BaseModel):
+    seat_count: Optional[int] = Field(default=None, ge=1)
+    return_url: Optional[str] = None
+
+
+class StripeCustomerPortalResponse(BaseModel):
+    url: str
+    customer_id: str
+    seat_count: Optional[int] = None
+
+
 class CryptoInvoiceRequest(BaseModel):
     seat_count: int = Field(default=1, ge=1)
     currency: str = Field(description="Crypto currency code")

@@ -1657,7 +1657,7 @@ class MagicalAuth:
             session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
         )
         wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-        price_env = getenv("MONTHLY_PRICE_PER_USER_USD", "0")
+        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
         try:
             price_value = float(str(price_env))
         except (TypeError, ValueError):
