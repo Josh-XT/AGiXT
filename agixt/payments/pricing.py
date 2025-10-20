@@ -56,8 +56,6 @@ class PriceService:
             price_value = Decimal(str(getenv("MONTHLY_PRICE_PER_USER_USD", "99")))
         except Exception as exc:  # pragma: no cover - defensive conversion guard
             raise RuntimeError("MONTHLY_PRICE_PER_USER_USD must be numeric") from exc
-        if price_value <= 0:
-            raise RuntimeError("MONTHLY_PRICE_PER_USER_USD must be greater than zero")
         self.base_price_usd = price_value
 
     def supported_currencies(self) -> Dict[str, Dict[str, Any]]:
