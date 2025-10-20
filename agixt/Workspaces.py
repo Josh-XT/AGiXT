@@ -404,7 +404,7 @@ class WorkspaceManager(SecurityValidationMixin):
         if not normalized:
             return ""
 
-        normalized = normalized.replace("\\", "/")
+        # Remove common placeholder patterns similar to essential_abilities.py
         if "/path/to/" in normalized:
             normalized = normalized.replace("/path/to/", "/")
         if normalized.startswith("path/to/"):
@@ -426,10 +426,6 @@ class WorkspaceManager(SecurityValidationMixin):
             return ""
 
         return safe_path
-
-    def normalize_workspace_path(self, path: Optional[Union[str, Path]]) -> str:
-        """Public helper mirroring extension safe path parsing"""
-        return self._normalize_relative_path(path)
 
     def _get_conversation_root_path(self, agent_id: str, conversation_id: str) -> Path:
         """Return the root path for an agent's conversation workspace"""
