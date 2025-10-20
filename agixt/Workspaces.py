@@ -212,27 +212,50 @@ def add_to_workspace_manager(workspace_manager_class):
         """Start watching the workspace directory for changes"""
         if getenv("STORAGE_BACKEND", "local").lower() != "local":
             if not hasattr(self, "observer") or not self.observer.is_alive():
-                self.event_handler = WorkspaceEventHandler(self)
-                self.observer = Observer()
-                self.observer.schedule(
-                    self.event_handler, self.workspace_dir, recursive=True
-                )
-                self.observer.daemon = True  # Make sure it's a daemon thread
-                self.observer.start()
+                try:
+                    self.event_handler = WorkspaceEventHandler(self)
+                    self.observer = Observer()
+                    self.observer.schedule(
+                        self.event_handler, self.workspace_dir, recursive=True
+                    )
+                    self.observer.daemon = True  # Make sure it's a daemon thread
+                    self.observer.start()
+                    logging.info("Workspace file watcher started successfully")
+                except OSError as e:
+                    if e.errno == 24:  # EMFILE - too many open files / inotify limit
+                        logging.warning(
+                            f"Could not start file watcher: inotify limit reached. "
+                            f"File synchronization will be disabled. "
+                            f"To fix this, increase the inotify limits: "
+                            f"sudo sysctl fs.inotify.max_user_instances=512"
+                        )
+                        self.observer = (
+                            None  # Ensure observer is None so we don't try to stop it
+                        )
+                    else:
+                        logging.error(f"Error starting file watcher: {e}")
+                        raise
+                except Exception as e:
+                    logging.error(f"Unexpected error starting file watcher: {e}")
+                    self.observer = None
+        else:
+            logging.info("File watcher not needed for local storage backend")
 
     def stop_file_watcher(self):
         """Stop the file watcher"""
-        if hasattr(self, "observer"):
+        if hasattr(self, "observer") and self.observer is not None:
             try:
                 if self.observer.is_alive():
                     self.observer.stop()
                     self.observer.join(timeout=5)  # Add timeout to prevent hanging
                     if self.observer.is_alive():
                         logging.warning("File watcher didn't stop cleanly")
+                    else:
+                        logging.info("Stopped workspace file watcher")
             except Exception as e:
                 logging.error(f"Error stopping file watcher: {e}")
-            finally:
-                logging.info("Stopped workspace file watcher")
+        else:
+            logging.debug("No file watcher to stop")
 
     # Add the new methods to the class
     workspace_manager_class.start_file_watcher = start_file_watcher
