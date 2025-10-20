@@ -53,10 +53,11 @@ class PriceService:
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
         try:
-            price_value = Decimal(str(getenv("MONTHLY_PRICE_PER_USER_USD", "99")))
+            self.base_price_usd = Decimal(
+                str(getenv("MONTHLY_PRICE_PER_USER_USD", "99"))
+            )
         except Exception as exc:  # pragma: no cover - defensive conversion guard
-            raise RuntimeError("MONTHLY_PRICE_PER_USER_USD must be numeric") from exc
-        self.base_price_usd = price_value
+            self.base_price_usd = 0.00
 
     def supported_currencies(self) -> Dict[str, Dict[str, Any]]:
         return SUPPORTED_CURRENCIES
