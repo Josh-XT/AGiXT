@@ -11,7 +11,7 @@ except ImportError:
     from libcloud.storage.types import Provider, ContainerDoesNotExistError
 from libcloud.storage.providers import get_driver
 from contextlib import contextmanager
-from typing import Optional, Union, TextIO, BinaryIO, Generator, List
+from typing import Optional, Union, TextIO, BinaryIO, Generator, List, Dict, Any
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import threading
@@ -24,6 +24,8 @@ import shutil
 import logging
 from Globals import getenv
 from pathlib import Path
+from datetime import datetime, timezone
+import hashlib
 
 
 class SecurityValidationMixin:
@@ -244,12 +246,13 @@ class WorkspaceManager(SecurityValidationMixin):
         self.workspace_dir = Path(os.getcwd(), "WORKSPACE")
         os.makedirs(self.workspace_dir, exist_ok=True)
         self._validate_storage_backend()
+        self.backend = getenv("STORAGE_BACKEND", "local").lower()
         self.driver = self._initialize_storage()
         self._ensure_container_exists()
 
     def _initialize_storage(self):
         """Initialize the appropriate storage backend based on environment variables"""
-        backend = getenv("STORAGE_BACKEND", "local").lower()
+        backend = self.backend
 
         if backend == "local":
             cls = get_driver(Provider.LOCAL)
@@ -388,6 +391,260 @@ class WorkspaceManager(SecurityValidationMixin):
             )
             return f"{agent_id}/{conversation_id}/{filename}"
         return f"{agent_id}/{filename}"
+
+    def _normalize_relative_path(self, path: Optional[Union[str, Path]]) -> str:
+        """Normalize a user-supplied relative path within a conversation workspace"""
+        if not path:
+            return ""
+
+        if isinstance(path, Path):
+            path = path.as_posix()
+
+        normalized = str(path).strip()
+        if not normalized or normalized in ("/", "."):
+            return ""
+
+        normalized = normalized.replace("\\", "/").lstrip("/")
+        parts = [part for part in normalized.split("/") if part and part != "."]
+
+        for part in parts:
+            if part == "..":
+                raise ValueError("Path traversal detected")
+            self.validate_filename(part)
+
+        return "/".join(parts)
+
+    def _get_conversation_root_path(self, agent_id: str, conversation_id: str) -> Path:
+        """Return the root path for an agent's conversation workspace"""
+        components = [self.validate_identifier(agent_id, "agent_id")]
+        if conversation_id:
+            components.append(
+                self.validate_identifier(conversation_id, "conversation_id")
+            )
+
+        root_path = self.ensure_safe_path(self.workspace_dir, Path(*components))
+        os.makedirs(root_path, exist_ok=True)
+        return root_path
+
+    def _generate_item_id(
+        self, agent_id: str, conversation_id: Optional[str], relative_path: str
+    ) -> str:
+        key = f"{agent_id}:{conversation_id or ''}:{relative_path}"
+        return hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+    def _delete_remote_prefix(
+        self,
+        agent_id: str,
+        conversation_id: str,
+        relative_path: str,
+        is_directory: bool,
+    ) -> None:
+        if self.backend == "local":
+            return
+
+        try:
+            if is_directory:
+                prefix = self._get_object_path(agent_id, conversation_id, relative_path)
+                if not prefix.endswith("/"):
+                    prefix = f"{prefix}/"
+                for obj in self.container.list_objects(prefix=prefix):
+                    try:
+                        obj.delete()
+                    except (
+                        Exception
+                    ) as delete_error:  # pragma: no cover - best effort cleanup
+                        logging.error(
+                            f"Failed to delete remote object {obj.name}: {delete_error}"
+                        )
+            else:
+                object_path = self._get_object_path(
+                    agent_id, conversation_id, relative_path
+                )
+                obj = self.container.get_object(object_path)
+                obj.delete()
+        except Exception as e:
+            logging.error(f"Remote deletion error for {relative_path}: {e}")
+
+    def _upload_local_path(
+        self, agent_id: str, conversation_id: str, relative_path: str, local_path: Path
+    ) -> None:
+        try:
+            object_path = self._get_object_path(
+                agent_id, conversation_id, relative_path
+            )
+            self.container.upload_object(str(local_path), object_path)
+        except Exception as e:
+            logging.error(f"Failed to upload {relative_path} to workspace storage: {e}")
+
+    def _sync_directory_to_remote(
+        self, agent_id: str, conversation_id: str, directory_path: Path
+    ) -> None:
+        if not directory_path.exists():
+            return
+
+        root_path = self._get_conversation_root_path(agent_id, conversation_id)
+
+        for file_path in directory_path.rglob("*"):
+            if file_path.is_file():
+                relative_path = file_path.relative_to(root_path).as_posix()
+                self._upload_local_path(
+                    agent_id, conversation_id, relative_path, file_path
+                )
+
+    def list_workspace_tree(
+        self,
+        agent_id: str,
+        conversation_id: str,
+        path: Optional[str] = None,
+        recursive: bool = True,
+    ) -> Dict[str, Any]:
+        relative_path = self._normalize_relative_path(path)
+        root_path = self._get_conversation_root_path(agent_id, conversation_id)
+
+        # Ensure local cache exists and is safe
+        target_path = (
+            Path(self.ensure_safe_path(root_path, Path(relative_path)))
+            if relative_path
+            else root_path
+        )
+        os.makedirs(target_path, exist_ok=True)
+
+        def serialize_entry(entry: Path) -> Dict[str, Union[str, int, datetime, list]]:
+            stat = entry.stat()
+            rel_path = entry.relative_to(root_path).as_posix()
+            item = {
+                "id": self._generate_item_id(agent_id, conversation_id, rel_path),
+                "name": entry.name,
+                "type": "folder" if entry.is_dir() else "file",
+                "path": f"/{rel_path}",
+                "size": stat.st_size if entry.is_file() else None,
+                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+                "children": [],
+            }
+
+            if entry.is_dir() and recursive:
+                children = [
+                    serialize_entry(child)
+                    for child in sorted(
+                        entry.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+                    )
+                ]
+                item["children"] = children
+
+            return item
+
+        entries = []
+        for entry in sorted(
+            target_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+        ):
+            entries.append(serialize_entry(entry))
+
+        return {"path": f"/{relative_path}" if relative_path else "/", "items": entries}
+
+    def create_folder(
+        self,
+        agent_id: str,
+        conversation_id: str,
+        parent_path: Optional[str],
+        folder_name: str,
+    ) -> str:
+        base_relative = self._normalize_relative_path(parent_path)
+        folder_name = self.validate_filename(folder_name)
+        relative_path = "/".join(filter(None, [base_relative, folder_name]))
+
+        root_path = self._get_conversation_root_path(agent_id, conversation_id)
+        folder_path = root_path.joinpath(relative_path)
+
+        if folder_path.exists():
+            raise FileExistsError("Folder already exists")
+
+        os.makedirs(folder_path, exist_ok=True)
+        if self.backend != "local":
+            self._sync_directory_to_remote(agent_id, conversation_id, folder_path)
+
+        return relative_path
+
+    def delete_item(self, agent_id: str, conversation_id: str, path: str) -> None:
+        relative_path = self._normalize_relative_path(path)
+        if not relative_path:
+            raise ValueError("Cannot delete the root workspace directory")
+
+        root_path = self._get_conversation_root_path(agent_id, conversation_id)
+        target_path = root_path.joinpath(relative_path)
+
+        if not target_path.exists():
+            raise FileNotFoundError("Item not found")
+
+        if target_path.is_dir():
+            shutil.rmtree(target_path)
+            self._delete_remote_prefix(agent_id, conversation_id, relative_path, True)
+        else:
+            target_path.unlink()
+            self._delete_remote_prefix(agent_id, conversation_id, relative_path, False)
+
+    def move_item(
+        self,
+        agent_id: str,
+        conversation_id: str,
+        source_path: str,
+        destination_path: str,
+    ) -> str:
+        source_relative = self._normalize_relative_path(source_path)
+        destination_relative = self._normalize_relative_path(destination_path)
+
+        if not source_relative:
+            raise ValueError("Cannot move the root workspace directory")
+
+        root_path = self._get_conversation_root_path(agent_id, conversation_id)
+        source_fs_path = root_path.joinpath(source_relative)
+        destination_fs_path = root_path.joinpath(destination_relative)
+
+        if not source_fs_path.exists():
+            raise FileNotFoundError("Source path does not exist")
+
+        if destination_fs_path.exists():
+            raise FileExistsError("Destination already exists")
+
+        os.makedirs(destination_fs_path.parent, exist_ok=True)
+        shutil.move(str(source_fs_path), str(destination_fs_path))
+
+        if source_fs_path.is_dir():
+            self._delete_remote_prefix(agent_id, conversation_id, source_relative, True)
+            self._sync_directory_to_remote(
+                agent_id, conversation_id, destination_fs_path
+            )
+        else:
+            self._delete_remote_prefix(
+                agent_id, conversation_id, source_relative, False
+            )
+            self._upload_local_path(
+                agent_id, conversation_id, destination_relative, destination_fs_path
+            )
+
+        return destination_relative
+
+    def save_upload(
+        self,
+        agent_id: str,
+        conversation_id: str,
+        destination_path: Optional[str],
+        filename: str,
+        file_stream: BinaryIO,
+    ) -> str:
+        folder_relative = self._normalize_relative_path(destination_path)
+        safe_filename = self.validate_filename(filename)
+        relative_path = "/".join(filter(None, [folder_relative, safe_filename]))
+
+        with self.workspace_file(
+            agent_id, conversation_id, relative_path, mode="wb"
+        ) as dest:
+            shutil.copyfileobj(file_stream, dest)
+
+        return relative_path
+
+    def count_files(self, agent_id: str, conversation_id: str) -> int:
+        root_path = self._get_conversation_root_path(agent_id, conversation_id)
+        return sum(1 for path in root_path.rglob("*") if path.is_file())
 
     @contextmanager
     def workspace_file(
@@ -552,8 +809,7 @@ class WorkspaceManager(SecurityValidationMixin):
 
                 # Fallback: If we're using local storage and the directory exists,
                 # try to use it directly despite the libcloud error
-                backend = getenv("STORAGE_BACKEND", "local").lower()
-                if backend == "local":
+                if self.backend == "local":
                     container_path = Path(self.workspace_dir, container_name)
                     if container_path.exists() and container_path.is_dir():
                         logging.warning(

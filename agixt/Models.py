@@ -1,6 +1,6 @@
 from pydantic import BaseModel, model_validator
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Literal
 from pydantic.fields import Field
 from Globals import getenv
 
@@ -170,6 +170,35 @@ class UpdateMessageModel(BaseModel):
 
 class DeleteMessageModel(BaseModel):
     conversation_name: str
+
+
+class WorkspaceItemModel(BaseModel):
+    id: str
+    name: str
+    type: Literal["file", "folder"]
+    path: str
+    size: Optional[int] = None
+    modified: Optional[datetime] = None
+    children: List["WorkspaceItemModel"] = Field(default_factory=list)
+
+
+class WorkspaceListResponse(BaseModel):
+    path: str = "/"
+    items: List[WorkspaceItemModel] = Field(default_factory=list)
+
+
+class WorkspaceFolderCreateModel(BaseModel):
+    parent_path: Optional[str] = "/"
+    folder_name: str
+
+
+class WorkspaceDeleteModel(BaseModel):
+    path: str
+
+
+class WorkspaceMoveModel(BaseModel):
+    source_path: str
+    destination_path: str
 
 
 # Agent Configuration Models
@@ -938,3 +967,9 @@ class WebhookEventTypeList(BaseModel):
     """Available webhook event types"""
 
     event_types: List[Dict[str, str]]  # List of {type, description}
+
+
+try:  # Ensure forward references for workspace item tree
+    WorkspaceItemModel.model_rebuild()
+except AttributeError:  # pragma: no cover - Pydantic v1 fallback
+    WorkspaceItemModel.update_forward_refs()
