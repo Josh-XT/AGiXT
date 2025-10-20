@@ -26,6 +26,12 @@ from Globals import getenv
 from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
+import fcntl
+
+
+# Global flag to track if file watcher is already started
+_file_watcher_lock_file = None
+_file_watcher_started = False
 
 
 class SecurityValidationMixin:
@@ -210,39 +216,93 @@ class WorkspaceEventHandler(FileSystemEventHandler):
 def add_to_workspace_manager(workspace_manager_class):
     def start_file_watcher(self):
         """Start watching the workspace directory for changes"""
-        if getenv("STORAGE_BACKEND", "local").lower() != "local":
-            if not hasattr(self, "observer") or not self.observer.is_alive():
-                try:
-                    self.event_handler = WorkspaceEventHandler(self)
-                    self.observer = Observer()
-                    self.observer.schedule(
-                        self.event_handler, self.workspace_dir, recursive=True
+        global _file_watcher_lock_file, _file_watcher_started
+
+        if getenv("STORAGE_BACKEND", "local").lower() == "local":
+            logging.debug("File watcher not needed for local storage backend")
+            return
+
+        # Try to acquire an exclusive lock to ensure only one worker starts the watcher
+        lock_file_path = os.path.join(self.workspace_dir, ".file_watcher.lock")
+        try:
+            _file_watcher_lock_file = open(lock_file_path, "w")
+            fcntl.flock(_file_watcher_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # We got the lock, so we should start the watcher
+            logging.info("Acquired file watcher lock, starting watcher...")
+        except (IOError, OSError) as e:
+            # Another worker already has the lock and is running the watcher
+            logging.info("File watcher already started by another worker")
+            return
+
+        if not hasattr(self, "observer") or not self.observer.is_alive():
+            try:
+                self.event_handler = WorkspaceEventHandler(self)
+                self.observer = Observer()
+                self.observer.schedule(
+                    self.event_handler, self.workspace_dir, recursive=True
+                )
+                self.observer.daemon = True  # Make sure it's a daemon thread
+                self.observer.start()
+                _file_watcher_started = True
+                logging.info("Workspace file watcher started successfully with inotify")
+            except OSError as e:
+                if e.errno == 24:  # EMFILE - too many open files / inotify limit
+                    logging.warning(
+                        "inotify instance limit reached, falling back to polling observer. "
+                        "This is less efficient but will work. "
+                        "To use inotify, increase the limit: sudo sysctl fs.inotify.max_user_instances=512"
                     )
-                    self.observer.daemon = True  # Make sure it's a daemon thread
-                    self.observer.start()
-                    logging.info("Workspace file watcher started successfully")
-                except OSError as e:
-                    if e.errno == 24:  # EMFILE - too many open files / inotify limit
-                        logging.warning(
-                            f"Could not start file watcher: inotify limit reached. "
-                            f"File synchronization will be disabled. "
-                            f"To fix this, increase the inotify limits: "
-                            f"sudo sysctl fs.inotify.max_user_instances=512"
+                    # Fall back to PollingObserver which doesn't use inotify
+                    try:
+                        from watchdog.observers.polling import PollingObserver
+
+                        self.observer = PollingObserver()
+                        self.observer.schedule(
+                            self.event_handler, self.workspace_dir, recursive=True
                         )
-                        self.observer = (
-                            None  # Ensure observer is None so we don't try to stop it
+                        self.observer.daemon = True
+                        self.observer.start()
+                        _file_watcher_started = True
+                        logging.info(
+                            "Workspace file watcher started successfully with polling (fallback)"
                         )
-                    else:
-                        logging.error(f"Error starting file watcher: {e}")
-                        raise
-                except Exception as e:
-                    logging.error(f"Unexpected error starting file watcher: {e}")
-                    self.observer = None
-        else:
-            logging.info("File watcher not needed for local storage backend")
+                    except Exception as poll_error:
+                        logging.error(f"Failed to start polling observer: {poll_error}")
+                        self.observer = None
+                        # Release the lock since we failed
+                        if _file_watcher_lock_file:
+                            try:
+                                fcntl.flock(
+                                    _file_watcher_lock_file.fileno(), fcntl.LOCK_UN
+                                )
+                                _file_watcher_lock_file.close()
+                            except:
+                                pass
+                else:
+                    logging.error(f"Error starting file watcher: {e}")
+                    # Release the lock since we failed
+                    if _file_watcher_lock_file:
+                        try:
+                            fcntl.flock(_file_watcher_lock_file.fileno(), fcntl.LOCK_UN)
+                            _file_watcher_lock_file.close()
+                        except:
+                            pass
+                    raise
+            except Exception as e:
+                logging.error(f"Unexpected error starting file watcher: {e}")
+                self.observer = None
+                # Release the lock since we failed
+                if _file_watcher_lock_file:
+                    try:
+                        fcntl.flock(_file_watcher_lock_file.fileno(), fcntl.LOCK_UN)
+                        _file_watcher_lock_file.close()
+                    except:
+                        pass
 
     def stop_file_watcher(self):
         """Stop the file watcher"""
+        global _file_watcher_lock_file, _file_watcher_started
+
         if hasattr(self, "observer") and self.observer is not None:
             try:
                 if self.observer.is_alive():
@@ -256,6 +316,16 @@ def add_to_workspace_manager(workspace_manager_class):
                 logging.error(f"Error stopping file watcher: {e}")
         else:
             logging.debug("No file watcher to stop")
+
+        # Release the lock file if we had it
+        if _file_watcher_lock_file is not None:
+            try:
+                fcntl.flock(_file_watcher_lock_file.fileno(), fcntl.LOCK_UN)
+                _file_watcher_lock_file.close()
+                _file_watcher_lock_file = None
+                _file_watcher_started = False
+            except Exception as e:
+                logging.debug(f"Error releasing file watcher lock: {e}")
 
     # Add the new methods to the class
     workspace_manager_class.start_file_watcher = start_file_watcher
