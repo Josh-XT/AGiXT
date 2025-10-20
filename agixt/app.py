@@ -5,7 +5,7 @@ import signal
 import asyncio
 import mimetypes
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from middleware import CriticalEndpointProtectionMiddleware
@@ -185,9 +185,53 @@ register_extension_routers()
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
 @app.get("/outputs/{agent_id}/{filename:path}", tags=["Workspace"])
 async def serve_file(
-    agent_id: str, filename: str, conversation_id: Optional[str] = None
+    agent_id: str,
+    filename: str,
+    conversation_id: Optional[str] = None,
+    authorization: str = Header(None),
 ):
     try:
+        # Authenticate the request
+        from ApiClient import verify_api_key
+        from MagicalAuth import MagicalAuth
+        from DB import get_session, Conversation as ConversationModel
+
+        try:
+            user_email = verify_api_key(authorization)
+        except HTTPException as e:
+            logging.error(f"Authentication failed for workspace file access: {e}")
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Verify user has access to this conversation
+        if conversation_id:
+            auth = MagicalAuth(token=authorization)
+            session = get_session()
+            try:
+                conversation = (
+                    session.query(ConversationModel)
+                    .filter_by(id=conversation_id)
+                    .first()
+                )
+                if not conversation:
+                    logging.warning(
+                        f"User {user_email} attempted to access non-existent conversation {conversation_id}"
+                    )
+                    raise HTTPException(
+                        status_code=404, detail="Conversation not found"
+                    )
+
+                # Verify the conversation belongs to the authenticated user
+                if str(conversation.user_id) != str(auth.user_id):
+                    logging.warning(
+                        f"User {user_email} (ID: {auth.user_id}) attempted to access conversation {conversation_id} owned by user {conversation.user_id}"
+                    )
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Access denied: You do not have permission to access this conversation's files",
+                    )
+            finally:
+                session.close()
+
         # Validate input parameters
         try:
             workspace_manager.validate_identifier(agent_id, "agent_id")

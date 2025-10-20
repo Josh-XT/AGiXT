@@ -432,7 +432,7 @@ async def get_conversation_workspace(
 ) -> WorkspaceListResponse:
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
     try:
-        normalized_path = workspace_manager.normalize_workspace_path(path)
+        normalized_path = workspace_manager._normalize_relative_path(path)
         workspace_data = workspace_manager.list_workspace_tree(
             context["agent_id"],
             context["conversation_id"],
@@ -465,7 +465,7 @@ async def upload_conversation_workspace_files(
 
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
     try:
-        normalized_destination = workspace_manager.normalize_workspace_path(
+        normalized_destination = workspace_manager._normalize_relative_path(
             destination_path
         )
     except ValueError as exc:
@@ -523,7 +523,7 @@ async def create_conversation_workspace_folder(
     parent_path = payload.parent_path if payload.parent_path not in (None, "") else None
 
     try:
-        normalized_parent = workspace_manager.normalize_workspace_path(parent_path)
+        normalized_parent = workspace_manager._normalize_relative_path(parent_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -573,7 +573,7 @@ async def delete_conversation_workspace_item(
 
     normalized_path = None
     try:
-        normalized_path = workspace_manager.normalize_workspace_path(payload.path)
+        normalized_path = workspace_manager._normalize_relative_path(payload.path)
         workspace_manager.delete_item(
             context["agent_id"], context["conversation_id"], normalized_path
         )
@@ -617,7 +617,7 @@ async def download_conversation_workspace_file(
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
 
     try:
-        relative_path = workspace_manager.normalize_workspace_path(path)
+        relative_path = workspace_manager._normalize_relative_path(path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -662,10 +662,10 @@ async def move_conversation_workspace_item(
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
 
     try:
-        source_relative = workspace_manager.normalize_workspace_path(
+        source_relative = workspace_manager._normalize_relative_path(
             payload.source_path
         )
-        destination_relative_input = workspace_manager.normalize_workspace_path(
+        destination_relative_input = workspace_manager._normalize_relative_path(
             payload.destination_path
         )
         destination_relative = workspace_manager.move_item(
