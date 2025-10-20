@@ -58,6 +58,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "AZURE_API_KEY": "",
         "GOOGLE_API_KEY": "",
         "OPENAI_API_KEY": "",
+        "OPENAI_BASE_URI": "https://api.openai.com/v1",
         "ANTHROPIC_API_KEY": "",
         "XAI_API_KEY": "",
         "EZLOCALAI_API_KEY": "",

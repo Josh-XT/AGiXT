@@ -30,7 +30,7 @@ class OpenaiProvider:
         OPENAI_API_URI: str = "https://api.openai.com/v1",
         OPENAI_MAX_TOKENS: int = 128000,
         OPENAI_TEMPERATURE: float = 0.7,
-        OPENAI_TOP_P: float = 0.7,
+        OPENAI_TOP_P: float = 0.9,
         OPENAI_WAIT_BETWEEN_REQUESTS: int = 1,
         OPENAI_WAIT_AFTER_FAILURE: int = 3,
         OPENAI_VOICE: str = "alloy",
@@ -42,7 +42,11 @@ class OpenaiProvider:
         self.AI_TEMPERATURE = OPENAI_TEMPERATURE if OPENAI_TEMPERATURE else 0.7
         self.AI_TOP_P = OPENAI_TOP_P if OPENAI_TOP_P else 0.7
         self.MAX_TOKENS = OPENAI_MAX_TOKENS if OPENAI_MAX_TOKENS else 128000
-        self.API_URI = OPENAI_API_URI if OPENAI_API_URI else "https://api.openai.com/v1"
+        self.API_URI = (
+            OPENAI_API_URI
+            if OPENAI_API_URI
+            else getenv("OPENAI_BASE_URI", "https://api.openai.com/v1")
+        )
         self.WAIT_AFTER_FAILURE = (
             OPENAI_WAIT_AFTER_FAILURE if OPENAI_WAIT_AFTER_FAILURE else 3
         )
