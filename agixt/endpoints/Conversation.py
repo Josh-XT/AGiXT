@@ -1,5 +1,16 @@
-from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect
-from typing import Dict
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    WebSocket,
+    WebSocketDisconnect,
+    UploadFile,
+    File,
+    Form,
+    HTTPException,
+)
+from fastapi.responses import StreamingResponse
+from typing import Dict, List, Optional
 from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
     Conversations,
@@ -24,6 +35,10 @@ from Models import (
     NewConversationHistoryResponse,
     NotificationResponse,
     MessageIdResponse,
+    WorkspaceListResponse,
+    WorkspaceFolderCreateModel,
+    WorkspaceDeleteModel,
+    WorkspaceMoveModel,
 )
 import json
 import uuid
@@ -32,8 +47,11 @@ import logging
 from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
 from WorkerRegistry import worker_registry
+from Workspaces import WorkspaceManager
+import mimetypes
 
 app = APIRouter()
+workspace_manager = WorkspaceManager()
 
 
 def make_json_serializable(obj):
@@ -46,6 +64,49 @@ def make_json_serializable(obj):
         return [make_json_serializable(item) for item in obj]
     else:
         return obj
+
+
+def _resolve_conversation_workspace(
+    conversation_identifier: str,
+    user: str,
+    authorization: Optional[str],
+):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required")
+
+    auth = MagicalAuth(token=authorization)
+
+    try:
+        conversation_uuid = uuid.UUID(conversation_identifier)
+        conversation_id = str(conversation_uuid)
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+        if conversation_name is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    except ValueError:
+        conversation_name = conversation_identifier
+        conversation_id = get_conversation_id_by_name(
+            conversation_name=conversation_name, user_id=auth.user_id
+        )
+        if conversation_id is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+    conversation = Conversations(conversation_name=conversation_name, user=user)
+    agent_id = conversation.get_agent_id(auth.user_id)
+    if not agent_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to resolve agent for conversation workspace",
+        )
+
+    return {
+        "conversation_id": conversation_id,
+        "conversation_name": conversation_name,
+        "agent_id": agent_id,
+        "auth": auth,
+        "conversation": conversation,
+    }
 
 
 @app.get(
@@ -352,6 +413,291 @@ async def log_interaction(
         role=log_interaction.role,
     )
     return ResponseMessage(message=str(interaction_id))
+
+
+@app.get(
+    "/api/conversation/{conversation_id}/workspace",
+    response_model=WorkspaceListResponse,
+    summary="List Conversation Workspace Items",
+    description="Returns the folder tree for a conversation's workspace, optionally scoped to a sub-path.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversation_workspace(
+    conversation_id: str,
+    path: Optional[str] = None,
+    recursive: bool = True,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> WorkspaceListResponse:
+    context = _resolve_conversation_workspace(conversation_id, user, authorization)
+    try:
+        normalized_path = workspace_manager.normalize_workspace_path(path)
+        workspace_data = workspace_manager.list_workspace_tree(
+            context["agent_id"],
+            context["conversation_id"],
+            path=normalized_path if normalized_path else None,
+            recursive=recursive,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return WorkspaceListResponse(**workspace_data)
+
+
+@app.post(
+    "/api/conversation/{conversation_id}/workspace/upload",
+    response_model=WorkspaceListResponse,
+    summary="Upload Files to Conversation Workspace",
+    description="Uploads one or more files into the conversation workspace at the specified path.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def upload_conversation_workspace_files(
+    conversation_id: str,
+    files: List[UploadFile] = File(...),
+    destination_path: Optional[str] = Form(None),
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> WorkspaceListResponse:
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided for upload")
+
+    context = _resolve_conversation_workspace(conversation_id, user, authorization)
+    try:
+        normalized_destination = workspace_manager.normalize_workspace_path(
+            destination_path
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    destination_relative = normalized_destination or None
+
+    for upload in files:
+        if not upload.filename:
+            continue
+        upload.file.seek(0)
+        try:
+            workspace_manager.save_upload(
+                context["agent_id"],
+                context["conversation_id"],
+                destination_relative,
+                upload.filename,
+                upload.file,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            await upload.close()
+
+    total_files = workspace_manager.count_files(
+        context["agent_id"], context["conversation_id"]
+    )
+    context["conversation"].update_attachment_count(total_files)
+
+    listing_path = destination_relative if destination_relative else None
+    workspace_data = workspace_manager.list_workspace_tree(
+        context["agent_id"],
+        context["conversation_id"],
+        path=listing_path,
+        recursive=True,
+    )
+    return WorkspaceListResponse(**workspace_data)
+
+
+@app.post(
+    "/api/conversation/{conversation_id}/workspace/folder",
+    response_model=WorkspaceListResponse,
+    summary="Create Workspace Folder",
+    description="Creates a new folder within the conversation workspace.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def create_conversation_workspace_folder(
+    conversation_id: str,
+    payload: WorkspaceFolderCreateModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> WorkspaceListResponse:
+    context = _resolve_conversation_workspace(conversation_id, user, authorization)
+    parent_path = payload.parent_path if payload.parent_path not in (None, "") else None
+
+    try:
+        normalized_parent = workspace_manager.normalize_workspace_path(parent_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    parent_relative = normalized_parent or None
+
+    try:
+        workspace_manager.create_folder(
+            context["agent_id"],
+            context["conversation_id"],
+            parent_relative,
+            payload.folder_name,
+        )
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="Folder already exists") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    total_files = workspace_manager.count_files(
+        context["agent_id"], context["conversation_id"]
+    )
+    context["conversation"].update_attachment_count(total_files)
+
+    workspace_data = workspace_manager.list_workspace_tree(
+        context["agent_id"],
+        context["conversation_id"],
+        path=parent_relative,
+        recursive=True,
+    )
+    return WorkspaceListResponse(**workspace_data)
+
+
+@app.delete(
+    "/api/conversation/{conversation_id}/workspace/item",
+    response_model=WorkspaceListResponse,
+    summary="Delete Workspace Item",
+    description="Deletes a file or folder from the conversation workspace.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_conversation_workspace_item(
+    conversation_id: str,
+    payload: WorkspaceDeleteModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> WorkspaceListResponse:
+    context = _resolve_conversation_workspace(conversation_id, user, authorization)
+
+    normalized_path = None
+    try:
+        normalized_path = workspace_manager.normalize_workspace_path(payload.path)
+        workspace_manager.delete_item(
+            context["agent_id"], context["conversation_id"], normalized_path
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Workspace item not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    total_files = workspace_manager.count_files(
+        context["agent_id"], context["conversation_id"]
+    )
+    context["conversation"].update_attachment_count(total_files)
+
+    path_parts = (
+        [part for part in normalized_path.split("/") if part] if normalized_path else []
+    )
+    parent_path = "/".join(path_parts[:-1]) if len(path_parts) > 1 else None
+
+    workspace_data = workspace_manager.list_workspace_tree(
+        context["agent_id"],
+        context["conversation_id"],
+        path=parent_path,
+        recursive=True,
+    )
+    return WorkspaceListResponse(**workspace_data)
+
+
+@app.get(
+    "/api/conversation/{conversation_id}/workspace/download",
+    summary="Download Workspace File",
+    description="Streams a workspace file for download.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def download_conversation_workspace_file(
+    conversation_id: str,
+    path: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    context = _resolve_conversation_workspace(conversation_id, user, authorization)
+
+    try:
+        relative_path = workspace_manager.normalize_workspace_path(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not relative_path:
+        raise HTTPException(status_code=400, detail="A valid file path is required")
+
+    filename = relative_path.split("/")[-1]
+    content_type, _ = mimetypes.guess_type(filename)
+
+    try:
+        stream = workspace_manager.stream_file(
+            context["agent_id"], context["conversation_id"], relative_path
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+    }
+
+    return StreamingResponse(
+        stream,
+        media_type=content_type or "application/octet-stream",
+        headers=headers,
+    )
+
+
+@app.put(
+    "/api/conversation/{conversation_id}/workspace/item",
+    response_model=WorkspaceListResponse,
+    summary="Move or Rename Workspace Item",
+    description="Moves or renames a file or folder within the conversation workspace.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def move_conversation_workspace_item(
+    conversation_id: str,
+    payload: WorkspaceMoveModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> WorkspaceListResponse:
+    context = _resolve_conversation_workspace(conversation_id, user, authorization)
+
+    try:
+        source_relative = workspace_manager.normalize_workspace_path(
+            payload.source_path
+        )
+        destination_relative_input = workspace_manager.normalize_workspace_path(
+            payload.destination_path
+        )
+        destination_relative = workspace_manager.move_item(
+            context["agent_id"],
+            context["conversation_id"],
+            source_relative,
+            destination_relative_input,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Source item not found") from exc
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409, detail="Destination already exists"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    total_files = workspace_manager.count_files(
+        context["agent_id"], context["conversation_id"]
+    )
+    context["conversation"].update_attachment_count(total_files)
+
+    path_parts = [part for part in destination_relative.strip("/").split("/") if part]
+    parent_path = "/".join(path_parts[:-1]) if len(path_parts) > 1 else None
+
+    workspace_data = workspace_manager.list_workspace_tree(
+        context["agent_id"],
+        context["conversation_id"],
+        path=parent_path,
+        recursive=True,
+    )
+    return WorkspaceListResponse(**workspace_data)
 
 
 # Ask AI to rename the conversation
