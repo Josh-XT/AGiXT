@@ -4,6 +4,7 @@ import time
 import datetime
 import requests
 import difflib
+import subprocess
 from pydantic import BaseModel
 from typing import List, Literal, Union
 from fastapi import HTTPException
@@ -3417,6 +3418,132 @@ Rewrite the modifications to fix the issue."""
                 )
                 return f"Modifications applied successfully:\n{combined_results}\n\n{commit_result}"
 
+    async def check_for_errors(
+        self, repo_url: str, branch: str, repo_dir: str = None
+    ) -> dict:
+        """
+        Check for syntax errors, linter warnings, and test failures in a repository branch.
+
+        Args:
+            repo_url (str): The URL of the GitHub repository
+            branch (str): The branch to check
+            repo_dir (str): Optional local directory path. If not provided, will clone to temp dir.
+
+        Returns:
+            dict: Dictionary with error information
+        """
+        errors = {
+            "has_errors": False,
+            "error_details": "",
+            "syntax_errors": [],
+            "linter_warnings": [],
+            "test_failures": [],
+        }
+
+        # Clone repo if not provided
+        if not repo_dir:
+            repo_name = repo_url.split("/")[-1]
+            repo_dir = os.path.join(self.WORKING_DIRECTORY, repo_name)
+
+            if not os.path.exists(repo_dir):
+                clone_result = await self.clone_repo(repo_url)
+                if "Error:" in clone_result:
+                    return errors
+
+        # Checkout the branch
+        try:
+            repo = git.Repo(repo_dir)
+            repo.git.checkout(branch)
+        except Exception as e:
+            logging.warning(f"Could not checkout branch {branch}: {str(e)}")
+            return errors
+
+        # 1. Check for Python syntax errors
+        for root, dirs, files in os.walk(repo_dir):
+            # Skip hidden directories and common non-source directories
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".")
+                and d not in ["node_modules", "venv", "__pycache__"]
+            ]
+
+            for file in files:
+                if file.endswith(".py"):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            compile(f.read(), filepath, "exec")
+                    except SyntaxError as e:
+                        errors["syntax_errors"].append(
+                            {
+                                "file": filepath.replace(repo_dir, ""),
+                                "line": e.lineno,
+                                "message": str(e),
+                            }
+                        )
+
+        # 2. Run Python linter if available (flake8)
+        try:
+            result = subprocess.run(
+                [
+                    "flake8",
+                    "--max-line-length=120",
+                    "--extend-ignore=E203,W503",
+                    repo_dir,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0 and result.stdout:
+                errors["linter_warnings"].append(result.stdout)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass  # Linter not available or timed out
+
+        # 3. Check for JavaScript/TypeScript syntax errors if tsconfig/package.json exists
+        package_json = os.path.join(repo_dir, "package.json")
+        if os.path.exists(package_json):
+            try:
+                # Try running a build or type check
+                result = subprocess.run(
+                    ["npm", "run", "build", "--if-present"],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode != 0:
+                    errors["linter_warnings"].append(f"Build errors:\n{result.stderr}")
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+        # Aggregate results
+        if errors["syntax_errors"] or errors["linter_warnings"]:
+            errors["has_errors"] = True
+            errors["error_details"] = self._format_error_details(errors)
+
+        return errors
+
+    def _format_error_details(self, errors: dict) -> str:
+        """Format errors into readable text for the AI"""
+        formatted = []
+
+        if errors["syntax_errors"]:
+            formatted.append("## Syntax Errors:")
+            for err in errors["syntax_errors"]:
+                formatted.append(f"- {err['file']}:{err['line']} - {err['message']}")
+
+        if errors["linter_warnings"]:
+            formatted.append("\n## Linter Warnings:")
+            for warning in errors["linter_warnings"]:
+                # Truncate very long warnings
+                if len(warning) > 1000:
+                    warning = warning[:1000] + "\n... (truncated)"
+                formatted.append(warning)
+
+        return "\n".join(formatted)
+
     async def get_assigned_issues(self, github_username: str = "None") -> str:
         """
         Get all open issues assigned to a specific GitHub user.
@@ -3449,3 +3576,335 @@ Rewrite the modifications to fix the issue."""
             return issue_string
         else:
             return f"Failed to fetch issues: {response.status_code} {response.text}"
+
+    async def fix_github_issue(
+        self,
+        repo_org: str,
+        repo_name: str,
+        issue_number: str,
+        additional_context: str = "",
+    ) -> str:
+        """
+        Fix a given GitHub issue by applying minimal code modifications to the repository.
+        If a PR is already open for this issue's branch, it will not create a new one.
+        Instead, it will apply changes to the existing branch and comment on the PR and issue.
+        If no PR is open, it creates a new PR and comments on the issue.
+        If there was an error previously or revisions need made on the same PR or issue, the assistant can use this same function to retry fixing the issue while providing additional context in additional_context.
+
+        Args:
+        repo_org (str): The organization or username for the GitHub repository
+        repo_name (str): The repository name
+        issue_number (str): The issue number to fix
+        additional_context (str): Additional context to provide to the model, if a user mentions anything that could be useful to pass to the coding model, mention it here.
+
+        Returns:
+        str: A message indicating the result of the operation
+        """
+        repo_url = f"https://github.com/{repo_org}/{repo_name}"
+        repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
+        base_branch = repo.default_branch
+        issue_branch = f"issue-{issue_number}"
+        # Ensure the issue branch exists
+        try:
+            repo.get_branch(issue_branch)
+        except Exception:
+            # Branch doesn't exist, so create it from base_branch
+            source_branch = repo.get_branch(base_branch)
+            repo.create_git_ref(f"refs/heads/{issue_branch}", source_branch.commit.sha)
+        repo_content = await self.get_repo_code_contents(
+            repo_url=f"{repo_url}/tree/{issue_branch}"
+        )
+        # Ensure issue_number is numeric
+        issue_number = "".join(filter(str.isdigit, issue_number))
+        issue = repo.get_issue(int(issue_number))
+        issue_title = issue.title
+        issue_body = issue.body
+        # Get issue comments into a list with timestamps and users names
+        comments = issue.get_comments()
+        recent_comments = ""
+        for comment in comments:
+            recent_comments += (
+                f"**{comment.user.login}** at {comment.updated_at}: {comment.body}\n\n"
+            )
+        # Prompt the model for modifications with file paths
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{self.activity_id}] Analyzing code to fix [#{issue_number}]({repo_url}/issues/{issue_number})",
+            conversation_name=self.conversation_name,
+        )
+        prompt = f"""### Issue #{issue_number}: {issue_title}
+{issue_body}
+
+## Recent comments on the issue
+
+{recent_comments}
+
+## User
+The repository code and additional context should be referenced for this task. Identify the minimal code changes needed to fix this issue.
+You must ONLY return the necessary modifications in the following XML format inside of the <answer> block:
+
+<modification>
+<file>path/to/file.py</file>
+<operation>replace|insert|delete</operation>
+<target>original_code_block_or_line_number</target>
+<content>new_code_block_if_needed</content>
+</modification>
+
+If multiple modifications are needed, repeat the <modification> block.
+
+### Important:
+- Each <modification> block must include a <file> tag specifying which file to modify.
+- For <target>, you must use one of these formats:
+  1. For inserting after a function/method:
+     - Use the complete function definition line, e.g., "def verify_email_address(self, code: str = None):"
+     - The new content will be inserted after the entire function
+  2. For replacing code:
+     - Include the exact code block to replace, including correct indentation
+     - The first and last lines are especially important for matching
+  3. For specific line numbers:
+     - Use the line number as a string, e.g., "42"
+- Do not use the repository name or WORKSPACE path in file paths
+- The file path should be relative to the repository root
+- Content must match the indentation style of the target location
+- For replace and insert operations, <content> is required
+- For delete operations, <content> is not required
+- Put your <modification> blocks inside of the <answer> block!
+- Ensure indentation is correct in the <content> tag, it is critical for Python code and other languages with strict indentation rules.
+- If working with NextJS, remember to include "use client" as the first line of all files declaring components that use client side hooks such as useEffect and useState.
+- Do not start target or content with a new line, they're exact replacements.
+- Do not use &lt; and &gt; as replacements for < and > in the XML, it is important to use the actual characters as they're directly replaced in the code.
+- Modifications must be in the <answer> block to be parsed! They cannot be outside of it.
+
+Example modifications:
+1. Insert after a function:
+<modification>
+<file>auth.py</file>
+<operation>insert</operation>
+<target>def verify_email_address(self, code: str = None):</target>
+<content>    def verify_mfa(self, token: str):
+        # Verify MFA token
+        pass</content>
+</modification>
+
+2. Replace a code block:
+<modification>
+<file>auth.py</file>
+<operation>replace</operation>
+<target>    def verify_token(self):
+    return True</target>
+<content>    def verify_token(self):
+    return self.validate_jwt()</content>
+</modification>"""
+        modifications_xml = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": prompt,
+                "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                "log_user_input": False,
+                "disable_commands": True,
+                "log_output": False,
+                "browse_links": False,
+                "websearch": False,
+                "analyze_user_input": False,
+                "tts": False,
+                "conversation_name": self.conversation_name,
+                "use_smartest": True,
+            },
+        )
+        modifications_xml = modifications_xml.replace("&lt;", "<").replace("&gt;", ">")
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications to fix [#{issue_number}]({repo_url}/issues/{issue_number}).\n{modifications_xml}",
+            conversation_name=self.conversation_name,
+        )
+        # Iterative error handling with up to 3 attempts
+        max_iterations = 3
+        iteration = 0
+        last_error_context = ""
+        modifications = None
+
+        while iteration < max_iterations:
+            # Apply modifications
+            modifications = await self.handle_modifications(
+                prompt=prompt,
+                modifications_xml=modifications_xml,
+                repo_url=repo_url,
+                repo_content=repo_content,
+                issue_number=issue_number,
+                repo_name=repo_name,
+                issue_branch=issue_branch,
+                additional_context=additional_context + last_error_context,
+            )
+
+            while modifications == "Unable to process request.":
+                time.sleep(1)
+                modifications = await self.handle_modifications(
+                    prompt=prompt,
+                    modifications_xml=modifications_xml,
+                    repo_url=repo_url,
+                    repo_content=repo_content,
+                    issue_number=issue_number,
+                    repo_name=repo_name,
+                    issue_branch=issue_branch,
+                    additional_context=additional_context + last_error_context,
+                )
+
+            # If modifications failed, skip error checking and retry
+            if modifications.startswith("Error"):
+                iteration += 1
+                if iteration < max_iterations:
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Retrying modifications (attempt {iteration + 1}/{max_iterations})...",
+                        conversation_name=self.conversation_name,
+                    )
+                    last_error_context = (
+                        f"\n\nPrevious attempt failed with error:\n{modifications}"
+                    )
+                    continue
+                else:
+                    # Max retries reached
+                    break
+
+            # Modifications succeeded - check for syntax/linter errors
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Validating changes for syntax and linter errors...",
+                conversation_name=self.conversation_name,
+            )
+
+            repo_name_only = repo_url.split("/")[-1]
+            repo_dir = os.path.join(self.WORKING_DIRECTORY, repo_name_only)
+
+            error_check = await self.check_for_errors(
+                repo_url=repo_url, branch=issue_branch, repo_dir=repo_dir
+            )
+
+            if error_check["has_errors"]:
+                iteration += 1
+                if iteration < max_iterations:
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] ⚠️ Detected errors after modifications. Auto-fixing (attempt {iteration + 1}/{max_iterations})...",
+                        conversation_name=self.conversation_name,
+                    )
+
+                    # Add error context for next attempt
+                    last_error_context = f"""
+
+Previous modification attempt resulted in errors:
+
+{error_check['error_details']}
+
+Please provide corrected modifications that fix these errors while maintaining the intended functionality.
+"""
+                    # Get new modifications with error context
+                    modifications_xml = self.ApiClient.prompt_agent(
+                        agent_name=self.agent_name,
+                        prompt_name="Think About It",
+                        prompt_args={
+                            "user_input": prompt,
+                            "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}{last_error_context}",
+                            "log_user_input": False,
+                            "disable_commands": True,
+                            "log_output": False,
+                            "browse_links": False,
+                            "websearch": False,
+                            "analyze_user_input": False,
+                            "tts": False,
+                            "conversation_name": self.conversation_name,
+                            "use_smartest": True,
+                        },
+                    )
+                    modifications_xml = modifications_xml.replace("&lt;", "<").replace(
+                        "&gt;", ">"
+                    )
+                    continue
+                else:
+                    # Max iterations reached with errors
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}][WARNING] Modifications applied but validation detected errors:\n{error_check['error_details']}\n\nPlease review the PR and make manual corrections if needed.",
+                        conversation_name=self.conversation_name,
+                    )
+                    break
+            else:
+                # Success! No errors detected
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] ✓ Validation passed - no syntax or linter errors detected.",
+                    conversation_name=self.conversation_name,
+                )
+                break
+
+        # Check if a PR already exists for this branch
+        open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
+        if open_pulls.totalCount > 0:
+            # A PR already exists for this branch
+            existing_pr = open_pulls[0]
+
+            # Comment on the PR and the issue about the new changes
+            comment_body = (
+                f"Additional changes have been pushed to the `{issue_branch}` branch:\n\n"
+                f"{modifications_xml}"
+            )
+            existing_pr.create_issue_comment(comment_body)
+            issue.create_comment(
+                f"Additional changes have been applied to resolve issue [#{issue_number}]({repo_url}/issues/{issue_number}). See [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})."
+            )
+
+            # Review the updated PR
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing updated PR #{existing_pr.number}",
+                conversation_name=self.conversation_name,
+            )
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=(
+                    f"[SUBACTIVITY][{self.activity_id}] Updated the branch [{issue_branch}]({repo_url}/tree/{issue_branch}) for [#{issue_number}]({repo_url}/issues/{issue_number}). "
+                    f"Changes are reflected in [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})."
+                ),
+                conversation_name=self.conversation_name,
+            )
+            return f"Updated and reviewed [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
+        else:
+            # No PR exists, create a new one
+            pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
+            if "<modification>" in pr_body:
+                # Check if the characters before it are "```xml\n", if it isn't, add it.
+                if "```xml" not in pr_body:
+                    pr_body = pr_body.replace(
+                        "<modification>", "```xml\n<modification>", 1
+                    )
+                    pr_body += "\n```"
+            new_pr = repo.create_pull(
+                title=f"Fix #{issue_number}: {issue_title}",
+                body=pr_body,
+                head=issue_branch,
+                base=base_branch,
+            )
+
+            # Comment on the issue about the new PR
+            issue.create_comment(
+                f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
+            )
+
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][EXECUTION] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
+                conversation_name=self.conversation_name,
+            )
+            response = f"""### Issue #{issue_number}
+Title: {issue_title}
+Body: 
+{issue_body}
+
+### Pull Request #{new_pr.number}
+Title: {new_pr.title}
+Body: 
+{pr_body}
+
+I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
+            return response
