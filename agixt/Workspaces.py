@@ -401,10 +401,19 @@ class WorkspaceManager(SecurityValidationMixin):
             path = path.as_posix()
 
         normalized = str(path).strip()
+        if not normalized:
+            return ""
+
+        normalized = normalized.replace("\\", "/")
+        if "/path/to/" in normalized:
+            normalized = normalized.replace("/path/to/", "/")
+        if normalized.startswith("path/to/"):
+            normalized = normalized[len("path/to/") :]
+
+        normalized = normalized.lstrip("/")
         if not normalized or normalized in ("/", "."):
             return ""
 
-        normalized = normalized.replace("\\", "/").lstrip("/")
         parts = [part for part in normalized.split("/") if part and part != "."]
 
         for part in parts:
@@ -412,7 +421,15 @@ class WorkspaceManager(SecurityValidationMixin):
                 raise ValueError("Path traversal detected")
             self.validate_filename(part)
 
-        return "/".join(parts)
+        safe_path = "/".join(parts)
+        if safe_path == ".":
+            return ""
+
+        return safe_path
+
+    def normalize_workspace_path(self, path: Optional[Union[str, Path]]) -> str:
+        """Public helper mirroring extension safe path parsing"""
+        return self._normalize_relative_path(path)
 
     def _get_conversation_root_path(self, agent_id: str, conversation_id: str) -> Path:
         """Return the root path for an agent's conversation workspace"""

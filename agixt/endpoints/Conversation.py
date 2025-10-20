@@ -432,10 +432,11 @@ async def get_conversation_workspace(
 ) -> WorkspaceListResponse:
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
     try:
+        normalized_path = workspace_manager.normalize_workspace_path(path)
         workspace_data = workspace_manager.list_workspace_tree(
             context["agent_id"],
             context["conversation_id"],
-            path=path,
+            path=normalized_path if normalized_path else None,
             recursive=recursive,
         )
     except ValueError as exc:
@@ -463,6 +464,14 @@ async def upload_conversation_workspace_files(
         raise HTTPException(status_code=400, detail="No files provided for upload")
 
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
+    try:
+        normalized_destination = workspace_manager.normalize_workspace_path(
+            destination_path
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    destination_relative = normalized_destination or None
 
     for upload in files:
         if not upload.filename:
@@ -472,7 +481,7 @@ async def upload_conversation_workspace_files(
             workspace_manager.save_upload(
                 context["agent_id"],
                 context["conversation_id"],
-                destination_path,
+                destination_relative,
                 upload.filename,
                 upload.file,
             )
@@ -486,7 +495,7 @@ async def upload_conversation_workspace_files(
     )
     context["conversation"].update_attachment_count(total_files)
 
-    listing_path = destination_path if destination_path not in ("", None, "/") else None
+    listing_path = destination_relative if destination_relative else None
     workspace_data = workspace_manager.list_workspace_tree(
         context["agent_id"],
         context["conversation_id"],
@@ -514,10 +523,17 @@ async def create_conversation_workspace_folder(
     parent_path = payload.parent_path if payload.parent_path not in (None, "") else None
 
     try:
+        normalized_parent = workspace_manager.normalize_workspace_path(parent_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    parent_relative = normalized_parent or None
+
+    try:
         workspace_manager.create_folder(
             context["agent_id"],
             context["conversation_id"],
-            parent_path,
+            parent_relative,
             payload.folder_name,
         )
     except FileExistsError as exc:
@@ -533,7 +549,7 @@ async def create_conversation_workspace_folder(
     workspace_data = workspace_manager.list_workspace_tree(
         context["agent_id"],
         context["conversation_id"],
-        path=parent_path,
+        path=parent_relative,
         recursive=True,
     )
     return WorkspaceListResponse(**workspace_data)
@@ -555,9 +571,11 @@ async def delete_conversation_workspace_item(
 ) -> WorkspaceListResponse:
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
 
+    normalized_path = None
     try:
+        normalized_path = workspace_manager.normalize_workspace_path(payload.path)
         workspace_manager.delete_item(
-            context["agent_id"], context["conversation_id"], payload.path
+            context["agent_id"], context["conversation_id"], normalized_path
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Workspace item not found") from exc
@@ -569,7 +587,9 @@ async def delete_conversation_workspace_item(
     )
     context["conversation"].update_attachment_count(total_files)
 
-    path_parts = [part for part in payload.path.strip("/").split("/") if part]
+    path_parts = (
+        [part for part in normalized_path.split("/") if part] if normalized_path else []
+    )
     parent_path = "/".join(path_parts[:-1]) if len(path_parts) > 1 else None
 
     workspace_data = workspace_manager.list_workspace_tree(
@@ -596,7 +616,11 @@ async def download_conversation_workspace_file(
 ):
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
 
-    relative_path = workspace_manager._normalize_relative_path(path)
+    try:
+        relative_path = workspace_manager.normalize_workspace_path(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if not relative_path:
         raise HTTPException(status_code=400, detail="A valid file path is required")
 
@@ -638,11 +662,17 @@ async def move_conversation_workspace_item(
     context = _resolve_conversation_workspace(conversation_id, user, authorization)
 
     try:
+        source_relative = workspace_manager.normalize_workspace_path(
+            payload.source_path
+        )
+        destination_relative_input = workspace_manager.normalize_workspace_path(
+            payload.destination_path
+        )
         destination_relative = workspace_manager.move_item(
             context["agent_id"],
             context["conversation_id"],
-            payload.source_path,
-            payload.destination_path,
+            source_relative,
+            destination_relative_input,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Source item not found") from exc
