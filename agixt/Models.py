@@ -969,6 +969,43 @@ class WebhookEventTypeList(BaseModel):
     event_types: List[Dict[str, str]]  # List of {type, description}
 
 
+class ConversationShareCreate(BaseModel):
+    """Model for creating a conversation share"""
+
+    share_type: Literal["public", "email"]
+    email: Optional[str] = None
+    include_workspace: bool = True
+    expires_at: Optional[str] = None
+
+
+class ConversationShareResponse(BaseModel):
+    """Response model for conversation share details"""
+
+    share_token: str
+    share_url: str
+    share_type: str
+    shared_conversation_id: str
+    include_workspace: bool
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class SharedConversationListResponse(BaseModel):
+    """Response model for list of shared conversations"""
+
+    shared_conversations: List[Dict[str, Any]]
+
+
+class SharedConversationResponse(BaseModel):
+    """Response model for a shared conversation"""
+
+    conversation_history: List[Dict[str, Any]]
+    conversation_name: str
+    shared_by: str
+    created_at: datetime
+    include_workspace: bool
+
+
 try:  # Ensure forward references for workspace item tree
     WorkspaceItemModel.model_rebuild()
 except AttributeError:  # pragma: no cover - Pydantic v1 fallback

@@ -1,7 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
+import secrets
 from DB import (
     Conversation,
+    ConversationShare,
     Agent,
     Message,
     User,
@@ -659,8 +661,8 @@ class Conversations:
                     logging.info(
                         f"Using existing completed activities with ID {completed_activity_id}"
                     )
-                else:
-                    # Normal message processing
+                elif message != "[ACTIVITY] Completed activities.":
+                    # Normal message processing - skip if it's a Completed activities we already have
                     self.log_interaction(
                         role=interaction["role"],
                         message=message,
@@ -1411,3 +1413,516 @@ class Conversations:
         session.commit()
         session.close()
         return conversation.attachment_count
+
+    def share_conversation(
+        self,
+        share_type="public",
+        target_user_email=None,
+        include_workspace=True,
+        expires_at=None,
+    ):
+        """
+        Share a conversation by creating a fork and generating a share token.
+
+        Args:
+            share_type: 'public' or 'email'
+            target_user_email: Email of user to share with (required if share_type='email')
+            include_workspace: Whether to copy workspace files
+            expires_at: ISO datetime string when share expires (None for no expiration)
+
+        Returns:
+            dict: Share information including token and URL
+        """
+        session = get_session()
+        try:
+            # Get current user
+            user_data = session.query(User).filter(User.email == self.user).first()
+            if not user_data:
+                raise ValueError("User not found")
+            user_id = user_data.id
+
+            # Get source conversation
+            source_conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+
+            if not source_conversation:
+                raise ValueError("Conversation not found")
+
+            # Determine target user
+            if share_type == "email":
+                if not target_user_email:
+                    raise ValueError("target_user_email required for email shares")
+                target_user = (
+                    session.query(User).filter(User.email == target_user_email).first()
+                )
+                if not target_user:
+                    raise ValueError(f"User {target_user_email} not found")
+                target_user_id = target_user.id
+                shared_with_user_id = target_user_id
+            else:  # public
+                # Use DEFAULT_USER for public shares
+                default_user = (
+                    session.query(User).filter(User.email == DEFAULT_USER).first()
+                )
+                if not default_user:
+                    raise ValueError("Default user not found")
+                target_user_id = default_user.id
+                shared_with_user_id = None
+
+            # Fork the conversation to the target user
+            # Get all messages from source conversation
+            messages = (
+                session.query(Message)
+                .filter(Message.conversation_id == source_conversation.id)
+                .order_by(Message.timestamp.asc())
+                .all()
+            )
+
+            # Create new conversation for the share
+            shared_conversation_name = f"Shared: {self.conversation_name}"
+            shared_conversation = Conversation(
+                name=shared_conversation_name,
+                user_id=target_user_id,
+                summary=source_conversation.summary,
+            )
+            session.add(shared_conversation)
+            session.flush()
+
+            # Copy all messages
+            for message in messages:
+                new_message = Message(
+                    role=message.role,
+                    content=message.content,
+                    conversation_id=shared_conversation.id,
+                    timestamp=message.timestamp,
+                    updated_at=message.updated_at,
+                    updated_by=message.updated_by,
+                    feedback_received=message.feedback_received,
+                    notify=False,
+                )
+                session.add(new_message)
+
+            # Generate unique share token
+            share_token = secrets.token_urlsafe(32)
+
+            # Parse expiration datetime if specified
+            expires_at_datetime = None
+            if expires_at:
+                try:
+                    from dateutil import parser
+
+                    expires_at_datetime = parser.parse(expires_at)
+                except Exception as e:
+                    logging.warning(f"Could not parse expires_at datetime: {e}")
+
+            # Create ConversationShare record
+            conversation_share = ConversationShare(
+                source_conversation_id=source_conversation.id,
+                shared_conversation_id=shared_conversation.id,
+                share_type=share_type,
+                share_token=share_token,
+                shared_by_user_id=user_id,
+                shared_with_user_id=shared_with_user_id,
+                include_workspace=include_workspace,
+                expires_at=expires_at_datetime,
+            )
+            session.add(conversation_share)
+            session.commit()
+
+            # Copy workspace files if requested
+            if include_workspace:
+                try:
+                    from Workspaces import WorkspaceManager
+
+                    workspace_manager = WorkspaceManager()
+
+                    # Get source agent ID from the conversation's messages
+                    source_agent_name = (
+                        session.query(Message)
+                        .filter(
+                            Message.conversation_id == source_conversation.id,
+                            Message.role != "USER",
+                            Message.role != "user",
+                        )
+                        .order_by(Message.timestamp.desc())
+                        .first()
+                    )
+
+                    logging.info(
+                        f"🔍 Looking for source agent in conversation {source_conversation.id}"
+                    )
+                    logging.info(
+                        f"🔍 Found source agent message: {source_agent_name is not None}"
+                    )
+
+                    if source_agent_name:
+                        source_agent_name = source_agent_name.role
+                        logging.info(f"🔍 Source agent name: {source_agent_name}")
+
+                        # Get agent IDs
+                        source_agent = (
+                            session.query(Agent)
+                            .filter(
+                                Agent.name == source_agent_name,
+                                Agent.user_id == user_id,
+                            )
+                            .first()
+                        )
+                        logging.info(
+                            f"🔍 Source agent found: {source_agent is not None}, ID: {source_agent.id if source_agent else 'N/A'}"
+                        )
+
+                        # For target, use the same agent name but with target user
+                        target_agent = (
+                            session.query(Agent)
+                            .filter(
+                                Agent.name == source_agent_name,
+                                Agent.user_id == target_user_id,
+                            )
+                            .first()
+                        )
+                        logging.info(
+                            f"🔍 Target agent found: {target_agent is not None}"
+                        )
+
+                        # If target agent doesn't exist for DEFAULT_USER, create it
+                        if not target_agent and share_type == "public":
+                            logging.info(
+                                f"🔧 Creating target agent {source_agent_name} for DEFAULT_USER"
+                            )
+                            target_agent = Agent(
+                                name=source_agent_name,
+                                user_id=target_user_id,
+                                settings=source_agent.settings if source_agent else {},
+                            )
+                            session.add(target_agent)
+                            session.commit()  # Commit agent before workspace copy
+                            logging.info(
+                                f"✅ Created target agent {source_agent_name} for DEFAULT_USER with ID {target_agent.id}"
+                            )
+                        elif target_agent:
+                            logging.info(
+                                f"✅ Using existing target agent with ID {target_agent.id}"
+                            )
+
+                        if source_agent and target_agent:
+                            logging.info(f"📁 Attempting to copy workspace files:")
+                            logging.info(
+                                f"   Source: agent_id={source_agent.id}, conversation_id={source_conversation.id}"
+                            )
+                            logging.info(
+                                f"   Target: agent_id={target_agent.id}, conversation_id={shared_conversation.id}"
+                            )
+
+                            files_copied = (
+                                workspace_manager.copy_conversation_workspace(
+                                    source_agent_id=str(source_agent.id),
+                                    source_conversation_id=str(source_conversation.id),
+                                    target_agent_id=str(target_agent.id),
+                                    target_conversation_id=str(shared_conversation.id),
+                                )
+                            )
+                            logging.info(
+                                f"✅ Copied {files_copied} workspace files for shared conversation"
+                            )
+                        else:
+                            logging.warning(
+                                f"❌ Could not copy workspace files: source_agent={bool(source_agent)}, target_agent={bool(target_agent)}"
+                            )
+                    else:
+                        logging.warning(
+                            "❌ Could not find agent name from conversation messages"
+                        )
+                except Exception as e:
+                    logging.error(f"Error copying workspace files: {e}")
+                    import traceback
+
+                    logging.error(traceback.format_exc())
+                    # Don't fail the share if workspace copy fails
+
+            # Build share URL - use APP_URI for frontend URL
+            app_uri = getenv("APP_URI", "http://localhost:3000")
+            share_url = f"{app_uri}/shared/{share_token}"
+
+            return {
+                "share_token": share_token,
+                "share_url": share_url,
+                "share_type": share_type,
+                "shared_conversation_id": str(shared_conversation.id),
+                "include_workspace": include_workspace,
+                "expires_at": expires_at_datetime,
+                "created_at": conversation_share.created_at,
+            }
+
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error sharing conversation: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_shared_conversations(self):
+        """
+        Get all conversations shared with the current user.
+
+        Returns:
+            list: List of shared conversation details
+        """
+        session = get_session()
+        try:
+            user_data = session.query(User).filter(User.email == self.user).first()
+            if not user_data:
+                return []
+            user_id = user_data.id
+
+            # Get all shares where this user is the recipient
+            shares = (
+                session.query(ConversationShare)
+                .filter(ConversationShare.shared_with_user_id == user_id)
+                .all()
+            )
+
+            result = []
+            for share in shares:
+                # Check if expired
+                if share.expires_at and share.expires_at < datetime.now():
+                    continue
+
+                shared_conv = (
+                    session.query(Conversation)
+                    .filter(Conversation.id == share.shared_conversation_id)
+                    .first()
+                )
+                shared_by = (
+                    session.query(User)
+                    .filter(User.id == share.shared_by_user_id)
+                    .first()
+                )
+
+                if shared_conv:
+                    result.append(
+                        {
+                            "conversation_id": str(shared_conv.id),
+                            "conversation_name": shared_conv.name,
+                            "share_token": share.share_token,
+                            "shared_by": shared_by.email if shared_by else "Unknown",
+                            "created_at": share.created_at,
+                            "expires_at": share.expires_at,
+                            "include_workspace": share.include_workspace,
+                        }
+                    )
+
+            return result
+
+        except Exception as e:
+            logging.error(f"Error getting shared conversations: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_conversation_by_share_token(self, share_token):
+        """
+        Get conversation details by share token (public access).
+
+        Args:
+            share_token: The share token
+
+        Returns:
+            dict: Conversation details including history
+        """
+        session = get_session()
+        try:
+            # Find the share
+            share = (
+                session.query(ConversationShare)
+                .filter(ConversationShare.share_token == share_token)
+                .first()
+            )
+
+            if not share:
+                raise ValueError("Share not found")
+
+            # Check if expired
+            if share.expires_at and share.expires_at < datetime.now():
+                raise ValueError("Share has expired")
+
+            # Get the shared conversation
+            conversation = (
+                session.query(Conversation)
+                .filter(Conversation.id == share.shared_conversation_id)
+                .first()
+            )
+
+            if not conversation:
+                raise ValueError("Conversation not found")
+
+            # Get shared by user
+            shared_by = (
+                session.query(User).filter(User.id == share.shared_by_user_id).first()
+            )
+
+            # Get messages
+            messages = (
+                session.query(Message)
+                .filter(Message.conversation_id == conversation.id)
+                .order_by(Message.timestamp.asc())
+                .all()
+            )
+
+            # Structure messages with activities and subactivities
+            conversation_history = []
+            activity_map = {}  # Map activity IDs to their index in conversation_history
+            orphaned_subactivities = {}  # Track subactivities without parents
+
+            # First pass: collect all activities and orphaned subactivities
+            for message in messages:
+                content = str(message.content)
+
+                # Check if this is a subactivity
+                if content.startswith("[SUBACTIVITY]["):
+                    # Extract parent activity ID
+                    try:
+                        # Format: [SUBACTIVITY][parent_id]...
+                        parent_id = content.split("][")[1].split("]")[0]
+
+                        # Create subactivity message
+                        submsg = {
+                            "id": str(message.id),
+                            "role": message.role,
+                            "message": content.replace(
+                                "http://localhost:7437", getenv("AGIXT_URI")
+                            ),
+                            "timestamp": message.timestamp.isoformat(),
+                        }
+
+                        # Track for second pass
+                        if parent_id not in orphaned_subactivities:
+                            orphaned_subactivities[parent_id] = []
+                        orphaned_subactivities[parent_id].append(submsg)
+                    except (IndexError, ValueError) as e:
+                        logging.warning(f"Could not parse subactivity parent ID: {e}")
+                        # Add as regular message if parsing fails
+                        msg = {
+                            "id": str(message.id),
+                            "role": message.role,
+                            "message": content.replace(
+                                "http://localhost:7437", getenv("AGIXT_URI")
+                            ),
+                            "timestamp": message.timestamp.isoformat(),
+                            "children": [],
+                        }
+                        conversation_history.append(msg)
+                else:
+                    # Regular message or activity
+                    msg = {
+                        "id": str(message.id),
+                        "role": message.role,
+                        "message": content.replace(
+                            "http://localhost:7437", getenv("AGIXT_URI")
+                        ),
+                        "timestamp": message.timestamp.isoformat(),
+                        "children": [],
+                    }
+
+                    # If this is an activity, track it and attach any orphaned subactivities
+                    if content.startswith("[ACTIVITY]"):
+                        activity_id = str(message.id)
+                        activity_map[activity_id] = len(conversation_history)
+
+                        # Attach orphaned subactivities if they exist
+                        if activity_id in orphaned_subactivities:
+                            msg["children"] = orphaned_subactivities[activity_id]
+                            del orphaned_subactivities[activity_id]
+
+                    conversation_history.append(msg)
+
+            # Insert placeholder activities for orphaned subactivities in chronological order
+            for parent_id, subactivities in orphaned_subactivities.items():
+                if subactivities:
+                    # Create a placeholder "Completed activities" parent
+                    # Use the timestamp of the first subactivity
+                    placeholder_timestamp = subactivities[0]["timestamp"]
+                    placeholder_activity = {
+                        "id": parent_id,
+                        "role": subactivities[0]["role"],
+                        "message": "[ACTIVITY] Completed activities.",
+                        "timestamp": placeholder_timestamp,
+                        "children": subactivities,
+                    }
+
+                    # Find the correct position to insert based on timestamp
+                    # Insert it right before its first subactivity would have appeared chronologically
+                    inserted = False
+                    for i, msg in enumerate(conversation_history):
+                        if msg["timestamp"] > placeholder_timestamp:
+                            conversation_history.insert(i, placeholder_activity)
+                            inserted = True
+                            break
+
+                    # If we didn't insert it (all messages are earlier), append to end
+                    if not inserted:
+                        conversation_history.append(placeholder_activity)
+
+            return {
+                "conversation_history": conversation_history,
+                "conversation_name": conversation.name,
+                "conversation_id": str(conversation.id),
+                "shared_by": shared_by.email if shared_by else "Unknown",
+                "created_at": conversation.created_at,
+                "include_workspace": share.include_workspace,
+            }
+
+        except Exception as e:
+            logging.error(f"Error getting conversation by share token: {e}")
+            raise
+        finally:
+            session.close()
+
+    def revoke_share(self, share_token):
+        """
+        Revoke a conversation share.
+
+        Args:
+            share_token: The share token to revoke
+
+        Returns:
+            bool: True if successful
+        """
+        session = get_session()
+        try:
+            user_data = session.query(User).filter(User.email == self.user).first()
+            if not user_data:
+                raise ValueError("User not found")
+            user_id = user_data.id
+
+            # Find the share
+            share = (
+                session.query(ConversationShare)
+                .filter(
+                    ConversationShare.share_token == share_token,
+                    ConversationShare.shared_by_user_id == user_id,
+                )
+                .first()
+            )
+
+            if not share:
+                raise ValueError("Share not found or you don't have permission")
+
+            # Delete the share
+            session.delete(share)
+            session.commit()
+
+            return True
+
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error revoking share: {e}")
+            raise
+        finally:
+            session.close()
