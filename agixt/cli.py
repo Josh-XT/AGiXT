@@ -155,12 +155,15 @@ def _start_local() -> None:
     process: Optional[subprocess.Popen] = None
     try:
         with LOCAL_LOG_FILE.open("a", encoding="utf-8") as log_file:
+            # Properly daemonize the process to prevent terminal locking
             process = subprocess.Popen(
                 [sys.executable, str(LOCAL_SCRIPT)],
                 cwd=LOCAL_SCRIPT.parent,
                 stdout=log_file,
                 stderr=log_file,
+                stdin=subprocess.DEVNULL,
                 env=env,
+                start_new_session=True,  # Create new process group for proper backgrounding
             )
     except OSError as exc:
         raise CLIError(f"Failed to start AGiXT locally: {exc}")
@@ -212,10 +215,8 @@ def _stop_local() -> None:
 
 
 def _restart_local() -> None:
-    try:
-        _stop_local()
-    finally:
-        _start_local()
+    _stop_local()
+    _start_local()
 
 
 def _read_env_var_from_file(name: str) -> Optional[str]:
