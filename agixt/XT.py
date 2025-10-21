@@ -182,6 +182,49 @@ class AGiXT:
         )
         return formatted_prompt
 
+    async def check_if_coding_required(self, user_input: str) -> bool:
+        """
+        Evaluates if coding is required to assist with the user's request.
+
+        Args:
+            user_input (str): The raw user input without context or instructions
+
+        Returns:
+            bool: True if coding is required, False otherwise
+        """
+        if not user_input:
+            return False
+
+        evaluation_prompt = f"""Analyze the following user request and determine if writing, modifying, debugging, executing code, or doing math is required to assist them.
+
+User request: {user_input}
+
+Respond with ONLY "true" if coding assistance is needed, or "false" if not.
+
+Examples:
+- "Can you help me debug this Python function?" -> true
+- "Write a script to sort a list" -> true
+- "Fix the bug in my code" -> true
+- "Can you solve this math problem?" -> true
+- "Can you count these items?" -> true
+- "What's the weather like?" -> false
+- "Explain how arrays work" -> false
+- "Tell me about Python" -> false
+- "Can you send an email to Joe?" -> false
+
+Your response (true or false):"""
+
+        try:
+            # Use a lightweight inference call for evaluation
+            response = await self.agent.PROVIDER.inference(prompt=evaluation_prompt)
+            # Extract and normalize the response
+            response = str(response).strip().lower()
+            return "true" in response
+        except Exception as e:
+            logging.warning(f"Error checking if coding required: {str(e)}")
+            # Default to False if we can't determine
+            return False
+
     async def inference(
         self,
         user_input: str,
@@ -238,6 +281,12 @@ class AGiXT:
             del kwargs["tts"]
         if "conversation_name" in kwargs:
             del kwargs["conversation_name"]
+        if "use_smartest" not in kwargs:
+            kwargs["use_smartest"] = False
+        if kwargs["use_smartest"] == False:
+            kwargs["use_smartest"] = await self.check_if_coding_required(
+                user_input=user_input
+            )
         response = await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,
