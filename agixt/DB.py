@@ -536,6 +536,49 @@ class Conversation(Base):
     user = relationship("User", backref="conversation")
 
 
+class ConversationShare(Base):
+    __tablename__ = "conversation_share"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    source_conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=False,
+    )
+    shared_conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=False,
+    )
+    share_type = Column(String, nullable=False)  # 'user' or 'public'
+    share_token = Column(String, unique=True, nullable=False)
+    shared_by_user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    shared_with_user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )
+    include_workspace = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    expires_at = Column(DateTime, nullable=True)
+
+    source_conversation = relationship(
+        "Conversation", foreign_keys=[source_conversation_id]
+    )
+    shared_conversation = relationship(
+        "Conversation", foreign_keys=[shared_conversation_id]
+    )
+    shared_by_user = relationship("User", foreign_keys=[shared_by_user_id])
+    shared_with_user = relationship("User", foreign_keys=[shared_with_user_id])
+
+
 class Message(Base):
     __tablename__ = "message"
     id = Column(

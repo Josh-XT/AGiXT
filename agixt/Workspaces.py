@@ -752,6 +752,72 @@ class WorkspaceManager(SecurityValidationMixin):
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
         return sum(1 for path in root_path.rglob("*") if path.is_file())
 
+    def copy_conversation_workspace(
+        self,
+        source_agent_id: str,
+        source_conversation_id: str,
+        target_agent_id: str,
+        target_conversation_id: str,
+    ) -> int:
+        """
+        Copy all workspace files from source conversation to target conversation.
+
+        Args:
+            source_agent_id: Source agent ID
+            source_conversation_id: Source conversation ID
+            target_agent_id: Target agent ID
+            target_conversation_id: Target conversation ID
+
+        Returns:
+            int: Number of files copied
+        """
+        source_root = self._get_conversation_root_path(
+            source_agent_id, source_conversation_id
+        )
+        target_root = self._get_conversation_root_path(
+            target_agent_id, target_conversation_id
+        )
+
+        if not source_root.exists():
+            return 0
+
+        files_copied = 0
+
+        try:
+            # Recursively copy all files
+            for source_file in source_root.rglob("*"):
+                if source_file.is_file():
+                    # Calculate relative path from source root
+                    relative_path = source_file.relative_to(source_root)
+
+                    # Create target path
+                    target_file = target_root / relative_path
+
+                    # Ensure target directory exists
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Copy file
+                    shutil.copy2(source_file, target_file)
+                    files_copied += 1
+
+                    # Upload to remote storage if not local
+                    if self.backend != "local":
+                        self._upload_local_path(
+                            target_agent_id,
+                            target_conversation_id,
+                            relative_path.as_posix(),
+                            target_file,
+                        )
+
+            logging.info(
+                f"Copied {files_copied} workspace files from {source_agent_id}/{source_conversation_id} to {target_agent_id}/{target_conversation_id}"
+            )
+            return files_copied
+
+        except Exception as e:
+            logging.error(f"Error copying workspace files: {e}")
+            raise
+
     @contextmanager
     def workspace_file(
         self, agent_id: str, conversation_id: str, filename: str, mode="r"

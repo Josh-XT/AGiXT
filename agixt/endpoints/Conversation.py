@@ -17,6 +17,7 @@ from Conversations import (
     get_conversation_name_by_id,
     get_conversation_id_by_name,
 )
+from DB import Message, Agent as DBAgent, User
 from XT import AGiXT
 from Models import (
     HistoryModel,
@@ -39,6 +40,10 @@ from Models import (
     WorkspaceFolderCreateModel,
     WorkspaceDeleteModel,
     WorkspaceMoveModel,
+    ConversationShareCreate,
+    ConversationShareResponse,
+    SharedConversationListResponse,
+    SharedConversationResponse,
 )
 import json
 import uuid
@@ -1291,3 +1296,584 @@ async def get_notifications(user=Depends(verify_api_key)):
     c = Conversations(user=user)
     notifications = c.get_notifications()
     return {"notifications": notifications}
+
+
+# Conversation Sharing Endpoints
+@app.post(
+    "/v1/conversation/{conversation_id}/share",
+    response_model=ConversationShareResponse,
+    summary="Share Conversation",
+    description="Creates a shareable link for a conversation, optionally with workspace files. Share can be public or with a specific user by email.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def share_conversation(
+    conversation_id: str,
+    share_data: ConversationShareCreate,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+
+    # Resolve conversation name from ID
+    try:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+        if not conversation_name:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Conversation not found: {str(e)}")
+
+    # Create the share
+    try:
+        c = Conversations(conversation_name=conversation_name, user=user)
+        share_info = c.share_conversation(
+            share_type=share_data.share_type,
+            target_user_email=share_data.email,
+            include_workspace=share_data.include_workspace,
+            expires_at=share_data.expires_at,
+        )
+        return ConversationShareResponse(**share_info)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logging.error(f"Error sharing conversation: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to share conversation: {str(e)}"
+        )
+
+
+@app.get(
+    "/v1/conversations/shared",
+    response_model=SharedConversationListResponse,
+    summary="Get Shared Conversations",
+    description="Retrieves all conversations shared with the current user.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_shared_conversations(user=Depends(verify_api_key)):
+    c = Conversations(user=user)
+    shared_conversations = c.get_shared_conversations()
+    return {"shared_conversations": shared_conversations}
+
+
+@app.get(
+    "/api/shared/{share_token}",
+    response_model=SharedConversationResponse,
+    summary="Get Shared Conversation (Public)",
+    description="Retrieves a shared conversation using its public share token. No authentication required.",
+    tags=["Conversation"],
+)
+async def get_shared_conversation(share_token: str):
+    # This endpoint is public, so we use a default user context
+    from Globals import DEFAULT_USER
+
+    try:
+        c = Conversations(user=DEFAULT_USER)
+        conversation_data = c.get_conversation_by_share_token(share_token)
+        return SharedConversationResponse(**conversation_data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logging.error(f"Error retrieving shared conversation: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to retrieve shared conversation"
+        )
+
+
+@app.delete(
+    "/v1/conversation/share/{share_token}",
+    response_model=ResponseMessage,
+    summary="Revoke Conversation Share",
+    description="Revokes a conversation share by deleting the share link.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def revoke_conversation_share(
+    share_token: str,
+    user=Depends(verify_api_key),
+):
+    try:
+        c = Conversations(user=user)
+        c.revoke_share(share_token)
+        return ResponseMessage(message="Share revoked successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logging.error(f"Error revoking share: {e}")
+        raise HTTPException(status_code=500, detail="Failed to revoke share")
+
+
+@app.post(
+    "/v1/conversation/import-shared/{share_token}",
+    response_model=NewConversationHistoryResponse,
+    summary="Import Shared Conversation",
+    description="Imports a shared conversation into the user's account, optionally including workspace files.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def import_shared_conversation(
+    share_token: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    from Globals import DEFAULT_USER
+    from DB import ConversationShare, get_session
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+
+    try:
+        # Find the share
+        share = (
+            session.query(ConversationShare)
+            .filter(ConversationShare.share_token == share_token)
+            .first()
+        )
+
+        if not share:
+            raise HTTPException(status_code=404, detail="Share not found")
+
+        # Check if expired
+        if share.expires_at and share.expires_at < datetime.now():
+            raise HTTPException(status_code=410, detail="Share has expired")
+
+        # Get the shared conversation
+        from DB import Conversation
+
+        shared_conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == share.shared_conversation_id)
+            .first()
+        )
+
+        if not shared_conversation:
+            raise HTTPException(status_code=404, detail="Shared conversation not found")
+
+        # Get all messages
+        messages = (
+            session.query(Message)
+            .filter(Message.conversation_id == shared_conversation.id)
+            .order_by(Message.timestamp.asc())
+            .all()
+        )
+
+        # Build conversation content
+        conversation_content = [
+            {
+                "role": msg.role,
+                "message": msg.content,
+                "timestamp": msg.timestamp.isoformat(),
+            }
+            for msg in messages
+        ]
+
+        # Create new conversation for the user
+        new_conversation_name = f"Imported: {shared_conversation.name}"
+        c = Conversations(conversation_name=new_conversation_name, user=user)
+        new_conversation = c.new_conversation(conversation_content=conversation_content)
+        # Get the actual conversation ID (not the dict id which might be wrong)
+        new_conversation_id = c.get_conversation_id()
+        logging.info(f"✅ Created new conversation with ID: {new_conversation_id}")
+
+        # Copy workspace files if included in share
+        if share.include_workspace:
+            logging.info(f"📁 Starting workspace import for share {share_token}")
+            try:
+                # Get DEFAULT_USER's agent that has the workspace files
+                default_user = (
+                    session.query(User).filter(User.email == DEFAULT_USER).first()
+                )
+                logging.info(f"   DEFAULT_USER found: {default_user is not None}")
+
+                if default_user:
+                    default_user_id = str(default_user.id)
+                    logging.info(f"   DEFAULT_USER id: {default_user_id}")
+
+                    # Get agent name from shared conversation messages
+                    agent_message = (
+                        session.query(Message)
+                        .filter(
+                            Message.conversation_id == shared_conversation.id,
+                            Message.role != "USER",
+                            Message.role != "user",
+                        )
+                        .order_by(Message.timestamp.desc())
+                        .first()
+                    )
+                    logging.info(f"   Agent message found: {agent_message is not None}")
+
+                    if agent_message:
+                        agent_name = agent_message.role
+                        logging.info(f"   Agent name: {agent_name}")
+
+                        # Get source agent (DEFAULT_USER's agent)
+                        source_agent = (
+                            session.query(DBAgent)
+                            .filter(
+                                DBAgent.name == agent_name,
+                                DBAgent.user_id == default_user_id,
+                            )
+                            .first()
+                        )
+                        logging.info(
+                            f"   Source agent found: {source_agent is not None}"
+                        )
+                        if source_agent:
+                            logging.info(f"   Source agent id: {source_agent.id}")
+
+                        # Get target agent (current user's agent)
+                        target_agent = (
+                            session.query(DBAgent)
+                            .filter(
+                                DBAgent.name == agent_name,
+                                DBAgent.user_id == auth.user_id,
+                            )
+                            .first()
+                        )
+                        logging.info(
+                            f"   Target agent found before creation: {target_agent is not None}"
+                        )
+
+                        # Create target agent if it doesn't exist
+                        if not target_agent:
+                            logging.info(
+                                f"   Creating new target agent '{agent_name}' for user {auth.user_id}"
+                            )
+                            target_agent = DBAgent(
+                                name=agent_name,
+                                user_id=auth.user_id,
+                                settings=source_agent.settings if source_agent else {},
+                            )
+                            session.add(target_agent)
+                            session.commit()
+                            logging.info(
+                                f"   Created target agent with id: {target_agent.id}"
+                            )
+
+                        if source_agent and target_agent:
+                            logging.info(f"   📋 Copying workspace from:")
+                            logging.info(
+                                f"      Source: agent={source_agent.id}, conversation={shared_conversation.id}"
+                            )
+                            logging.info(
+                                f"      Target: agent={target_agent.id}, conversation={new_conversation_id}"
+                            )
+
+                            # Copy workspace files
+                            files_copied = (
+                                workspace_manager.copy_conversation_workspace(
+                                    source_agent_id=str(source_agent.id),
+                                    source_conversation_id=str(shared_conversation.id),
+                                    target_agent_id=str(target_agent.id),
+                                    target_conversation_id=new_conversation_id,
+                                )
+                            )
+                            logging.info(f"   📁 Files copied: {files_copied}")
+
+                            # Update attachment count
+                            total_files = workspace_manager.count_files(
+                                str(target_agent.id), new_conversation_id
+                            )
+                            logging.info(
+                                f"   📊 Total files in target workspace: {total_files}"
+                            )
+                            c.update_attachment_count(total_files)
+
+                            logging.info(
+                                f"✅ Successfully copied {files_copied} workspace files to imported conversation"
+                            )
+                        else:
+                            logging.error(
+                                f"❌ Missing agents - source: {source_agent is not None}, target: {target_agent is not None}"
+                            )
+                    else:
+                        logging.error(
+                            f"❌ No agent message found in shared conversation"
+                        )
+                else:
+                    logging.error(f"❌ DEFAULT_USER not found")
+
+            except Exception as e:
+                logging.error(f"❌ Error copying workspace files during import: {e}")
+                import traceback
+
+                logging.error(traceback.format_exc())
+                # Don't fail the import if workspace copy fails
+        else:
+            logging.info(
+                f"📁 Workspace not included in share, skipping workspace import"
+            )
+
+        return {
+            "id": new_conversation_id,
+            "conversation_history": conversation_content,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error importing shared conversation: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to import shared conversation"
+        )
+    finally:
+        session.close()
+
+
+# Public workspace endpoints for shared conversations
+@app.get(
+    "/api/shared/{share_token}/workspace",
+    response_model=WorkspaceListResponse,
+    summary="List Shared Conversation Workspace (Public)",
+    description="Returns the folder tree for a shared conversation's workspace. No authentication required.",
+    tags=["Conversation"],
+)
+async def get_shared_conversation_workspace(
+    share_token: str,
+    path: Optional[str] = None,
+    recursive: bool = True,
+):
+    from Globals import DEFAULT_USER
+    from DB import ConversationShare, get_session
+
+    session = get_session()
+    try:
+        # Find the share
+        share = (
+            session.query(ConversationShare)
+            .filter(ConversationShare.share_token == share_token)
+            .first()
+        )
+
+        if not share:
+            raise HTTPException(status_code=404, detail="Share not found")
+
+        # Check if expired
+        if share.expires_at and share.expires_at < datetime.now():
+            raise HTTPException(status_code=410, detail="Share has expired")
+
+        # Check if workspace is included
+        if not share.include_workspace:
+            raise HTTPException(status_code=403, detail="Workspace not shared")
+
+        # Get the shared conversation from database
+        from DB import Conversation
+
+        shared_conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == share.shared_conversation_id)
+            .first()
+        )
+
+        if not shared_conversation:
+            raise HTTPException(status_code=404, detail="Shared conversation not found")
+
+        conversation_id = str(shared_conversation.id)
+
+        # Get the DEFAULT_USER's ID to query for their agent
+        from DB import User
+
+        default_user_obj = (
+            session.query(User).filter(User.email == DEFAULT_USER).first()
+        )
+        if not default_user_obj:
+            raise HTTPException(status_code=500, detail="Default user not found")
+
+        default_user_id = str(default_user_obj.id)
+
+        logging.info(
+            f"🔍 Attempting to get agent_id for shared conversation {conversation_id}"
+        )
+        logging.info(f"   DEFAULT_USER id: {default_user_id}")
+
+        # Get the agent name from the shared conversation's messages
+        agent_message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == shared_conversation.id,
+                Message.role != "USER",
+                Message.role != "user",
+            )
+            .order_by(Message.timestamp.desc())
+            .first()
+        )
+
+        if not agent_message:
+            logging.error(f"❌ No agent messages found in shared conversation")
+            raise HTTPException(
+                status_code=400, detail="No agent found in conversation"
+            )
+
+        agent_name = agent_message.role
+        logging.info(f"   Agent name from messages: {agent_name}")
+
+        # Get agent ID directly by name for DEFAULT_USER
+        target_agent = (
+            session.query(DBAgent)
+            .filter(DBAgent.name == agent_name, DBAgent.user_id == default_user_id)
+            .first()
+        )
+
+        if not target_agent:
+            logging.error(f"❌ No agent '{agent_name}' found for DEFAULT_USER")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent '{agent_name}' not found for shared workspace",
+            )
+
+        agent_id = str(target_agent.id)
+        logging.info(f"   Found agent_id: {agent_id}")
+
+        try:
+            normalized_path = workspace_manager._normalize_relative_path(path)
+            workspace_data = workspace_manager.list_workspace_tree(
+                agent_id,
+                conversation_id,
+                path=normalized_path if normalized_path else None,
+                recursive=recursive,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return WorkspaceListResponse(**workspace_data)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error retrieving shared workspace: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to retrieve shared workspace"
+        )
+    finally:
+        session.close()
+
+
+@app.get(
+    "/api/shared/{share_token}/workspace/download",
+    summary="Download Shared Workspace File (Public)",
+    description="Streams a workspace file from a shared conversation for download. No authentication required.",
+    tags=["Conversation"],
+)
+async def download_shared_workspace_file(
+    share_token: str,
+    path: str,
+):
+    from Globals import DEFAULT_USER
+    from DB import ConversationShare, get_session
+
+    session = get_session()
+    try:
+        # Find the share
+        share = (
+            session.query(ConversationShare)
+            .filter(ConversationShare.share_token == share_token)
+            .first()
+        )
+
+        if not share:
+            raise HTTPException(status_code=404, detail="Share not found")
+
+        # Check if expired
+        if share.expires_at and share.expires_at < datetime.now():
+            raise HTTPException(status_code=410, detail="Share has expired")
+
+        # Check if workspace is included
+        if not share.include_workspace:
+            raise HTTPException(status_code=403, detail="Workspace not shared")
+
+        # Get the shared conversation from database
+        from DB import Conversation
+
+        shared_conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == share.shared_conversation_id)
+            .first()
+        )
+
+        if not shared_conversation:
+            raise HTTPException(status_code=404, detail="Shared conversation not found")
+
+        conversation_id = str(shared_conversation.id)
+
+        # Get the DEFAULT_USER's ID to query for their agent
+        from DB import User
+
+        default_user_obj = (
+            session.query(User).filter(User.email == DEFAULT_USER).first()
+        )
+        if not default_user_obj:
+            raise HTTPException(status_code=500, detail="Default user not found")
+
+        default_user_id = str(default_user_obj.id)
+
+        # Get the agent name from the shared conversation's messages
+        agent_message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == shared_conversation.id,
+                Message.role != "USER",
+                Message.role != "user",
+            )
+            .order_by(Message.timestamp.desc())
+            .first()
+        )
+
+        if not agent_message:
+            raise HTTPException(
+                status_code=400, detail="No agent found in conversation"
+            )
+
+        agent_name = agent_message.role
+
+        # Get agent ID directly by name for DEFAULT_USER
+        target_agent = (
+            session.query(DBAgent)
+            .filter(DBAgent.name == agent_name, DBAgent.user_id == default_user_id)
+            .first()
+        )
+
+        if not target_agent:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent '{agent_name}' not found for shared workspace",
+            )
+
+        agent_id = str(target_agent.id)
+
+        try:
+            relative_path = workspace_manager._normalize_relative_path(path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        if not relative_path:
+            raise HTTPException(status_code=400, detail="A valid file path is required")
+
+        filename = relative_path.split("/")[-1]
+        content_type, _ = mimetypes.guess_type(filename)
+
+        try:
+            stream = workspace_manager.stream_file(
+                agent_id, conversation_id, relative_path
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="File not found") from exc
+
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
+
+        return StreamingResponse(
+            stream,
+            media_type=content_type or "application/octet-stream",
+            headers=headers,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error downloading shared workspace file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download file")
+    finally:
+        session.close()
