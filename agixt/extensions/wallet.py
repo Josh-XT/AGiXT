@@ -876,9 +876,12 @@ class wallet(Extensions):
 
     async def get_connected_wallet_balance(self) -> Dict[str, Any]:
         """
-        Get the balance of the user's connected wallet
+        Get the native balance of the user's connected wallet (SOL for Solana, ETH for Ethereum, etc.)
 
-        Returns a transaction request that the frontend needs to execute
+        Note: This returns only the native token balance.
+        For SPL tokens on Solana, use 'Get Connected Wallet Tokens' instead.
+
+        Returns the native balance of the wallet
         """
         try:
             wallet_info = await self.get_connected_wallet_info()
@@ -899,12 +902,15 @@ class wallet(Extensions):
                 balance_lamports = response.value
                 sol_balance = balance_lamports / 1_000_000_000
 
+                await client.close()
+
                 return {
                     "success": True,
                     "wallet_address": wallet_address,
                     "balance": sol_balance,
                     "chain": chain,
                     "unit": "SOL",
+                    "note": "This is the native SOL balance. Use 'Get Connected Wallet Tokens' for SPL token balances.",
                 }
 
             # For EVM chains
@@ -1029,21 +1035,103 @@ class wallet(Extensions):
             from solana.rpc.async_api import AsyncClient
             from solders.pubkey import Pubkey
             from solana.rpc.types import TokenAccountOpts
-            import base58
+            import struct
+            import requests
 
             client = AsyncClient("https://api.mainnet-beta.solana.com")
             wallet_pubkey = Pubkey.from_string(wallet_address)
 
+            # Token Program IDs
             TOKEN_PROGRAM_ID = Pubkey.from_string(
                 "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
             )
-
-            # Get all token accounts
-            response = await client.get_token_accounts_by_owner(
-                wallet_pubkey, TokenAccountOpts(program_id=TOKEN_PROGRAM_ID)
+            TOKEN_2022_PROGRAM_ID = Pubkey.from_string(
+                "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
             )
 
-            if not response.value:
+            # Fetch token metadata from multiple sources
+            token_metadata = {}
+
+            # Start with known tokens
+            token_metadata = {
+                "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": {
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "decimals": 6,
+                },
+                "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": {
+                    "symbol": "USDT",
+                    "name": "USDT",
+                    "decimals": 6,
+                },
+                "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": {
+                    "symbol": "BONK",
+                    "name": "Bonk",
+                    "decimals": 5,
+                },
+                "So11111111111111111111111111111111111111112": {
+                    "symbol": "SOL",
+                    "name": "Wrapped SOL",
+                    "decimals": 9,
+                },
+                "Ga9P2TZcxsHjYmXdEyu9Z7wL1QAowjBAZwRQ41gBbonk": {
+                    "symbol": "OpticXT",
+                    "name": "OpticXT",
+                    "decimals": 6,
+                    "logoURI": "https://dd.dexscreener.com/ds-data/tokens/solana/Ga9P2TZcxsHjYmXdEyu9Z7wL1QAowjBAZwRQ41gBbonk.png",
+                },
+                "F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump": {
+                    "symbol": "AGIXT",
+                    "name": "AGIXT",
+                    "decimals": 8,
+                    "logoURI": "https://dd.dexscreener.com/ds-data/tokens/solana/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump.png",
+                },
+            }
+
+            try:
+                # Try Solana token list to augment with more tokens
+                response_metadata = requests.get(
+                    "https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json",
+                    timeout=10,
+                )
+                if response_metadata.status_code == 200:
+                    token_list_data = response_metadata.json()
+                    token_list = token_list_data.get("tokens", [])
+                    for token in token_list:
+                        if token["address"] not in token_metadata:
+                            token_metadata[token["address"]] = token
+                    logging.info(
+                        f"Loaded metadata for {len(token_metadata)} tokens including Solana token list"
+                    )
+            except Exception as e:
+                logging.warning(f"Failed to fetch Solana token list: {str(e)}")
+                logging.info(f"Using {len(token_metadata)} known tokens")
+
+            # Collect all token accounts from both programs
+            all_accounts = []
+
+            # Get Token Program accounts
+            response = await client.get_token_accounts_by_owner(
+                wallet_pubkey,
+                TokenAccountOpts(program_id=TOKEN_PROGRAM_ID),
+            )
+            if response.value:
+                all_accounts.extend(response.value)
+                logging.info(f"Found {len(response.value)} Token Program accounts")
+
+            # Get Token-2022 Program accounts
+            response_2022 = await client.get_token_accounts_by_owner(
+                wallet_pubkey,
+                TokenAccountOpts(program_id=TOKEN_2022_PROGRAM_ID),
+            )
+            if response_2022.value:
+                all_accounts.extend(response_2022.value)
+                logging.info(
+                    f"Found {len(response_2022.value)} Token-2022 Program accounts"
+                )
+
+            if not all_accounts:
+                await client.close()
                 return {
                     "success": True,
                     "wallet_address": wallet_address,
@@ -1052,32 +1140,121 @@ class wallet(Extensions):
                 }
 
             tokens = []
-            for account in response.value:
+            for account_info in all_accounts:
                 try:
+                    # Parse token account data manually
+                    # Token account layout:
+                    # Bytes 0-31: mint (32 bytes)
+                    # Bytes 32-63: owner (32 bytes)
+                    # Bytes 64-71: amount (u64, 8 bytes)
+                    # And more fields after...
+
+                    if not hasattr(account_info, "account") or not hasattr(
+                        account_info.account, "data"
+                    ):
+                        continue
+
+                    data = account_info.account.data
+
+                    # Data should be bytes
+                    if not isinstance(data, bytes) or len(data) < 72:
+                        logging.warning(
+                            f"Invalid token account data length: {len(data) if isinstance(data, bytes) else 'not bytes'}"
+                        )
+                        continue
+
+                    # Extract mint address (first 32 bytes)
+                    mint_bytes = data[0:32]
+                    mint_pubkey = Pubkey(mint_bytes)
+                    mint = str(mint_pubkey)
+
+                    # Extract amount (bytes 64-72, little-endian u64)
+                    amount_bytes = data[64:72]
+                    amount = struct.unpack("<Q", amount_bytes)[0]
+
+                    # Get token account balance to find decimals
                     balance_response = await client.get_token_account_balance(
-                        account.pubkey
+                        account_info.pubkey
                     )
+
                     if balance_response.value:
-                        amount = balance_response.value.amount
                         decimals = balance_response.value.decimals
-                        ui_amount = int(amount) / (10**decimals)
+                        ui_amount = balance_response.value.ui_amount
 
-                        # Get mint from account data
-                        account_info = await client.get_account_info(account.pubkey)
-                        if account_info.value and account_info.value.data:
-                            data = base58.b58decode(account_info.value.data)
-                            mint = base58.b58encode(data[0:32]).decode()
+                        # Only include tokens with non-zero balance
+                        if ui_amount is not None and ui_amount > 0:
+                            token_info = {
+                                "mint": mint,
+                                "balance": ui_amount,
+                                "raw_balance": str(amount),
+                                "decimals": decimals,
+                                "account": str(account_info.pubkey),
+                            }
 
-                            tokens.append(
-                                {
-                                    "mint": mint,
-                                    "balance": ui_amount,
-                                    "decimals": decimals,
-                                    "account": str(account.pubkey),
-                                }
-                            )
-                except Exception:
+                            # Add metadata if available
+                            if mint in token_metadata:
+                                metadata = token_metadata[mint]
+                                token_info["symbol"] = metadata.get("symbol", "UNKNOWN")
+                                token_info["name"] = metadata.get(
+                                    "name", "Unknown Token"
+                                )
+                                if "logoURI" in metadata:
+                                    token_info["logo_uri"] = metadata.get("logoURI")
+                            else:
+                                # Try to fetch on-chain metadata for unknown tokens
+                                try:
+                                    # Query DexScreener for token info (works for many DEX-listed tokens)
+                                    dex_response = requests.get(
+                                        f"https://api.dexscreener.com/latest/dex/tokens/{mint}",
+                                        timeout=3,
+                                    )
+                                    if dex_response.status_code == 200:
+                                        dex_data = dex_response.json()
+                                        if (
+                                            dex_data.get("pairs")
+                                            and len(dex_data["pairs"]) > 0
+                                        ):
+                                            pair = dex_data["pairs"][0]
+                                            base_token = pair.get("baseToken", {})
+                                            token_info["symbol"] = base_token.get(
+                                                "symbol", "UNKNOWN"
+                                            )
+                                            token_info["name"] = base_token.get(
+                                                "name", f"Token {mint[:8]}..."
+                                            )
+
+                                            # Add logo URL if available
+                                            pair_info = pair.get("info", {})
+                                            if pair_info.get("imageUrl"):
+                                                token_info["logo_uri"] = pair_info.get(
+                                                    "imageUrl"
+                                                )
+
+                                            logging.info(
+                                                f"Found metadata for {mint} from DexScreener: {token_info['symbol']}"
+                                            )
+                                        else:
+                                            token_info["symbol"] = "UNKNOWN"
+                                            token_info["name"] = f"Token {mint[:8]}..."
+                                    else:
+                                        token_info["symbol"] = "UNKNOWN"
+                                        token_info["name"] = f"Token {mint[:8]}..."
+                                except Exception as meta_err:
+                                    logging.debug(
+                                        f"Could not fetch metadata for {mint}: {str(meta_err)}"
+                                    )
+                                    token_info["symbol"] = "UNKNOWN"
+                                    token_info["name"] = f"Token {mint[:8]}..."
+
+                            tokens.append(token_info)
+
+                except Exception as e:
+                    logging.error(
+                        f"Error parsing token account {account_info.pubkey}: {str(e)}"
+                    )
                     continue
+
+            await client.close()
 
             return {
                 "success": True,
