@@ -104,6 +104,7 @@ services:
       GRAPHIQL: ${GRAPHIQL:-true}
       EXTENSIONS_HUB: ${EXTENSIONS_HUB:-}
       EXTENSIONS_HUB_TOKEN: ${EXTENSIONS_HUB_TOKEN:-}
+      SMARTEST_PROVIDER: ${SMARTEST_PROVIDER:-google}
       TZ: ${TZ:-America/New_York}
     ports:
       - "${AGIXT_PORT:-7437}:7437"

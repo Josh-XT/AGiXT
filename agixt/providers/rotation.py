@@ -2,7 +2,6 @@ import logging
 from Providers import get_providers, get_provider_options, Providers
 from typing import List, Dict, Any
 from Globals import getenv
-import json
 
 
 class RotationProvider:
@@ -12,13 +11,15 @@ class RotationProvider:
 
     def __init__(
         self,
-        SMARTEST_PROVIDER: str = "anthropic",  # Can be a comma-separated list
+        SMARTEST_PROVIDER: str = "",  # Can be a comma-separated list
         **kwargs,
     ):
         self.friendly_name = "AGiXT"
         self.requirements = []
         self.providers = get_providers()
         self.AGENT_SETTINGS = kwargs
+        if SMARTEST_PROVIDER == "":
+            SMARTEST_PROVIDER = getenv("SMARTEST_PROVIDER", "google,anthropic,openai")
         if "," in SMARTEST_PROVIDER:
             self.intelligence_tiers = SMARTEST_PROVIDER.split(",")
         else:
