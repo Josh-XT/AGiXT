@@ -1724,7 +1724,7 @@ class MagicalAuth:
                                     relevant_subscriptions = (
                                         self.get_subscribed_products(
                                             api_key,
-                                            company_admin_preferences["stripe_id"],
+                                            company_admin.email,
                                         )
                                     )
                                     if relevant_subscriptions:
