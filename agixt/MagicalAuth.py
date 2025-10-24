@@ -1557,21 +1557,25 @@ class MagicalAuth:
             # Step 2 & 3: Check active subscriptions for each customer
             for customer in customers.data:
                 try:
-                    # List only *active* subscriptions for this specific customer.
-                    # No need to expand anything further if we aren't checking product details.
-                    subscriptions_list = stripe.Subscription.list(
-                        customer=customer.id,
-                        status="active",
-                        limit=100,  # Safeguard limit
-                    )
+                    # List subscriptions that should grant access (active, trialing, or past_due in grace period)
+                    # We check multiple statuses because:
+                    # - "active": paid and active
+                    # - "trialing": in trial period (should have access)
+                    # - "past_due": payment failed but still in grace period (should have temporary access)
+                    for status in ["active", "trialing", "past_due"]:
+                        subscriptions_list = stripe.Subscription.list(
+                            customer=customer.id,
+                            status=status,
+                            limit=100,  # Safeguard limit
+                        )
 
-                    # Step 4: Add all found active subscriptions to our main list
-                    for subscription in subscriptions_list.data:
-                        # Avoid adding duplicates if checking multiple customers with same subscription
-                        if subscription.id not in [
-                            sub.id for sub in all_active_subscriptions
-                        ]:
-                            all_active_subscriptions.append(subscription)
+                        # Add all found subscriptions to our main list
+                        for subscription in subscriptions_list.data:
+                            # Avoid adding duplicates
+                            if subscription.id not in [
+                                sub.id for sub in all_active_subscriptions
+                            ]:
+                                all_active_subscriptions.append(subscription)
 
                 except stripe.error.StripeError as se_sub:
                     logging.error(
@@ -1675,6 +1679,12 @@ class MagicalAuth:
             user_preferences["input_tokens"] = 0
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
+
+        # If user is already marked as active (e.g., by webhook), trust that status
+        # This prevents race conditions where webhook sets is_active=True but we override it
+        if user.is_active:
+            has_active_subscription = True
+
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
             if api_key != "" and api_key is not None and str(api_key).lower() != "none":
