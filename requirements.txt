@@ -80,3 +80,4 @@ google-ads
 PyNaCl>=1.5.0
 eth-account>=0.13.0
 twilio
+x402>=0.1.0
