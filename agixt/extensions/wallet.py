@@ -46,6 +46,7 @@ from payments import (
     StripePaymentService,
     SUPPORTED_CURRENCIES,
 )
+from payments.x402 import X402PaymentService, get_x402_service
 
 """
 Crypto Wallet Authentication Extension
@@ -326,6 +327,16 @@ class wallet(Extensions):
         self.price_service = PriceService()
         self.crypto_service = CryptoPaymentService(price_service=self.price_service)
         self.stripe_service = StripePaymentService(price_service=self.price_service)
+
+        # Initialize x402 payment service (if configured)
+        try:
+            self.x402_service = get_x402_service()
+        except ValueError:
+            # X402_MERCHANT_WALLET not configured, x402 disabled
+            self.x402_service = None
+            logging.warning(
+                "X402 payment service not configured. Set X402_MERCHANT_WALLET to enable."
+            )
 
         @self.router.get(
             "/v1/wallet/providers",
@@ -627,6 +638,146 @@ class wallet(Extensions):
             if record.get("status") != "completed":
                 raise HTTPException(status_code=400, detail="Payment not confirmed")
             return PaymentTransactionResponse(**record)
+
+        # ----------------------------
+        # x402 Payment Protocol endpoints
+        # ----------------------------
+
+        @self.router.get(
+            "/v1/billing/x402/enabled",
+            tags=["Billing", "x402"],
+        )
+        async def check_x402_enabled():
+            """Check if x402 payment protocol is enabled"""
+            return {
+                "enabled": self.x402_service is not None,
+                "facilitator": (
+                    self.x402_service.facilitator_url if self.x402_service else None
+                ),
+                "network": self.x402_service.network if self.x402_service else None,
+            }
+
+        @self.router.post(
+            "/v1/billing/x402/payment-request",
+            tags=["Billing", "x402"],
+        )
+        async def create_x402_payment_request(
+            seat_count: int,
+            currency: str = "USDC",
+            user=Depends(verify_api_key),
+        ):
+            """
+            Create an x402 payment request for API resource access.
+            This returns the payment details that would go in a 402 response.
+            """
+            if not self.x402_service:
+                raise HTTPException(
+                    status_code=503, detail="x402 payment protocol not configured"
+                )
+
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+
+            # Get price quote
+            quote = await self.price_service.get_quote(currency, seat_count)
+
+            # Create x402 payment request
+            payment_request = self.x402_service.create_payment_request(
+                amount=quote["amount_currency"],
+                currency=currency,
+                description=f"AGiXT API Access - {seat_count} seat(s)",
+                metadata={
+                    "user_id": user_id,
+                    "seat_count": seat_count,
+                    "quote": quote,
+                },
+            )
+
+            return payment_request
+
+        @self.router.post(
+            "/v1/billing/x402/verify",
+            response_model=PaymentTransactionResponse,
+            tags=["Billing", "x402"],
+        )
+        async def verify_x402_payment(
+            request: Request,
+            seat_count: int,
+            currency: str = "USDC",
+            user=Depends(verify_api_key),
+        ):
+            """
+            Verify and process an x402 payment from the X-PAYMENT header.
+            This endpoint handles the payment verification and settlement.
+            """
+            if not self.x402_service:
+                raise HTTPException(
+                    status_code=503, detail="x402 payment protocol not configured"
+                )
+
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+
+            # Get payment payload from X-PAYMENT header
+            payment_payload = request.headers.get("X-PAYMENT")
+            if not payment_payload:
+                raise HTTPException(status_code=400, detail="Missing X-PAYMENT header")
+
+            # Get expected amount
+            quote = await self.price_service.get_quote(currency, seat_count)
+            expected_amount = quote["amount_currency"]
+
+            try:
+                # Process payment (verify + settle + record)
+                payment_record = await self.x402_service.process_payment(
+                    payment_payload=payment_payload,
+                    amount=expected_amount,
+                    currency=currency,
+                    user_id=user_id,
+                    description=f"AGiXT API Access - {seat_count} seat(s)",
+                )
+
+                # Return payment record and set X-PAYMENT-RESPONSE header
+                response_data = PaymentTransactionResponse(
+                    id=payment_record.id,
+                    user_id=payment_record.user_id,
+                    amount=payment_record.amount,
+                    currency=payment_record.currency,
+                    status=payment_record.status,
+                    transaction_hash=payment_record.transaction_hash,
+                    payment_method=payment_record.payment_method,
+                    description=payment_record.description,
+                    metadata=payment_record.metadata,
+                    created_at=(
+                        payment_record.created_at.isoformat()
+                        if payment_record.created_at
+                        else None
+                    ),
+                )
+
+                # Add X-PAYMENT-RESPONSE header with transaction details
+                from fastapi.responses import JSONResponse
+
+                facilitator_tx_id = payment_record.metadata.get("facilitator_tx_id", "")
+                blockchain_tx = payment_record.transaction_hash
+
+                response = JSONResponse(content=response_data.dict())
+                response.headers["X-PAYMENT-RESPONSE"] = (
+                    self.x402_service.create_payment_response_header(
+                        transaction_id=facilitator_tx_id,
+                        blockchain_tx=blockchain_tx,
+                    )
+                )
+
+                return response
+
+            except Exception as e:
+                logging.error(f"x402 payment verification failed: {str(e)}")
+                raise HTTPException(
+                    status_code=400, detail=f"Payment verification failed: {str(e)}"
+                )
 
         @self.router.post(
             "/v1/billing/stripe/payment-intent",
