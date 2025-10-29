@@ -275,19 +275,21 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
     async def read_file(
         self,
         filename: str,
-        line_start: Optional[str] = None,
-        line_end: Optional[str] = None,
+        line_start: str,
+        line_end: str,
     ) -> str:
         """
         Read a file in the workspace, optionally reading only specific line ranges
 
         Args:
         filename (str): The name of the file to read
-        line_start (Optional[int]): The starting line number (1-indexed). If None, starts from beginning
-        line_end (Optional[int]): The ending line number (1-indexed, inclusive). If None, reads to end
+        line_start (int): The starting line number (1-indexed). If "None", starts from beginning
+        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end
 
         Returns:
         str: The content of the file or specified line range
+
+        Notes: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access. The user can browse the agents workspace by clicking the folder icon in their chat input bar.
         """
         try:
             line_start = int(line_start)
