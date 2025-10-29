@@ -1408,7 +1408,7 @@ class github(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    async def get_repo_issue(self, repo_url: str, issue_number: int) -> str:
+    async def get_repo_issue(self, repo_url: str, issue_number: str) -> str:
         """
         Get the details of a specific issue in a GitHub repository
 
@@ -1475,7 +1475,7 @@ class github(Extensions):
     async def update_repo_issue(
         self,
         repo_url: str,
-        issue_number: int,
+        issue_number: str,
         title: str,
         body: str,
         assignee: str = None,
@@ -1539,7 +1539,7 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def get_repo_pull_request(
-        self, repo_url: str, pull_request_number: int
+        self, repo_url: str, pull_request_number: str
     ) -> str:
         """
         Get the details of a specific pull request in a GitHub repository
@@ -1600,7 +1600,7 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def update_repo_pull_request(
-        self, repo_url: str, pull_request_number: int, title: str, body: str
+        self, repo_url: str, pull_request_number: str, title: str, body: str
     ) -> str:
         """
         Update an existing pull request in a GitHub repository
@@ -1631,7 +1631,7 @@ class github(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    async def get_repo_commits(self, repo_url: str, days: int = 7) -> str:
+    async def get_repo_commits(self, repo_url: str, days: str = 7) -> str:
         """
         Get the commits for a GitHub repository
 
@@ -1690,7 +1690,7 @@ class github(Extensions):
     async def add_comment_to_repo_issue(
         self,
         repo_url: str,
-        issue_number: int,
+        issue_number: str,
         comment_body: str,
         close_issue: bool = False,
     ) -> str:
@@ -1731,7 +1731,7 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def add_comment_to_repo_pull_request(
-        self, repo_url: str, pull_request_number: int, comment_body: str
+        self, repo_url: str, pull_request_number: str, comment_body: str
     ) -> str:
         """
         Add a comment to a pull request in a GitHub repository

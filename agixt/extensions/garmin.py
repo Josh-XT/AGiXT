@@ -578,7 +578,7 @@ Use specific activity ID to get detailed GPS data."""
                 return await self.get_gps_data(activity_id)
             return f"Error getting GPS data: {str(e)}"
 
-    async def get_activity_data(self, date: str = "today", limit: int = 10) -> str:
+    async def get_activity_data(self, date: str = "today", limit: str = "10") -> str:
         """
         Get activity and exercise data for a specific date
 

@@ -147,7 +147,7 @@ def _start_local() -> None:
     existing_pid = _read_pid(LOCAL_PID_FILE)
     if existing_pid and _is_process_running(existing_pid):
         raise CLIError(f"AGiXT local already running with PID {existing_pid}.")
-
+    print("Starting AGiXT...")
     env = os.environ.copy()
     env.setdefault("PYTHONUNBUFFERED", "1")
 
@@ -172,7 +172,31 @@ def _start_local() -> None:
         raise CLIError("Failed to start AGiXT locally.")
 
     LOCAL_PID_FILE.write_text(str(process.pid))
-    print(f"Started AGiXT locally (PID {process.pid}). Logs: {LOCAL_LOG_FILE}")
+
+    requests_imported = False
+    try:
+        import requests
+
+        requests_imported = True
+    except ImportError:
+        print("Unable to import requests library, skipping health check.")
+
+    if requests_imported:
+        time.sleep(6)
+        try:
+            response = requests.get("http://localhost:7437/health")
+        except requests.RequestException:
+            response = requests.Response()
+            response.status_code = 500
+        while response.status_code != 200:
+            time.sleep(2)
+            try:
+                response = requests.get("http://localhost:7437/health")
+            except requests.RequestException:
+                response = requests.Response()
+                response.status_code = 500
+    print(f"AGiXT started successfully!")
+    print(f"View logs at: {LOCAL_LOG_FILE}")
 
 
 def _stop_local() -> None:
@@ -181,15 +205,15 @@ def _stop_local() -> None:
     stopped_by_pid = False
 
     if pid and _is_process_running(pid):
+        print("Stopping AGiXT...")
         os.kill(pid, signal.SIGTERM)
         start_time = time.time()
-        timeout = 30
+        timeout = 10
         while _is_process_running(pid) and (time.time() - start_time) < timeout:
             time.sleep(0.5)
 
         if _is_process_running(pid):
             os.kill(pid, signal.SIGKILL)
-            print(f"AGiXT local (PID {pid}) did not stop gracefully; sent SIGKILL.")
         else:
             print(f"Stopped AGiXT local (PID {pid}).")
         stopped_by_pid = True
@@ -201,7 +225,6 @@ def _stop_local() -> None:
             if port_pid != pid:  # Don't kill the same PID twice
                 try:
                     os.kill(port_pid, signal.SIGKILL)
-                    print(f"Killed process {port_pid} listening on port 7437.")
                 except ProcessLookupError:
                     pass  # Process already gone
                 except PermissionError as e:

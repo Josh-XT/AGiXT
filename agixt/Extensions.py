@@ -1,6 +1,7 @@
 import importlib
 import os
 import glob
+import json
 from inspect import signature, Parameter
 import logging
 import inspect
@@ -517,6 +518,24 @@ class Extensions:
             if param not in params:
                 del args[param]
 
+        # Convert argument types based on function signature
+        if command_function is not None:
+            sig = signature(command_function)
+            converted_args = {}
+            for arg_name, arg_value in args.items():
+                if arg_name in sig.parameters:
+                    param_info = sig.parameters[arg_name]
+                    if param_info.annotation != Parameter.empty:
+                        # Convert the argument to the expected type
+                        converted_args[arg_name] = self._convert_arg_type(
+                            arg_value, param_info.annotation, arg_name
+                        )
+                    else:
+                        converted_args[arg_name] = arg_value
+                else:
+                    converted_args[arg_name] = arg_value
+            args = converted_args
+
         if module is None:  # It's a chain
             try:
                 args = args.copy()
@@ -663,6 +682,110 @@ class Extensions:
             else:
                 params[name] = param.default
         return params
+
+    def _convert_arg_type(self, value, param_annotation, param_name: str = ""):
+        """
+        Convert argument value to the expected type based on parameter annotation.
+
+        Args:
+            value: The value to convert (typically a string from API)
+            param_annotation: The type annotation from the function signature
+            param_name: Name of the parameter (for logging)
+
+        Returns:
+            Converted value or original value if conversion not possible/needed
+        """
+        # If value is None or already the correct type, return as-is
+        if value is None or param_annotation == Parameter.empty:
+            return value
+
+        # Get the actual type if it's wrapped in Optional, Union, etc.
+        actual_type = param_annotation
+
+        # Handle typing module types (Optional, Union, etc.)
+        if hasattr(param_annotation, "__origin__"):
+            # For Optional[T] or Union[T, None], extract T
+            if (
+                param_annotation.__origin__ is type(None)
+                or str(param_annotation.__origin__) == "typing.Union"
+            ):
+                args = getattr(param_annotation, "__args__", ())
+                if args:
+                    # Get first non-None type
+                    actual_type = next(
+                        (arg for arg in args if arg is not type(None)), str
+                    )
+            else:
+                actual_type = param_annotation.__origin__
+
+        # If already correct type, return as-is
+        if type(value) == actual_type:
+            return value
+
+        # Convert string values to appropriate types
+        if isinstance(value, str):
+            try:
+                # Handle boolean conversion
+                if actual_type == bool:
+                    if value.lower() in ("true", "1", "yes", "on"):
+                        return True
+                    elif value.lower() in ("false", "0", "no", "off", ""):
+                        return False
+                    else:
+                        return bool(value)
+
+                # Handle integer conversion
+                elif actual_type == int:
+                    # Handle float strings by converting to float first, then int
+                    if "." in value:
+                        return int(float(value))
+                    return int(value)
+
+                # Handle float conversion
+                elif actual_type == float:
+                    return float(value)
+
+                # Handle list/tuple conversion (basic JSON-like strings)
+                elif actual_type in (list, tuple):
+                    import json
+
+                    try:
+                        result = json.loads(value)
+                        return (
+                            actual_type(result)
+                            if isinstance(result, (list, tuple))
+                            else [result]
+                        )
+                    except:
+                        # If not JSON, split by comma
+                        return actual_type(
+                            v.strip() for v in value.split(",") if v.strip()
+                        )
+
+                # Handle dict conversion
+                elif actual_type == dict:
+                    import json
+
+                    return json.loads(value)
+
+            except (ValueError, TypeError, json.JSONDecodeError) as e:
+                logging.warning(
+                    f"Could not convert parameter '{param_name}' value '{value}' to type {actual_type}: {e}. "
+                    f"Using original value."
+                )
+                return value
+
+        # For non-string values, try direct conversion
+        try:
+            if actual_type in (int, float, bool, str, list, tuple, dict):
+                return actual_type(value)
+        except (ValueError, TypeError) as e:
+            logging.warning(
+                f"Could not convert parameter '{param_name}' value '{value}' to type {actual_type}: {e}. "
+                f"Using original value."
+            )
+
+        return value
 
     def get_extensions(self):
         commands = []

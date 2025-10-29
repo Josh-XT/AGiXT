@@ -3,6 +3,7 @@ from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 import re
 import os
+import logging
 
 
 class grokipedia(Extensions):
@@ -64,22 +65,64 @@ class grokipedia(Extensions):
             content = await page.content()
             soup = BeautifulSoup(content, "html.parser")
 
-            # Try to find the main article content
-            # This will need to be adjusted based on Grokipedia's actual structure
-            article_content = (
-                soup.find("article")
-                or soup.find("main")
-                or soup.find("div", class_=re.compile(r"content|article"))
-            )
+            # Remove unwanted elements before processing
+            for element in soup.find_all(
+                ["nav", "header", "footer", "aside", "script", "style"]
+            ):
+                element.decompose()
+
+            # Remove elements with navigation/sidebar classes
+            for element in soup.find_all(
+                class_=re.compile(
+                    r"nav|sidebar|menu|header|footer|breadcrumb|toc", re.I
+                )
+            ):
+                element.decompose()
+
+            # Try multiple strategies to find the main article content
+            article_content = None
+
+            # Strategy 1: Look for article or main tags
+            article_content = soup.find("article") or soup.find("main")
+
+            # Strategy 2: Look for common content containers
+            if not article_content:
+                article_content = soup.find(
+                    "div", class_=re.compile(r"content|article|post|entry", re.I)
+                )
+
+            # Strategy 3: Look for the largest content div by id
+            if not article_content:
+                article_content = soup.find(
+                    "div", id=re.compile(r"content|article|main", re.I)
+                )
+
+            # Strategy 4: Find div with most paragraph content
+            if not article_content:
+                candidates = soup.find_all("div")
+                best_candidate = None
+                max_paragraphs = 0
+                for candidate in candidates:
+                    p_count = len(candidate.find_all("p"))
+                    if p_count > max_paragraphs:
+                        max_paragraphs = p_count
+                        best_candidate = candidate
+                if best_candidate and max_paragraphs > 3:
+                    article_content = best_candidate
 
             if article_content:
                 # Convert HTML to markdown-like text
                 markdown_content = self._html_to_markdown(article_content, title)
             else:
-                # Fallback: just get all text
-                separator = "\n"
-                text_content = soup.get_text(separator=separator, strip=True)
-                markdown_content = f"# {title}\n\n{text_content}"
+                # Fallback: process entire body
+                body = soup.find("body")
+                if body:
+                    markdown_content = self._html_to_markdown(body, title)
+                else:
+                    # Last resort: just get all text
+                    separator = "\n"
+                    text_content = soup.get_text(separator=separator, strip=True)
+                    markdown_content = f"# {title}\n\n{text_content}"
 
             # Create a safe filename
             safe_filename = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "_")
@@ -109,40 +152,155 @@ class grokipedia(Extensions):
         """
         markdown_parts = [f"# {title}\n"]
 
-        # Get all paragraphs and headings in order
-        for elem in element.find_all(
-            ["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "pre", "blockquote"]
+        # Remove unwanted nested elements
+        for unwanted in element.find_all(
+            ["nav", "aside", "footer", "header", "script", "style"]
         ):
+            unwanted.decompose()
+
+        def get_all_content_elements(root):
+            """Get all content elements in document order"""
+            content_elements = []
+
+            def traverse(elem):
+                # Skip if this is a string/text node
+                if not hasattr(elem, "name"):
+                    return
+
+                # Skip unwanted elements
+                if elem.name in ["nav", "aside", "footer", "header", "script", "style"]:
+                    return
+
+                # Check if element has navigation/UI classes
+                if elem.get("class"):
+                    classes = " ".join(elem.get("class", []))
+                    if any(
+                        skip in classes.lower()
+                        for skip in [
+                            "nav",
+                            "sidebar",
+                            "menu",
+                            "header",
+                            "footer",
+                            "toc",
+                            "breadcrumb",
+                            "advertisement",
+                        ]
+                    ):
+                        return
+
+                # If this is a content element, add it
+                if elem.name in [
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "p",
+                    "ul",
+                    "ol",
+                    "pre",
+                    "blockquote",
+                    "table",
+                    "dl",
+                    "div",
+                ]:
+                    content_elements.append(elem)
+
+                # Always traverse children regardless
+                if hasattr(elem, "children"):
+                    for child in elem.children:
+                        if hasattr(child, "name"):
+                            traverse(child)
+
+            traverse(root)
+            return content_elements
+
+        # Get all content elements
+        elements = get_all_content_elements(element)
+        processed = set()  # Track processed elements to avoid duplicates from nesting
+
+        for elem in elements:
+            # Skip if we've already processed this element (nested case)
+            if id(elem) in processed:
+                continue
+            processed.add(id(elem))
+
+            # Skip if element is nested inside another content element we'll process
+            is_nested = False
+            for parent in elem.parents:
+                if id(parent) in processed and parent.name in [
+                    "p",
+                    "ul",
+                    "ol",
+                    "blockquote",
+                    "pre",
+                ]:
+                    is_nested = True
+                    break
+            if is_nested:
+                continue
+
             if elem.name == "h1":
                 text = elem.get_text(strip=True)
                 if text and text != title:  # Avoid duplicate title
                     markdown_parts.append(f"\n# {text}\n")
             elif elem.name == "h2":
-                markdown_parts.append(f"\n## {elem.get_text(strip=True)}\n")
+                text = elem.get_text(strip=True)
+                if text:
+                    markdown_parts.append(f"\n## {text}\n")
             elif elem.name == "h3":
-                markdown_parts.append(f"\n### {elem.get_text(strip=True)}\n")
+                text = elem.get_text(strip=True)
+                if text:
+                    markdown_parts.append(f"\n### {text}\n")
             elif elem.name == "h4":
-                markdown_parts.append(f"\n#### {elem.get_text(strip=True)}\n")
+                text = elem.get_text(strip=True)
+                if text:
+                    markdown_parts.append(f"\n#### {text}\n")
             elif elem.name == "h5":
-                markdown_parts.append(f"\n##### {elem.get_text(strip=True)}\n")
+                text = elem.get_text(strip=True)
+                if text:
+                    markdown_parts.append(f"\n##### {text}\n")
             elif elem.name == "h6":
-                markdown_parts.append(f"\n###### {elem.get_text(strip=True)}\n")
+                text = elem.get_text(strip=True)
+                if text:
+                    markdown_parts.append(f"\n###### {text}\n")
             elif elem.name == "p":
+                # Get direct text content, not nested elements
                 text = elem.get_text(strip=True)
                 if text:
                     markdown_parts.append(f"{text}\n")
             elif elem.name == "ul":
+                has_content = False
                 for li in elem.find_all("li", recursive=False):
                     text = li.get_text(strip=True)
                     if text:
                         markdown_parts.append(f"- {text}")
-                markdown_parts.append("")
+                        has_content = True
+                if has_content:
+                    markdown_parts.append("")
             elif elem.name == "ol":
+                has_content = False
                 for i, li in enumerate(elem.find_all("li", recursive=False), 1):
                     text = li.get_text(strip=True)
                     if text:
                         markdown_parts.append(f"{i}. {text}")
-                markdown_parts.append("")
+                        has_content = True
+                if has_content:
+                    markdown_parts.append("")
+            elif elem.name == "dl":
+                # Definition lists
+                for dt in elem.find_all("dt", recursive=False):
+                    term = dt.get_text(strip=True)
+                    if term:
+                        markdown_parts.append(f"\n**{term}**")
+                    # Find corresponding dd
+                    dd = dt.find_next_sibling("dd")
+                    if dd:
+                        definition = dd.get_text(strip=True)
+                        if definition:
+                            markdown_parts.append(f": {definition}\n")
             elif elem.name == "pre":
                 code = elem.get_text(strip=True)
                 if code:
@@ -153,6 +311,30 @@ class grokipedia(Extensions):
                     # Add > to each line
                     quoted = "\n".join(f"> {line}" for line in text.split("\n"))
                     markdown_parts.append(f"\n{quoted}\n")
+            elif elem.name == "table":
+                # Basic table support
+                rows = elem.find_all("tr", recursive=False)
+                tbody = elem.find("tbody")
+                if tbody:
+                    rows = tbody.find_all("tr", recursive=False)
+
+                if rows:
+                    markdown_parts.append("\n")
+                    for row in rows:
+                        cells = row.find_all(["th", "td"])
+                        if cells:
+                            row_text = " | ".join(
+                                cell.get_text(strip=True) for cell in cells
+                            )
+                            markdown_parts.append(f"| {row_text} |")
+                    markdown_parts.append("\n")
+            elif elem.name == "div":
+                # For div elements, check if they have direct text content (not in other elements)
+                direct_text = "".join(
+                    elem.find_all(string=True, recursive=False)
+                ).strip()
+                if direct_text:
+                    markdown_parts.append(f"{direct_text}\n")
 
         return "\n".join(markdown_parts)
 
@@ -170,9 +352,13 @@ class grokipedia(Extensions):
         Notes: If the user asks to search wikipedia or if it might be useful to look up recent information, use "Search Grokipedia" instead.
         This will download the articles as markdown files to the workspace for the agent to read.
         """
+        logging.info(
+            f"Grokipedia search started for query: '{query}', max_results: {max_results}"
+        )
 
         base_url = "https://grokipedia.com"
         search_url = f"{base_url}/search?q={query.replace(' ', '+')}"
+        logging.info(f"Search URL: {search_url}")
         articles_to_download = []
         downloaded_files = []
 
@@ -230,42 +416,91 @@ class grokipedia(Extensions):
                                 ) // ITEMS_PER_PAGE
                                 pages_needed = min(pages_needed, max_possible_pages)
 
-                    # Find the container with results
-                    results_container = soup.find(
-                        "div", class_=re.compile(r"relative min-h-\[.*?\]")
-                    )
+                    # Find result items - try multiple strategies
+                    items = []
 
+                    # Strategy 1: Look for the specific container
+                    results_container = soup.find(
+                        "div", class_=re.compile(r"relative min-h-")
+                    )
                     if results_container:
-                        # Find result items within the container
                         items = results_container.find_all(
-                            "div",
-                            class_="rounded-md p-2 transition-colors dark:hover:bg-surface-l2 hover:bg-button-ghost-hover cursor-pointer",
+                            "div", class_=re.compile(r"rounded-md.*cursor-pointer")
+                        )
+                        logging.info(f"Strategy 1 found {len(items)} items")
+
+                    # Strategy 2: If no items found, look for links to /page/
+                    if not items:
+                        # Find all links that go to /page/
+                        page_links = soup.find_all("a", href=re.compile(r"/page/"))
+                        # Group them into pseudo-items
+                        items = page_links
+                        logging.info(f"Strategy 2 found {len(items)} page links")
+
+                    # Strategy 3: Look for any div with truncate class (common for search results)
+                    if not items:
+                        items = soup.find_all("div", class_=re.compile(r"truncate"))
+                        logging.info(f"Strategy 3 found {len(items)} truncate divs")
+
+                    # Debug: Save the HTML for inspection if no items found
+                    if not items and current_page == 1:
+                        debug_path = self.safe_join("grokipedia/debug_search.html")
+                        with open(debug_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        logging.warning(
+                            f"No items found. Saved HTML to {debug_path} for debugging"
                         )
 
-                        for item in items:
-                            if len(articles_to_download) >= max_results:
-                                break
+                    for item in items:
+                        if len(articles_to_download) >= max_results:
+                            break
 
-                            # Find the span containing the title
-                            title_span = item.find(
-                                "span",
-                                class_="line-clamp-1 min-w-0 flex-1 truncate font-normal text-sm",
+                        title = None
+                        article_url = None
+
+                        # Try to extract title and URL from different possible structures
+                        if item.name == "a":
+                            # Direct link
+                            title = item.get_text(strip=True)
+                            href = item.get("href", "")
+                            if href.startswith("/page/"):
+                                article_url = f"{base_url}{href}"
+                        else:
+                            # Find title span - try multiple selectors
+                            title_span = (
+                                item.find("span", class_=re.compile(r"truncate"))
+                                or item.find("span", class_=re.compile(r"line-clamp"))
+                                or item.find("span")
                             )
+
                             if title_span:
-                                # The actual title is in a nested span
+                                # Look for nested span or use direct text
                                 inner_span = title_span.find("span")
                                 if inner_span:
-                                    title = inner_span.text.strip()
+                                    title = inner_span.get_text(strip=True)
                                 else:
-                                    title = title_span.text.strip()
+                                    title = title_span.get_text(strip=True)
 
-                                if title:
-                                    article_url = (
-                                        f"{base_url}/page/{title.replace(' ', '_')}"
-                                    )
-                                    articles_to_download.append(
-                                        {"title": title, "url": article_url}
-                                    )
+                            # Try to find link
+                            link = item.find("a", href=re.compile(r"/page/"))
+                            if link:
+                                href = link.get("href", "")
+                                article_url = f"{base_url}{href}"
+
+                        # If we have a title but no URL, construct it
+                        if title and not article_url:
+                            article_url = f"{base_url}/page/{title.replace(' ', '_')}"
+
+                        # Add to list if we have both title and URL
+                        if title and article_url:
+                            articles_to_download.append(
+                                {"title": title, "url": article_url}
+                            )
+                            logging.info(f"Added article: {title}")
+                        elif title or article_url:
+                            logging.warning(
+                                f"Incomplete article data - title: {title}, url: {article_url}"
+                            )
 
                     # If we need more results and haven't reached the limit, click "Next"
                     if (

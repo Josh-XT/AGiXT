@@ -26,7 +26,11 @@ class google_search(Extensions):
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
 
-    async def google_search(self, user_query: str, websearch_depth: int = 2):
+    async def google_search(self, user_query: str, websearch_depth: str = "2"):
+        try:
+            websearch_depth = int(websearch_depth)
+        except ValueError:
+            websearch_depth = 2
         return self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
