@@ -55,8 +55,10 @@ class grokipedia(Extensions):
             str: The relative path to the saved markdown file
         """
         try:
+            logging.info(f"Downloading article: {title} from {article_url}")
             # Navigate to the article page
             await page.goto(article_url, wait_until="networkidle", timeout=30000)
+            logging.info(f"Article page loaded: {title}")
 
             # Wait for article content to load
             await page.wait_for_timeout(2000)
@@ -130,13 +132,21 @@ class grokipedia(Extensions):
 
             # Save to workspace
             file_path = self.safe_join(f"grokipedia/{safe_filename}")
+            logging.info(f"Saving article to: {file_path}")
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(markdown_content)
 
+            logging.info(
+                f"Successfully saved article: {title} ({len(markdown_content)} bytes)"
+            )
             # Return relative path from workspace
             return f"grokipedia/{safe_filename}"
 
         except Exception as e:
+            logging.error(
+                f"Error downloading article '{title}' from {article_url}: {e}",
+                exc_info=True,
+            )
             return None
 
     def _html_to_markdown(self, element, title: str) -> str:
@@ -163,8 +173,12 @@ class grokipedia(Extensions):
             content_elements = []
 
             def traverse(elem):
-                # Skip if this is a string/text node
-                if not hasattr(elem, "name"):
+                # Skip if this is a string/text node or doesn't have required attributes
+                if not hasattr(elem, "name") or elem.name is None:
+                    return
+
+                # Skip if this doesn't have the 'get' method (NavigableString check)
+                if not hasattr(elem, "get"):
                     return
 
                 # Skip unwanted elements
@@ -172,8 +186,9 @@ class grokipedia(Extensions):
                     return
 
                 # Check if element has navigation/UI classes
-                if elem.get("class"):
-                    classes = " ".join(elem.get("class", []))
+                elem_classes = elem.get("class")
+                if elem_classes:
+                    classes = " ".join(elem_classes)
                     if any(
                         skip in classes.lower()
                         for skip in [
@@ -198,6 +213,7 @@ class grokipedia(Extensions):
                     "h5",
                     "h6",
                     "p",
+                    "span",
                     "ul",
                     "ol",
                     "pre",
@@ -211,8 +227,7 @@ class grokipedia(Extensions):
                 # Always traverse children regardless
                 if hasattr(elem, "children"):
                     for child in elem.children:
-                        if hasattr(child, "name"):
-                            traverse(child)
+                        traverse(child)
 
             traverse(root)
             return content_elements
@@ -225,22 +240,24 @@ class grokipedia(Extensions):
             # Skip if we've already processed this element (nested case)
             if id(elem) in processed:
                 continue
-            processed.add(id(elem))
 
-            # Skip if element is nested inside another content element we'll process
+            # Only skip if this element is nested inside a LIST item or similar container that we already processed
+            # Don't skip paragraphs just because they're in divs
             is_nested = False
             for parent in elem.parents:
+                # Only consider it nested if the parent is a leaf content element (not a container)
                 if id(parent) in processed and parent.name in [
-                    "p",
-                    "ul",
-                    "ol",
+                    "li",
                     "blockquote",
-                    "pre",
+                    "td",
+                    "th",
                 ]:
                     is_nested = True
                     break
             if is_nested:
                 continue
+
+            processed.add(id(elem))
 
             if elem.name == "h1":
                 text = elem.get_text(strip=True)
@@ -271,6 +288,14 @@ class grokipedia(Extensions):
                 text = elem.get_text(strip=True)
                 if text:
                     markdown_parts.append(f"{text}\n")
+            elif elem.name == "span":
+                # Grokipedia uses spans with specific classes for paragraph content
+                elem_classes = elem.get("class", [])
+                # Check if this span is being used as a paragraph (block-level with margin)
+                if "block" in elem_classes or "mb-4" in elem_classes:
+                    text = elem.get_text(strip=True)
+                    if text and len(text) > 20:  # Avoid small UI text spans
+                        markdown_parts.append(f"{text}\n")
             elif elem.name == "ul":
                 has_content = False
                 for li in elem.find_all("li", recursive=False):
@@ -369,178 +394,204 @@ class grokipedia(Extensions):
         total_results = 0
         ITEMS_PER_PAGE = 12
 
-        async with async_playwright() as p:
-            # Launch browser in headless mode
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+        try:
+            async with async_playwright() as p:
+                # Launch browser in headless mode
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
 
-            try:
-                # Navigate to the search URL
-                await page.goto(search_url, wait_until="networkidle", timeout=30000)
-
-                # Wait for results to load
                 try:
-                    await page.wait_for_selector(
-                        "p.text-fg-tertiary.text-base", timeout=10000
-                    )
-                except:
-                    pass  # Continue even if this doesn't appear
+                    # Navigate to the search URL
+                    logging.info(f"Navigating to {search_url}")
+                    await page.goto(search_url, wait_until="networkidle", timeout=30000)
+                    logging.info("Page loaded successfully")
 
-                # Calculate how many pages we need to visit
-                pages_needed = (max_results + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-                current_page = 1
-
-                # First, collect all the article titles and URLs
-                while (
-                    len(articles_to_download) < max_results
-                    and current_page <= pages_needed
-                ):
-                    # Get the current page content
-                    content = await page.content()
-                    soup = BeautifulSoup(content, "html.parser")
-
-                    # Find total results (only on first page)
-                    if current_page == 1:
-                        results_info = soup.find(
-                            "p", class_="text-fg-tertiary text-base"
+                    # Wait for results to load
+                    try:
+                        await page.wait_for_selector(
+                            "p.text-fg-tertiary.text-base", timeout=10000
                         )
-                        if results_info:
-                            match = re.search(
-                                r"yielded ([\d,]+) results:", results_info.text
-                            )
-                            if match:
-                                total_results = int(match.group(1).replace(",", ""))
-                                # Update pages_needed based on actual results
-                                max_possible_pages = (
-                                    total_results + ITEMS_PER_PAGE - 1
-                                ) // ITEMS_PER_PAGE
-                                pages_needed = min(pages_needed, max_possible_pages)
+                    except:
+                        pass  # Continue even if this doesn't appear
 
-                    # Find result items - try multiple strategies
-                    items = []
+                    # Calculate how many pages we need to visit
+                    pages_needed = (max_results + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+                    current_page = 1
 
-                    # Strategy 1: Look for the specific container
-                    results_container = soup.find(
-                        "div", class_=re.compile(r"relative min-h-")
-                    )
-                    if results_container:
-                        items = results_container.find_all(
-                            "div", class_=re.compile(r"rounded-md.*cursor-pointer")
-                        )
-                        logging.info(f"Strategy 1 found {len(items)} items")
-
-                    # Strategy 2: If no items found, look for links to /page/
-                    if not items:
-                        # Find all links that go to /page/
-                        page_links = soup.find_all("a", href=re.compile(r"/page/"))
-                        # Group them into pseudo-items
-                        items = page_links
-                        logging.info(f"Strategy 2 found {len(items)} page links")
-
-                    # Strategy 3: Look for any div with truncate class (common for search results)
-                    if not items:
-                        items = soup.find_all("div", class_=re.compile(r"truncate"))
-                        logging.info(f"Strategy 3 found {len(items)} truncate divs")
-
-                    # Debug: Save the HTML for inspection if no items found
-                    if not items and current_page == 1:
-                        debug_path = self.safe_join("grokipedia/debug_search.html")
-                        with open(debug_path, "w", encoding="utf-8") as f:
-                            f.write(content)
-                        logging.warning(
-                            f"No items found. Saved HTML to {debug_path} for debugging"
-                        )
-
-                    for item in items:
-                        if len(articles_to_download) >= max_results:
-                            break
-
-                        title = None
-                        article_url = None
-
-                        # Try to extract title and URL from different possible structures
-                        if item.name == "a":
-                            # Direct link
-                            title = item.get_text(strip=True)
-                            href = item.get("href", "")
-                            if href.startswith("/page/"):
-                                article_url = f"{base_url}{href}"
-                        else:
-                            # Find title span - try multiple selectors
-                            title_span = (
-                                item.find("span", class_=re.compile(r"truncate"))
-                                or item.find("span", class_=re.compile(r"line-clamp"))
-                                or item.find("span")
-                            )
-
-                            if title_span:
-                                # Look for nested span or use direct text
-                                inner_span = title_span.find("span")
-                                if inner_span:
-                                    title = inner_span.get_text(strip=True)
-                                else:
-                                    title = title_span.get_text(strip=True)
-
-                            # Try to find link
-                            link = item.find("a", href=re.compile(r"/page/"))
-                            if link:
-                                href = link.get("href", "")
-                                article_url = f"{base_url}{href}"
-
-                        # If we have a title but no URL, construct it
-                        if title and not article_url:
-                            article_url = f"{base_url}/page/{title.replace(' ', '_')}"
-
-                        # Add to list if we have both title and URL
-                        if title and article_url:
-                            articles_to_download.append(
-                                {"title": title, "url": article_url}
-                            )
-                            logging.info(f"Added article: {title}")
-                        elif title or article_url:
-                            logging.warning(
-                                f"Incomplete article data - title: {title}, url: {article_url}"
-                            )
-
-                    # If we need more results and haven't reached the limit, click "Next"
-                    if (
+                    # First, collect all the article titles and URLs
+                    while (
                         len(articles_to_download) < max_results
-                        and current_page < pages_needed
+                        and current_page <= pages_needed
                     ):
-                        try:
-                            # Look for the "Next" button/link
-                            next_button = await page.query_selector(
-                                'button:has-text("Next"), a:has-text("Next")'
+                        # Get the current page content
+                        content = await page.content()
+                        soup = BeautifulSoup(content, "html.parser")
+
+                        # Find total results (only on first page)
+                        if current_page == 1:
+                            results_info = soup.find(
+                                "p", class_="text-fg-tertiary text-base"
+                            )
+                            if results_info:
+                                match = re.search(
+                                    r"yielded ([\d,]+) results:", results_info.text
+                                )
+                                if match:
+                                    total_results = int(match.group(1).replace(",", ""))
+                                    # Update pages_needed based on actual results
+                                    max_possible_pages = (
+                                        total_results + ITEMS_PER_PAGE - 1
+                                    ) // ITEMS_PER_PAGE
+                                    pages_needed = min(pages_needed, max_possible_pages)
+
+                        # Find result items - try multiple strategies
+                        items = []
+
+                        # Strategy 1: Look for the specific container
+                        results_container = soup.find(
+                            "div", class_=re.compile(r"relative min-h-")
+                        )
+                        if results_container:
+                            items = results_container.find_all(
+                                "div", class_=re.compile(r"rounded-md.*cursor-pointer")
+                            )
+                            logging.info(f"Strategy 1 found {len(items)} items")
+
+                        # Strategy 2: If no items found, look for links to /page/
+                        if not items:
+                            # Find all links that go to /page/
+                            page_links = soup.find_all("a", href=re.compile(r"/page/"))
+                            # Group them into pseudo-items
+                            items = page_links
+                            logging.info(f"Strategy 2 found {len(items)} page links")
+
+                        # Strategy 3: Look for any div with truncate class (common for search results)
+                        if not items:
+                            items = soup.find_all("div", class_=re.compile(r"truncate"))
+                            logging.info(f"Strategy 3 found {len(items)} truncate divs")
+
+                        # Debug: Save the HTML for inspection if no items found
+                        if not items and current_page == 1:
+                            debug_path = self.safe_join("grokipedia/debug_search.html")
+                            with open(debug_path, "w", encoding="utf-8") as f:
+                                f.write(content)
+                            logging.warning(
+                                f"No items found. Saved HTML to {debug_path} for debugging"
                             )
 
-                            if next_button:
-                                await next_button.click()
-                                # Wait for new content to load
-                                await page.wait_for_timeout(2000)
-                                await page.wait_for_load_state(
-                                    "networkidle", timeout=10000
-                                )
-                                current_page += 1
-                            else:
-                                # No next button found, we're done
+                        for item in items:
+                            if len(articles_to_download) >= max_results:
                                 break
-                        except Exception as e:
-                            # If clicking next fails, break the loop
+
+                            title = None
+                            article_url = None
+
+                            # Try to extract title and URL from different possible structures
+                            if item.name == "a":
+                                # Direct link
+                                title = item.get_text(strip=True)
+                                href = item.get("href", "")
+                                if href.startswith("/page/"):
+                                    article_url = f"{base_url}{href}"
+                            else:
+                                # Find title span - try multiple selectors
+                                title_span = (
+                                    item.find("span", class_=re.compile(r"truncate"))
+                                    or item.find(
+                                        "span", class_=re.compile(r"line-clamp")
+                                    )
+                                    or item.find("span")
+                                )
+
+                                if title_span:
+                                    # Look for nested span or use direct text
+                                    inner_span = title_span.find("span")
+                                    if inner_span:
+                                        title = inner_span.get_text(strip=True)
+                                    else:
+                                        title = title_span.get_text(strip=True)
+
+                                # Try to find link
+                                link = item.find("a", href=re.compile(r"/page/"))
+                                if link:
+                                    href = link.get("href", "")
+                                    article_url = f"{base_url}{href}"
+
+                            # If we have a title but no URL, construct it
+                            if title and not article_url:
+                                article_url = (
+                                    f"{base_url}/page/{title.replace(' ', '_')}"
+                                )
+
+                            # Add to list if we have both title and URL
+                            if title and article_url:
+                                articles_to_download.append(
+                                    {"title": title, "url": article_url}
+                                )
+                                logging.info(f"Added article: {title}")
+                            elif title or article_url:
+                                logging.warning(
+                                    f"Incomplete article data - title: {title}, url: {article_url}"
+                                )
+
+                        # If we need more results and haven't reached the limit, click "Next"
+                        if (
+                            len(articles_to_download) < max_results
+                            and current_page < pages_needed
+                        ):
+                            try:
+                                # Look for the "Next" button/link
+                                next_button = await page.query_selector(
+                                    'button:has-text("Next"), a:has-text("Next")'
+                                )
+
+                                if next_button:
+                                    await next_button.click()
+                                    # Wait for new content to load
+                                    await page.wait_for_timeout(2000)
+                                    await page.wait_for_load_state(
+                                        "networkidle", timeout=10000
+                                    )
+                                    current_page += 1
+                                else:
+                                    # No next button found, we're done
+                                    break
+                            except Exception as e:
+                                logging.warning(f"Error clicking next button: {e}")
+                                # If clicking next fails, break the loop
+                                break
+                        else:
                             break
-                    else:
-                        break
 
-                # Now download each article
-                for article in articles_to_download:
-                    file_path = await self.download_article(
-                        page, article["title"], article["url"]
+                    # Now download each article
+                    logging.info(
+                        f"Found {len(articles_to_download)} articles to download"
                     )
-                    if file_path:
-                        downloaded_files.append(f"- {article['title']}: `{file_path}`")
+                    for article in articles_to_download:
+                        file_path = await self.download_article(
+                            page, article["title"], article["url"]
+                        )
+                        if file_path:
+                            downloaded_files.append(
+                                f"- {article['title']}: `{file_path}`"
+                            )
+                        else:
+                            logging.warning(
+                                f"Failed to download article: {article['title']}"
+                            )
 
-            finally:
-                await browser.close()
+                except Exception as e:
+                    logging.error(
+                        f"Error during article search/download: {e}", exc_info=True
+                    )
+                finally:
+                    await browser.close()
 
+        except Exception as e:
+            logging.error(f"Error during Grokipedia search: {e}", exc_info=True)
+            return f"Error searching Grokipedia for '{query}': {str(e)}"
+
+        logging.info(f"Downloaded {len(downloaded_files)} files")
         if not downloaded_files:
             return f"No articles found or downloaded for '{query}'."
 

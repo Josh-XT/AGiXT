@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_SCRIPT = Path(__file__).resolve().parent / "run-local.py"
 START_SCRIPT = REPO_ROOT / "start.py"
@@ -24,11 +23,25 @@ ENV_FILE = REPO_ROOT / ".env"
 STATE_DIR = Path.home() / ".agixt"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_PID_FILE = STATE_DIR / "agixt-local.pid"
-LOCAL_LOG_FILE = STATE_DIR / "agixt-local.log"
+LOCAL_LOG_FILE = STATE_DIR / f"agixt-local-{int(time.time())}.log"
 
 
 class CLIError(RuntimeError):
     """Raised for recoverable CLI errors."""
+
+
+def cleanup_log_files(max_files: int = 5) -> None:
+    """Keep only the most recent `max_files` log files in the STATE_DIR."""
+    log_files = sorted(
+        STATE_DIR.glob("agixt-local-*.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for old_log in log_files[max_files:]:
+        try:
+            old_log.unlink()
+        except OSError:
+            pass
 
 
 def _ensure_local_requirements() -> None:
@@ -197,6 +210,7 @@ def _start_local() -> None:
                 response.status_code = 500
     print(f"AGiXT started successfully!")
     print(f"View logs at: {LOCAL_LOG_FILE}")
+    cleanup_log_files()
 
 
 def _stop_local() -> None:
