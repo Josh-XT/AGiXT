@@ -1101,7 +1101,6 @@ async def conversation_stream(
                 )
 
         except Exception as e:
-            logging.error(f"Error getting initial conversation history: {e}")
             # Send error message to client for debugging
             await websocket.send_text(
                 json.dumps(

@@ -129,7 +129,6 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         commands = {}
     # Get provider ID based on provider name from provider_settings["provider"]
     if "provider" not in provider_settings:
-        logging.info(f"Provider settings: {provider_settings}")
         provider_settings["provider"] = "rotation"
     provider = (
         session.query(ProviderModel)

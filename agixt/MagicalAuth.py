@@ -636,9 +636,6 @@ class MagicalAuth:
         if not pyotp.TOTP(user.mfa_token).verify(login.token, valid_window=60):
             self.add_failed_login(ip_address=ip_address)
             session.close()
-            logging.info(
-                f"Failed login attempt for {self.email} with token {login.token}, should have been {pyotp.TOTP(user.mfa_token).now()}"
-            )
             raise HTTPException(
                 status_code=401, detail="Invalid MFA token. Please try again."
             )
