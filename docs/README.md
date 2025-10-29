@@ -84,6 +84,50 @@ agixt start --local
 
 > 💡 **Tip:** `agixt start --local` runs the existing `agixt/run-local.py` health monitor in the background and writes logs to `~/.agixt/agixt-local.log`.
 
+#### 🛠️ AGiXT CLI Commands
+
+The AGiXT CLI provides convenient commands for managing your AGiXT instance:
+
+**Local Mode (without Docker):**
+
+```bash
+# Start AGiXT locally
+agixt start --local
+
+# Stop AGiXT local instance
+agixt stop --local
+
+# Restart AGiXT local instance
+agixt restart --local
+
+# View local logs
+agixt logs --local
+
+# Follow local logs in real-time
+agixt logs --local -f
+```
+
+**Docker Mode (default):**
+
+```bash
+# Start AGiXT with Docker
+agixt start
+
+# Stop AGiXT Docker services
+agixt stop
+
+# Restart AGiXT Docker services
+agixt restart
+
+# View Docker logs
+agixt logs
+
+# Follow Docker logs in real-time
+agixt logs -f
+```
+
+> 💡 **Tip:** Local logs are stored in `~/.agixt/agixt-local-*.log` with automatic cleanup keeping only the 5 most recent log files.
+
 ### 🎯 Access AGiXT
 
 After installation, access these interfaces:
@@ -131,6 +175,7 @@ python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai tru
     - [📥 Installation](#-installation)
       - [Option 1: Docker Installation (Recommended)](#option-1-docker-installation-recommended)
       - [Option 2: Local Installation (Without Docker)](#option-2-local-installation-without-docker)
+      - [🛠️ AGiXT CLI Commands](#️-agixt-cli-commands)
     - [🎯 Access AGiXT](#-access-agixt)
     - [⚙️ Advanced Options](#️-advanced-options)
     - [⚠️ Important Notes](#️-important-notes)

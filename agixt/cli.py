@@ -312,10 +312,57 @@ def _restart_docker() -> None:
     _start_docker()
 
 
+def _logs_local(follow: bool = False) -> None:
+    """Display logs from the most recent local log file."""
+    log_files = sorted(
+        STATE_DIR.glob("agixt-local-*.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not log_files:
+        print("No local log files found.")
+        return
+
+    newest_log = log_files[0]
+    print(f"Showing logs from: {newest_log}")
+    print("-" * 80)
+
+    if follow:
+        # Use tail -f to follow the log file
+        try:
+            subprocess.run(["tail", "-f", str(newest_log)], check=True)
+        except KeyboardInterrupt:
+            print("\nStopped following logs.")
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            raise CLIError(f"Failed to follow logs: {exc}")
+    else:
+        # Just print the contents
+        try:
+            print(newest_log.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise CLIError(f"Failed to read log file: {exc}")
+
+
+def _logs_docker(follow: bool = False) -> None:
+    """Display Docker compose logs."""
+    compose_file = _determine_compose_file()
+    args = ["logs"]
+    if follow:
+        args.append("-f")
+    try:
+        _docker_compose(compose_file, *args)
+    except KeyboardInterrupt:
+        if follow:
+            print("\nStopped following logs.")
+    except subprocess.CalledProcessError as exc:
+        raise CLIError(f"Failed to retrieve Docker logs: {exc}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="AGiXT helper commands")
     parser.add_argument(
-        "action", choices=["start", "stop", "restart"], help="Action to perform"
+        "action", choices=["start", "stop", "restart", "logs"], help="Action to perform"
     )
     parser.add_argument(
         "--local", action="store_true", help="Operate on the local Python process"
@@ -324,6 +371,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--docker",
         action="store_true",
         help="Operate on the Docker stack (default when no mode is specified)",
+    )
+    parser.add_argument(
+        "-f",
+        "--follow",
+        action="store_true",
+        help="Follow log output (tail -f for local, docker compose logs -f for docker)",
     )
     return parser
 
@@ -343,6 +396,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 _stop_local()
             elif args.action == "restart":
                 _restart_local()
+            elif args.action == "logs":
+                _logs_local(follow=args.follow)
         else:
             if args.action == "start":
                 _start_docker()
@@ -350,6 +405,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 _stop_docker()
             elif args.action == "restart":
                 _restart_docker()
+            elif args.action == "logs":
+                _logs_docker(follow=args.follow)
     except CLIError as exc:
         parser.error(str(exc))
     except subprocess.CalledProcessError as exc:

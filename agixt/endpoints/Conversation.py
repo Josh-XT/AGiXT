@@ -1072,8 +1072,6 @@ async def conversation_stream(
         # Get initial conversation history
         try:
             initial_history = c.get_conversation()
-            logging.info(f"Initial history type: {type(initial_history)}")
-            logging.info(f"Initial history: {initial_history}")
 
             messages = []
             if initial_history is None:
@@ -1092,8 +1090,6 @@ async def conversation_stream(
                 logging.warning(
                     f"Unexpected initial_history format: {type(initial_history)}"
                 )
-
-            logging.info(f"Found {len(messages)} messages to send")
 
             for message in messages:
                 # Convert datetime objects to ISO format strings for JSON serialization
@@ -1154,18 +1150,12 @@ async def conversation_stream(
                                 }
                             )
                         )
-                        logging.info(
-                            f"Responded to ping for conversation {conversation_id}"
-                        )
 
                 except asyncio.TimeoutError:
                     # No incoming message, continue to check for updates
                     pass
                 except WebSocketDisconnect:
                     # Client disconnected
-                    logging.info(
-                        f"WebSocket client disconnected for conversation {conversation_id}"
-                    )
                     break
                 except Exception as e:
                     # Error receiving message, but don't break the connection
@@ -1254,12 +1244,8 @@ async def conversation_stream(
                         )
                     )
                     last_heartbeat_time = current_time
-                    logging.info(f"Sent heartbeat for conversation {conversation_id}")
 
             except WebSocketDisconnect:
-                logging.info(
-                    f"WebSocket disconnected for conversation {conversation_id}"
-                )
                 break
             except Exception as e:
                 logging.error(f"Error in conversation stream: {e}")
@@ -1271,8 +1257,6 @@ async def conversation_stream(
                     # Connection likely closed
                     break
 
-    except WebSocketDisconnect:
-        logging.info(f"WebSocket disconnected for conversation {conversation_id}")
     except Exception as e:
         logging.error(f"Unexpected error in conversation stream: {e}")
         try:
@@ -1475,21 +1459,16 @@ async def import_shared_conversation(
         new_conversation = c.new_conversation(conversation_content=conversation_content)
         # Get the actual conversation ID (not the dict id which might be wrong)
         new_conversation_id = c.get_conversation_id()
-        logging.info(f"✅ Created new conversation with ID: {new_conversation_id}")
 
         # Copy workspace files if included in share
         if share.include_workspace:
-            logging.info(f"📁 Starting workspace import for share {share_token}")
             try:
                 # Get DEFAULT_USER's agent that has the workspace files
                 default_user = (
                     session.query(User).filter(User.email == DEFAULT_USER).first()
                 )
-                logging.info(f"   DEFAULT_USER found: {default_user is not None}")
-
                 if default_user:
                     default_user_id = str(default_user.id)
-                    logging.info(f"   DEFAULT_USER id: {default_user_id}")
 
                     # Get agent name from shared conversation messages
                     agent_message = (
@@ -1502,11 +1481,8 @@ async def import_shared_conversation(
                         .order_by(Message.timestamp.desc())
                         .first()
                     )
-                    logging.info(f"   Agent message found: {agent_message is not None}")
-
                     if agent_message:
                         agent_name = agent_message.role
-                        logging.info(f"   Agent name: {agent_name}")
 
                         # Get source agent (DEFAULT_USER's agent)
                         source_agent = (
@@ -1517,11 +1493,6 @@ async def import_shared_conversation(
                             )
                             .first()
                         )
-                        logging.info(
-                            f"   Source agent found: {source_agent is not None}"
-                        )
-                        if source_agent:
-                            logging.info(f"   Source agent id: {source_agent.id}")
 
                         # Get target agent (current user's agent)
                         target_agent = (
@@ -1532,15 +1503,9 @@ async def import_shared_conversation(
                             )
                             .first()
                         )
-                        logging.info(
-                            f"   Target agent found before creation: {target_agent is not None}"
-                        )
 
                         # Create target agent if it doesn't exist
                         if not target_agent:
-                            logging.info(
-                                f"   Creating new target agent '{agent_name}' for user {auth.user_id}"
-                            )
                             target_agent = DBAgent(
                                 name=agent_name,
                                 user_id=auth.user_id,
@@ -1548,19 +1513,8 @@ async def import_shared_conversation(
                             )
                             session.add(target_agent)
                             session.commit()
-                            logging.info(
-                                f"   Created target agent with id: {target_agent.id}"
-                            )
 
                         if source_agent and target_agent:
-                            logging.info(f"   📋 Copying workspace from:")
-                            logging.info(
-                                f"      Source: agent={source_agent.id}, conversation={shared_conversation.id}"
-                            )
-                            logging.info(
-                                f"      Target: agent={target_agent.id}, conversation={new_conversation_id}"
-                            )
-
                             # Copy workspace files
                             files_copied = (
                                 workspace_manager.copy_conversation_workspace(
@@ -1570,20 +1524,12 @@ async def import_shared_conversation(
                                     target_conversation_id=new_conversation_id,
                                 )
                             )
-                            logging.info(f"   📁 Files copied: {files_copied}")
 
                             # Update attachment count
                             total_files = workspace_manager.count_files(
                                 str(target_agent.id), new_conversation_id
                             )
-                            logging.info(
-                                f"   📊 Total files in target workspace: {total_files}"
-                            )
                             c.update_attachment_count(total_files)
-
-                            logging.info(
-                                f"✅ Successfully copied {files_copied} workspace files to imported conversation"
-                            )
                         else:
                             logging.error(
                                 f"❌ Missing agents - source: {source_agent is not None}, target: {target_agent is not None}"
@@ -1601,10 +1547,6 @@ async def import_shared_conversation(
 
                 logging.error(traceback.format_exc())
                 # Don't fail the import if workspace copy fails
-        else:
-            logging.info(
-                f"📁 Workspace not included in share, skipping workspace import"
-            )
 
         return {
             "id": new_conversation_id,
@@ -1683,11 +1625,6 @@ async def get_shared_conversation_workspace(
 
         default_user_id = str(default_user_obj.id)
 
-        logging.info(
-            f"🔍 Attempting to get agent_id for shared conversation {conversation_id}"
-        )
-        logging.info(f"   DEFAULT_USER id: {default_user_id}")
-
         # Get the agent name from the shared conversation's messages
         agent_message = (
             session.query(Message)
@@ -1707,8 +1644,6 @@ async def get_shared_conversation_workspace(
             )
 
         agent_name = agent_message.role
-        logging.info(f"   Agent name from messages: {agent_name}")
-
         # Get agent ID directly by name for DEFAULT_USER
         target_agent = (
             session.query(DBAgent)
@@ -1724,7 +1659,6 @@ async def get_shared_conversation_workspace(
             )
 
         agent_id = str(target_agent.id)
-        logging.info(f"   Found agent_id: {agent_id}")
 
         try:
             normalized_path = workspace_manager._normalize_relative_path(path)
