@@ -236,10 +236,9 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
-                "user_input": f"Please gather information from the following URLs: {urls} with the query: {query}",
+                "user_input": f"{urls} \n {query}",
                 "websearch": False,
-                "websearch_depth": 0,
-                "analyze_user_input": True,
+                "analyze_user_input": False,
                 "disable_commands": True,
                 "log_user_input": False,
                 "log_output": False,
