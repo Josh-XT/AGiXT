@@ -186,6 +186,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
             "Update Todo Item": self.update_todo_item,
             "Delete Todo Item": self.delete_todo_item,
+            "Gather information from website URLs": self.browse_links,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -217,6 +218,37 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
         # Register models with ExtensionDatabaseMixin
         self.register_models()
+
+    async def browse_links(self, urls: str, query: str) -> str:
+        """
+        Browse links to gather information from websites. This will scrape data from the websites provided into the agent's memory.
+
+        Args:
+            urls (str): Space-separated list of URLs to browse. Prefix each url with "https://" with the full url. When browsing multiple URLs, separate them with spaces.
+            query (str): The query to search for on the pages
+
+        Returns:
+            str: The gathered information
+
+        Notes: This ability will browse the provided URLs and extract relevant information based on the query as well as extract learned information from the website into the assistant's memory.
+        """
+        response = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": f"Please gather information from the following URLs: {urls} with the query: {query}",
+                "websearch": False,
+                "websearch_depth": 0,
+                "analyze_user_input": True,
+                "disable_commands": True,
+                "log_user_input": False,
+                "log_output": False,
+                "browse_links": True,
+                "tts": False,
+                "conversation_name": self.conversation_id,
+            },
+        )
+        return response
 
     def safe_join(self, paths) -> str:
         """
