@@ -77,9 +77,9 @@ class grokipedia(Extensions):
                 markdown_content = self._html_to_markdown(article_content, title)
             else:
                 # Fallback: just get all text
-                markdown_content = (
-                    f"# {title}\n\n{soup.get_text(separator='\\n', strip=True)}"
-                )
+                separator = "\n"
+                text_content = soup.get_text(separator=separator, strip=True)
+                markdown_content = f"# {title}\n\n{text_content}"
 
             # Create a safe filename
             safe_filename = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "_")
