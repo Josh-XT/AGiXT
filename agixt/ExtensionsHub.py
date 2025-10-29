@@ -110,14 +110,8 @@ class ExtensionsHub:
                     try:
                         os.remove(file_path)
                         removed_files.append(file)
-                        logging.info(f"Removed sensitive file: {file}")
                     except Exception as e:
                         logging.warning(f"Could not remove sensitive file {file}: {e}")
-
-        if removed_files:
-            logging.info(
-                f"Removed {len(removed_files)} sensitive files from {hub_path}"
-            )
 
     def _parse_hub_urls(self) -> List[str]:
         """Parse comma-separated URLs from EXTENSIONS_HUB"""
@@ -153,7 +147,6 @@ class ExtensionsHub:
                 # Always remove and re-clone for simplicity and security
                 # This ensures we get the latest version and avoid git state issues
                 if os.path.exists(hub_path):
-                    logging.info(f"Removing existing hub directory {hub_path}")
                     try:
                         # More robust removal with retry logic
                         import time
@@ -188,17 +181,12 @@ class ExtensionsHub:
                         continue
 
                 # Clone repository
-                logging.info(f"Cloning extensions hub from {url}")
                 if self._clone_repository(url, hub_path):
                     success_count += 1
 
             except Exception as e:
                 logging.error(f"Error managing extensions hub {url}: {e}")
                 continue
-
-        logging.info(
-            f"Extensions Hub: {success_count}/{total_count} repositories processed successfully"
-        )
         return success_count > 0
 
     async def clone_or_update_hub(self) -> bool:
@@ -226,7 +214,6 @@ class ExtensionsHub:
                 # Always remove and re-clone for simplicity and security
                 # This ensures we get the latest version and avoid git state issues
                 if os.path.exists(hub_path):
-                    logging.info(f"Removing existing hub directory {hub_path}")
                     try:
                         # More robust removal with retry logic
                         import time
@@ -301,8 +288,6 @@ class ExtensionsHub:
             )
 
             if result.returncode == 0:
-                logging.info(f"Successfully cloned extensions hub to {hub_path}")
-
                 # Remove .git directory to prevent accidental commits
                 git_dir = os.path.join(hub_path, ".git")
                 if os.path.exists(git_dir):
