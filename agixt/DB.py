@@ -1617,7 +1617,7 @@ def migrate_extensions_to_new_categories():
                                 break
 
                 except (ImportError, AttributeError) as e:
-                    logging.warning(f"Could not load extension {extension_path}: {e}")
+                    pass
 
                 # If we found a category, update the extension
                 if category_name:

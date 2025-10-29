@@ -71,14 +71,29 @@ uvicorn_process: Optional[subprocess.Popen] = None
 browser_use_process: Optional[subprocess.Popen] = None
 
 
+def get_logged_in_user_name() -> str:
+    """Get the username of the currently logged-in user."""
+    try:
+        import getpass
+
+        return getpass.getuser()
+    except Exception as e:
+        return "josh"
+
+
 async def start_browser_use_mcp():
     """Start the browser-use MCP server for browser automation."""
     global browser_use_process
-
+    current_user = get_logged_in_user_name()
     try:
         # Check if uv/uvx is available
         uvx_path = None
-        for path in ["/root/.local/bin/uvx", "/usr/local/bin/uvx", "uvx"]:
+        for path in [
+            "/root/.local/bin/uvx",
+            "/usr/local/bin/uvx",
+            f"/home/{current_user}/snap/code/208/.local/bin/uvx",
+            "uvx",
+        ]:
             try:
                 result = subprocess.run(
                     [path, "--version"], capture_output=True, timeout=5

@@ -334,9 +334,6 @@ class wallet(Extensions):
         except ValueError:
             # X402_MERCHANT_WALLET not configured, x402 disabled
             self.x402_service = None
-            logging.warning(
-                "X402 payment service not configured. Set X402_MERCHANT_WALLET to enable."
-            )
 
         @self.router.get(
             "/v1/wallet/providers",
