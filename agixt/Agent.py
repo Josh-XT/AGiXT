@@ -1105,7 +1105,7 @@ class Agent:
                 self.auth.increase_token_counts(
                     input_tokens=input_tokens, output_tokens=output_tokens
                 )
-                answer = str(answer).replace("\_", "_")
+                answer = str(answer).replace("\\_", "_")
                 if answer.endswith("\n\n"):
                     answer = answer[:-2]
 
@@ -1164,7 +1164,7 @@ class Agent:
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens
             )
-            answer = str(answer).replace("\_", "_")
+            answer = str(answer).replace("\\_", "_")
             if answer.endswith("\n\n"):
                 answer = answer[:-2]
         except Exception as e:
