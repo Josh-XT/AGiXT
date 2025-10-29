@@ -14,7 +14,7 @@ class grokipedia(Extensions):
     def __init__(self, **kwargs):
         self.commands = {"Search Grokipedia": self.search_grokipedia}
 
-    async def search_grokipedia(self, query: str, max_results: int = 5) -> str:
+    async def search_grokipedia(self, query: str, max_results: str = "5") -> str:
         """
         Search Grokipedia for the given query and return the top results.
 
@@ -31,6 +31,10 @@ class grokipedia(Extensions):
         base_url = "https://grokipedia.com"
         search_url = f"{base_url}/search?q={query.replace(' ', '+')}"
         results = []
+        try:
+            max_results = int(max_results)
+        except ValueError:
+            max_results = 5
         total_results = 0
         ITEMS_PER_PAGE = 12
 
