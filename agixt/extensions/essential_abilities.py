@@ -244,8 +244,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
     async def read_file(
         self,
         filename: str,
-        line_start: Optional[int] = None,
-        line_end: Optional[int] = None,
+        line_start: Optional[str] = None,
+        line_end: Optional[str] = None,
     ) -> str:
         """
         Read a file in the workspace, optionally reading only specific line ranges
@@ -258,6 +258,14 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         Returns:
         str: The content of the file or specified line range
         """
+        try:
+            line_start = int(line_start)
+        except:
+            line_start = None
+        try:
+            line_end = int(line_end)
+        except:
+            line_end = None
         try:
             filepath = self.safe_join(filename)
 
@@ -1363,7 +1371,7 @@ print(output)
         self,
         title: str,
         description: str,
-        parent_id: int = None,
+        parent_id: str = None,
         depends_on: str = None,
     ) -> str:
         """
@@ -1399,6 +1407,10 @@ print(output)
         - Planning multi-step workflows or processes
         - Tracking progress on ongoing work
         """
+        try:
+            parent_id = int(parent_id) if parent_id is not None else None
+        except ValueError:
+            parent_id = None
         session = get_session()
         try:
             if not title.strip():
@@ -1485,7 +1497,7 @@ print(output)
             session.close()
 
     async def create_sub_todo_item(
-        self, parent_todo_id: int, title: str, description: str, depends_on: str = None
+        self, parent_todo_id: str, title: str, description: str, depends_on: str = None
     ) -> str:
         """
         Create a new sub-todo item under an existing parent todo.
@@ -1514,6 +1526,10 @@ print(output)
         - Creating detailed checklists for complex processes
         - Organizing multi-phase work within a larger task
         """
+        try:
+            parent_id = int(parent_todo_id)
+        except ValueError:
+            parent_id = None
         session = get_session()
         try:
             if not title.strip():
@@ -1877,7 +1893,7 @@ print(output)
         finally:
             session.close()
 
-    async def list_sub_todos(self, parent_todo_id: int) -> str:
+    async def list_sub_todos(self, parent_todo_id: str) -> str:
         """
         List all sub-todo items for a specific parent todo.
 
@@ -1896,6 +1912,10 @@ print(output)
         - Shows the breakdown of a larger task
         - Provides focused view of related sub-tasks
         """
+        try:
+            parent_todo_id = int(parent_todo_id)
+        except ValueError:
+            parent_todo_id = None
         session = get_session()
         try:
             # Verify parent todo exists and belongs to this conversation
@@ -1962,7 +1982,7 @@ print(output)
         finally:
             session.close()
 
-    async def mark_todo_completed(self, todo_id: int) -> str:
+    async def mark_todo_completed(self, todo_id: str) -> str:
         """
         Mark a todo item as completed.
 
@@ -1981,6 +2001,10 @@ print(output)
         - This helps maintain accurate progress tracking
         - Completed todos provide a record of work done
         """
+        try:
+            todo_id = int(todo_id)
+        except ValueError:
+            todo_id = None
         session = get_session()
         try:
             todo = (
@@ -2014,7 +2038,7 @@ print(output)
             session.close()
 
     async def mark_todo_incomplete(
-        self, todo_id: int, status: str = "not-started"
+        self, todo_id: str, status: str = "not-started"
     ) -> str:
         """
         Mark a todo item as incomplete (either not-started or in-progress).
@@ -2035,6 +2059,10 @@ print(output)
         - Use "not-started" to reset a todo back to initial state
         - Change status before beginning work for proper tracking
         """
+        try:
+            todo_id = int(todo_id)
+        except ValueError:
+            todo_id = None
         session = get_session()
         try:
             if status not in ["not-started", "in-progress"]:
@@ -2097,7 +2125,7 @@ print(output)
             session.close()
 
     async def update_todo_item(
-        self, todo_id: int, title: str = None, description: str = None
+        self, todo_id: str, title: str = None, description: str = None
     ) -> str:
         """
         Update the title or description of an existing todo item.
@@ -2119,6 +2147,10 @@ print(output)
         - Keep titles concise and action-oriented
         - Update when scope or approach changes
         """
+        try:
+            todo_id = int(todo_id)
+        except ValueError:
+            todo_id = None
         session = get_session()
         try:
             todo = (
@@ -2164,7 +2196,7 @@ print(output)
         finally:
             session.close()
 
-    async def delete_todo_item(self, todo_id: int) -> str:
+    async def delete_todo_item(self, todo_id: str) -> str:
         """
         Delete a todo item permanently.
 
@@ -2183,6 +2215,10 @@ print(output)
         - Use when requirements change and the todo is no longer needed
         - Be cautious - this action cannot be undone
         """
+        try:
+            todo_id = int(todo_id)
+        except ValueError:
+            todo_id = None
         session = get_session()
         try:
             todo = (
@@ -2213,7 +2249,7 @@ print(output)
 
     async def run_todo_list(
         self,
-        max_concurrent: int = 3,
+        max_concurrent: str = "3",
         auto_complete: bool = True,
         execution_agent: str = None,
     ) -> str:
@@ -2247,6 +2283,10 @@ print(output)
         - Tasks auto-complete if auto_complete is enabled
         - Continues until all possible tasks are running or completed
         """
+        try:
+            max_concurrent = int(max_concurrent)
+        except ValueError:
+            max_concurrent = 3
         session = get_session()
         try:
             # Get all runnable todos
