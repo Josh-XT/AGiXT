@@ -1381,9 +1381,6 @@ def migrate_company_table():
 
                 for column_name, column_def in columns_to_add:
                     if column_name not in existing_columns:
-                        logging.info(
-                            f"Adding {column_name} column to Company table (SQLite)"
-                        )
                         session.execute(
                             text(
                                 f"ALTER TABLE Company ADD COLUMN {column_name} {column_def}"
@@ -1411,9 +1408,6 @@ def migrate_company_table():
                         else:
                             pg_column_def = "TEXT"
 
-                        logging.info(
-                            f"Adding {column_name} column to Company table (PostgreSQL)"
-                        )
                         session.execute(
                             text(
                                 f'ALTER TABLE "Company" ADD COLUMN {column_name} {pg_column_def}'
@@ -1441,9 +1435,6 @@ def migrate_extension_table():
                 columns = [row[1] for row in result.fetchall()]
 
                 if "category_id" not in columns:
-                    logging.info(
-                        "Adding category_id column to extension table (SQLite)"
-                    )
                     session.execute(
                         text("ALTER TABLE extension ADD COLUMN category_id TEXT")
                     )
@@ -1461,9 +1452,6 @@ def migrate_extension_table():
                 )
 
                 if not result.fetchone():
-                    logging.info(
-                        "Adding category_id column to extension table (PostgreSQL)"
-                    )
                     session.execute(
                         text("ALTER TABLE extension ADD COLUMN category_id UUID")
                     )
@@ -1568,11 +1556,7 @@ def migrate_extensions_to_new_categories():
         with get_db_session() as session:
             # Get all extensions from the database
             extensions = session.query(Extension).all()
-            logging.info(f"Found {len(extensions)} extensions to process")
-
             for extension in extensions:
-                logging.info(f"Processing extension: '{extension.name}'")
-
                 # Special case for Custom Automation
                 if extension.name == "Custom Automation":
                     core_abilities_category = (
@@ -1582,9 +1566,6 @@ def migrate_extensions_to_new_categories():
                     )
                     if core_abilities_category:
                         extension.category_id = core_abilities_category.id
-                        logging.info(
-                            f"Updated extension '{extension.name}' to category 'Core Abilities'"
-                        )
                     continue
 
                 # Try to find and load the extension module to get its category
@@ -1622,9 +1603,6 @@ def migrate_extensions_to_new_categories():
                             for possible_name in possible_class_names:
                                 if attr_name_lower == possible_name.lower():
                                     category_name = attr.CATEGORY
-                                    logging.info(
-                                        f"Found category '{category_name}' for extension '{extension.name}' in class '{attr_name}'"
-                                    )
                                     break
 
                             if category_name:
@@ -1636,9 +1614,6 @@ def migrate_extensions_to_new_categories():
                             attr = getattr(module, attr_name)
                             if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
                                 category_name = attr.CATEGORY
-                                logging.info(
-                                    f"Found category '{category_name}' for extension '{extension.name}' in fallback class '{attr_name}'"
-                                )
                                 break
 
                 except (ImportError, AttributeError) as e:
@@ -1653,13 +1628,7 @@ def migrate_extensions_to_new_categories():
                     )
                     if target_category:
                         extension.category_id = target_category.id
-                        logging.info(
-                            f"Updated extension '{extension.name}' to category '{category_name}'"
-                        )
                     else:
-                        logging.warning(
-                            f"Category '{category_name}' not found in database for extension '{extension.name}'"
-                        )
                         # Default to Productivity if category doesn't exist
                         default_category = (
                             session.query(ExtensionCategory)
@@ -1668,14 +1637,8 @@ def migrate_extensions_to_new_categories():
                         )
                         if default_category:
                             extension.category_id = default_category.id
-                            logging.info(
-                                f"Updated extension '{extension.name}' to default category 'Productivity'"
-                            )
                 else:
                     # If we couldn't determine the category, default to Productivity
-                    logging.warning(
-                        f"No category found for extension '{extension.name}', using default"
-                    )
                     default_category = (
                         session.query(ExtensionCategory)
                         .filter_by(name="Productivity")
@@ -1683,12 +1646,8 @@ def migrate_extensions_to_new_categories():
                     )
                     if default_category:
                         extension.category_id = default_category.id
-                        logging.info(
-                            f"Updated extension '{extension.name}' to default category 'Productivity' (category not found in code)"
-                        )
 
             session.commit()
-            logging.info("Successfully migrated extensions to their defined categories")
     except Exception as e:
         logging.error(f"Error migrating extensions to new categories: {e}")
         import traceback
