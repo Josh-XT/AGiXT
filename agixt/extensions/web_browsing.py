@@ -365,29 +365,65 @@ class web_browsing(Extensions):
         if not self.ApiClient:
             raise RuntimeError("ApiClient is not configured.")
 
-        # Run in thread to avoid blocking async loop
-        # Apply timeout only if specified (default 90s for planning calls to handle slow LLM responses)
+        import concurrent.futures
+
+        # Use ThreadPoolExecutor for better timeout control than asyncio.to_thread
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        start_time = time.time()
+
         try:
             logging.debug(f"Starting prompt_agent call with timeout={timeout}s...")
+
+            # Submit the blocking call to the executor
+            future = executor.submit(self.ApiClient.prompt_agent, **kwargs)
+
+            # Wait for completion with timeout
             if timeout:
-                response = await asyncio.wait_for(
-                    asyncio.to_thread(self.ApiClient.prompt_agent, **kwargs),
-                    timeout=timeout,
-                )
+                try:
+                    # Use run_in_executor to await the future with timeout
+                    response = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None, lambda: future.result(timeout=timeout)
+                        ),
+                        timeout=timeout
+                        + 1,  # Give slightly more time than the future's timeout
+                    )
+                except (
+                    concurrent.futures.TimeoutError,
+                    asyncio.TimeoutError,
+                ) as timeout_error:
+                    elapsed = time.time() - start_time
+                    error_msg = f"LLM call timed out after {elapsed:.1f}s (timeout was {timeout}s)"
+                    logging.error(error_msg)
+                    logging.warning(
+                        "The background thread is still running and cannot be killed. "
+                        "If ezlocalai is overloaded, consider restarting it or increasing MAX_CONCURRENT_REQUESTS."
+                    )
+                    # Cancel the future (won't stop the thread but marks it as cancelled)
+                    future.cancel()
+                    raise TimeoutError(error_msg)
             else:
-                response = await asyncio.to_thread(
-                    self.ApiClient.prompt_agent, **kwargs
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None, future.result
                 )
+
+            elapsed = time.time() - start_time
             logging.debug(
-                f"prompt_agent call completed, response length: {len(str(response)) if response else 0}"
+                f"prompt_agent call completed in {elapsed:.1f}s, response length: {len(str(response)) if response else 0}"
             )
-        except asyncio.TimeoutError:
-            error_msg = f"LLM call timed out after {timeout} seconds (no response from AI service)"
-            logging.error(error_msg)
-            raise TimeoutError(error_msg)
-        except Exception as e:
-            logging.error(f"Error in _call_prompt_agent: {e}", exc_info=True)
+
+        except TimeoutError:
+            # Re-raise timeout errors
             raise
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logging.error(
+                f"Error in _call_prompt_agent after {elapsed:.1f}s: {e}", exc_info=True
+            )
+            raise
+        finally:
+            # Shutdown executor (won't kill threads but prevents new submissions)
+            executor.shutdown(wait=False)
 
         logging.info(f"Response: {response}")
         return response
@@ -801,15 +837,16 @@ class web_browsing(Extensions):
             return f"Error navigating to {url}: {str(e)}"
 
     async def click_element_with_playwright(
-        self, selector: str, timeout: int = 5000
+        self, selector: str, timeout: int = 30000
     ) -> str:
         """
         Clicks an element on the page specified by a CSS selector using Playwright.
         Waits for the element to be visible and enabled before clicking.
+        Uses increased timeout and scroll-into-view to handle dynamic content.
 
         Args:
             selector (str): The CSS selector of the element to click.
-            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 5000 (5s).
+            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 30000 (30s).
 
         Returns:
             str: Confirmation message or error message.
@@ -821,12 +858,27 @@ class web_browsing(Extensions):
             element = self.page.locator(
                 selector
             ).first  # Use locator and take the first match
+
+            # Wait for element to be visible with increased timeout
             await element.wait_for(state="visible", timeout=timeout)
+
+            # Scroll element into view to ensure it's clickable
+            try:
+                await element.scroll_into_view_if_needed(timeout=5000)
+            except Exception as scroll_error:
+                logging.warning(f"Could not scroll element into view: {scroll_error}")
+
             # Check if element is enabled using is_enabled() method
             is_enabled = await element.is_enabled()
             if not is_enabled:
                 return f"Error: Element '{selector}' is not enabled/clickable."
-            await element.click(timeout=timeout)
+
+            # Click with force option as fallback if normal click fails
+            try:
+                await element.click(timeout=timeout)
+            except PlaywrightTimeoutError:
+                logging.warning(f"Normal click timed out, trying force click...")
+                await element.click(force=True, timeout=timeout)
             # Optional: Wait for navigation or network idle if click causes page change
             try:
                 # Try shorter networkidle timeout first
@@ -2234,7 +2286,7 @@ class web_browsing(Extensions):
                             )
 
                             if count == 1:  # Only click if unique exact match
-                                await locator.click(timeout=5000)
+                                await locator.click(timeout=30000)
                                 text_click_success = True
                                 op_result = f"Clicked element by exact text '{value}'"
                             elif count == 0:
@@ -2246,7 +2298,7 @@ class web_browsing(Extensions):
                                 )
 
                                 if count == 1:  # Only click if unique partial match
-                                    await locator.click(timeout=5000)
+                                    await locator.click(timeout=30000)
                                     text_click_success = True
                                     op_result = (
                                         f"Clicked element by partial text '{value}'"
@@ -2297,7 +2349,7 @@ class web_browsing(Extensions):
                                                             in search_var
                                                         ):
                                                             await elem.click(
-                                                                timeout=5000
+                                                                timeout=30000
                                                             )
                                                             text_click_success = True
                                                             op_result = f"Clicked element by flexible text match '{clean_text}' (searched for '{value}')"
@@ -2346,7 +2398,7 @@ class web_browsing(Extensions):
                                                                 )
                                                                 if pattern_count >= 1:
                                                                     await pattern_locator.first.click(
-                                                                        timeout=5000
+                                                                        timeout=30000
                                                                     )
                                                                     text_click_success = (
                                                                         True
@@ -2512,6 +2564,14 @@ class web_browsing(Extensions):
                     # For Enter key, we expect navigation/page update - wait for it
                     if value.lower() == "enter":
                         try:
+                            # Capture URL and content before pressing Enter
+                            url_before_press = self.page.url
+                            content_before_press = None
+                            try:
+                                content_before_press = await self.page.content()
+                            except Exception:
+                                pass
+
                             # Press Enter and wait for navigation or network idle
                             await self.page.keyboard.press(value)
                             logging.info("Pressed Enter, waiting for page to load...")
@@ -2535,8 +2595,46 @@ class web_browsing(Extensions):
                                     )
 
                             # Additional wait to ensure content is rendered
-                            await self.page.wait_for_timeout(1000)
-                            op_result = f"Pressed Enter and waited for page to update"
+                            await self.page.wait_for_timeout(
+                                2000
+                            )  # Increased from 1000 to 2000ms
+
+                            # Check if URL or content actually changed
+                            url_after_press = self.page.url
+                            content_after_press = None
+                            try:
+                                content_after_press = await self.page.content()
+                            except Exception:
+                                pass
+
+                            url_changed_after_press = (
+                                url_after_press != url_before_press
+                            )
+                            content_changed_after_press = False
+                            if content_before_press and content_after_press:
+                                digest_before = hashlib.md5(
+                                    content_before_press.encode("utf-8", "ignore")
+                                ).hexdigest()
+                                digest_after = hashlib.md5(
+                                    content_after_press.encode("utf-8", "ignore")
+                                ).hexdigest()
+                                content_changed_after_press = (
+                                    digest_before != digest_after
+                                )
+
+                            if url_changed_after_press or content_changed_after_press:
+                                change_type = []
+                                if url_changed_after_press:
+                                    change_type.append(
+                                        f"URL changed from {url_before_press} to {url_after_press}"
+                                    )
+                                if content_changed_after_press:
+                                    change_type.append("content changed")
+                                op_result = f"Pressed Enter and page updated ({', '.join(change_type)})"
+                                logging.info(op_result)
+                            else:
+                                op_result = f"Pressed Enter (no detectable page changes after 2 second wait)"
+                                logging.warning(op_result)
 
                         except Exception as press_error:
                             logging.warning(
@@ -2571,8 +2669,8 @@ class web_browsing(Extensions):
                         )
 
                         # Use the browse_links pattern to scrape into memory
-                        await asyncio.to_thread(
-                            self.ApiClient.prompt_agent,
+                        # Use _call_prompt_agent for reliable timeout handling
+                        await self._call_prompt_agent(
                             agent_name=self.agent_name,
                             prompt_name="Think About It",
                             prompt_args={
@@ -2969,37 +3067,45 @@ Current Page Content Snippet (for context):
             )
             return False
 
-        # Allow specific, generally stable patterns
-        # Note: These patterns are simplified; robust CSS parsing is complex.
-        valid_patterns = [
-            r"^#[\w\-]+$",  # IDs: #my-id
-            r'^\[name=[\'"]?[\w\-]+[\'"]?\]$',  # name attribute: [name="user"]
-            r'^input\[name=[\'"]?[\w\-]+[\'"]?\]$',  # input name: input[name="email"]
-            r'^\[placeholder=[\'"]?.*[\'"]?\]$',  # placeholder attribute: [placeholder="Search..."]
-            r'^input\[placeholder=[\'"]?.*[\'"]?\]$',  # input placeholder: input[placeholder="Enter name"]
-            r'^button\[type=[\'"]?(submit|button|reset)[\'"]?\]$',  # button types: button[type="submit"]
-            r'^input\[type=[\'"]?\w+[\'"]?\]$',  # input types: input[type="checkbox"]
-            r'^a\[href=[\'"]?.*?[\'"]?\]$',  # links by href: a[href="/login"]
-            r'^\[data-testid=[\'"]?[\w\-]+[\'"]?\]$',  # data-testid: [data-testid="login-button"]
-            r'^[\w]+\[data-testid=[\'"]?[\w\-]+[\'"]?\]$',  # tag with data-testid: button[data-testid="submit"]
-            r'^\[aria-label=[\'"]?.*[\'"]?\]$',  # aria-label: [aria-label="Close dialog"]
-            r'^[\w]+\[aria-label=[\'"]?.*[\'"]?\]$',  # tag with aria-label: button[aria-label="Settings"]
-            r'^select\[name=[\'"]?[\w\-]+[\'"]?\]$',  # select by name: select[name="country"]
-            r'^textarea\[name=[\'"]?[\w\-]+[\'"]?\]$',  # textarea by name: textarea[name="message"]
-            # Simple tag names (less specific, use with caution)
-            # r'^button$',
-            # r'^select$',
-            # r'^textarea$',
-            # r'^a$'
+        # Check if selector uses stable attributes
+        # These are attributes that typically don't change during app lifecycle
+        stable_attributes = [
+            "id",
+            "name",
+            "data-testid",
+            "aria-label",
+            "placeholder",
+            "type",
+            "href",
+            "role",
         ]
 
-        if any(re.fullmatch(pattern, selector) for pattern in valid_patterns):
+        # Check if selector contains any stable attributes
+        has_stable_attribute = any(f"{attr}=" in selector for attr in stable_attributes)
+
+        # Also accept simple ID selectors
+        if selector.startswith("#"):
+            has_stable_attribute = True
+
+        if has_stable_attribute:
+            # Additional check: make sure it doesn't use unstable patterns
+            # Reject if it uses position-based selectors mixed with stable ones
+            if (
+                ":nth-child" in selector
+                or ":first-child" in selector
+                or ":last-child" in selector
+            ):
+                logging.warning(
+                    f"Rejecting selector with position-based pseudo-classes: {selector}"
+                )
+                return False
             return True
-        else:
-            logging.warning(
-                f"Selector '{selector}' did not match allowed stable patterns."
-            )
-            return False
+
+        # If no stable attributes found, reject it
+        logging.warning(
+            f"Selector '{selector}' does not use stable attributes (id, name, data-testid, aria-label, placeholder, type, href, role)."
+        )
+        return False
 
     def is_repeat_failure(self, operation, selector, value, attempt_history, window=3):
         """Checks if the same action (op+selector+value) has failed recently."""
@@ -3317,6 +3423,42 @@ Current Page Content Snippet (for context):
 **CRITICAL REMINDER**: Your last action was FILLING a field. You MUST press Enter in this step to submit/search.
 Do NOT fill another field or wait - press Enter NOW to trigger the action!
 """
+                # Check if we just scraped content successfully
+                elif (
+                    "scrape_to_memory|" in last_attempt.lower()
+                    and "SUCCESS" in last_attempt
+                ):
+                    # Count recent scrape operations
+                    recent_scrapes = sum(
+                        1
+                        for h in attempt_history[-3:]
+                        if "scrape_to_memory" in h.lower()
+                    )
+                    if recent_scrapes >= 1:
+                        # Check if we're on a search results page (shallow content)
+                        is_search_results = (
+                            "search" in current_url.lower()
+                            or "results" in current_url.lower()
+                        )
+
+                        if is_search_results:
+                            last_action_reminder = """
+**SEARCH RESULTS SCRAPED**: You scraped a search results page, which only contains snippets and links.
+To provide detailed information to the user, you should:
+1. CLICK on the TOP result or most relevant link to get the actual detailed content, OR
+2. CLICK on the official website/documentation link for comprehensive information
+3. After visiting and scraping a detailed page, THEN use 'respond' to provide your findings
+
+Do NOT respond with just search snippets - click into actual content pages first!
+"""
+                        else:
+                            last_action_reminder = """
+**CONTENT ALREADY SCRAPED**: You have already scraped the current page content into memory. 
+Do NOT scrape again - the content is already saved. Instead:
+- Use 'respond' operation to provide your findings to the user, OR
+- Click on another link to explore related content, OR
+- Use 'done' to mark the task complete.
+"""
                 # If we just pressed Enter, check if page changed (URL or content)
                 elif (
                     "press|" in last_attempt.lower()
@@ -3376,7 +3518,7 @@ RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 5.  For `fill`, `select`, `evaluate`: Put the text/value/script to use in the `<value>` tag.
 6.  For `press`: Put the key name in `<value>` (e.g., "Enter", "Escape", "Tab", "ArrowDown"). Use this to submit forms or navigate with keyboard.
 7.  **IMPORTANT**: After filling a search box, chat input, or form field, you MUST press Enter in the next step to submit/search. Don't just fill and wait - actively press Enter to trigger the action.
-8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. Don't use for simple navigation pages (search boxes, homepages, menus).
+8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. **IMPORTANT FOR SEARCH RESULTS**: If you're on a search results page, DON'T just scrape the snippets - CLICK on the top result or official link FIRST to get to the actual detailed content, THEN scrape that page. Search results pages only have brief snippets, not the full information the user needs.
 9.  For `handle_mfa`: Use this to automatically handle MFA by scanning a QR code on the current page and entering the generated TOTP code. Put the OTP input field selector in `<selector>` and optionally the submit button selector in `<value>` (defaults to 'button[type="submit"]'). This will: scan the page for a TOTP QR code, extract the secret, generate the current code, fill it in, and submit.
 10. For `get_cookies`: Use this to retrieve all cookies from the current page. Optionally provide a filter pattern in `<value>` to match specific cookie names (supports wildcards like 'session*'). No selector needed. Useful for debugging authentication flows or checking session state.
 11. For `set_cookies`: Use this to set cookies on the current page. Put cookie data in `<value>` as either 'name=value' (simple) or JSON with full details. Multiple cookies can be separated by semicolons. No selector needed. JSON format example: {{"name":"session","value":"abc123","domain":".example.com","path":"/","secure":true}}. Useful for setting auth tokens, session IDs, or testing cookie-based flows.
@@ -3573,6 +3715,25 @@ Previous error: {last_parse_error}
                 value = self.safe_get_text(step.find("value"))
                 description = self.safe_get_text(step.find("description"))
 
+                # Sanitize selector to fix common LLM mistakes
+                if selector:
+                    # Remove trailing } that LLMs sometimes add (e.g., textarea[aria-label='Search']})
+                    if selector.endswith("}") and not selector.endswith("]}"):
+                        selector = selector[:-1]
+                        logging.warning(
+                            f"Removed trailing '}}' from selector: now '{selector}'"
+                        )
+
+                    # Remove leading { that LLMs sometimes add
+                    if selector.startswith("{") and not selector.startswith("{["):
+                        selector = selector[1:]
+                        logging.warning(
+                            f"Removed leading '{{' from selector: now '{selector}'"
+                        )
+
+                    # Strip any extra whitespace
+                    selector = selector.strip()
+
                 # Basic validation
                 if not operation:
                     raise ValueError("Operation is missing in the plan step.")
@@ -3641,15 +3802,77 @@ Previous error: {last_parse_error}
                     )
                     break  # Exit the main loop
 
+                # Check if agent responded to user (also indicates completion)
+                if operation == "respond":
+                    logging.info(
+                        f"Agent responded to user, task complete. Response: {value[:100] if value else description[:100]}..."
+                    )
+                    results_summary.append(
+                        f"[Iteration {iteration_count}] Agent provided response to user."
+                    )
+                    break  # Exit the main loop
+
                 step_signature = (operation, selector or "", value or "")
                 repeated_plan = step_signature == last_step_signature
+
+                # Operations that don't change page state but are still valid/completion actions
+                # These should have a higher tolerance or skip stall detection
+                non_changing_valid_ops = {
+                    "wait",
+                    "get_content",
+                    "get_fields",
+                    "scrape_to_memory",
+                    "get_cookies",
+                    "screenshot",
+                    "download",
+                }
+
                 dynamic_stall_threshold = (
                     stalled_plan_threshold + 3
-                    if operation in {"wait", "get_content", "get_fields"}
+                    if operation in non_changing_valid_ops
                     else stalled_plan_threshold
                 )
 
-                if repeated_plan and not content_changed_since_last and not url_changed:
+                # Check if the PREVIOUS step reported a successful page change
+                # (This is important for Enter key presses that navigate but we haven't detected yet)
+                previous_step_changed_page = False
+                if attempt_history:
+                    last_attempt = attempt_history[-1]
+                    # Check if last step reported page changes in its result
+                    if any(
+                        indicator in last_attempt.lower()
+                        for indicator in [
+                            "page updated",
+                            "url changed",
+                            "content changed",
+                            "navigated to",
+                        ]
+                    ):
+                        previous_step_changed_page = True
+
+                # Check if operation completed successfully (even if page didn't change)
+                operation_completed_successfully = False
+                if attempt_history:
+                    last_attempt = attempt_history[-1]
+                    if any(
+                        indicator in last_attempt.lower()
+                        for indicator in [
+                            "success",
+                            "completed",
+                            "scraped",
+                            "retrieved",
+                            "downloaded",
+                        ]
+                    ):
+                        operation_completed_successfully = True
+
+                if (
+                    repeated_plan
+                    and not content_changed_since_last
+                    and not url_changed
+                    and not previous_step_changed_page
+                    and not operation_completed_successfully  # Don't stall if operation succeeded
+                ):
                     stalled_plan_count += 1
                 else:
                     stalled_plan_count = 0
@@ -3865,7 +4088,16 @@ Previous error: {last_parse_error}
 
         logging.info("Retrieving and structuring page content...")
         try:
-            html_content = await self.page.content()
+            # Add timeout to page.content() call to prevent hanging on large/complex pages
+            try:
+                html_content = await asyncio.wait_for(self.page.content(), timeout=30.0)
+            except asyncio.TimeoutError:
+                logging.warning(
+                    "Page content retrieval timed out after 30s, using fallback method"
+                )
+                # Fallback: try to get just the body text
+                html_content = await self.page.evaluate("() => document.body.innerHTML")
+
             soup = BeautifulSoup(html_content, "html.parser")
             structured_content = []
 

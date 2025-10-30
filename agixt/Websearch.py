@@ -396,9 +396,13 @@ class Websearch:
             return ""
         c = Conversations(conversation_name=conversation_name, user=self.user)
         activity_id = c.get_thinking_id(agent_name=self.agent_name)
+        try:
+            str_links = json.dumps(links, indent=2)
+        except:
+            str_links = str(links)
         c.log_interaction(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Browsing links provided by the user.",
+            message=f"[SUBACTIVITY][{activity_id}] Browsing links:\n```json\n{str_links}\n```",
         )
         tasks = []
         scraped_links = []
