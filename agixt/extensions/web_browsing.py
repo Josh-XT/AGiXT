@@ -2693,7 +2693,7 @@ class web_browsing(Extensions):
                         import json
 
                         cookies_to_set = []
-                        
+
                         # Try to parse as JSON first (for advanced cookie settings)
                         try:
                             cookie_data = json.loads(value)
@@ -2703,33 +2703,37 @@ class web_browsing(Extensions):
                             elif isinstance(cookie_data, list):
                                 cookies_to_set.extend(cookie_data)
                             else:
-                                raise ValueError("JSON must be a cookie object or array of cookie objects")
+                                raise ValueError(
+                                    "JSON must be a cookie object or array of cookie objects"
+                                )
                         except json.JSONDecodeError:
                             # Not JSON, parse as simple name=value format
                             # Support multiple cookies separated by semicolon
-                            cookie_pairs = value.split(';')
-                            current_domain = self.page.url.split('/')[2] if self.page else None
-                            
+                            cookie_pairs = value.split(";")
+                            current_domain = (
+                                self.page.url.split("/")[2] if self.page else None
+                            )
+
                             for pair in cookie_pairs:
                                 pair = pair.strip()
-                                if '=' in pair:
-                                    name, val = pair.split('=', 1)
+                                if "=" in pair:
+                                    name, val = pair.split("=", 1)
                                     cookie_obj = {
-                                        'name': name.strip(),
-                                        'value': val.strip(),
-                                        'domain': current_domain,
-                                        'path': '/'
+                                        "name": name.strip(),
+                                        "value": val.strip(),
+                                        "domain": current_domain,
+                                        "path": "/",
                                     }
                                     cookies_to_set.append(cookie_obj)
-                        
+
                         if not cookies_to_set:
                             raise ValueError("No valid cookies to set")
-                        
+
                         # Set cookies in the browser context
                         await self.context.add_cookies(cookies_to_set)
-                        
+
                         # Format result message
-                        cookie_names = [c['name'] for c in cookies_to_set]
+                        cookie_names = [c["name"] for c in cookies_to_set]
                         op_result = f"Successfully set {len(cookies_to_set)} cookie(s): {', '.join(cookie_names)}"
                         logging.info(op_result)
 
