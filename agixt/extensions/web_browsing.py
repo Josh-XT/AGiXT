@@ -230,7 +230,9 @@ class web_browsing(Extensions):
                     "Playwright is not available. Please install the 'playwright' package to use browser automation."
                 )
             if self.page is None:
-                logging.info("Initializing Playwright browser...")
+                logging.info(
+                    "Initializing Playwright browser with stealth configuration..."
+                )
                 self.playwright = await async_playwright().start()
                 self.browser = await self.playwright.chromium.launch(
                     headless=headless,
@@ -241,12 +243,103 @@ class web_browsing(Extensions):
                         "--disable-features=VizDisplayCompositor",
                     ],  # Improve stability and avoid detection
                 )
+
+                # Comprehensive stealth configuration to appear as regular user
                 self.context = await self.browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                     viewport={"width": 1920, "height": 1080},
                     ignore_https_errors=True,  # Handle SSL issues more gracefully
+                    locale="en-US",
+                    timezone_id="America/New_York",
+                    permissions=["geolocation", "notifications"],
+                    geolocation={"latitude": 40.7128, "longitude": -74.0060},  # NYC
+                    color_scheme="light",
+                    device_scale_factor=1,
+                    has_touch=False,
+                    is_mobile=False,
+                    extra_http_headers={
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "DNT": "1",  # Do Not Track
+                        "Connection": "keep-alive",
+                        "Upgrade-Insecure-Requests": "1",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Sec-Fetch-User": "?1",
+                        "Cache-Control": "max-age=0",
+                    },
                 )
+
                 self.page = await self.context.new_page()
+
+                # Inject scripts to mask automation indicators
+                await self.page.add_init_script(
+                    """
+                    // Override the navigator.webdriver property
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => false,
+                    });
+                    
+                    // Mock plugins to appear like a real browser
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [
+                            {
+                                0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format", enabledPlugin: Plugin},
+                                description: "Portable Document Format",
+                                filename: "internal-pdf-viewer",
+                                length: 1,
+                                name: "Chrome PDF Plugin"
+                            },
+                            {
+                                0: {type: "application/pdf", suffixes: "pdf", description: "", enabledPlugin: Plugin},
+                                description: "",
+                                filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                                length: 1,
+                                name: "Chrome PDF Viewer"
+                            },
+                            {
+                                0: {type: "application/x-nacl", suffixes: "", description: "Native Client Executable", enabledPlugin: Plugin},
+                                1: {type: "application/x-pnacl", suffixes: "", description: "Portable Native Client Executable", enabledPlugin: Plugin},
+                                description: "",
+                                filename: "internal-nacl-plugin",
+                                length: 2,
+                                name: "Native Client"
+                            }
+                        ],
+                    });
+                    
+                    // Mock languages
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en'],
+                    });
+                    
+                    // Add chrome object
+                    window.chrome = {
+                        runtime: {},
+                        loadTimes: function() {},
+                        csi: function() {},
+                        app: {}
+                    };
+                    
+                    // Mock permissions
+                    const originalQuery = window.navigator.permissions.query;
+                    window.navigator.permissions.query = (parameters) => (
+                        parameters.name === 'notifications' ?
+                            Promise.resolve({ state: Notification.permission }) :
+                            originalQuery(parameters)
+                    );
+                    
+                    // Add realistic screen properties
+                    Object.defineProperty(screen, 'availWidth', {get: () => 1920});
+                    Object.defineProperty(screen, 'availHeight', {get: () => 1040});
+                    Object.defineProperty(screen, 'width', {get: () => 1920});
+                    Object.defineProperty(screen, 'height', {get: () => 1080});
+                    Object.defineProperty(screen, 'colorDepth', {get: () => 24});
+                    Object.defineProperty(screen, 'pixelDepth', {get: () => 24});
+                """
+                )
 
                 # Set reasonable timeouts to prevent hanging
                 self.page.set_default_timeout(
@@ -268,11 +361,34 @@ class web_browsing(Extensions):
             raise
 
     async def _call_prompt_agent(self, timeout: int = None, **kwargs):
-        """Call ApiClient.prompt_agent in a background thread with a timeout."""
+        """Call ApiClient.prompt_agent in a background thread (with optional timeout for stuck requests)."""
         if not self.ApiClient:
             raise RuntimeError("ApiClient is not configured.")
 
-        response = self.ApiClient.prompt_agent(**kwargs)
+        # Run in thread to avoid blocking async loop
+        # Apply timeout only if specified (default 90s for planning calls to handle slow LLM responses)
+        try:
+            logging.debug(f"Starting prompt_agent call with timeout={timeout}s...")
+            if timeout:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(self.ApiClient.prompt_agent, **kwargs),
+                    timeout=timeout,
+                )
+            else:
+                response = await asyncio.to_thread(
+                    self.ApiClient.prompt_agent, **kwargs
+                )
+            logging.debug(
+                f"prompt_agent call completed, response length: {len(str(response)) if response else 0}"
+            )
+        except asyncio.TimeoutError:
+            error_msg = f"LLM call timed out after {timeout} seconds (no response from AI service)"
+            logging.error(error_msg)
+            raise TimeoutError(error_msg)
+        except Exception as e:
+            logging.error(f"Error in _call_prompt_agent: {e}", exc_info=True)
+            raise
+
         logging.info(f"Response: {response}")
         return response
 
@@ -2084,6 +2200,8 @@ class web_browsing(Extensions):
                 "get_fields",
                 "get_content",
                 "press",
+                "scrape_to_memory",
+                "respond",
             ]
 
             if not current_selector and operation in needs_selector_operations:
@@ -2390,10 +2508,102 @@ class web_browsing(Extensions):
                         raise ValueError(
                             "Press operation requires a key name in 'value' (e.g., 'Enter', 'Escape', 'Tab')."
                         )
-                    await self.page.keyboard.press(value)
-                    op_result = f"Pressed key: {value}"
-                    # Wait a bit for any page changes
-                    await self.page.wait_for_timeout(200)
+
+                    # For Enter key, we expect navigation/page update - wait for it
+                    if value.lower() == "enter":
+                        try:
+                            # Press Enter and wait for navigation or network idle
+                            await self.page.keyboard.press(value)
+                            logging.info("Pressed Enter, waiting for page to load...")
+
+                            # Wait for either navigation or network to settle (whichever comes first)
+                            try:
+                                await self.page.wait_for_load_state(
+                                    "networkidle", timeout=5000
+                                )
+                                logging.info("Network idle after Enter press")
+                            except PlaywrightTimeoutError:
+                                # If no network idle, at least wait for DOM to be ready
+                                try:
+                                    await self.page.wait_for_load_state(
+                                        "domcontentloaded", timeout=3000
+                                    )
+                                    logging.info("DOM loaded after Enter press")
+                                except PlaywrightTimeoutError:
+                                    logging.info(
+                                        "No clear load state change detected after Enter"
+                                    )
+
+                            # Additional wait to ensure content is rendered
+                            await self.page.wait_for_timeout(1000)
+                            op_result = f"Pressed Enter and waited for page to update"
+
+                        except Exception as press_error:
+                            logging.warning(
+                                f"Error during Enter press with navigation wait: {press_error}"
+                            )
+                            op_result = f"Pressed Enter (navigation wait issue: {str(press_error)})"
+                    else:
+                        # For other keys, just press and wait briefly
+                        await self.page.keyboard.press(value)
+                        op_result = f"Pressed key: {value}"
+                        await self.page.wait_for_timeout(200)
+
+                elif operation == "scrape_to_memory":
+                    # Agent explicitly requests to scrape current page content into memory
+                    # This is used when the agent needs detailed content for analysis/reference
+                    if not self.ApiClient:
+                        raise ValueError(
+                            "Cannot scrape to memory: ApiClient unavailable"
+                        )
+
+                    try:
+                        # Get current page content
+                        page_content_to_scrape = await self.get_page_content()
+                        if not page_content_to_scrape:
+                            raise ValueError("No page content available to scrape")
+
+                        content_length = len(page_content_to_scrape)
+                        scrape_url = self.page.url if self.page else current_url
+
+                        logging.info(
+                            f"Agent requested scraping {scrape_url} into memory ({content_length} chars)"
+                        )
+
+                        # Use the browse_links pattern to scrape into memory
+                        await asyncio.to_thread(
+                            self.ApiClient.prompt_agent,
+                            agent_name=self.agent_name,
+                            prompt_name="Think About It",
+                            prompt_args={
+                                "user_input": f"{scrape_url} \n Scraping page content into memory for detailed analysis",
+                                "websearch": False,
+                                "analyze_user_input": False,
+                                "disable_commands": True,
+                                "log_user_input": False,
+                                "log_output": False,
+                                "browse_links": True,  # Triggers scrape_websites() flow
+                                "tts": False,
+                                "conversation_name": self.conversation_name,
+                            },
+                        )
+
+                        op_result = f"Successfully scraped {content_length} characters from {scrape_url} into conversational memory"
+                        logging.info(op_result)
+
+                    except Exception as scrape_error:
+                        raise Exception(f"Failed to scrape to memory: {scrape_error}")
+
+                elif operation == "respond":
+                    # Agent wants to communicate back to the user and exit
+                    # The 'value' contains the message to return
+                    response_msg = value if value else description
+                    if not response_msg:
+                        response_msg = "Task completed or encountered an issue."
+                    op_result = f"AGENT_RESPONSE: {response_msg}"
+                    success = True  # Mark as success to exit loop gracefully
+                    # Set a flag so we can include this in the final output prominently
+                    self._agent_response_message = response_msg
 
                 elif operation == "done":
                     op_result = "Task marked as complete by plan."
@@ -2784,6 +2994,8 @@ Current Page Content Snippet (for context):
             str: A summary of the actions taken, the final status (success or failure),
                  and potentially the result of the task (e.g., extracted information).
                  Detailed logs are sent via ApiClient messages.
+
+        Notes: If you need to search the web, use search.brave.com as the url.
         """
 
         if not url:
@@ -2819,6 +3031,7 @@ Current Page Content Snippet (for context):
         iteration_count = 0
         results_summary = []  # User-facing summary of steps/results
         attempt_history = []  # Internal history for LLM planning context
+        self._agent_response_message = None  # For 'respond' operation
 
         last_url = None
         max_runtime_seconds = getattr(
@@ -2943,18 +3156,49 @@ Current Page Content Snippet (for context):
 
             # --- 2. Plan Next Step ---
             # Check if last step was a fill operation - remind to press Enter
+            # BUT only if we didn't already press Enter and navigate successfully
             last_action_reminder = ""
             if attempt_history:
                 last_attempt = attempt_history[-1]
+                # Check if last action was filling a field successfully
                 if "fill|" in last_attempt.lower() and "SUCCESS" in last_attempt:
-                    # Check if we haven't pressed Enter yet
+                    # Check if we haven't pressed Enter yet in the last 2 attempts
                     if not any(
-                        "press|" in h.lower() and "Enter" in h
+                        "press|" in h.lower() and "enter" in h.lower()
                         for h in attempt_history[-2:]
                     ):
                         last_action_reminder = """
 **CRITICAL REMINDER**: Your last action was FILLING a field. You MUST press Enter in this step to submit/search.
 Do NOT fill another field or wait - press Enter NOW to trigger the action!
+"""
+                # If we just pressed Enter, check if page changed (URL or content)
+                elif (
+                    "press|" in last_attempt.lower()
+                    and "enter" in last_attempt.lower()
+                    and "SUCCESS" in last_attempt
+                ):
+                    # Check if URL changed OR content changed after pressing Enter
+                    if url_changed or content_changed_since_last:
+                        last_action_reminder = """
+**PAGE UPDATED**: You successfully pressed Enter and the page content has changed (results loaded or navigated to new page).
+Analyze the current content and decide your next action (e.g., click a search result, extract information, scrape content, etc.).
+Do NOT press Enter again unless you're filling a new search box or form field.
+"""
+                    else:
+                        # Pressing Enter but nothing changed - check if we're doing it repeatedly
+                        recent_enter_presses = sum(
+                            1
+                            for h in attempt_history[-3:]
+                            if "press|" in h.lower() and "enter" in h.lower()
+                        )
+                        if recent_enter_presses >= 2:
+                            last_action_reminder = """
+**WARNING**: You have pressed Enter multiple times but the page is NOT changing (same URL and content).
+This means either:
+1. The search results are already displayed - you should now CLICK on a search result link or SCRAPE the current page
+2. The Enter key is not working on this element - try a different approach
+
+Do NOT press Enter again! Instead, look for clickable links in the current page content and click one, or use scrape_to_memory to save the current page information.
 """
 
             planning_context = f"""You are an autonomous web interaction agent. Plan the *single next step* to accomplish the overall task.
@@ -2965,6 +3209,9 @@ CURRENT STATE:
 - Iteration: {iteration_count}/{max_iterations}
 - Current URL: {current_url}
 - URL Changed Since Last Step: {url_changed}
+- Page Content: {len(current_page_content)} characters available (not in planning context for efficiency)
+
+**NOTE**: Full page content is NOT included in planning context to keep it lean. Use `scrape_to_memory` operation if you need to save detailed page content to your conversational memory for later reference.
 
 AVAILABLE STABLE SELECTORS (Prefer these):
 {os.linesep.join([f'- {s}' for s in available_selectors]) if available_selectors else '- (No specific stable selectors detected, rely on standard attributes like name, type, placeholder or text content for clicks/verification)'}
@@ -2972,29 +3219,28 @@ AVAILABLE STABLE SELECTORS (Prefer these):
 FORM FIELDS & INTERACTIVE ELEMENTS (Details for context):
 {form_fields_info[:1500] + '...' if len(form_fields_info) > 1500 else form_fields_info}
 
-VISIBLE PAGE CONTENT:
-{current_page_content}
-
 PREVIOUS STEP ATTEMPTS & OUTCOMES (Recent history):
 {os.linesep.join(attempt_history[-5:])}
 
 RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 1.  Respond with ONLY a single XML block `<interaction><step>...</step></interaction>` wrapped in <answer> and </answer> tags.
-2.  Define ONE operation: `click`, `fill`, `select`, `wait`, `verify`, `get_content`, `get_fields`, `evaluate`, `screenshot`, `download`, `extract_text`, `press`, `done`.
+2.  Define ONE operation: `click`, `fill`, `select`, `wait`, `verify`, `get_content`, `get_fields`, `evaluate`, `screenshot`, `download`, `extract_text`, `press`, `scrape_to_memory`, `respond`, `done`.
 3.  Use the `<selector>` tag with a stable selector (ID, name, data-testid, aria-label, placeholder, type, href). AVOID CLASS SELECTORS (like '.btn'). If no stable selector is obvious, describe the element and consider 'wait' or using text for clicks.
 4.  For `click`: If clicking a button/link with visible text, put the EXACT text in the `<value>` tag. The system will try clicking by text first, then fall back to the selector if needed.
 5.  For `fill`, `select`, `evaluate`: Put the text/value/script to use in the `<value>` tag.
 6.  For `press`: Put the key name in `<value>` (e.g., "Enter", "Escape", "Tab", "ArrowDown"). Use this to submit forms or navigate with keyboard.
 7.  **IMPORTANT**: After filling a search box, chat input, or form field, you MUST press Enter in the next step to submit/search. Don't just fill and wait - actively press Enter to trigger the action.
-8.  For `wait`: Use `<selector>` for an element to wait for (e.g., `#results|visible`), OR put milliseconds in `<value>` (e.g., 2000).
-9.  For `verify`: Use `<selector>` for the element, and the text it should contain in `<value>`.
-10. For `download`: Use `<selector>` for the trigger element (link/button), `<value>` for optional save path.
-11. For `extract_text`: Use `<selector>` for the target image.
-12. For `get_content` / `get_fields`: No selector/value needed, they operate on the current page.
-13. Use `<description>` to explain WHY this step helps achieve the main task.
-14. If the task is fully complete, use operation `done`.
-15. COMPLEX TASKS: You have up to 50 iterations to complete multi-step workflows (registration, login, navigation, etc.). Break complex tasks into small atomic steps. Take your time and be methodical.
-16. If stuck (e.g., element not found after waiting, repeated failures), consider `wait` or describe the issue and use `done` if truly blocked. The system has intelligent failure detection to prevent infinite loops.
+8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. Don't use for simple navigation pages (search boxes, homepages, menus).
+9.  For `respond`: Use this to communicate back to the user and gracefully exit. Put your message in `<value>` explaining what you found, what worked, what failed, or why you're stopping. This is useful when encountering errors, completing part of the task, or needing to report findings. The user will see your message prominently and can decide on next steps.
+10. For `wait`: Use `<selector>` for an element to wait for (e.g., `#results|visible`), OR put milliseconds in `<value>` (e.g., 2000).
+11. For `verify`: Use `<selector>` for the element, and the text it should contain in `<value>`.
+12. For `download`: Use `<selector>` for the trigger element (link/button), `<value>` for optional save path.
+13. For `extract_text`: Use `<selector>` for the target image.
+14. For `get_content` / `get_fields`: No selector/value needed, they operate on the current page.
+15. Use `<description>` to explain WHY this step helps achieve the main task.
+16. If the task is fully complete, use operation `done`.
+17. COMPLEX TASKS: You have up to 50 iterations to complete multi-step workflows (registration, login, navigation, etc.). Break complex tasks into small atomic steps. Take your time and be methodical.
+18. If stuck (e.g., element not found after waiting, repeated failures), use `respond` to explain the issue and suggest alternative approaches. The system has intelligent failure detection to prevent infinite loops.
 
 EXAMPLE CLICKS:
 <interaction><step><operation>click</operation><selector>button[data-testid='login-btn']</selector><value>Log In</value><description>Click the login button using its test ID and text.</description></step></interaction>
@@ -3011,6 +3257,14 @@ EXAMPLE FILL (single field):
 EXAMPLE PRESS:
 <interaction><step><operation>press</operation><selector></selector><value>Enter</value><description>Press Enter key to submit the search form.</description></step></interaction>
 
+EXAMPLE SCRAPE TO MEMORY (save detailed content):
+<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Scrape the GitHub repository README and details into memory for detailed analysis.</description></step></interaction>
+<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Save this article content to memory so I can reference it when answering questions.</description></step></interaction>
+
+EXAMPLE RESPOND (report back to user and exit):
+<interaction><step><operation>respond</operation><selector></selector><value>I successfully searched for AGiXT on DuckDuckGo and found 10 results. The top result is the official GitHub repository at github.com/Josh-XT/AGiXT. Would you like me to click on a specific result or perform another action?</value><description>Report findings to user and await further instructions.</description></step></interaction>
+<interaction><step><operation>respond</operation><selector></selector><value>I encountered an error: the login button could not be found after 3 attempts. The page may have changed its structure. I recommend trying a different selector or verifying the page URL is correct.</value><description>Report error to user with helpful context.</description></step></interaction>
+
 EXAMPLE WAIT:
 <interaction><step><operation>wait</operation><selector>#results-table|visible</selector><value></value><description>Wait for the results table to become visible.</description></step></interaction>
 
@@ -3026,9 +3280,11 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
             while plan_attempt < max_plan_attempts and parsed_step is None:
                 plan_attempt += 1
                 try:
+                    # Set timeout to 90 seconds to handle typical LLM response times (30-60s)
+                    # This prevents indefinite hangs while being generous enough for slow responses
                     plan_timeout = getattr(
-                        self, "plan_step_timeout_seconds", 30
-                    )  # 30 seconds default
+                        self, "plan_step_timeout_seconds", 90
+                    )  # 90 seconds default
 
                     # Adjust prompt for retry attempts
                     current_planning_context = planning_context
@@ -3060,6 +3316,9 @@ Previous error: {last_parse_error}
                         max_plan_attempts,
                         plan_timeout,
                     )
+                    logging.debug(
+                        f"About to await _call_prompt_agent for iteration {iteration_count}..."
+                    )
                     raw_plan = await self._call_prompt_agent(
                         timeout=plan_timeout,
                         agent_name=self.agent_name,
@@ -3075,6 +3334,9 @@ Previous error: {last_parse_error}
                             "browse_links": False,
                             "websearch": False,
                         },
+                    )
+                    logging.debug(
+                        f"Returned from await _call_prompt_agent for iteration {iteration_count}"
                     )
                     logging.info(
                         "Received plan response for iteration %d (attempt %d).",
@@ -3118,6 +3380,23 @@ Previous error: {last_parse_error}
                             f"\nLast response was:\n{raw_plan}"
                         )
                     # Otherwise, loop will retry with corrective prompt
+                except (TimeoutError, asyncio.TimeoutError) as timeout_error:
+                    last_parse_error = f"LLM timeout: {timeout_error}"
+                    logging.error(
+                        "LLM planning timed out on attempt %d/%d: %s",
+                        plan_attempt,
+                        max_plan_attempts,
+                        timeout_error,
+                    )
+                    if plan_attempt >= max_plan_attempts:
+                        # All attempts timed out
+                        raise TimeoutError(
+                            f"LLM planning timed out after {max_plan_attempts} attempts ({plan_timeout}s each). "
+                            f"The AI service may be overloaded or stuck."
+                        )
+                    # Otherwise, retry after brief pause
+                    logging.info("Waiting 3 seconds before retry...")
+                    await asyncio.sleep(3)
 
             if parsed_step is None:
                 raise ValueError("Failed to obtain a valid parsed step after retries.")
@@ -3141,6 +3420,7 @@ Previous error: {last_parse_error}
                     "wait",
                     "verify",
                     "done",
+                    "respond",
                     "get_content",
                     "get_fields",
                     "evaluate",
@@ -3148,6 +3428,7 @@ Previous error: {last_parse_error}
                     "download",
                     "extract_text",
                     "press",
+                    "scrape_to_memory",
                 ]:
                     raise ValueError(f"Invalid operation '{operation}' planned.")
 
@@ -3157,10 +3438,12 @@ Previous error: {last_parse_error}
                     not in [
                         "wait",
                         "done",
+                        "respond",
                         "evaluate",
                         "get_content",
                         "get_fields",
                         "press",
+                        "scrape_to_memory",
                     ]
                     and selector
                     and not self.is_valid_selector(selector)
@@ -3376,10 +3659,18 @@ Previous error: {last_parse_error}
                 )
 
         # --- 7. Final Result ---
-        final_output = (
-            f"Web interaction task '{task}' finished.\nSummary of actions:\n"
-            + "\n".join(results_summary)
-        )
+        # If agent used 'respond' operation, prioritize that message
+        if self._agent_response_message:
+            final_output = f"**Agent Response**: {self._agent_response_message}\n\n"
+            final_output += (
+                f"Web interaction task '{task}' finished.\nSummary of actions:\n"
+            )
+            final_output += "\n".join(results_summary)
+        else:
+            final_output = (
+                f"Web interaction task '{task}' finished.\nSummary of actions:\n"
+                + "\n".join(results_summary)
+            )
         logging.info(f"Interaction task '{task}' finished. Final URL: {last_url}")
 
         # Optionally close browser here or let it persist
