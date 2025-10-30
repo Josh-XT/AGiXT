@@ -2906,7 +2906,8 @@ class web_browsing(Extensions):
             new_url = self.page.url
             summary = ""
             try:
-                # Only generate summary if operation wasn't just getting content/fields
+                # Only generate summary if operation wasn't just getting content/fields or pressing keys
+                # Note: Disabling summary for 'press' as it can cause hangs after Enter key
                 if operation not in [
                     "get_content",
                     "get_fields",
@@ -2915,6 +2916,7 @@ class web_browsing(Extensions):
                     "wait",
                     "evaluate",
                     "done",
+                    "press",  # Added: skip summary for key presses to avoid hangs
                 ]:
                     try:
                         new_content = await self.get_page_content()  # Get fresh content
