@@ -713,6 +713,75 @@ class web_browsing(Extensions):
                 )
             return error_msg
 
+    async def get_clickable_links(self) -> List[str]:
+        """
+        Extract visible, clickable link texts from the page.
+        This is specifically designed to capture search result links and other
+        clickable content that might not be traditional form elements.
+
+        Returns:
+            List[str]: List of clickable link texts found on the page
+        """
+        if self.page is None or self.page.is_closed():
+            return []
+
+        try:
+            # Extract all visible clickable elements with meaningful text
+            link_texts = await self.page.evaluate(
+                """() => {
+                    const elements = [];
+                    
+                    // Get all <a> tags with visible text
+                    const links = document.querySelectorAll('a');
+                    links.forEach(link => {
+                        const rect = link.getBoundingClientRect();
+                        const isVisible = (rect.width > 0 || rect.height > 0) && 
+                                        window.getComputedStyle(link).visibility !== 'hidden' &&
+                                        window.getComputedStyle(link).display !== 'none';
+                        
+                        if (isVisible) {
+                            // Get text content, stripping extra whitespace
+                            const text = link.innerText || link.textContent || '';
+                            const cleanText = text.trim().replace(/\\s+/g, ' ');
+                            
+                            // Only include links with meaningful text (3+ chars, not just icons/emojis)
+                            if (cleanText.length >= 3 && cleanText.length <= 200) {
+                                elements.push(cleanText);
+                            }
+                        }
+                    });
+                    
+                    // Also check for clickable divs/spans that might be styled as links
+                    const clickables = document.querySelectorAll('[role="link"], [onclick], .result-title, .search-result-title');
+                    clickables.forEach(elem => {
+                        if (elem.tagName.toLowerCase() !== 'a') {  // Skip if already processed as <a>
+                            const rect = elem.getBoundingClientRect();
+                            const isVisible = (rect.width > 0 || rect.height > 0) && 
+                                            window.getComputedStyle(elem).visibility !== 'hidden' &&
+                                            window.getComputedStyle(elem).display !== 'none';
+                            
+                            if (isVisible) {
+                                const text = elem.innerText || elem.textContent || '';
+                                const cleanText = text.trim().replace(/\\s+/g, ' ');
+                                
+                                if (cleanText.length >= 3 && cleanText.length <= 200) {
+                                    elements.push(cleanText);
+                                }
+                            }
+                        }
+                    });
+                    
+                    // Return unique texts
+                    return [...new Set(elements)];
+                }"""
+            )
+
+            return link_texts
+
+        except Exception as e:
+            logging.warning(f"Error extracting clickable links: {e}")
+            return []
+
     async def get_search_results(self, query: str) -> List[dict]:
         """
         Performs a web search using an external service (via AGiXT's search_the_web).
@@ -2671,6 +2740,7 @@ class web_browsing(Extensions):
                         # Use the browse_links pattern to scrape into memory
                         # Use _call_prompt_agent for reliable timeout handling
                         await self._call_prompt_agent(
+                            timeout=90,  # Explicit timeout for scraping large pages
                             agent_name=self.agent_name,
                             prompt_name="Think About It",
                             prompt_args={
@@ -2858,9 +2928,11 @@ class web_browsing(Extensions):
 
                 # Check if operation itself returned an error message
                 if isinstance(op_result, str) and (
-                    "Error:" in op_result
+                    op_result.startswith(
+                        "Error"
+                    )  # Catch "Error clicking...", "Error: ...", etc.
                     or "failed" in op_result.lower()
-                    or "Warning:" in op_result
+                    or op_result.startswith("Warning")
                 ):
                     raise Exception(
                         op_result
@@ -2907,7 +2979,7 @@ class web_browsing(Extensions):
             summary = ""
             try:
                 # Only generate summary if operation wasn't just getting content/fields or pressing keys
-                # Note: Disabling summary for 'press' as it can cause hangs after Enter key
+                # Note: Disabling summary for 'press' and 'scrape_to_memory' as they can cause hangs
                 if operation not in [
                     "get_content",
                     "get_fields",
@@ -2916,7 +2988,8 @@ class web_browsing(Extensions):
                     "wait",
                     "evaluate",
                     "done",
-                    "press",  # Added: skip summary for key presses to avoid hangs
+                    "press",  # skip summary for key presses to avoid hangs
+                    "scrape_to_memory",  # skip summary - already scraping content, no need for additional summary
                 ]:
                     try:
                         new_content = await self.get_page_content()  # Get fresh content
@@ -3355,10 +3428,13 @@ Current Page Content Snippet (for context):
                     )
                 else:
                     logging.info("Form field summary unavailable or non-textual.")
-                # Extract only the stable selectors from form_fields_info for the prompt
+
+                # Extract stable selectors and clickable link texts
                 available_selectors = []
+                clickable_link_texts = []
                 if isinstance(form_fields_info, str):
                     for line in form_fields_info.split("\n"):
+                        # Extract stable selectors
                         if "Selectors: " in line:
                             selectors_part = line.split("Selectors: ")[1]
                             # Extract selectors within quotes
@@ -3369,13 +3445,47 @@ Current Page Content Snippet (for context):
                                     and sel not in available_selectors
                                 ):
                                     available_selectors.append(sel)
+
+                        # Extract clickable link/button texts
+                        if "(Can potentially be clicked by text:" in line:
+                            text_match = re.search(r"clicked by text: '([^']+)'", line)
+                            if text_match:
+                                text = text_match.group(1).strip()
+                                if (
+                                    text
+                                    and len(text) > 2
+                                    and text not in clickable_link_texts
+                                ):
+                                    clickable_link_texts.append(text)
                 else:
                     logging.warning("Could not parse form fields for stable selectors.")
 
+                # ADDITIONALLY: Extract all clickable link texts from the page directly
+                # This captures search results and other links that aren't in form_fields
+                page_link_texts = await self.get_clickable_links()
+                for link_text in page_link_texts:
+                    if (
+                        link_text
+                        and len(link_text) > 2
+                        and link_text not in clickable_link_texts
+                    ):
+                        clickable_link_texts.append(link_text)
+
                 logging.info(
-                    "Detected %d stable selectors for planning.",
+                    "Detected %d stable selectors and %d clickable texts for planning.",
                     len(available_selectors),
+                    len(clickable_link_texts),
                 )
+
+                # Log what was actually detected (INFO level for visibility)
+                if available_selectors:
+                    logging.info(
+                        f"Available selectors (first 10): {available_selectors[:10]}"
+                    )
+                if clickable_link_texts:
+                    logging.info(
+                        f"Clickable texts (first 10): {clickable_link_texts[:10]}"
+                    )
 
                 digest_source = current_page_content or ""
                 if self.page and not self.page.is_closed():
@@ -3506,6 +3616,9 @@ CURRENT STATE:
 AVAILABLE STABLE SELECTORS (Prefer these):
 {os.linesep.join([f'- {s}' for s in available_selectors]) if available_selectors else '- (No specific stable selectors detected, rely on standard attributes like name, type, placeholder or text content for clicks/verification)'}
 
+CLICKABLE LINKS/BUTTONS BY TEXT (Use these EXACT texts in <value> for click operations):
+{os.linesep.join([f'- "{text}"' for text in clickable_link_texts[:20]]) if clickable_link_texts else '- (No clickable text elements detected - consider using get_content to see page details, or use scrape_to_memory to analyze the page)'}
+
 FORM FIELDS & INTERACTIVE ELEMENTS (Details for context):
 {form_fields_info[:1500] + '...' if len(form_fields_info) > 1500 else form_fields_info}
 
@@ -3520,7 +3633,11 @@ RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 5.  For `fill`, `select`, `evaluate`: Put the text/value/script to use in the `<value>` tag.
 6.  For `press`: Put the key name in `<value>` (e.g., "Enter", "Escape", "Tab", "ArrowDown"). Use this to submit forms or navigate with keyboard.
 7.  **IMPORTANT**: After filling a search box, chat input, or form field, you MUST press Enter in the next step to submit/search. Don't just fill and wait - actively press Enter to trigger the action.
-8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. **IMPORTANT FOR SEARCH RESULTS**: If you're on a search results page, DON'T just scrape the snippets - CLICK on the top result or official link FIRST to get to the actual detailed content, THEN scrape that page. Search results pages only have brief snippets, not the full information the user needs.
+8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. **IMPORTANT FOR SEARCH RESULTS**: If you're on a search results page:
+    - First use `get_content` or `scrape_to_memory` to see the actual search results with their titles and URLs
+    - Then identify a specific result link (by looking at the titles/descriptions in the content)
+    - CLICK on that result by using its visible text in the <value> field (e.g., "GitHub - devxt/agixt" or "AGiXT Documentation")
+    - Search results pages only have brief snippets - you need to click through to get detailed information
 9.  For `handle_mfa`: Use this to automatically handle MFA by scanning a QR code on the current page and entering the generated TOTP code. Put the OTP input field selector in `<selector>` and optionally the submit button selector in `<value>` (defaults to 'button[type="submit"]'). This will: scan the page for a TOTP QR code, extract the secret, generate the current code, fill it in, and submit.
 10. For `get_cookies`: Use this to retrieve all cookies from the current page. Optionally provide a filter pattern in `<value>` to match specific cookie names (supports wildcards like 'session*'). No selector needed. Useful for debugging authentication flows or checking session state.
 11. For `set_cookies`: Use this to set cookies on the current page. Put cookie data in `<value>` as either 'name=value' (simple) or JSON with full details. Multiple cookies can be separated by semicolons. No selector needed. JSON format example: {{"name":"session","value":"abc123","domain":".example.com","path":"/","secure":true}}. Useful for setting auth tokens, session IDs, or testing cookie-based flows.
@@ -3623,6 +3740,29 @@ Previous error: {last_parse_error}
                         max_plan_attempts,
                         plan_timeout,
                     )
+
+                    # Log a snippet of the planning context (INFO level)
+                    context_lines = current_planning_context.split("\n")
+                    # Show task, current state, and the clickable texts section
+                    important_lines = []
+                    capture = False
+                    for line in context_lines[
+                        :50
+                    ]:  # First 50 lines should cover what we need
+                        if (
+                            "OVERALL TASK:" in line
+                            or "CURRENT STATE:" in line
+                            or "CLICKABLE LINKS/BUTTONS BY TEXT" in line
+                        ):
+                            capture = True
+                        if capture:
+                            important_lines.append(line)
+                            if "FORM FIELDS" in line:  # Stop before form fields
+                                break
+                    logging.info(
+                        f"Planning context key sections:\n{chr(10).join(important_lines[:30])}"
+                    )
+
                     logging.debug(
                         f"About to await _call_prompt_agent for iteration {iteration_count}..."
                     )
