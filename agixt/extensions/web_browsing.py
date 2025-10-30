@@ -2594,6 +2594,148 @@ class web_browsing(Extensions):
                     except Exception as scrape_error:
                         raise Exception(f"Failed to scrape to memory: {scrape_error}")
 
+                elif operation == "handle_mfa":
+                    # Agent wants to handle MFA by scanning QR code and entering TOTP
+                    # The 'selector' should be the OTP input field
+                    # The 'value' can optionally be the submit button selector (defaults to button[type="submit"])
+                    if not selector:
+                        raise ValueError(
+                            "handle_mfa requires a selector for the OTP input field"
+                        )
+
+                    submit_button = value if value else 'button[type="submit"]'
+                    logging.info(
+                        f"Attempting to handle MFA: OTP field={selector}, Submit button={submit_button}"
+                    )
+
+                    try:
+                        mfa_result = await self.handle_mfa_with_playwright(
+                            otp_selector=selector, submit_selector=submit_button
+                        )
+
+                        if "Error" in mfa_result:
+                            raise Exception(mfa_result)
+
+                        op_result = mfa_result
+                        logging.info(f"MFA handling completed: {op_result}")
+
+                    except Exception as mfa_error:
+                        raise Exception(f"Failed to handle MFA: {mfa_error}")
+
+                elif operation == "get_cookies":
+                    # Agent wants to retrieve cookies from the current page
+                    # Optional: If 'value' is provided, filter cookies by name (supports wildcards)
+                    if self.page is None or self.page.is_closed():
+                        raise ValueError("No page loaded to get cookies from")
+
+                    try:
+                        # Get all cookies from the current browser context
+                        cookies = await self.context.cookies()
+
+                        # If value is provided, use it as a filter (supports wildcards)
+                        filter_pattern = value.strip() if value else None
+
+                        if filter_pattern:
+                            import fnmatch
+
+                            filtered_cookies = [
+                                c
+                                for c in cookies
+                                if fnmatch.fnmatch(c.get("name", ""), filter_pattern)
+                            ]
+                            cookies_to_report = filtered_cookies
+                            filter_msg = f" (filtered by pattern: {filter_pattern})"
+                        else:
+                            cookies_to_report = cookies
+                            filter_msg = ""
+
+                        # Format cookies for readable output
+                        if cookies_to_report:
+                            cookie_details = []
+                            for cookie in cookies_to_report:
+                                details = f"  - {cookie['name']}={cookie['value']}"
+                                if cookie.get("domain"):
+                                    details += f" (domain: {cookie['domain']})"
+                                if cookie.get("path"):
+                                    details += f" (path: {cookie['path']})"
+                                if cookie.get("httpOnly"):
+                                    details += " [HttpOnly]"
+                                if cookie.get("secure"):
+                                    details += " [Secure]"
+                                if cookie.get("sameSite"):
+                                    details += f" [SameSite={cookie['sameSite']}]"
+                                cookie_details.append(details)
+
+                            op_result = (
+                                f"Found {len(cookies_to_report)} cookie(s){filter_msg}:\n"
+                                + "\n".join(cookie_details)
+                            )
+                        else:
+                            op_result = f"No cookies found{filter_msg}"
+
+                        logging.info(
+                            f"Retrieved {len(cookies_to_report)} cookies from current page{filter_msg}"
+                        )
+
+                    except Exception as cookie_error:
+                        raise Exception(f"Failed to get cookies: {cookie_error}")
+
+                elif operation == "set_cookies":
+                    # Agent wants to set one or more cookies on the current page
+                    # The 'value' contains cookie data in format: name=value or JSON with full cookie details
+                    if self.page is None or self.page.is_closed():
+                        raise ValueError("No page loaded to set cookies on")
+
+                    if not value:
+                        raise ValueError("set_cookies requires cookie data in <value>")
+
+                    try:
+                        import json
+
+                        cookies_to_set = []
+                        
+                        # Try to parse as JSON first (for advanced cookie settings)
+                        try:
+                            cookie_data = json.loads(value)
+                            # Support both single cookie object and array of cookies
+                            if isinstance(cookie_data, dict):
+                                cookies_to_set.append(cookie_data)
+                            elif isinstance(cookie_data, list):
+                                cookies_to_set.extend(cookie_data)
+                            else:
+                                raise ValueError("JSON must be a cookie object or array of cookie objects")
+                        except json.JSONDecodeError:
+                            # Not JSON, parse as simple name=value format
+                            # Support multiple cookies separated by semicolon
+                            cookie_pairs = value.split(';')
+                            current_domain = self.page.url.split('/')[2] if self.page else None
+                            
+                            for pair in cookie_pairs:
+                                pair = pair.strip()
+                                if '=' in pair:
+                                    name, val = pair.split('=', 1)
+                                    cookie_obj = {
+                                        'name': name.strip(),
+                                        'value': val.strip(),
+                                        'domain': current_domain,
+                                        'path': '/'
+                                    }
+                                    cookies_to_set.append(cookie_obj)
+                        
+                        if not cookies_to_set:
+                            raise ValueError("No valid cookies to set")
+                        
+                        # Set cookies in the browser context
+                        await self.context.add_cookies(cookies_to_set)
+                        
+                        # Format result message
+                        cookie_names = [c['name'] for c in cookies_to_set]
+                        op_result = f"Successfully set {len(cookies_to_set)} cookie(s): {', '.join(cookie_names)}"
+                        logging.info(op_result)
+
+                    except Exception as cookie_error:
+                        raise Exception(f"Failed to set cookies: {cookie_error}")
+
                 elif operation == "respond":
                     # Agent wants to communicate back to the user and exit
                     # The 'value' contains the message to return
@@ -3224,23 +3366,26 @@ PREVIOUS STEP ATTEMPTS & OUTCOMES (Recent history):
 
 RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 1.  Respond with ONLY a single XML block `<interaction><step>...</step></interaction>` wrapped in <answer> and </answer> tags.
-2.  Define ONE operation: `click`, `fill`, `select`, `wait`, `verify`, `get_content`, `get_fields`, `evaluate`, `screenshot`, `download`, `extract_text`, `press`, `scrape_to_memory`, `respond`, `done`.
+2.  Define ONE operation: `click`, `fill`, `select`, `wait`, `verify`, `get_content`, `get_fields`, `evaluate`, `screenshot`, `download`, `extract_text`, `press`, `scrape_to_memory`, `handle_mfa`, `get_cookies`, `set_cookies`, `respond`, `done`.
 3.  Use the `<selector>` tag with a stable selector (ID, name, data-testid, aria-label, placeholder, type, href). AVOID CLASS SELECTORS (like '.btn'). If no stable selector is obvious, describe the element and consider 'wait' or using text for clicks.
 4.  For `click`: If clicking a button/link with visible text, put the EXACT text in the `<value>` tag. The system will try clicking by text first, then fall back to the selector if needed.
 5.  For `fill`, `select`, `evaluate`: Put the text/value/script to use in the `<value>` tag.
 6.  For `press`: Put the key name in `<value>` (e.g., "Enter", "Escape", "Tab", "ArrowDown"). Use this to submit forms or navigate with keyboard.
 7.  **IMPORTANT**: After filling a search box, chat input, or form field, you MUST press Enter in the next step to submit/search. Don't just fill and wait - actively press Enter to trigger the action.
 8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. Don't use for simple navigation pages (search boxes, homepages, menus).
-9.  For `respond`: Use this to communicate back to the user and gracefully exit. Put your message in `<value>` explaining what you found, what worked, what failed, or why you're stopping. This is useful when encountering errors, completing part of the task, or needing to report findings. The user will see your message prominently and can decide on next steps.
-10. For `wait`: Use `<selector>` for an element to wait for (e.g., `#results|visible`), OR put milliseconds in `<value>` (e.g., 2000).
-11. For `verify`: Use `<selector>` for the element, and the text it should contain in `<value>`.
-12. For `download`: Use `<selector>` for the trigger element (link/button), `<value>` for optional save path.
-13. For `extract_text`: Use `<selector>` for the target image.
-14. For `get_content` / `get_fields`: No selector/value needed, they operate on the current page.
-15. Use `<description>` to explain WHY this step helps achieve the main task.
-16. If the task is fully complete, use operation `done`.
-17. COMPLEX TASKS: You have up to 50 iterations to complete multi-step workflows (registration, login, navigation, etc.). Break complex tasks into small atomic steps. Take your time and be methodical.
-18. If stuck (e.g., element not found after waiting, repeated failures), use `respond` to explain the issue and suggest alternative approaches. The system has intelligent failure detection to prevent infinite loops.
+9.  For `handle_mfa`: Use this to automatically handle MFA by scanning a QR code on the current page and entering the generated TOTP code. Put the OTP input field selector in `<selector>` and optionally the submit button selector in `<value>` (defaults to 'button[type="submit"]'). This will: scan the page for a TOTP QR code, extract the secret, generate the current code, fill it in, and submit.
+10. For `get_cookies`: Use this to retrieve all cookies from the current page. Optionally provide a filter pattern in `<value>` to match specific cookie names (supports wildcards like 'session*'). No selector needed. Useful for debugging authentication flows or checking session state.
+11. For `set_cookies`: Use this to set cookies on the current page. Put cookie data in `<value>` as either 'name=value' (simple) or JSON with full details. Multiple cookies can be separated by semicolons. No selector needed. JSON format: {"name":"cookie_name","value":"cookie_value","domain":".example.com","path":"/","secure":true}. Useful for setting auth tokens, session IDs, or testing cookie-based flows.
+12. For `respond`: Use this to communicate back to the user and gracefully exit. Put your message in `<value>` explaining what you found, what worked, what failed, or why you're stopping. This is useful when encountering errors, completing part of the task, or needing to report findings. The user will see your message prominently and can decide on next steps.
+13. For `wait`: Use `<selector>` for an element to wait for (e.g., `#results|visible`), OR put milliseconds in `<value>` (e.g., 2000).
+14. For `verify`: Use `<selector>` for the element, and the text it should contain in `<value>`.
+15. For `download`: Use `<selector>` for the trigger element (link/button), `<value>` for optional save path.
+16. For `extract_text`: Use `<selector>` for the target image.
+17. For `get_content` / `get_fields` / `get_cookies` / `set_cookies`: No selector needed, they operate on the current page.
+18. Use `<description>` to explain WHY this step helps achieve the main task.
+19. If the task is fully complete, use operation `done`.
+20. COMPLEX TASKS: You have up to 50 iterations to complete multi-step workflows (registration, login, navigation, etc.). Break complex tasks into small atomic steps. Take your time and be methodical.
+21. If stuck (e.g., element not found after waiting, repeated failures), use `respond` to explain the issue and suggest alternative approaches. The system has intelligent failure detection to prevent infinite loops.
 
 EXAMPLE CLICKS:
 <interaction><step><operation>click</operation><selector>button[data-testid='login-btn']</selector><value>Log In</value><description>Click the login button using its test ID and text.</description></step></interaction>
@@ -3260,6 +3405,20 @@ EXAMPLE PRESS:
 EXAMPLE SCRAPE TO MEMORY (save detailed content):
 <interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Scrape the GitHub repository README and details into memory for detailed analysis.</description></step></interaction>
 <interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Save this article content to memory so I can reference it when answering questions.</description></step></interaction>
+
+EXAMPLE HANDLE MFA (scan QR code and enter TOTP):
+<interaction><step><operation>handle_mfa</operation><selector>input[name='mfa_token']</selector><value></value><description>Scan the QR code on the page and automatically enter the generated TOTP code into the MFA field, then submit.</description></step></interaction>
+<interaction><step><operation>handle_mfa</operation><selector>input[id='otp-input']</selector><value>button[id='verify-button']</value><description>Handle MFA by scanning QR code, entering TOTP, and clicking the custom verify button.</description></step></interaction>
+
+EXAMPLE GET COOKIES (retrieve page cookies):
+<interaction><step><operation>get_cookies</operation><selector></selector><value></value><description>Get all cookies from the current page to check authentication state.</description></step></interaction>
+<interaction><step><operation>get_cookies</operation><selector></selector><value>session*</value><description>Get all session-related cookies (matching pattern 'session*') to debug login issues.</description></step></interaction>
+<interaction><step><operation>get_cookies</operation><selector></selector><value>auth_token</value><description>Check if the auth_token cookie is set after login.</description></step></interaction>
+
+EXAMPLE SET COOKIES (set page cookies):
+<interaction><step><operation>set_cookies</operation><selector></selector><value>session_id=abc123; user_token=xyz789</value><description>Set session and auth cookies for testing authenticated flows.</description></step></interaction>
+<interaction><step><operation>set_cookies</operation><selector></selector><value>auth_token=my_test_token</value><description>Set a single auth token cookie to bypass login.</description></step></interaction>
+<interaction><step><operation>set_cookies</operation><selector></selector><value>[{"name":"session","value":"abc123","domain":".example.com","path":"/","secure":true,"httpOnly":true}]</value><description>Set a secure session cookie with full control over attributes using JSON format.</description></step></interaction>
 
 EXAMPLE RESPOND (report back to user and exit):
 <interaction><step><operation>respond</operation><selector></selector><value>I successfully searched for AGiXT on DuckDuckGo and found 10 results. The top result is the official GitHub repository at github.com/Josh-XT/AGiXT. Would you like me to click on a specific result or perform another action?</value><description>Report findings to user and await further instructions.</description></step></interaction>
@@ -3429,6 +3588,9 @@ Previous error: {last_parse_error}
                     "extract_text",
                     "press",
                     "scrape_to_memory",
+                    "handle_mfa",
+                    "get_cookies",
+                    "set_cookies",
                 ]:
                     raise ValueError(f"Invalid operation '{operation}' planned.")
 
@@ -3444,6 +3606,8 @@ Previous error: {last_parse_error}
                         "get_fields",
                         "press",
                         "scrape_to_memory",
+                        "get_cookies",
+                        "set_cookies",
                     ]
                     and selector
                     and not self.is_valid_selector(selector)
