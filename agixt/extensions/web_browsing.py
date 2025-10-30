@@ -133,7 +133,6 @@ class web_browsing(Extensions):
         self.commands = {
             "Interact with Webpage": self.interact_with_webpage,
             "Web Search": self.websearch,
-            "Browser Automation": self.browser_automation,
             "Research on arXiv": self.search_arxiv,
         }
         self.playwright = None
@@ -207,7 +206,7 @@ class web_browsing(Extensions):
         return await self._call_prompt_agent(
             timeout=websearch_llm_timeout,
             agent_name=self.agent_name,
-            prompt_name="Think About It",
+            prompt_name="User Input",
             prompt_args={
                 "user_input": query,
                 "websearch": True,
@@ -273,21 +272,9 @@ class web_browsing(Extensions):
         if not self.ApiClient:
             raise RuntimeError("ApiClient is not configured.")
 
-        effective_timeout = timeout or getattr(self, "prompt_timeout_seconds", 90)
-        try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(self.ApiClient.prompt_agent, **kwargs),
-                timeout=effective_timeout,
-            )
-        except asyncio.TimeoutError as exc:
-            logging.error(
-                "LLM request timed out after %s seconds (kwargs keys: %s)",
-                effective_timeout,
-                list(kwargs.keys()),
-            )
-            raise RuntimeError(
-                f"LLM request timed out after {effective_timeout} seconds."
-            ) from exc
+        response = self.ApiClient.prompt_agent(**kwargs)
+        logging.info(f"Response: {response}")
+        return response
 
     def get_text_safely(self, element) -> str:
         """
@@ -601,7 +588,7 @@ class web_browsing(Extensions):
             return [{"error": f"Failed to get search results: {str(e)}"}]
 
     async def navigate_to_url_with_playwright(
-        self, url: str, headless: bool = True, timeout: int = 120000
+        self, url: str, headless: bool = True, timeout: int = 30000
     ) -> str:
         """
         Navigates the browser to the specified URL using Playwright. Initializes the browser
@@ -611,7 +598,7 @@ class web_browsing(Extensions):
             url (str): The URL to navigate to. Should include the scheme (http/https).
             headless (bool): Whether to run the browser in headless mode (no visible UI).
                              Defaults to True.
-            timeout (int): Navigation timeout in milliseconds. Defaults to 120000 (2 minutes).
+            timeout (int): Navigation timeout in milliseconds. Defaults to 30000 (30 seconds).
 
         Returns:
             str: A confirmation message indicating success or an error message.
@@ -698,7 +685,7 @@ class web_browsing(Extensions):
             return f"Error navigating to {url}: {str(e)}"
 
     async def click_element_with_playwright(
-        self, selector: str, timeout: int = 10000
+        self, selector: str, timeout: int = 5000
     ) -> str:
         """
         Clicks an element on the page specified by a CSS selector using Playwright.
@@ -706,7 +693,7 @@ class web_browsing(Extensions):
 
         Args:
             selector (str): The CSS selector of the element to click.
-            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 10000 (10s).
+            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 5000 (5s).
 
         Returns:
             str: Confirmation message or error message.
@@ -749,7 +736,7 @@ class web_browsing(Extensions):
             return f"Error clicking element '{selector}': {str(e)}"
 
     async def fill_input_with_playwright(
-        self, selector: str, text: str, timeout: int = 10000
+        self, selector: str, text: str, timeout: int = 5000
     ) -> str:
         """
         Fills an input field specified by a CSS selector with the provided text using Playwright.
@@ -759,7 +746,7 @@ class web_browsing(Extensions):
         Args:
             selector (str): The CSS selector of the input field.
             text (str): The text to fill into the input field.
-            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 10000 (10s).
+            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 5000 (5s).
 
 
         Returns:
@@ -800,7 +787,7 @@ class web_browsing(Extensions):
             return f"Error filling input '{selector}': {str(e)}"
 
     async def select_option_with_playwright(
-        self, selector: str, value: str, timeout: int = 10000
+        self, selector: str, value: str, timeout: int = 5000
     ) -> str:
         """
         Selects an option from a <select> dropdown menu specified by a selector using Playwright.
@@ -809,7 +796,7 @@ class web_browsing(Extensions):
         Args:
             selector (str): The CSS selector of the <select> element.
             value (str): The value or the visible text (label) of the option to select.
-            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 10000 (10s).
+            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 5000 (5s).
 
         Returns:
             str: Confirmation message or error message.
@@ -843,7 +830,7 @@ class web_browsing(Extensions):
             return f"Error selecting option '{value}' in '{selector}': {str(e)}"
 
     async def check_checkbox_with_playwright(
-        self, selector: str, timeout: int = 10000
+        self, selector: str, timeout: int = 5000
     ) -> str:
         """
         Checks a checkbox specified by a selector using Playwright.
@@ -851,7 +838,7 @@ class web_browsing(Extensions):
 
         Args:
             selector (str): The CSS selector of the checkbox input element.
-            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 10000 (10s).
+            timeout (int): Maximum time in milliseconds to wait for the element. Defaults to 5000 (5s).
 
         Returns:
             str: Confirmation message or error message.
@@ -1134,7 +1121,7 @@ class web_browsing(Extensions):
             return f"Error uploading file '{os.path.basename(absolute_file_path)}': {str(e)}"
 
     async def download_file_with_playwright(
-        self, trigger_selector: str, save_path: str = None, timeout: int = 30000
+        self, trigger_selector: str, save_path: str = None, timeout: int = 15000
     ) -> str:
         """
         Triggers a file download by clicking an element and saves the downloaded file.
@@ -1146,7 +1133,7 @@ class web_browsing(Extensions):
                              downloaded file. If None, a unique name is generated in the
                              WORKING_DIRECTORY.
             timeout (int): Maximum time in milliseconds to wait for the download event to start.
-                           Defaults to 30000 (30s).
+                           Defaults to 15000 (15s).
 
         Returns:
             str: Message indicating the path where the file was saved or an error message.
@@ -1240,7 +1227,7 @@ class web_browsing(Extensions):
             return "Error: No page loaded or page is closed."
         try:
             logging.info("Navigating back in browser history.")
-            await self.page.go_back(wait_until="networkidle", timeout=30000)
+            await self.page.go_back(wait_until="networkidle", timeout=10000)
             new_url = self.page.url
             logging.info(f"Navigated back. Current URL: {new_url}")
             return f"Navigated back in browser history. Current URL: {new_url}"
@@ -1264,7 +1251,7 @@ class web_browsing(Extensions):
             return "Error: No page loaded or page is closed."
         try:
             logging.info("Navigating forward in browser history.")
-            await self.page.go_forward(wait_until="networkidle", timeout=30000)
+            await self.page.go_forward(wait_until="networkidle", timeout=10000)
             new_url = self.page.url
             logging.info(f"Navigated forward. Current URL: {new_url}")
             return f"Navigated forward in browser history. Current URL: {new_url}"
@@ -1278,7 +1265,7 @@ class web_browsing(Extensions):
             return f"Error navigating forward: {str(e)}"
 
     async def wait_for_selector_with_playwright(
-        self, selector: str, state: str = "visible", timeout: int = 30000
+        self, selector: str, state: str = "visible", timeout: int = 10000
     ) -> str:
         """
         Waits for an element specified by a selector to appear on the page and reach a specific state.
@@ -1287,7 +1274,7 @@ class web_browsing(Extensions):
             selector (str): The CSS selector of the element to wait for.
             state (str): The state to wait for ('visible', 'hidden', 'attached', 'detached').
                          Defaults to 'visible'.
-            timeout (int): Maximum time to wait in milliseconds. Defaults to 30000 (30s).
+            timeout (int): Maximum time to wait in milliseconds. Defaults to 10000 (10s).
 
         Returns:
             str: Confirmation message if the element appears in the specified state, or an error message.
@@ -2024,13 +2011,6 @@ class web_browsing(Extensions):
             )
         log_msg += f"\nDescription: {description}\nOn URL: [{current_url}]"
 
-        if self.ApiClient:
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=log_msg,
-                conversation_name=self.conversation_name,
-            )
-
         # Take screenshot before action
         before_screenshot_path = os.path.join(
             self.WORKING_DIRECTORY, f"before_{operation}_{uuid.uuid4()}.png"
@@ -2041,13 +2021,20 @@ class web_browsing(Extensions):
             before_screenshot_name = os.path.basename(before_screenshot_path)
             if self.output_url:
                 before_screenshot_url = f"{self.output_url}/{before_screenshot_name}"
+                log_msg += f"\n![Screenshot]({before_screenshot_url})"
                 # Add screenshot link to the previous log message (optional, depends on API capabilities)
                 # self.ApiClient.append_to_last_message(f"\n![Before Screenshot]({before_screenshot_url})")
         except Exception as ss_error:
             logging.error(f"Failed to take 'before' screenshot: {ss_error}")
 
+        if self.ApiClient:
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=log_msg,
+                conversation_name=self.conversation_name,
+            )
         # Initialize retry parameters (Defaults + overrides from XML)
-        max_attempts = 1  # Default to 1 attempt unless retry specified
+        max_attempts = 3  # Default to 1 attempt unless retry specified
         alternate_selector = None
         # fallback_operation = None # Fallback operation not implemented yet
 
@@ -2096,6 +2083,7 @@ class web_browsing(Extensions):
                 "screenshot",
                 "get_fields",
                 "get_content",
+                "press",
             ]
 
             if not current_selector and operation in needs_selector_operations:
@@ -2282,23 +2270,23 @@ class web_browsing(Extensions):
                     ):
                         # Wait for page potentially changing - use multiple strategies with shorter timeouts
                         try:
-                            # Try networkidle first with shorter timeout
+                            # Try networkidle first with short timeout
                             await self.page.wait_for_load_state(
-                                "networkidle", timeout=5000
+                                "networkidle", timeout=2000
                             )
                         except Exception:
                             try:
                                 # Fall back to load state
                                 await self.page.wait_for_load_state(
-                                    "load", timeout=10000
+                                    "load", timeout=3000
                                 )
                             except Exception:
                                 # Just wait for DOM to be ready
                                 await self.page.wait_for_load_state(
-                                    "domcontentloaded", timeout=5000
+                                    "domcontentloaded", timeout=2000
                                 )
 
-                        await self.page.wait_for_timeout(500)  # Small extra wait
+                        await self.page.wait_for_timeout(200)  # Small extra wait
 
                 elif operation == "fill":
                     if not current_selector:
@@ -2396,6 +2384,17 @@ class web_browsing(Extensions):
                         await self.get_form_fields()
                     )  # Returns field string or error
 
+                elif operation == "press":  # New operation to press keyboard keys
+                    # 'value' contains the key to press (e.g., "Enter", "Escape", "Tab")
+                    if not value:
+                        raise ValueError(
+                            "Press operation requires a key name in 'value' (e.g., 'Enter', 'Escape', 'Tab')."
+                        )
+                    await self.page.keyboard.press(value)
+                    op_result = f"Pressed key: {value}"
+                    # Wait a bit for any page changes
+                    await self.page.wait_for_timeout(200)
+
                 elif operation == "done":
                     op_result = "Task marked as complete by plan."
                     success = True  # Mark as success to exit loop
@@ -2429,7 +2428,7 @@ class web_browsing(Extensions):
                     break  # Exit loop, failure will be handled below
                 else:
                     # Optional: Wait before retrying
-                    await self.page.wait_for_timeout(1000)
+                    await self.page.wait_for_timeout(500)
                     logging.info("Retrying step...")
 
         # --- Post-Execution ---
@@ -2463,7 +2462,14 @@ class web_browsing(Extensions):
                     "evaluate",
                     "done",
                 ]:
-                    new_content = await self.get_page_content()  # Get fresh content
+                    try:
+                        new_content = await self.get_page_content()  # Get fresh content
+                    except Exception as content_error:
+                        logging.warning(
+                            f"Failed to get page content for summary: {content_error}"
+                        )
+                        new_content = "(Unable to retrieve page content)"
+
                     summary_prompt = f"""Analyze the current page state after successfully performing the operation '{operation}'.
 
 Operation Result: {step_result_msg}
@@ -2476,16 +2482,18 @@ Provide a concise summary including:
 3. Any immediately obvious next steps or calls to action.
 
 Current Page Content Snippet (for context):
-{new_content[:2000]}...
+{new_content[:2000] if len(new_content) > 2000 else new_content}{'...' if len(new_content) > 2000 else ''}
 """
                     if self.ApiClient:
                         summary_timeout = getattr(
-                            self, "step_summary_timeout_seconds", 45
+                            self,
+                            "step_summary_timeout_seconds",
+                            15,  # 15 seconds default
                         )
                         summary = await self._call_prompt_agent(
                             timeout=summary_timeout,
                             agent_name=self.agent_name,
-                            prompt_name="Think About It",  # Or a dedicated summarization prompt
+                            prompt_name="User Input",  # Or a dedicated summarization prompt
                             prompt_args={
                                 "user_input": summary_prompt,
                                 "conversation_name": self.conversation_name,
@@ -2493,7 +2501,7 @@ Current Page Content Snippet (for context):
                                 "log_output": False,
                                 "tts": False,
                                 "analyze_user_input": False,
-                                "running_command": "Interact with Web Page",
+                                "running_command": "Interact with Webpage",
                                 "browse_links": False,
                                 "websearch": False,
                             },
@@ -2501,7 +2509,6 @@ Current Page Content Snippet (for context):
                         logging.info("Generated page summary after successful step.")
             except Exception as summary_error:
                 logging.error(f"Failed to generate page summary: {summary_error}")
-                summary = "(Failed to generate summary)"
 
             final_message = (
                 f"[SUBACTIVITY][{self.activity_id}] Successfully completed: {operation}"
@@ -2509,8 +2516,6 @@ Current Page Content Snippet (for context):
             if selector:
                 final_message += f" on '{selector}'"
             final_message += f"\nResult: {step_result_msg}\nStarted on: [{current_url}]\nEnded on: [{new_url}]"
-            if before_screenshot_url:
-                final_message += f"\n![Before]({before_screenshot_url})"
             if post_op_screenshot_url:
                 final_message += f"\n![After]({post_op_screenshot_url})"
             if summary:
@@ -2574,7 +2579,7 @@ Current Page Content Snippet (for context):
                 )
                 return f'<?xml version="1.0" encoding="UTF-8"?>\n<interaction>{match.group(0)}</interaction>'
             raise ValueError(
-                "No valid <interaction> or <step> block found in response."
+                f"No valid <interaction> or <step> block found in response.\nResponse was:\n{response}"
             )
 
         xml_block = match.group(0).strip()
@@ -2792,7 +2797,7 @@ Current Page Content Snippet (for context):
         # Initialize browser if needed, navigate to start URL
         try:
             nav_result = await self.navigate_to_url_with_playwright(
-                url=url, headless=True, timeout=120000  # 2 minutes timeout
+                url=url, headless=True, timeout=30000  # 30 seconds timeout
             )
             if "Error" in nav_result:
                 return f"Failed to start interaction: {nav_result}"
@@ -2816,7 +2821,9 @@ Current Page Content Snippet (for context):
         attempt_history = []  # Internal history for LLM planning context
 
         last_url = None
-        max_runtime_seconds = getattr(self, "interaction_timeout_seconds", 600)
+        max_runtime_seconds = getattr(
+            self, "interaction_timeout_seconds", 300
+        )  # 5 minutes default
         start_time = time.monotonic()
         last_step_signature = None
         stalled_plan_count = 0
@@ -2935,8 +2942,23 @@ Current Page Content Snippet (for context):
                 break
 
             # --- 2. Plan Next Step ---
-            planning_context = f"""You are an autonomous web interaction agent. Plan the *single next step* to accomplish the overall task.
+            # Check if last step was a fill operation - remind to press Enter
+            last_action_reminder = ""
+            if attempt_history:
+                last_attempt = attempt_history[-1]
+                if "fill|" in last_attempt.lower() and "SUCCESS" in last_attempt:
+                    # Check if we haven't pressed Enter yet
+                    if not any(
+                        "press|" in h.lower() and "Enter" in h
+                        for h in attempt_history[-2:]
+                    ):
+                        last_action_reminder = """
+**CRITICAL REMINDER**: Your last action was FILLING a field. You MUST press Enter in this step to submit/search.
+Do NOT fill another field or wait - press Enter NOW to trigger the action!
+"""
 
+            planning_context = f"""You are an autonomous web interaction agent. Plan the *single next step* to accomplish the overall task.
+{last_action_reminder}
 OVERALL TASK: {task}
 
 CURRENT STATE:
@@ -2958,26 +2980,36 @@ PREVIOUS STEP ATTEMPTS & OUTCOMES (Recent history):
 
 RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 1.  Respond with ONLY a single XML block `<interaction><step>...</step></interaction>` wrapped in <answer> and </answer> tags.
-2.  Define ONE operation: `click`, `fill`, `select`, `wait`, `verify`, `get_content`, `get_fields`, `evaluate`, `screenshot`, `download`, `extract_text`, `done`.
+2.  Define ONE operation: `click`, `fill`, `select`, `wait`, `verify`, `get_content`, `get_fields`, `evaluate`, `screenshot`, `download`, `extract_text`, `press`, `done`.
 3.  Use the `<selector>` tag with a stable selector (ID, name, data-testid, aria-label, placeholder, type, href). AVOID CLASS SELECTORS (like '.btn'). If no stable selector is obvious, describe the element and consider 'wait' or using text for clicks.
 4.  For `click`: If clicking a button/link with visible text, put the EXACT text in the `<value>` tag. The system will try clicking by text first, then fall back to the selector if needed.
 5.  For `fill`, `select`, `evaluate`: Put the text/value/script to use in the `<value>` tag.
-6.  For `wait`: Use `<selector>` for an element to wait for (e.g., `#results|visible`), OR put milliseconds in `<value>` (e.g., 5000).
-7.  For `verify`: Use `<selector>` for the element, and the text it should contain in `<value>`.
-8.  For `download`: Use `<selector>` for the trigger element (link/button), `<value>` for optional save path.
-9.  For `extract_text`: Use `<selector>` for the target image.
-10. For `get_content` / `get_fields`: No selector/value needed, they operate on the current page.
-11. Use `<description>` to explain WHY this step helps achieve the main task.
-12. If the task is fully complete, use operation `done`.
-13. COMPLEX TASKS: You have up to 50 iterations to complete multi-step workflows (registration, login, navigation, etc.). Break complex tasks into small atomic steps. Take your time and be methodical.
-14. If stuck (e.g., element not found after waiting, repeated failures), consider `wait` or describe the issue and use `done` if truly blocked. The system has intelligent failure detection to prevent infinite loops.
+6.  For `press`: Put the key name in `<value>` (e.g., "Enter", "Escape", "Tab", "ArrowDown"). Use this to submit forms or navigate with keyboard.
+7.  **IMPORTANT**: After filling a search box, chat input, or form field, you MUST press Enter in the next step to submit/search. Don't just fill and wait - actively press Enter to trigger the action.
+8.  For `wait`: Use `<selector>` for an element to wait for (e.g., `#results|visible`), OR put milliseconds in `<value>` (e.g., 2000).
+9.  For `verify`: Use `<selector>` for the element, and the text it should contain in `<value>`.
+10. For `download`: Use `<selector>` for the trigger element (link/button), `<value>` for optional save path.
+11. For `extract_text`: Use `<selector>` for the target image.
+12. For `get_content` / `get_fields`: No selector/value needed, they operate on the current page.
+13. Use `<description>` to explain WHY this step helps achieve the main task.
+14. If the task is fully complete, use operation `done`.
+15. COMPLEX TASKS: You have up to 50 iterations to complete multi-step workflows (registration, login, navigation, etc.). Break complex tasks into small atomic steps. Take your time and be methodical.
+16. If stuck (e.g., element not found after waiting, repeated failures), consider `wait` or describe the issue and use `done` if truly blocked. The system has intelligent failure detection to prevent infinite loops.
 
 EXAMPLE CLICKS:
 <interaction><step><operation>click</operation><selector>button[data-testid='login-btn']</selector><value>Log In</value><description>Click the login button using its test ID and text.</description></step></interaction>
 <interaction><step><operation>click</operation><selector>a[href='/about']</selector><value>About Us</value><description>Navigate to the About Us page using its link text.</description></step></interaction>
 
-EXAMPLE FILL:
+EXAMPLE FILL THEN PRESS (IMPORTANT PATTERN):
+<interaction><step><operation>fill</operation><selector>input[name='q']</selector><value>AGiXT</value><description>Fill the search box with query.</description></step></interaction>
+Then next step MUST be:
+<interaction><step><operation>press</operation><selector></selector><value>Enter</value><description>Press Enter to submit the search.</description></step></interaction>
+
+EXAMPLE FILL (single field):
 <interaction><step><operation>fill</operation><selector>input[name='username']</selector><value>my_user</value><description>Fill the username field.</description></step></interaction>
+
+EXAMPLE PRESS:
+<interaction><step><operation>press</operation><selector></selector><value>Enter</value><description>Press Enter key to submit the search form.</description></step></interaction>
 
 EXAMPLE WAIT:
 <interaction><step><operation>wait</operation><selector>#results-table|visible</selector><value></value><description>Wait for the results table to become visible.</description></step></interaction>
@@ -2985,45 +3017,115 @@ EXAMPLE WAIT:
 NOW, PROVIDE THE XML FOR THE NEXT STEP:
 """
 
+            # --- 2.5 Plan with Retry Logic for XML Parsing ---
+            max_plan_attempts = 3
+            plan_attempt = 0
+            parsed_step = None
+            last_parse_error = None
+
+            while plan_attempt < max_plan_attempts and parsed_step is None:
+                plan_attempt += 1
+                try:
+                    plan_timeout = getattr(
+                        self, "plan_step_timeout_seconds", 30
+                    )  # 30 seconds default
+
+                    # Adjust prompt for retry attempts
+                    current_planning_context = planning_context
+                    if plan_attempt > 1:
+                        current_planning_context = f"""IMPORTANT: Your previous response had invalid XML formatting. 
+You MUST respond with ONLY valid XML following this exact structure:
+
+<answer>
+<interaction>
+<step>
+<operation>operation_name</operation>
+<selector>css_selector_or_empty</selector>
+<value>value_or_empty</value>
+<description>brief description</description>
+</step>
+</interaction>
+</answer>
+
+Do NOT include any text before or after the XML block. Do NOT use markdown code blocks.
+
+Previous error: {last_parse_error}
+
+{planning_context}"""
+
+                    logging.info(
+                        "Requesting LLM plan for iteration %d (attempt %d/%d, timeout %ss)...",
+                        iteration_count,
+                        plan_attempt,
+                        max_plan_attempts,
+                        plan_timeout,
+                    )
+                    raw_plan = await self._call_prompt_agent(
+                        timeout=plan_timeout,
+                        agent_name=self.agent_name,
+                        prompt_name="User Input",
+                        prompt_args={
+                            "user_input": current_planning_context,
+                            "conversation_name": self.conversation_name,
+                            "log_user_input": False,
+                            "log_output": False,
+                            "tts": False,
+                            "analyze_user_input": False,
+                            "running_command": "Interact with Webpage",
+                            "browse_links": False,
+                            "websearch": False,
+                        },
+                    )
+                    logging.info(
+                        "Received plan response for iteration %d (attempt %d).",
+                        iteration_count,
+                        plan_attempt,
+                    )
+
+                    if not raw_plan or not isinstance(raw_plan, str):
+                        raise ValueError("LLM did not return a valid plan string.")
+
+                    # --- 3. Parse and Validate Step ---
+                    interaction_xml = self.extract_interaction_block(raw_plan)
+                    root = ET.fromstring(interaction_xml)
+                    steps = root.findall(".//step")
+
+                    if not steps:
+                        raise ValueError(
+                            f"Parsed XML does not contain a <step> element.\nResponse was:\n{raw_plan}"
+                        )
+
+                    parsed_step = steps[0]  # Process only the first step per iteration
+                    logging.info(
+                        "Successfully parsed step on attempt %d/%d",
+                        plan_attempt,
+                        max_plan_attempts,
+                    )
+
+                except (ET.ParseError, ValueError) as parse_error:
+                    last_parse_error = str(parse_error)
+                    logging.warning(
+                        "Failed to parse plan on attempt %d/%d: %s",
+                        plan_attempt,
+                        max_plan_attempts,
+                        last_parse_error,
+                    )
+                    if plan_attempt >= max_plan_attempts:
+                        # Final attempt failed - give up on this iteration
+                        raise ValueError(
+                            f"Failed to parse valid XML after {max_plan_attempts} attempts. "
+                            f"Last error: {last_parse_error}"
+                            f"\nLast response was:\n{raw_plan}"
+                        )
+                    # Otherwise, loop will retry with corrective prompt
+
+            if parsed_step is None:
+                raise ValueError("Failed to obtain a valid parsed step after retries.")
+
+            step = parsed_step
+
+            # Continue with validation and execution wrapped in try block
             try:
-                plan_timeout = getattr(self, "plan_step_timeout_seconds", 90)
-                logging.info(
-                    "Requesting LLM plan for iteration %d (timeout %ss)...",
-                    iteration_count,
-                    plan_timeout,
-                )
-                raw_plan = await self._call_prompt_agent(
-                    timeout=plan_timeout,
-                    agent_name=self.agent_name,
-                    prompt_name="Think About It",
-                    prompt_args={
-                        "user_input": planning_context,
-                        "conversation_name": self.conversation_name,
-                        "log_user_input": False,
-                        "log_output": False,
-                        "tts": False,
-                        "analyze_user_input": False,
-                        "running_command": "Interact with Web Page",
-                        "browse_links": False,
-                        "websearch": False,
-                    },
-                )
-                logging.info(
-                    "Received plan response for iteration %d.", iteration_count
-                )
-
-                if not raw_plan or not isinstance(raw_plan, str):
-                    raise ValueError("LLM did not return a valid plan string.")
-
-                # --- 3. Parse and Validate Step ---
-                interaction_xml = self.extract_interaction_block(raw_plan)
-                root = ET.fromstring(interaction_xml)
-                steps = root.findall(".//step")
-
-                if not steps:
-                    raise ValueError("Parsed XML does not contain a <step> element.")
-
-                step = steps[0]  # Process only the first step per iteration
                 operation = self.safe_get_text(step.find("operation")).lower()
                 selector = self.safe_get_text(step.find("selector"))
                 value = self.safe_get_text(step.find("value"))
@@ -3045,13 +3147,21 @@ NOW, PROVIDE THE XML FOR THE NEXT STEP:
                     "screenshot",
                     "download",
                     "extract_text",
+                    "press",
                 ]:
                     raise ValueError(f"Invalid operation '{operation}' planned.")
 
                 # Validate selector stability (unless not needed for the operation)
                 if (
                     operation
-                    not in ["wait", "done", "evaluate", "get_content", "get_fields"]
+                    not in [
+                        "wait",
+                        "done",
+                        "evaluate",
+                        "get_content",
+                        "get_fields",
+                        "press",
+                    ]
                     and selector
                     and not self.is_valid_selector(selector)
                 ):
@@ -3467,12 +3577,12 @@ Analyze the attached screenshot.
             analysis_result = await self._call_prompt_agent(
                 timeout=analysis_timeout,
                 agent_name=self.agent_name,
-                prompt_name="Think About It",
+                prompt_name="User Input",
                 prompt_args={
                     "user_input": analysis_prompt,
                     "images": [image_ref],  # Pass image URL or path
                     "log_user_input": False,
-                    "running_command": "Interact with Web Page",
+                    "running_command": "Interact with Webpage",
                     "log_output": False,
                     "browse_links": False,
                     "websearch": False,
@@ -3563,285 +3673,3 @@ Analyze the attached screenshot.
             max_articles=max_articles,
             collection_number="0",
         )
-
-    async def browser_automation(
-        self,
-        task: str,
-        url: str = "",
-        session_id: str = "",
-        keep_open: bool = False,
-    ):
-        """
-        Control and automate web browsers through natural language commands using browser-use.
-
-        This command enables AI agents to interact with websites, fill forms, extract data,
-        take screenshots, and perform complex web automation tasks using natural language
-        instructions.
-
-        The browser automation system maintains persistent browser sessions that can be reused
-        across multiple commands, allowing for stateful interactions with websites.
-
-        Features:
-        - Navigate to any website and interact with page elements
-        - Extract structured data from web pages
-        - Fill out forms and submit information
-        - Take screenshots of pages or specific elements
-        - Handle multi-step workflows across different pages
-        - Maintain login sessions and cookies
-        - Extract text, links, images and other content
-        - Perform searches and interact with dynamic content
-        - Download files and handle uploads
-
-        Args:
-            task (str): Natural language description of what to do in the browser.
-                Examples:
-                - "Go to google.com and search for AGiXT"
-                - "Fill out the contact form with test data"
-                - "Extract all product prices from the page"
-                - "Take a screenshot of the main content area"
-                - "Click the login button and enter credentials"
-
-            url (str, optional): Starting URL to navigate to. If not provided, the task
-                should specify where to navigate.
-
-            session_id (str, optional): ID of an existing browser session to reuse.
-                If not provided, a new session will be created. Use this to continue
-                multi-step workflows in the same browser instance.
-
-            keep_open (bool, optional): Whether to keep the browser session open after
-                completing the task. Default is False. Set to True if you plan to
-                continue using the same session for follow-up tasks.
-
-        Returns:
-            str: Result of the browser automation task, which may include:
-                - Extracted data from the webpage
-                - Screenshot URLs (saved to workspace)
-                - Confirmation of completed actions
-                - Session ID for reuse (if keep_open=True)
-                - Error messages if the task failed
-
-        Examples:
-            Simple navigation and search:
-            ```
-            result = await browser_automation(
-                task="Go to wikipedia.org and search for artificial intelligence",
-                headless=True
-            )
-            ```
-
-            Data extraction with session persistence:
-            ```
-            result = await browser_automation(
-                task="Extract all article titles and summaries from the tech news section",
-                url="https://news.ycombinator.com",
-                keep_open=True
-            )
-            # Returns session_id in result for follow-up tasks
-            ```
-
-            Multi-step workflow using existing session:
-            ```
-            result = await browser_automation(
-                task="Click on the first article and extract the full text",
-                session_id="existing_session_id",
-                keep_open=False  # Close after this task
-            )
-            ```
-
-        Notes:
-            - The browser-use MCP server must be running via uvx for this command to work
-            - Screenshots are automatically saved to the agent's workspace directory
-            - Complex tasks may take longer to complete due to page loading and interactions
-            - The service uses AI to understand page structure and determine how to complete tasks
-            - For best results, be specific about what elements to interact with or data to extract
-        """
-        headless = True
-        try:
-            # Import the MCP client
-            from mcp_client import AGiXTMCPAdapter
-            import subprocess
-
-            # Prepare the arguments for the MCP tool call
-            tool_arguments = {
-                "action": task,
-                "use_vision": True,  # Enable vision for better page understanding
-            }
-
-            if url:
-                tool_arguments["url"] = url
-
-            if session_id:
-                tool_arguments["session_id"] = session_id
-
-            # Add headless mode preference
-            tool_arguments["headless"] = headless
-
-            # Create adapter with user's API key for AGiXT integration
-            adapter = AGiXTMCPAdapter(user_api_key=self.api_key)
-
-            # Find uvx path
-            uvx_path = None
-            for path in ["/root/.local/bin/uvx", "/usr/local/bin/uvx", "uvx"]:
-                try:
-                    result = subprocess.run(
-                        [path, "--version"], capture_output=True, timeout=5
-                    )
-                    if result.returncode == 0:
-                        uvx_path = path
-                        break
-                except:
-                    continue
-
-            if not uvx_path:
-                return "❌ Error: uvx not found. Please ensure uv is installed: curl -LsSf https://astral.sh/uv/install.sh | sh"
-
-            # Configure connection to browser-use MCP server
-            # The adapter will automatically configure AGiXT integration
-            server_config = {
-                "transport": "stdio",
-                "command": uvx_path,
-                "args": ["browser-use[cli]", "--mcp"],
-                "agent_name": self.agent_name,  # Pass agent name to be used as model
-            }
-
-            server_id = f"browser_use_{uuid.uuid4().hex[:8]}"
-            client = await adapter.connect_to_server(server_id, server_config)
-
-            try:
-                # First, list available tools to understand what's available
-                tools = await adapter.execute_mcp_action(server_id, "list_tools")
-
-                # Determine which tool to use based on the task
-                tool_name = "browser_navigate"  # Default tool for most tasks
-
-                # Adjust tool selection based on task content
-                task_lower = task.lower()
-                if any(word in task_lower for word in ["click", "press", "select"]):
-                    tool_name = "browser_click"
-                elif any(
-                    word in task_lower for word in ["type", "enter", "input", "fill"]
-                ):
-                    tool_name = "browser_type"
-                elif any(
-                    word in task_lower for word in ["extract", "get", "find", "scrape"]
-                ):
-                    tool_name = "browser_extract_content"
-                elif any(word in task_lower for word in ["scroll"]):
-                    tool_name = "browser_scroll"
-                elif any(word in task_lower for word in ["back", "previous"]):
-                    tool_name = "browser_go_back"
-                elif any(
-                    word in task_lower for word in ["state", "elements", "page info"]
-                ):
-                    tool_name = "browser_get_state"
-
-                # Prepare arguments based on the selected tool
-                if tool_name == "browser_navigate":
-                    # For navigation, we need a URL
-                    if url:
-                        tool_arguments = {"url": url}
-                    elif "http" in task or "www." in task:
-                        # Try to extract URL from task
-                        import re
-
-                        url_match = re.search(r"https?://[^\s]+|www\.[^\s]+", task)
-                        if url_match:
-                            extracted_url = url_match.group()
-                            if not extracted_url.startswith("http"):
-                                extracted_url = "https://" + extracted_url
-                            tool_arguments = {"url": extracted_url}
-                        else:
-                            tool_arguments = {"url": "https://google.com"}
-                    else:
-                        # Default to a search
-                        search_query = (
-                            task.replace("search for", "").replace("go to", "").strip()
-                        )
-                        tool_arguments = {
-                            "url": f"https://www.google.com/search?q={search_query}"
-                        }
-
-                elif tool_name == "browser_extract_content":
-                    tool_arguments = {"query": task}
-
-                elif tool_name == "browser_get_state":
-                    tool_arguments = {}
-
-                else:
-                    # For other tools, use the original arguments but ensure compatibility
-                    tool_arguments = {"action": task}
-
-                # Call the browser automation tool
-                content = await adapter.execute_mcp_action(
-                    server_id,
-                    "call_tool",
-                    tool_name=tool_name,
-                    arguments=tool_arguments,
-                )
-
-                # Format the response
-                formatted_result = []
-                formatted_result.append("✅ Browser automation task completed")
-
-                # Process the content returned from the tool
-                for item in content:
-                    if item.get("type") == "text":
-                        text_content = item.get("text", "")
-                        if text_content:
-                            formatted_result.append(f"📄 Result: {text_content}")
-                    elif item.get("type") == "resource":
-                        # Handle resource content (like screenshots)
-                        resource_uri = item.get("uri", "")
-                        if resource_uri:
-                            formatted_result.append(f"📎 Resource: {resource_uri}")
-
-                # Add session info if keeping open
-                if keep_open:
-                    formatted_result.append(
-                        "ℹ️ Browser session kept open for continued use"
-                    )
-
-                return (
-                    "\n".join(formatted_result)
-                    if formatted_result
-                    else "Browser automation completed"
-                )
-
-            finally:
-                # Always disconnect
-                await adapter.disconnect_all()
-
-        except ImportError:
-            return (
-                "❌ Error: MCP client module not found. Please ensure mcp_client.py is available.\n"
-                "The browser automation feature requires the MCP client implementation."
-            )
-        except Exception as e:
-            logging.error(f"Error in browser automation: {str(e)}")
-
-            # Provide helpful error messages
-            if "No such file or directory" in str(e) or "uvx" in str(e):
-                return (
-                    "❌ Error: Could not find uvx command or browser-use.\n"
-                    "Please ensure uv is installed and browser-use is available:\n"
-                    "```bash\n"
-                    "curl -LsSf https://astral.sh/uv/install.sh | sh\n"
-                    "uvx browser-use[cli] --help\n"
-                    "```"
-                )
-            elif "Failed to connect" in str(e) or "Connection" in str(e):
-                return (
-                    "❌ Error: Could not connect to browser-use MCP server.\n"
-                    "Please ensure browser-use is running in MCP mode:\n"
-                    "```bash\n"
-                    "uvx browser-use[cli] --mcp\n"
-                    "```"
-                )
-            elif "timeout" in str(e).lower():
-                return (
-                    "❌ Error: Browser automation timed out.\n"
-                    "The task may be too complex or the website may be slow to respond.\n"
-                    "Try breaking the task into smaller steps or increasing the timeout."
-                )
-            else:
-                return f"❌ Error during browser automation: {str(e)}"

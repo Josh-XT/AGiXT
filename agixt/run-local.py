@@ -81,68 +81,6 @@ def get_logged_in_user_name() -> str:
         return "josh"
 
 
-async def start_browser_use_mcp():
-    """Start the browser-use MCP server for browser automation."""
-    global browser_use_process
-    current_user = get_logged_in_user_name()
-    try:
-        # Check if uv/uvx is available
-        uvx_path = None
-        for path in [
-            "/root/.local/bin/uvx",
-            "/usr/local/bin/uvx",
-            f"/home/{current_user}/snap/code/208/.local/bin/uvx",
-            "uvx",
-        ]:
-            try:
-                result = subprocess.run(
-                    [path, "--version"], capture_output=True, timeout=5
-                )
-                if result.returncode == 0:
-                    uvx_path = path
-                    break
-            except:
-                continue
-
-        if not uvx_path:
-            logger.warning(
-                "uvx not found in PATH. Browser automation will not be available."
-            )
-            logger.warning(
-                "To enable browser automation, install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
-            )
-            return
-
-        # Start browser-use MCP server with simple configuration
-        # LLM configuration is handled at the MCP client level with user-specific API keys
-        cmd = [uvx_path, "browser-use[cli]", "--mcp"]
-
-        browser_use_process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=os.environ.copy(),
-        )
-
-        # Wait a moment to check if it started successfully
-        await asyncio.sleep(2)
-
-        if browser_use_process.poll() is not None:
-            # Process died, get the error output
-            stdout, stderr = browser_use_process.communicate()
-            logger.error(f"Browser-use MCP server failed to start:")
-            if stderr:
-                logger.error(f"Error output: {stderr.decode()}")
-            if stdout:
-                logger.error(f"Standard output: {stdout.decode()}")
-            browser_use_process = None
-
-    except Exception as e:
-        logger.error(f"Failed to start browser-use MCP server: {e}")
-        logger.warning("Browser automation will not be available")
-        browser_use_process = None
-
-
 async def check_health() -> bool:
     """Check if the service is healthy by calling the health endpoint."""
     try:
@@ -210,17 +148,14 @@ async def start_service(is_restart=False):
             )
             raise RuntimeError("Uvicorn failed to start")
 
-        # Start browser-use MCP server after uvicorn is running
-        await start_browser_use_mcp()
-
     except Exception as e:
         logger.error(f"Failed to start service: {e}")
         raise
 
 
 async def restart_service():
-    """Kill and restart the uvicorn process and browser-use MCP server."""
-    global uvicorn_process, browser_use_process, last_restart_time
+    """Kill and restart the uvicorn process."""
+    global uvicorn_process, last_restart_time
 
     # Check cooldown
     if last_restart_time:
@@ -243,18 +178,6 @@ async def restart_service():
                 logger.warning("Process didn't terminate gracefully, forcing kill...")
                 uvicorn_process.kill()
                 uvicorn_process.wait()
-
-        # Kill existing browser-use MCP server if any
-        if browser_use_process and browser_use_process.poll() is None:
-            browser_use_process.terminate()
-            try:
-                browser_use_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                logger.warning(
-                    "Browser-use process didn't terminate gracefully, forcing kill..."
-                )
-                browser_use_process.kill()
-                browser_use_process.wait()
 
         # Wait a bit before starting again
         await asyncio.sleep(5)
@@ -310,11 +233,6 @@ def signal_handler(signum, frame):
     # Shutdown uvicorn process
     if uvicorn_process and uvicorn_process.poll() is None:
         uvicorn_process.terminate()
-
-    # Shutdown browser-use MCP server
-    if browser_use_process and browser_use_process.poll() is None:
-        browser_use_process.terminate()
-
     sys.exit(0)
 
 
