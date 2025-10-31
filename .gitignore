@@ -24,6 +24,7 @@ conversations/
 # probably mounted data
 agixt/agents/*
 agixt/data/*
+agixt/extensions/DevXT*/*
 agixt/WORKSPACE/*
 agixt/models/*
 agixt/conversations
