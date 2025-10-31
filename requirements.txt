@@ -80,4 +80,6 @@ google-ads
 PyNaCl>=1.5.0
 eth-account>=0.13.0
 twilio
-spacy
+spacy==3.8.7
+spacy-legacy==3.0.12
+spacy-loggers==1.0.5
