@@ -67,8 +67,8 @@ AGiXT is not just another AI framework—it's a complete automation platform tha
 ```bash
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
-pip install tzlocal python-dotenv
-python start.py
+pip install -e .
+agixt start
 ```
 
 The script automatically handles Docker setup and starts all services.
@@ -82,51 +82,88 @@ pip install -e .
 agixt start --local
 ```
 
-> 💡 **Tip:** `agixt start --local` runs the existing `agixt/run-local.py` health monitor in the background and writes logs to `~/.agixt/agixt-local.log`.
-
 #### 🛠️ AGiXT CLI Commands
 
-The AGiXT CLI provides convenient commands for managing your AGiXT instance:
+The AGiXT CLI provides comprehensive commands for managing your entire AGiXT ecosystem:
 
-**Local Mode (without Docker):**
-
-```bash
-# Start AGiXT locally
-agixt start --local
-
-# Stop AGiXT local instance
-agixt stop --local
-
-# Restart AGiXT local instance
-agixt restart --local
-
-# View local logs
-agixt logs --local
-
-# Follow local logs in real-time
-agixt logs --local -f
-```
-
-**Docker Mode (default):**
+**AGiXT Core Management:**
 
 ```bash
-# Start AGiXT with Docker
-agixt start
+# Local Mode (without Docker)
+agixt start --local              # Start AGiXT locally
+agixt stop --local               # Stop AGiXT local instance
+agixt restart --local            # Restart AGiXT local instance
+agixt logs --local [-f]          # View local logs (use -f to follow)
 
-# Stop AGiXT Docker services
-agixt stop
-
-# Restart AGiXT Docker services
-agixt restart
-
-# View Docker logs
-agixt logs
-
-# Follow Docker logs in real-time
-agixt logs -f
+# Docker Mode (default)
+agixt start                      # Start AGiXT with Docker
+agixt stop                       # Stop AGiXT Docker services
+agixt restart                    # Restart AGiXT Docker services
+agixt logs [-f]                  # View Docker logs (use -f to follow)
 ```
 
-> 💡 **Tip:** Local logs are stored in `~/.agixt/agixt-local-*.log` with automatic cleanup keeping only the 5 most recent log files.
+**Web Interface Management:**
+
+```bash
+# Local Mode (npm run dev)
+agixt start --web --local        # Start web dev server
+agixt stop --web --local         # Stop web dev server
+agixt restart --web --local      # Restart web dev server
+agixt logs --web                 # View web interface logs info
+
+# Docker Mode
+agixt start --web                # Start web Docker service
+agixt stop --web                 # Stop web Docker service
+agixt restart --web              # Restart web Docker service
+```
+
+> 🎯 **Auto-Configuration**: Web interface `.env` file is automatically created with values from AGiXT backend
+
+**ezLocalai Management (Local AI Models):**
+
+```bash
+agixt start --ezlocalai          # Start ezLocalai
+agixt stop --ezlocalai           # Stop ezLocalai
+agixt restart --ezlocalai        # Restart ezLocalai (updates repo)
+agixt logs --ezlocalai [-f]      # View ezLocalai logs (use -f to follow)
+```
+
+> 🎯 **Auto-Configuration**: ezLocalai `.env` file is automatically created with values from AGiXT backend. GPU layers are calculated based on available VRAM.
+
+**All Services Management:**
+
+```bash
+# Start/Stop/Restart Everything at Once
+agixt start --all [--local]      # Start all services (AGiXT + ezLocalai + web)
+agixt stop --all [--local]       # Stop all services
+agixt restart --all [--local]    # Restart all services
+```
+
+**Environment Variable Management:**
+
+```bash
+# View all available environment variables with current values
+agixt env help
+
+# Set environment variables
+agixt env KEY=VALUE              # Set a single variable
+agixt env KEY1=VALUE1 KEY2=VALUE2  # Set multiple variables
+
+# Examples:
+agixt env AGIXT_API_KEY=your_api_key_here
+agixt env DEFAULT_MODEL="bartowski/deepseek-ai_DeepSeek-R1-0528-Qwen3-8B-GGUF"
+agixt env OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-ant-...
+```
+
+> 💡 **Configuration Categories**: Core, Application, Database, Server, Health Check, Chroma, Storage, AI Model, ezLocalai, Extensions, Payment, OAuth, and Agent Configuration
+
+**Tips & Notes:**
+
+- 📂 **Log Files**: Local logs stored in `~/.agixt/agixt-local-*.log` (keeps 5 most recent)
+- 🔄 **Auto-Updates**: Environment changes in backend automatically sync to web and ezLocalai
+- 🎮 **GPU Detection**: ezLocalai automatically calculates optimal GPU layers based on VRAM
+- 🌐 **Web .env**: Contains AGIXT_SERVER, APP_URI, APP_NAME, STRIPE keys, AGIXT_AGENT, and auth settings
+- 🤖 **ezLocalai .env**: Contains 15 variables including GPU_LAYERS, models, and performance settings
 
 ### 🎯 Access AGiXT
 
@@ -137,32 +174,69 @@ After installation, access these interfaces:
 
 ### ⚙️ Advanced Options
 
-**Run with ezLocalAI (Local AI Models):**
+**Complete Stack with All Services:**
 
 ```bash
-python start.py --with-ezlocalai true
+# Start everything at once (AGiXT + ezLocalai + Web)
+agixt start --all --local
+
+# Or with Docker
+agixt start --all
 ```
 
-**Development Mode with Auto-Updates:**
+**Customize Configuration:**
 
 ```bash
-python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai true
+# Configure environment variables
+agixt env AGIXT_BRANCH=dev
+agixt env DEFAULT_MODEL="bartowski/deepseek-ai_DeepSeek-R1-0528-Qwen3-8B-GGUF"
+agixt env OPENAI_API_KEY=your_key_here
+
+# Start services with your configuration
+agixt start --all --local
 ```
 
-**Key Command-Line Options:**
+**Managing Individual Services:**
 
-- `--agixt-branch`: Choose `stable` or `dev`
-- `--auth-provider`: Set to `magicalauth` for OAuth (GitHub/Google/Microsoft)
-- `--with-ezlocalai`: Run local AI models
-- `--agixt-auto-update`: Enable automatic updates
-- `--help`: See all available options
+```bash
+# Start only what you need
+agixt start --local                    # Just AGiXT backend
+agixt start --ezlocalai                # Add local AI models
+agixt start --web --local              # Add web interface
+
+# Or use Docker mode (omit --local)
+agixt start                            # AGiXT backend
+agixt start --ezlocalai                # Local AI models
+agixt start --web                      # Web interface
+```
+
+**View All Configuration Options:**
+
+```bash
+# See all 154+ environment variables organized by category
+agixt env help
+```
+
+**Key Configuration Categories:**
+
+- `Core Configuration`: AGIXT_API_KEY, AGIXT_URI, AGIXT_PORT, AGIXT_AGENT, etc.
+- `AI Model Configuration`: Model selection, max tokens, API keys for various providers
+- `ezLocalai Configuration`: GPU_LAYERS, DEFAULT_MODEL, LLM_MAX_TOKENS, WHISPER_MODEL, etc.
+- `Database Configuration`: Database type, credentials, connection settings
+- `Storage Configuration`: S3, B2, Azure storage backend settings
+- `OAuth Configuration`: GitHub, Google, Microsoft, Discord client IDs and secrets
+- `Payment Configuration`: Stripe and Solana wallet settings
+- And 6+ more categories - run `agixt env help` to explore all options
 
 ### ⚠️ Important Notes
 
 - **Monitor Usage**: AI providers like OpenAI can be expensive - track your usage!
 - **API Key Security**: Keep your generated `AGIXT_API_KEY` secure
-- **Port Availability**: Ensure ports 3437 and 7437 are available
-- **Linux Users**: May need to prefix commands with `sudo`
+- **Port Availability**: Ensure ports 7437 (AGiXT API), 3437 (Web UI), and 8091 (ezLocalai) are available
+- **Automatic Configuration**: Web and ezLocalai `.env` files are automatically created from backend settings
+- **GPU Optimization**: ezLocalai automatically calculates optimal GPU layers based on available VRAM
+- **Environment Management**: Use `agixt env` commands to manage all 154+ configuration variables
+- **Linux Users**: May need to prefix commands with `sudo` for Docker operations
 
 ## Table of Contents 📖
 
