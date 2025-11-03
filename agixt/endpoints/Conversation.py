@@ -17,7 +17,7 @@ from Conversations import (
     get_conversation_name_by_id,
     get_conversation_id_by_name,
 )
-from DB import Message, Agent as DBAgent, User
+from DB import Message, Agent as DBAgent, User, get_session, UserPreferences
 from XT import AGiXT
 from Models import (
     HistoryModel,
@@ -80,30 +80,74 @@ def _resolve_conversation_workspace(
         raise HTTPException(status_code=401, detail="Authorization header required")
 
     auth = MagicalAuth(token=authorization)
+    session = get_session()
 
-    try:
-        conversation_uuid = uuid.UUID(conversation_identifier)
-        conversation_id = str(conversation_uuid)
-        conversation_name = get_conversation_name_by_id(
-            conversation_id=conversation_id, user_id=auth.user_id
-        )
-        if conversation_name is None:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    except ValueError:
-        conversation_name = conversation_identifier
+    # Handle new conversation case ('-')
+    if conversation_identifier == "-":
+        conversation_name = "-"
         conversation_id = get_conversation_id_by_name(
             conversation_name=conversation_name, user_id=auth.user_id
         )
-        if conversation_id is None:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+        conversation = Conversations(conversation_name=conversation_name, user=user)
+        
+        # For new conversations, get the user's default agent
+        try:
+            default_agent_pref = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == auth.user_id)
+                .filter(UserPreferences.pref_key == "agent_id")
+                .first()
+            )
+            if default_agent_pref:
+                agent_id = str(default_agent_pref.pref_value)
+            else:
+                # Get first agent for user if no preference set
+                first_agent = (
+                    session.query(DBAgent)
+                    .filter(DBAgent.user_id == auth.user_id)
+                    .first()
+                )
+                if first_agent:
+                    agent_id = str(first_agent.id)
+                else:
+                    session.close()
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No agents available for workspace operations",
+                    )
+        except Exception as e:
+            session.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unable to resolve agent for new conversation: {str(e)}",
+            )
+        finally:
+            session.close()
+    else:
+        # Handle existing conversation
+        try:
+            conversation_uuid = uuid.UUID(conversation_identifier)
+            conversation_id = str(conversation_uuid)
+            conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=auth.user_id
+            )
+            if conversation_name is None:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        except ValueError:
+            conversation_name = conversation_identifier
+            conversation_id = get_conversation_id_by_name(
+                conversation_name=conversation_name, user_id=auth.user_id
+            )
+            if conversation_id is None:
+                raise HTTPException(status_code=404, detail="Conversation not found")
 
-    conversation = Conversations(conversation_name=conversation_name, user=user)
-    agent_id = conversation.get_agent_id(auth.user_id)
-    if not agent_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Unable to resolve agent for conversation workspace",
-        )
+        conversation = Conversations(conversation_name=conversation_name, user=user)
+        agent_id = conversation.get_agent_id(auth.user_id)
+        if not agent_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Unable to resolve agent for conversation workspace",
+            )
 
     return {
         "conversation_id": conversation_id,
