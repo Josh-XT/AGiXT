@@ -154,6 +154,13 @@ class Conversations:
             agent_id = str(agent.id)
         except:
             agent_id = None
+        if not agent_id:
+            # Get the default agent for this user
+            agent = session.query(Agent).filter(Agent.user_id == user_id).first()
+            try:
+                agent_id = str(agent.id)
+            except:
+                agent_id = None
         session.close()
         return agent_id
 
