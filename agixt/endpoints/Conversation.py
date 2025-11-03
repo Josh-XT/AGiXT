@@ -80,6 +80,10 @@ def _resolve_conversation_workspace(
         raise HTTPException(status_code=401, detail="Authorization header required")
 
     auth = MagicalAuth(token=authorization)
+    if conversation_identifier == "-":
+        conversation_identifier = get_conversation_id_by_name(
+            conversation_name="-", user_id=auth.user_id
+        )
 
     try:
         conversation_uuid = uuid.UUID(conversation_identifier)
