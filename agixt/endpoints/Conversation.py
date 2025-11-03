@@ -89,7 +89,7 @@ def _resolve_conversation_workspace(
             conversation_name=conversation_name, user_id=auth.user_id
         )
         conversation = Conversations(conversation_name=conversation_name, user=user)
-        
+
         # For new conversations, get the user's default agent
         try:
             default_agent_pref = (
