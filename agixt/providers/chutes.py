@@ -3,7 +3,6 @@ import logging
 import random
 import requests
 import json
-from Globals import getenv
 
 
 class ChutesProvider:
@@ -21,7 +20,7 @@ class ChutesProvider:
     def __init__(
         self,
         CHUTES_API_KEY: str = "",
-        CHUTES_ENDPOINT_URL: str = "",
+        CHUTES_ENDPOINT_URL: str = "https://llm.chutes.ai",
         CHUTES_MODEL: str = "Qwen/Qwen3-235B-A22B-Instruct-2507",
         CHUTES_VISION_MODEL: str = "Qwen/Qwen3-VL-235B-A22B-Instruct",
         CHUTES_MAX_TOKENS: int = 128000,
@@ -88,7 +87,7 @@ class ChutesProvider:
         # Build headers
         headers = {
             "Content-Type": "application/json",
-            "X-API-Key": self.API_KEY,
+            "Authorization": f"Bearer {self.API_KEY}",
         }
 
         # Build messages
