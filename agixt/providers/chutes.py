@@ -23,7 +23,7 @@ class ChutesProvider:
         CHUTES_API_KEY: str = "",
         CHUTES_ENDPOINT_URL: str = "",
         CHUTES_MODEL: str = "Qwen/Qwen3-VL-235B-A22B-Instruct",
-        CHUTES_MAX_TOKENS: int = 4096,
+        CHUTES_MAX_TOKENS: int = 128000,
         CHUTES_TEMPERATURE: float = 0.7,
         CHUTES_TOP_P: float = 0.9,
         CHUTES_WAIT_BETWEEN_REQUESTS: int = 1,
@@ -36,7 +36,7 @@ class ChutesProvider:
         )
         self.AI_TEMPERATURE = CHUTES_TEMPERATURE if CHUTES_TEMPERATURE else 0.7
         self.AI_TOP_P = CHUTES_TOP_P if CHUTES_TOP_P else 0.9
-        self.MAX_TOKENS = CHUTES_MAX_TOKENS if CHUTES_MAX_TOKENS else 4096
+        self.MAX_TOKENS = CHUTES_MAX_TOKENS if CHUTES_MAX_TOKENS else 128000
         self.ENDPOINT_URL = CHUTES_ENDPOINT_URL if CHUTES_ENDPOINT_URL else ""
         self.WAIT_AFTER_FAILURE = (
             CHUTES_WAIT_AFTER_FAILURE if CHUTES_WAIT_AFTER_FAILURE else 3
