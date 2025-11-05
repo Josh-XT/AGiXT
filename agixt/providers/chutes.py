@@ -23,6 +23,7 @@ class ChutesProvider:
         CHUTES_ENDPOINT_URL: str = "https://llm.chutes.ai",
         CHUTES_MODEL: str = "Qwen/Qwen3-235B-A22B-Instruct-2507",
         CHUTES_VISION_MODEL: str = "Qwen/Qwen3-VL-235B-A22B-Instruct",
+        CHUTES_CODING_MODEL: str = "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
         CHUTES_MAX_TOKENS: int = 128000,
         CHUTES_TEMPERATURE: float = 0.7,
         CHUTES_TOP_P: float = 0.9,
@@ -38,6 +39,11 @@ class ChutesProvider:
             CHUTES_VISION_MODEL
             if CHUTES_VISION_MODEL
             else "Qwen/Qwen3-VL-235B-A22B-Instruct"
+        )
+        self.CHUTES_CODING_MODEL = (
+            CHUTES_CODING_MODEL
+            if CHUTES_CODING_MODEL
+            else "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
         )
         self.AI_TEMPERATURE = CHUTES_TEMPERATURE if CHUTES_TEMPERATURE else 0.7
         self.AI_TOP_P = CHUTES_TOP_P if CHUTES_TOP_P else 0.9
@@ -68,13 +74,20 @@ class ChutesProvider:
                 break
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], stream: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        code: bool = False,
     ):
         if not self.ENDPOINT_URL:
             return "Please configure the Chutes endpoint URL (e.g., https://myuser-my-llm.chutes.ai) in the Agent Management page."
 
         if self.API_KEY == "" or self.API_KEY == "YOUR_CHUTES_API_KEY":
             return "Please go to the Agent Management page to set your Chutes API key."
+        if code:
+            self.AI_MODEL = self.CHUTES_CODING_MODEL
         if len(images) > 0:
             self.AI_MODEL = self.CHUTES_VISION_MODEL
         # Ensure endpoint URL ends with the chat completions path
