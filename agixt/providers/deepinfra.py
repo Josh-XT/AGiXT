@@ -12,7 +12,6 @@ class DeepinfraProvider:
     Get your API key from the DeepInfra dashboard at <https://deepinfra.com>.
     """
 
-
     def __init__(
         self,
         DEEPINFRA_API_KEY: str = "",
@@ -28,7 +27,7 @@ class DeepinfraProvider:
         **kwargs,
     ):
         self.requirements = []
-        self.friendly_name = "DeppInfra"
+        self.friendly_name = "DeepInfra"
         self.AI_MODEL = (
             DEEPINFRA_MODEL if DEEPINFRA_MODEL else "Qwen/Qwen3-VL-235B-A22B-Instruct"
         )
@@ -56,7 +55,7 @@ class DeepinfraProvider:
         self.WAIT_BETWEEN_REQUESTS = (
             DEEPINFRA_WAIT_BETWEEN_REQUESTS if DEEPINFRA_WAIT_BETWEEN_REQUESTS else 1
         )
-        self.API_KEY = DEEPINFRA_API_KEY
+        self.DEEPINFRA_API_KEY = DEEPINFRA_API_KEY
         self.FAILURES = []
         self.failures = 0
 
@@ -82,7 +81,10 @@ class DeepinfraProvider:
         stream: bool = False,
         use_smartest: bool = False,
     ):
-        if self.API_KEY == "" or self.API_KEY == "YOUR_DEEPINFRA_API_KEY":
+        if (
+            self.DEEPINFRA_API_KEY == ""
+            or self.DEEPINFRA_API_KEY == "YOUR_DEEPINFRA_API_KEY"
+        ):
             return (
                 "Please go to the Agent Management page to set your Deepinfra API key."
             )
@@ -100,7 +102,7 @@ class DeepinfraProvider:
         # Build headers
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.API_KEY}",
+            "Authorization": f"Bearer {self.DEEPINFRA_API_KEY}",
         }
 
         # Build messages

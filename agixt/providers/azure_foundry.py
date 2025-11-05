@@ -23,10 +23,10 @@ class Azure_foundryProvider:
         AZURE_FOUNDRY_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
-        self.friendly_name = "Azure"
+        self.friendly_name = "Azure Foundry"
         self.requirements = ["azure-ai-inference"]
-        self.AZURE_API_KEY = AZURE_FOUNDRY_API_KEY
-        self.AZURE_OPENAI_ENDPOINT = AZURE_FOUNDRY_ENDPOINT
+        self.AZURE_FOUNDRY_API_KEY = AZURE_FOUNDRY_API_KEY
+        self.AZURE_FOUNDRY_ENDPOINT = AZURE_FOUNDRY_ENDPOINT
         self.AI_MODEL = AZURE_FOUNDRY_DEPLOYMENT_NAME
         self.AI_TEMPERATURE = (
             AZURE_FOUNDRY_TEMPERATURE if AZURE_FOUNDRY_TEMPERATURE else 0.7
@@ -52,13 +52,16 @@ class Azure_foundryProvider:
     async def inference(
         self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
     ):
-        if self.AZURE_API_KEY == "" or self.AZURE_API_KEY == "YOUR_API_KEY":
+        if (
+            self.AZURE_FOUNDRY_API_KEY == ""
+            or self.AZURE_FOUNDRY_API_KEY == "YOUR_API_KEY"
+        ):
             return "Please go to the Agent Management page to set your Azure AI Inference API key."
 
         try:
             client = ChatCompletionsClient(
-                endpoint=self.AZURE_OPENAI_ENDPOINT,
-                credential=AzureKeyCredential(self.AZURE_API_KEY),
+                endpoint=self.AZURE_FOUNDRY_ENDPOINT,
+                credential=AzureKeyCredential(self.AZURE_FOUNDRY_API_KEY),
                 api_version="2024-05-01-preview",
             )
         except Exception as e:

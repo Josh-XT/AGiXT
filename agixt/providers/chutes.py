@@ -15,7 +15,6 @@ class ChutesProvider:
     For example: https://myuser-my-llm.chutes.ai
     """
 
-
     def __init__(
         self,
         CHUTES_API_KEY: str = "",
@@ -55,7 +54,7 @@ class ChutesProvider:
         self.WAIT_BETWEEN_REQUESTS = (
             CHUTES_WAIT_BETWEEN_REQUESTS if CHUTES_WAIT_BETWEEN_REQUESTS else 1
         )
-        self.API_KEY = CHUTES_API_KEY
+        self.CHUTES_API_KEY = CHUTES_API_KEY
         self.FAILURES = []
         self.failures = 0
 
@@ -84,7 +83,7 @@ class ChutesProvider:
         if not self.ENDPOINT_URL:
             return "Please configure the Chutes endpoint URL (e.g., https://myuser-my-llm.chutes.ai) in the Agent Management page."
 
-        if self.API_KEY == "" or self.API_KEY == "YOUR_CHUTES_API_KEY":
+        if self.CHUTES_API_KEY == "" or self.CHUTES_API_KEY == "YOUR_CHUTES_API_KEY":
             return "Please go to the Agent Management page to set your Chutes API key."
         if use_smartest:
             self.AI_MODEL = self.CHUTES_CODING_MODEL
@@ -100,7 +99,7 @@ class ChutesProvider:
         # Build headers
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.API_KEY}",
+            "Authorization": f"Bearer {self.CHUTES_API_KEY}",
         }
 
         # Build messages
