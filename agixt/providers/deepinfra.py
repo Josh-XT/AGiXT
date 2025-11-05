@@ -12,7 +12,6 @@ class DeepinfraProvider:
     Get your API key from the DeepInfra dashboard at <https://deepinfra.com>.
     """
 
-    friendly_name = "DeepInfra"
 
     def __init__(
         self,
@@ -28,7 +27,8 @@ class DeepinfraProvider:
         DEEPINFRA_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
-        self.requirements = ["requests"]
+        self.requirements = []
+        self.friendly_name = "DeppInfra"
         self.AI_MODEL = (
             DEEPINFRA_MODEL if DEEPINFRA_MODEL else "Qwen/Qwen3-VL-235B-A22B-Instruct"
         )
