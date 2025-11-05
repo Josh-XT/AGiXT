@@ -55,7 +55,9 @@ class XaiProvider:
             "vision",
         ]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         openai.base_url = self.API_URI if self.API_URI else "https://api.x.ai/v1/"
         openai.api_key = f"Bearer {self.XAI_API_KEY}"
         openai.api_type = "openai"

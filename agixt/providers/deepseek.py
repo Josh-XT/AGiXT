@@ -56,7 +56,9 @@ class DeepseekProvider:
             "vision",
         ]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         openai.base_url = self.API_URI if self.API_URI else "https://api.deepseek.com/"
         openai.api_key = self.DEEPSEEK_API_KEY
         openai.api_type = "openai"

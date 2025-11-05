@@ -49,7 +49,9 @@ class Azure_foundryProvider:
     def services():
         return ["llm", "vision"]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         if self.AZURE_API_KEY == "" or self.AZURE_API_KEY == "YOUR_API_KEY":
             return "Please go to the Agent Management page to set your Azure AI Inference API key."
 

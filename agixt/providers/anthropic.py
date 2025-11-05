@@ -48,7 +48,9 @@ class AnthropicProvider:
     def services():
         return ["llm", "vision"]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         if (
             self.ANTHROPIC_API_KEY == ""
             or self.ANTHROPIC_API_KEY == "YOUR_ANTHROPIC_API_KEY"

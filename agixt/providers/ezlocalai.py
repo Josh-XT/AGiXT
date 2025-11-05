@@ -86,7 +86,12 @@ class EzlocalaiProvider:
                 break
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], stream: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         if not self.AI_MODEL:
             self.AI_MODEL = "default"

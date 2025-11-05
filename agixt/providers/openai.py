@@ -27,6 +27,8 @@ class OpenaiProvider:
         self,
         OPENAI_API_KEY: str = "",
         OPENAI_MODEL: str = "gpt-4o",
+        OPENAI_VISION_MODEL: str = "gpt-4o",
+        OPENAI_CODING_MODEL: str = "gpt-5",
         OPENAI_API_URI: str = "https://api.openai.com/v1",
         OPENAI_MAX_TOKENS: int = 128000,
         OPENAI_TEMPERATURE: float = 0.7,
@@ -39,6 +41,12 @@ class OpenaiProvider:
     ):
         self.requirements = ["openai"]
         self.AI_MODEL = OPENAI_MODEL if OPENAI_MODEL else "gpt-4o"
+        self.OPENAI_VISION_MODEL = (
+            OPENAI_VISION_MODEL if OPENAI_VISION_MODEL else "gpt-4o"
+        )
+        self.OPENAI_CODING_MODEL = (
+            OPENAI_CODING_MODEL if OPENAI_CODING_MODEL else "gpt-5"
+        )
         self.AI_TEMPERATURE = OPENAI_TEMPERATURE if OPENAI_TEMPERATURE else 0.7
         self.AI_TOP_P = OPENAI_TOP_P if OPENAI_TOP_P else 0.7
         self.MAX_TOKENS = OPENAI_MAX_TOKENS if OPENAI_MAX_TOKENS else 128000
@@ -84,11 +92,17 @@ class OpenaiProvider:
                 break
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], stream: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
-        if images != []:
-            if "vision" not in self.AI_MODEL and self.AI_MODEL != "gpt-4o":
-                self.AI_MODEL = "gpt-4o"
+        if use_smartest:
+            self.AI_MODEL = self.OPENAI_CODING_MODEL
+        if len(images) > 0:
+            self.AI_MODEL = self.OPENAI_VISION_MODEL
         if not self.API_URI.endswith("/"):
             self.API_URI += "/"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"

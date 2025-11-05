@@ -53,7 +53,9 @@ class HuggingfaceProvider:
     def services():
         return ["llm", "image"]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         payload = {
             "inputs": prompt,
             "parameters": {
