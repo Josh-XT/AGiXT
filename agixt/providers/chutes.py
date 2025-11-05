@@ -15,7 +15,6 @@ class ChutesProvider:
     For example: https://myuser-my-llm.chutes.ai
     """
 
-    friendly_name = "Chutes.ai"
 
     def __init__(
         self,
@@ -31,7 +30,8 @@ class ChutesProvider:
         CHUTES_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
-        self.requirements = ["requests"]
+        self.requirements = []
+        self.friendly_name = "Chutes"
         self.AI_MODEL = (
             CHUTES_MODEL if CHUTES_MODEL else "Qwen/Qwen3-VL-235B-A22B-Instruct"
         )
