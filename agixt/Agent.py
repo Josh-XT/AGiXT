@@ -601,7 +601,10 @@ class Agent:
         for setting in DEFAULT_SETTINGS:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
-        self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
+        try:
+            self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
+        except:
+            self.AI_PROVIDER = "rotation"
         for key in ["name", "ApiClient", "agent_name", "user", "user_id", "api_key"]:
             if key in self.PROVIDER_SETTINGS:
                 del self.PROVIDER_SETTINGS[key]
@@ -616,26 +619,19 @@ class Agent:
         vision_provider = (
             self.AGENT_CONFIG["settings"]["vision_provider"]
             if "vision_provider" in self.AGENT_CONFIG["settings"]
-            else "None"
+            else "rotation"
         )
-        if (
-            vision_provider != "None"
-            and vision_provider != None
-            and vision_provider != ""
-        ):
-            try:
-                self.VISION_PROVIDER = Providers(
-                    name=vision_provider,
-                    ApiClient=ApiClient,
-                    agent_name=self.agent_name,
-                    user=self.user,
-                    api_key=token,
-                    **self.PROVIDER_SETTINGS,
-                )
-            except Exception as e:
-                logging.error(f"Error loading vision provider: {str(e)}")
-                self.VISION_PROVIDER = None
-        else:
+        try:
+            self.VISION_PROVIDER = Providers(
+                name=vision_provider,
+                ApiClient=ApiClient,
+                agent_name=self.agent_name,
+                user=self.user,
+                api_key=token,
+                **self.PROVIDER_SETTINGS,
+            )
+        except Exception as e:
+            logging.error(f"Error loading vision provider: {str(e)}")
             self.VISION_PROVIDER = None
         tts_provider = (
             self.AGENT_CONFIG["settings"]["tts_provider"]
@@ -1076,31 +1072,21 @@ class Agent:
         try:
             if stream:
                 # For streaming, return the stream object for the caller to handle
-                if provider_name == "rotation" and use_smartest == True:
-                    return await self.PROVIDER.inference(
-                        prompt=prompt,
-                        tokens=input_tokens,
-                        images=images,
-                        use_smartest=True,
-                        stream=True,
-                    )
-                else:
-                    return await self.PROVIDER.inference(
-                        prompt=prompt, tokens=input_tokens, images=images, stream=True
-                    )
+                return await self.PROVIDER.inference(
+                    prompt=prompt,
+                    tokens=input_tokens,
+                    images=images,
+                    stream=True,
+                    use_smartest=use_smartest,
+                )
             else:
                 # Non-streaming path
-                if provider_name == "rotation" and use_smartest == True:
-                    answer = await self.PROVIDER.inference(
-                        prompt=prompt,
-                        tokens=input_tokens,
-                        images=images,
-                        use_smartest=True,
-                    )
-                else:
-                    answer = await self.PROVIDER.inference(
-                        prompt=prompt, tokens=input_tokens, images=images
-                    )
+                answer = await self.PROVIDER.inference(
+                    prompt=prompt,
+                    tokens=input_tokens,
+                    images=images,
+                    use_smartest=use_smartest,
+                )
                 output_tokens = get_tokens(answer)
                 self.auth.increase_token_counts(
                     input_tokens=input_tokens, output_tokens=output_tokens
@@ -1150,16 +1136,13 @@ class Agent:
         if not self.VISION_PROVIDER:
             return ""
         input_tokens = get_tokens(prompt)
-        provider_name = self.AGENT_CONFIG["settings"]["provider"]
         try:
-            if provider_name == "rotation" and use_smartest == True:
-                answer = await self.PROVIDER.inference(
-                    prompt=prompt, tokens=input_tokens, images=images, use_smartest=True
-                )
-            else:
-                answer = await self.PROVIDER.inference(
-                    prompt=prompt, tokens=input_tokens, images=images
-                )
+            answer = await self.PROVIDER.inference(
+                prompt=prompt,
+                tokens=input_tokens,
+                images=images,
+                use_smartest=use_smartest,
+            )
             output_tokens = get_tokens(answer)
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens

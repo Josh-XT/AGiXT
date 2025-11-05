@@ -87,7 +87,9 @@ class DefaultProvider:
             "translation",
         ]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         return await Gpt4freeProvider(
             **self.agent_settings,
         ).inference(prompt=prompt, tokens=tokens, images=images)

@@ -50,7 +50,9 @@ class GoogleProvider:
     def services():
         return ["llm", "tts", "vision"]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         if not self.GOOGLE_API_KEY or self.GOOGLE_API_KEY == "None":
             return "Please set your Google API key in the Agent Management page."
         try:

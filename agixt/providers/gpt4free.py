@@ -59,7 +59,9 @@ class Gpt4freeProvider:
     def services():
         return ["llm"]
 
-    async def inference(self, prompt, tokens: int = 0, images: list = []):
+    async def inference(
+        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+    ):
         agent_settings = {
             k: v for k, v in self.agent_settings.items() if v is not None and v != ""
         }

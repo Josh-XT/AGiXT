@@ -177,7 +177,7 @@ class RotationProvider:
                 **self.AGENT_SETTINGS,
             )
             result = await provider_instance.inference(
-                prompt=prompt, tokens=tokens, images=images
+                prompt=prompt, tokens=tokens, images=images, use_smartest=use_smartest
             )
             if isinstance(result, str) and result.startswith("Error:"):
                 raise Exception(f"Provider {provider} returned an error: {result}")

@@ -41,7 +41,12 @@ class AzureProvider:
         return ["llm", "vision"]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], stream: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         if not self.AZURE_OPENAI_ENDPOINT.endswith("/"):
             self.AZURE_OPENAI_ENDPOINT += "/"

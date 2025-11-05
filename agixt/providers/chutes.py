@@ -79,14 +79,14 @@ class ChutesProvider:
         tokens: int = 0,
         images: list = [],
         stream: bool = False,
-        code: bool = False,
+        use_smartest: bool = False,
     ):
         if not self.ENDPOINT_URL:
             return "Please configure the Chutes endpoint URL (e.g., https://myuser-my-llm.chutes.ai) in the Agent Management page."
 
         if self.API_KEY == "" or self.API_KEY == "YOUR_CHUTES_API_KEY":
             return "Please go to the Agent Management page to set your Chutes API key."
-        if code:
+        if use_smartest:
             self.AI_MODEL = self.CHUTES_CODING_MODEL
         if len(images) > 0:
             self.AI_MODEL = self.CHUTES_VISION_MODEL
@@ -217,7 +217,7 @@ class ChutesProvider:
                     tokens=tokens,
                     images=images,
                     stream=stream,
-                    code=code,
+                    use_smartest=use_smartest,
                 )
 
             return f"Error calling Chutes API: {str(e)}"
