@@ -22,7 +22,7 @@ class ChutesProvider:
         self,
         CHUTES_API_KEY: str = "",
         CHUTES_ENDPOINT_URL: str = "",
-        CHUTES_MODEL: str = "meta-llama/Llama-3.1-8B-Instruct",
+        CHUTES_MODEL: str = "Qwen/Qwen3-VL-235B-A22B-Instruct",
         CHUTES_MAX_TOKENS: int = 4096,
         CHUTES_TEMPERATURE: float = 0.7,
         CHUTES_TOP_P: float = 0.9,
@@ -32,7 +32,7 @@ class ChutesProvider:
     ):
         self.requirements = ["requests"]
         self.AI_MODEL = (
-            CHUTES_MODEL if CHUTES_MODEL else "meta-llama/Llama-3.1-8B-Instruct"
+            CHUTES_MODEL if CHUTES_MODEL else "Qwen/Qwen3-VL-235B-A22B-Instruct"
         )
         self.AI_TEMPERATURE = CHUTES_TEMPERATURE if CHUTES_TEMPERATURE else 0.7
         self.AI_TOP_P = CHUTES_TOP_P if CHUTES_TOP_P else 0.9
