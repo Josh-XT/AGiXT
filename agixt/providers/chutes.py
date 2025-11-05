@@ -213,7 +213,11 @@ class ChutesProvider:
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.inference(
-                    prompt=prompt, tokens=tokens, images=images, stream=stream
+                    prompt=prompt,
+                    tokens=tokens,
+                    images=images,
+                    stream=stream,
+                    code=code,
                 )
 
             return f"Error calling Chutes API: {str(e)}"
