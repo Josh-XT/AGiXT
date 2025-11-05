@@ -10,9 +10,6 @@ class ChutesProvider:
     This provider uses the Chutes.ai API to generate text from prompts.
     Chutes.ai provides OpenAI-compatible endpoints for deployed models.
     Get your API key from the Chutes dashboard at <https://chutes.ai/app>.
-
-    The Chutes endpoint URL format is: https://{username}-{chute-name}.chutes.ai
-    For example: https://myuser-my-llm.chutes.ai
     """
 
     def __init__(
