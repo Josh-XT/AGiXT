@@ -135,17 +135,22 @@ class X402PaymentService:
         """
         verify_url = f"{self.facilitator_url}/verify"
 
+        payload_data = {
+            "payload": payment_payload,
+            "merchant_wallet": self.merchant_wallet,
+            "network": self.network,
+            "expected_amount": str(expected_amount),
+            "expected_currency": expected_currency,
+        }
+
+        self.logger.info(f"Sending verification request to {verify_url}")
+        self.logger.debug(f"Verification payload: {payload_data}")
+
         try:
             async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 response = await client.post(
                     verify_url,
-                    json={
-                        "payload": payment_payload,
-                        "merchant_wallet": self.merchant_wallet,
-                        "network": self.network,
-                        "expected_amount": str(expected_amount),
-                        "expected_currency": expected_currency,
-                    },
+                    json=payload_data,
                 )
 
                 if response.status_code != 200:
@@ -154,7 +159,18 @@ class X402PaymentService:
                     )
                     if response.text:
                         error_msg += f" - {response.text}"
+                    else:
+                        error_msg += " (empty response body)"
+
+                    # Add helpful context for common errors
+                    if response.status_code == 500:
+                        error_msg += ". The x402 facilitator may be experiencing issues. Try again later or contact the facilitator service."
+                    elif response.status_code in (301, 302, 307, 308):
+                        error_msg += f". Unexpected redirect - check facilitator URL configuration."
+
                     self.logger.error(error_msg)
+                    self.logger.error(f"Request URL: {verify_url}")
+                    self.logger.error(f"Response headers: {dict(response.headers)}")
                     raise X402FacilitatorError(error_msg)
 
                 result = response.json()
@@ -331,12 +347,14 @@ def get_x402_service(
     Factory function to create X402PaymentService with configuration.
 
     Loads configuration from environment variables:
-    - X402_FACILITATOR_URL: Facilitator service URL (default: https://x402.org/facilitator)
+    - X402_FACILITATOR_URL: Facilitator service URL (default: https://facilitator.payai.network)
     - X402_MERCHANT_WALLET: Merchant wallet address (required)
     - X402_NETWORK: Blockchain network (passed as parameter, default: solana)
     """
     if facilitator_url is None:
-        facilitator_url = getenv("X402_FACILITATOR_URL", "https://x402.org/facilitator")
+        facilitator_url = getenv(
+            "X402_FACILITATOR_URL", "https://facilitator.payai.network"
+        )
 
     if merchant_wallet is None:
         merchant_wallet = getenv("X402_MERCHANT_WALLET", "")
