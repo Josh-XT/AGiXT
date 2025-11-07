@@ -679,16 +679,15 @@ class wallet(Extensions):
             # Get price quote
             quote = await self.price_service.get_quote(currency, seat_count)
 
+            # Get AGiXT URI from environment
+            agixt_uri = getenv("AGIXT_URI")
+
             # Create x402 payment request
             payment_request = self.x402_service.create_payment_request(
                 amount=quote["amount_currency"],
                 currency=currency,
                 description=f"AGiXT API Access - {seat_count} seat(s)",
-                metadata={
-                    "user_id": user_id,
-                    "seat_count": seat_count,
-                    "quote": quote,
-                },
+                resource=f"{agixt_uri}/v1/",
             )
 
             return payment_request
@@ -722,9 +721,23 @@ class wallet(Extensions):
             if not payment_payload:
                 raise HTTPException(status_code=400, detail="Missing X-PAYMENT header")
 
-            # Get expected amount
+            # Get expected amount and recreate payment requirements
             quote = await self.price_service.get_quote(currency, seat_count)
             expected_amount = quote["amount_currency"]
+
+            # Get AGiXT URI from environment
+            agixt_uri = getenv("AGIXT_URI")
+
+            # Recreate the payment request (includes paymentRequirements)
+            payment_request = self.x402_service.create_payment_request(
+                amount=expected_amount,
+                currency=currency,
+                description=f"AGiXT API Access - {seat_count} seat(s)",
+                resource=f"{agixt_uri}/v1/",
+            )
+
+            # Extract the x402 payment requirements for facilitator
+            payment_requirements = payment_request.get("paymentRequirements")
 
             try:
                 # Process payment (verify + settle + record)
@@ -734,39 +747,61 @@ class wallet(Extensions):
                     currency=currency,
                     user_id=user_id,
                     description=f"AGiXT API Access - {seat_count} seat(s)",
+                    payment_requirements=payment_requirements,
+                    seat_count=seat_count,
                 )
 
                 # Return payment record and set X-PAYMENT-RESPONSE header
                 response_data = PaymentTransactionResponse(
-                    id=payment_record.id,
-                    user_id=payment_record.user_id,
-                    amount=payment_record.amount,
-                    currency=payment_record.currency,
+                    reference_code=payment_record.reference_code,
                     status=payment_record.status,
+                    currency=payment_record.currency,
+                    amount_usd=payment_record.amount_usd,
+                    amount_currency=payment_record.amount_currency,
+                    exchange_rate=payment_record.exchange_rate,
+                    seat_count=payment_record.seat_count,
                     transaction_hash=payment_record.transaction_hash,
-                    payment_method=payment_record.payment_method,
-                    description=payment_record.description,
-                    metadata=payment_record.metadata,
-                    created_at=(
-                        payment_record.created_at.isoformat()
-                        if payment_record.created_at
+                    wallet_address=payment_record.wallet_address,
+                    memo=payment_record.memo,
+                    metadata=(
+                        json.loads(payment_record.metadata_json)
+                        if payment_record.metadata_json
                         else None
                     ),
+                    expires_at=payment_record.expires_at,
+                    created_at=payment_record.created_at,
                 )
 
                 # Add X-PAYMENT-RESPONSE header with transaction details
                 from fastapi.responses import JSONResponse
 
-                facilitator_tx_id = payment_record.metadata.get("facilitator_tx_id", "")
+                # Parse metadata from JSON string
+                metadata = (
+                    json.loads(payment_record.metadata_json)
+                    if payment_record.metadata_json
+                    else {}
+                )
+                payer = metadata.get("payer", "")
                 blockchain_tx = payment_record.transaction_hash
 
-                response = JSONResponse(content=response_data.dict())
-                response.headers["X-PAYMENT-RESPONSE"] = (
-                    self.x402_service.create_payment_response_header(
-                        transaction_id=facilitator_tx_id,
-                        blockchain_tx=blockchain_tx,
-                    )
+                # Convert Pydantic model to dict with JSON-safe datetime serialization
+                response = JSONResponse(
+                    content=json.loads(response_data.model_dump_json())
                 )
+
+                # Create X-PAYMENT-RESPONSE header following x402 spec
+                # Base64 encode the settlement response
+                import base64
+
+                settlement_response = {
+                    "success": True,
+                    "payer": payer,
+                    "transaction": blockchain_tx,
+                    "network": self.x402_service.network,
+                }
+                response.headers["X-PAYMENT-RESPONSE"] = base64.b64encode(
+                    json.dumps(settlement_response).encode()
+                ).decode()
 
                 return response
 
@@ -1217,7 +1252,7 @@ class wallet(Extensions):
                     "name": "Bonk",
                     "decimals": 5,
                 },
-                "So11111111111111111111111111111111111111112": {
+                "So11111111111111111111111111111111111111111": {
                     "symbol": "SOL",
                     "name": "Wrapped SOL",
                     "decimals": 9,
