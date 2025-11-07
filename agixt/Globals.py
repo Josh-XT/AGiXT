@@ -75,9 +75,14 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "PAYMENT_WALLET_ADDRESS": "EmMgRcfTuyoX577SmRhjFVkWRFRvTwFfiY8wf5preXC1",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
         "MONTHLY_PRICE_PER_USER_USD": "0",
+        "X402_NETWORK": "solana",
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"
+    if var_name == "X402_MERCHANT_WALLET":
+        x402_network = os.getenv("X402_NETWORK", "solana").lower()
+        if x402_network == "solana":
+            var_name = "PAYMENT_WALLET_ADDRESS"
     if default_value != "":
         default_values[var_name] = default_value
     default_value = default_values[var_name] if var_name in default_values else ""
