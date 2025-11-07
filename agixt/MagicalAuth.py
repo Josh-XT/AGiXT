@@ -1306,12 +1306,34 @@ class MagicalAuth:
             invitation = (
                 session.query(Invitation).filter(Invitation.email == self.email).first()
             )
+
+            # Determine if paywall is enabled for this instance
+            stripe_configured = (
+                getenv("STRIPE_API_KEY")
+                and str(getenv("STRIPE_API_KEY")).lower() != "none"
+            )
+            wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+            price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
+            try:
+                price_value = float(str(price_env))
+            except (TypeError, ValueError):
+                price_value = 0.0
+            wallet_paywall_enabled = (
+                bool(wallet_address)
+                and str(wallet_address).lower() != "none"
+                and price_value > 0
+            )
+            paywall_enabled = stripe_configured or wallet_paywall_enabled
+
             # Create new user
+            # Set is_active=False if paywall is enabled (requires payment)
+            # Set is_active=True if no paywall (free instance)
             new_user_db = User(
                 email=self.email,
                 first_name=new_user.first_name,
                 last_name=new_user.last_name,
                 mfa_token=mfa_token,
+                is_active=not paywall_enabled,  # False if paywall enabled, True if free instance
             )
             session.add(new_user_db)
             session.commit()
