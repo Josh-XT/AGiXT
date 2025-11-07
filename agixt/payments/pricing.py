@@ -23,19 +23,6 @@ SUPPORTED_CURRENCIES: Dict[str, Dict[str, Any]] = {
         "stable": True,
         "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     },
-    "USDT": {
-        "network": "solana",
-        "decimals": 6,
-        "coingecko_id": "tether",
-        "stable": True,
-        "mint": "Es9vMFrzaCERm3fprn7DErnnEd5pisPEypVqQzQF1i",
-    },
-    "BTC": {
-        "network": "solana",
-        "decimals": 8,
-        "coingecko_id": "bitcoin",
-        "mint": "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",
-    },
     "AGIXT": {
         "network": "solana",
         "decimals": 9,
