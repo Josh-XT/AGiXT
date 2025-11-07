@@ -21,7 +21,7 @@ SUPPORTED_CURRENCIES: Dict[str, Dict[str, Any]] = {
         "decimals": 6,
         "coingecko_id": "usd-coin",
         "stable": True,
-        "mint": "EPjFWdd5AufqSSqeM2q2VmAneYNoZhEZJ1xdMWgxuRrq",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     },
     "USDT": {
         "network": "solana",

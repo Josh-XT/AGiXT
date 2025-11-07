@@ -169,12 +169,43 @@ class CryptoPaymentService:
         transaction = value.transaction.transaction
         account_keys = [str(key) for key in transaction.message.account_keys]
 
+        # Convert token balances from solders objects to dictionaries
+        def convert_token_balance(tb):
+            """Convert solders UiTransactionTokenBalance to dictionary."""
+            return {
+                "accountIndex": tb.account_index,
+                "mint": str(tb.mint),
+                "owner": str(tb.owner) if tb.owner else None,
+                "programId": (
+                    str(tb.program_id)
+                    if hasattr(tb, "program_id") and tb.program_id
+                    else None
+                ),
+                "uiTokenAmount": {
+                    "amount": str(tb.ui_token_amount.amount),
+                    "decimals": tb.ui_token_amount.decimals,
+                    "uiAmount": tb.ui_token_amount.ui_amount,
+                    "uiAmountString": tb.ui_token_amount.ui_amount_string,
+                },
+            }
+
+        pre_token_balances = getattr(meta, "pre_token_balances", [])
+        post_token_balances = getattr(meta, "post_token_balances", [])
+
         # Convert meta to dictionary for compatibility with existing extraction methods
         meta_dict = {
             "preBalances": meta.pre_balances,
             "postBalances": meta.post_balances,
-            "preTokenBalances": getattr(meta, "pre_token_balances", []),
-            "postTokenBalances": getattr(meta, "post_token_balances", []),
+            "preTokenBalances": (
+                [convert_token_balance(tb) for tb in pre_token_balances]
+                if pre_token_balances
+                else []
+            ),
+            "postTokenBalances": (
+                [convert_token_balance(tb) for tb in post_token_balances]
+                if post_token_balances
+                else []
+            ),
         }
 
         currency_details = SUPPORTED_CURRENCIES.get(record.currency.upper())
@@ -213,8 +244,8 @@ class CryptoPaymentService:
         record.metadata_json = json.dumps(
             {
                 **(json.loads(record.metadata_json or "{}")),
-                "slot": value.get("slot"),
-                "block_time": value.get("blockTime"),
+                "slot": value.slot,
+                "block_time": value.block_time,
                 "confirmed_amount": str(received_amount),
             }
         )
