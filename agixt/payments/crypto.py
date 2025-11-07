@@ -167,7 +167,15 @@ class CryptoPaymentService:
 
         # Extract account keys from the transaction message
         transaction = value.transaction.transaction
-        account_keys = [str(key) for key in transaction.message.account_keys]
+        raw_keys = transaction.message.account_keys
+
+        # Handle both ParsedAccount objects (from jsonParsed encoding) and raw keys
+        if raw_keys and hasattr(raw_keys[0], "pubkey"):
+            # ParsedAccount objects - extract pubkey attribute
+            account_keys = [str(key.pubkey) for key in raw_keys]
+        else:
+            # Raw public keys
+            account_keys = [str(key) for key in raw_keys]
 
         # Convert token balances from solders objects to dictionaries
         def convert_token_balance(tb):
