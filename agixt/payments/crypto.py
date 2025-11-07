@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 from solana.rpc.async_api import AsyncClient
+from solders.signature import Signature
 
 from Globals import getenv
 from DB import PaymentTransaction, get_session
@@ -133,9 +134,18 @@ class CryptoPaymentService:
     async def _verify_on_solana(
         self, record: PaymentTransaction, transaction_hash: str, session
     ) -> None:
+        # Convert transaction hash string to Signature object
+        try:
+            signature = Signature.from_string(transaction_hash)
+        except (ValueError, Exception) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid transaction signature format: {str(e)}",
+            )
+
         async with AsyncClient(self.rpc_url) as client:
             response = await client.get_transaction(
-                transaction_hash,
+                signature,
                 encoding="jsonParsed",
                 commitment="confirmed",
             )
@@ -145,19 +155,27 @@ class CryptoPaymentService:
                 status_code=404, detail="Transaction not found on Solana"
             )
 
-        meta = value.get("meta")
+        # Access transaction metadata from solders object
+        meta = value.transaction.meta
         if not meta:
             raise HTTPException(
                 status_code=400, detail="Transaction metadata unavailable"
             )
 
-        if meta.get("err") is not None:
+        if meta.err is not None:
             raise HTTPException(status_code=400, detail="Transaction failed on-chain")
 
-        account_keys = [
-            key["pubkey"] if isinstance(key, dict) else key
-            for key in value["transaction"]["message"]["accountKeys"]
-        ]
+        # Extract account keys from the transaction message
+        transaction = value.transaction.transaction
+        account_keys = [str(key) for key in transaction.message.account_keys]
+
+        # Convert meta to dictionary for compatibility with existing extraction methods
+        meta_dict = {
+            "preBalances": meta.pre_balances,
+            "postBalances": meta.post_balances,
+            "preTokenBalances": getattr(meta, "pre_token_balances", []),
+            "postTokenBalances": getattr(meta, "post_token_balances", []),
+        }
 
         currency_details = SUPPORTED_CURRENCIES.get(record.currency.upper())
         if not currency_details:
@@ -167,11 +185,11 @@ class CryptoPaymentService:
 
         if record.currency.upper() == "SOL":
             received_amount = self._extract_sol_amount(
-                meta, account_keys, self.wallet_address
+                meta_dict, account_keys, self.wallet_address
             )
         else:
             received_amount = self._extract_token_amount(
-                meta,
+                meta_dict,
                 self.wallet_address,
                 currency_details.get("mint"),
                 currency_details.get("decimals", 9),
@@ -181,7 +199,13 @@ class CryptoPaymentService:
         if received_amount < expected_amount * CONFIRMATION_TOLERANCE:
             raise HTTPException(
                 status_code=400,
-                detail="Received amount is below required threshold",
+                detail={
+                    "message": "Payment verification failed",
+                    "expected_amount": str(expected_amount),
+                    "received_amount": str(received_amount),
+                    "currency": record.currency,
+                    "reason": "Transaction does not contain the required payment amount to the merchant wallet",
+                },
             )
 
         record.transaction_hash = transaction_hash
@@ -203,7 +227,12 @@ class CryptoPaymentService:
             index = account_keys.index(wallet_address)
         except ValueError:
             raise HTTPException(
-                status_code=400, detail="Wallet address not present in transaction"
+                status_code=400,
+                detail={
+                    "message": "Transaction does not involve the merchant wallet",
+                    "expected_wallet": wallet_address,
+                    "reason": "This transaction was not sent to the correct payment address",
+                },
             )
         pre_balances = meta.get("preBalances", [])
         post_balances = meta.get("postBalances", [])
