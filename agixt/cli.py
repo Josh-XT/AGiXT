@@ -166,7 +166,7 @@ def get_default_env_vars():
         "EXTENSIONS_HUB": "",
         "EXTENSIONS_HUB_TOKEN": "",
         # Payment configuration
-        "PAYMENT_WALLET_ADDRESS": "EmMgRcfTuyoX577SmRhjFVkWRFRvTwFfiY8wf5preXC1",
+        "PAYMENT_WALLET_ADDRESS": "",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
         "MONTHLY_PRICE_PER_USER_USD": "0",
         # AI Model configuration
