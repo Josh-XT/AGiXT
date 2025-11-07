@@ -22,6 +22,7 @@ Agent-LLM-Frontend/
 src/
 conversations/
 # probably mounted data
+agixt/extensions/DevXT_LLC_xtsystems_extensions/*
 agixt/agents/*
 agixt/data/*
 agixt/WORKSPACE/*

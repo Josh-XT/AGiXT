@@ -169,6 +169,7 @@ def get_default_env_vars():
         "PAYMENT_WALLET_ADDRESS": "",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
         "MONTHLY_PRICE_PER_USER_USD": "0",
+        "STRIPE_API_KEY": "",
         # AI Model configuration
         "EZLOCALAI_URI": f"http://{get_local_ip()}:8091/v1/",
         "EZLOCALAI_VOICE": "DukeNukem",
