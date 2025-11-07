@@ -136,7 +136,7 @@ class X402PaymentService:
         verify_url = f"{self.facilitator_url}/verify"
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 response = await client.post(
                     verify_url,
                     json={
@@ -193,7 +193,7 @@ class X402PaymentService:
         settle_url = f"{self.facilitator_url}/settle"
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 response = await client.post(
                     settle_url,
                     json={
