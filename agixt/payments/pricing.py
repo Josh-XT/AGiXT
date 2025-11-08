@@ -29,6 +29,12 @@ SUPPORTED_CURRENCIES: Dict[str, Dict[str, Any]] = {
         "mint": "F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump",
         "dexscreener_token": "F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump",
     },
+    "ZEC": {
+        "network": "solana",
+        "decimals": 8,
+        "mint": "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS",
+        "dexscreener_token": "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS",
+    },
 }
 
 
