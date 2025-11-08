@@ -1395,10 +1395,23 @@ print(output)
         Note:
             The assistant should send the audio URL to the user so they can listen to it, it will embed the audio in the chat when the assistant sends the URL.
         """
-        return self.ApiClient.text_to_speech(
-            text=text,
-            agent_name=self.agent_name,
+        from Agent import Agent
+        import base64
+
+        agent = Agent(
+            agent_name=self.agent_name, ApiClient=self.ApiClient, user=self.user
         )
+        AGIXT_URI = getenv("AGIXT_URI")
+        tts_response = await agent.text_to_speech(text=text)
+        if not str(tts_response).startswith("http"):
+            file_type = "wav"
+            file_name = f"{uuid.uuid4().hex}.{file_type}"
+            audio_path = os.path.join(self.WORKING_DIRECTORY, file_name)
+            audio_data = base64.b64decode(tts_response)
+            with open(audio_path, "wb") as f:
+                f.write(audio_data)
+            tts_response = f"{AGIXT_URI}/outputs/{self.agent_id}/{self.conversation_id}/{file_name}"
+        return tts_response
 
     async def create_todo_item(
         self,
