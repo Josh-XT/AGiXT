@@ -327,6 +327,11 @@ class Interactions:
             context.append(
                 f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\nThe assistant is {self.agent_name} and is an AGiXT agent created by DevXT, empowered with AGiXT abilities."
             )
+        APP_URI = getenv("APP_URI")
+        if "localhost:" not in APP_URI:
+            context.append(
+                f"The assistant is an AGiXT agent named `{self.agent_name}` running on {APP_URI}. The assistant can access the documentation about the website at {AGIXT_URI}/docs as well as information about the open source AGiXT back end repository at https://github.com/Josh-XT/AGiXT if necessary."
+            )
         if "72" in kwargs and "42" in kwargs:
             if kwargs["72"] == True and kwargs["42"] == True:
                 kwargs["fp"] = context
