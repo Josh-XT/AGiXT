@@ -581,8 +581,7 @@ Your response (true or false):"""
                         del args["chain_args"]
                     if "chain" in args:
                         del args["chain"]
-                    if "covnersation_name" in args and "conversation_id" in args:
-                        args["conversation_name"] = args["covnersation_id"]
+                    args["conversation_name"] = args["conversation_id"]
                     if prompt_name == "":
                         prompt_name = "Think About It"
                     prompt_args = args.copy()
