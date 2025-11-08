@@ -590,7 +590,6 @@ Your response (true or false):"""
                         prompt_args["browse_links"] = False
                     if current_running_command:
                         prompt_args["running_command"] = current_running_command
-                    prompt_args["disable_commands"] = True
                     prompt_args["prompt_name"] = prompt_name
                     prompt_args["log_user_input"] = False
                     prompt_args["voice_response"] = False
