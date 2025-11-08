@@ -1102,7 +1102,11 @@ class Interactions:
                             -1
                         ]
                         tts_response = await self.agent.text_to_speech(text=answer)
-                        if not str(tts_response).startswith("http"):
+                        if str(tts_response).startswith("http"):
+                            # Wrap the URL in an audio tag
+                            tts_response = f'<audio controls><source src="{tts_response}" type="audio/wav"></audio>'
+                        elif not str(tts_response).startswith("<audio"):
+                            # Handle base64 response (legacy)
                             file_type = "wav"
                             file_name = f"{uuid.uuid4().hex}.{file_type}"
                             audio_path = os.path.join(
@@ -1111,7 +1115,7 @@ class Interactions:
                             audio_data = base64.b64decode(tts_response)
                             with open(audio_path, "wb") as f:
                                 f.write(audio_data)
-                            tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{file_name}" type="audio/wav"></audio>'
+                            tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{self.conversation_id}/{file_name}" type="audio/wav"></audio>'
                         self.response = f"{self.response}\n\n{tts_response}"
                         if "</answer>" in self.response:
                             self.response = self.response.replace("</answer>", "")

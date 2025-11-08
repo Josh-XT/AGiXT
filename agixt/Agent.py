@@ -25,6 +25,7 @@ from Providers import Providers, get_provider_services
 from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
+from Conversations import get_conversation_id_by_name
 from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
@@ -1232,7 +1233,11 @@ class Agent:
             )
         return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
 
-    async def text_to_speech(self, text: str):
+    async def text_to_speech(self, text: str, conversation_id: str = None):
+        if not conversation_id or conversation_id == "-":
+            conversation_id = get_conversation_id_by_name(
+                conversation_name="-", user_id=self.user_id
+            )
         if self.TTS_PROVIDER is not None:
             if "```" in text:
                 text = re.sub(
@@ -1271,15 +1276,13 @@ class Agent:
                     f.write(base64.b64decode(tts_content))
 
                 # Create final secure location in workspace using hardcoded paths only
-                workspace_outputs = "WORKSPACE/outputs"
+                workspace_outputs = f"WORKSPACE/{self.agent_id}/{conversation_id}"
                 os.makedirs(workspace_outputs, exist_ok=True)
-
                 # Move to final location with system-generated filename
                 final_audio_path = f"{workspace_outputs}/{secure_filename}"
                 shutil.move(temp_audio_path, final_audio_path)
-
                 agixt_uri = getenv("AGIXT_URI")
-                output_url = f"{agixt_uri}/outputs/{secure_filename}"
+                output_url = f"{agixt_uri}/outputs/{self.agent_id}/{conversation_id}/{secure_filename}"
                 return output_url
 
     def get_agent_extensions(self):
