@@ -1090,6 +1090,12 @@ class wallet(Extensions):
                     "decimals": 8,
                     "logoURI": "https://dd.dexscreener.com/ds-data/tokens/solana/F9TgEJLLRUKDRF16HgjUCdJfJ5BK6ucyiW8uJxVPpump.png",
                 },
+                "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS": {
+                    "symbol": "ZEC",
+                    "name": "Zcash",
+                    "decimals": 8,
+                    "logoURI": "https://cdn.dexscreener.com/cms/images/babe89a52518f8dc23436646b390e623f4d93a0c2e0a9bc9eefa86d3047dffa8?width=64&height=64&fit=crop&quality=95&format=auto",
+                },
             }
 
             try:
