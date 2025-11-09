@@ -158,11 +158,29 @@ async def get_extension_categories_v1(
             categories = session.query(ExtensionCategory).all()
 
             # Get all extensions with category information
-            extensions_obj = Extensions(ApiClient=ApiClient)
+            extensions_obj = Extensions(ApiClient=ApiClient, user=user)
             all_extensions = extensions_obj.get_extensions()
 
             # First, enrich extensions with category information
             for extension in all_extensions:
+                # Special handling for Custom Automation - it's dynamically generated
+                if extension["extension_name"] == "Custom Automation":
+                    # Custom Automation should be in Core Abilities
+                    core_abilities = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name="Core Abilities")
+                        .first()
+                    )
+                    if core_abilities:
+                        extension["category_info"] = {
+                            "id": str(core_abilities.id),
+                            "name": core_abilities.name,
+                            "description": core_abilities.description,
+                        }
+                    else:
+                        extension["category_info"] = None
+                    continue
+
                 ext_db = (
                     session.query(Extension)
                     .filter_by(name=extension["extension_name"])
@@ -245,7 +263,7 @@ async def get_extension_category_v1(
                 )
 
             # Get extensions for this category
-            extensions_obj = Extensions()
+            extensions_obj = Extensions(ApiClient=ApiClient, user=user)
             all_extensions = extensions_obj.get_extensions()
 
             category_extensions = []
