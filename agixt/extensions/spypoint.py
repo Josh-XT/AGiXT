@@ -1,5 +1,7 @@
+import os
 import requests
 import logging
+from datetime import datetime
 from Extensions import Extensions
 
 
@@ -26,10 +28,41 @@ class spypoint(Extensions):
         self.spypoint_uri = "https://restapi.spypoint.com"
         self.spypoint_token = None
         self.spypoint_uuid = None
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
         self.commands = {
-            "Get SpyPoint Cameras": self.get_cameras,
+            "Get SpyPoint Camera Status": self.get_camera_status,
             "Get SpyPoint Photos": self.get_photos,
         }
+
+    def _format_timestamp(self, iso_timestamp: str) -> str:
+        """
+        Convert ISO timestamp to readable format: 2025-11-10 2:42:46pm
+
+        Args:
+        iso_timestamp (str): ISO format timestamp like "2025-11-10T14:42:46.000Z"
+
+        Returns:
+        str: Formatted timestamp like "2025-11-10 2:42:46pm"
+        """
+        try:
+            # Parse ISO timestamp
+            dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+
+            # Format as 12-hour time with am/pm
+            hour = dt.hour
+            am_pm = "am" if hour < 12 else "pm"
+            hour_12 = hour % 12
+            if hour_12 == 0:
+                hour_12 = 12
+
+            return f"{dt.year}-{dt.month:02d}-{dt.day:02d} {hour_12}:{dt.minute:02d}:{dt.second:02d}{am_pm}"
+        except Exception as e:
+            logging.warning(f"Error formatting timestamp {iso_timestamp}: {str(e)}")
+            return iso_timestamp
 
     def _ensure_authenticated(self):
         """
@@ -56,12 +89,14 @@ class spypoint(Extensions):
             logging.error(f"Error authenticating with SpyPoint API: {str(e)}")
             raise
 
-    async def get_cameras(self) -> str:
+    async def get_camera_status(self) -> str:
         """
-        Get all cameras associated with the account.
+        Get status overview of all SpyPoint cameras including battery, signal, memory, and photo counts.
 
         Returns:
-        str: JSON string of simplified camera list with essential status and usage data
+        str: Summary of all camera statuses with key metrics
+
+        Notes: This provides a quick overview of camera health without downloading photos.
         """
         self._ensure_authenticated()
 
@@ -77,117 +112,104 @@ class spypoint(Extensions):
             res.raise_for_status()
             cameras = res.json()
 
-            # Process cameras to extract only relevant information
-            processed_cameras = []
+            # Build simple status summary
+            status_lines = [f"Found {len(cameras)} camera(s):\n"]
 
             for camera in cameras:
                 status = camera.get("status", {})
                 config = camera.get("config", {})
-
-                # Get subscription info for photo counts
                 subscriptions = camera.get("subscriptions", [])
-                photo_count = 0
-                photo_limit = 0
-                plan_name = "Unknown"
 
-                if subscriptions:
-                    sub = subscriptions[0]
-                    photo_count = sub.get("photoCount", 0)
-                    photo_limit = sub.get("photoLimit", 0)
-                    plan_name = sub.get("plan", {}).get("name", "Unknown")
+                name = config.get("name", "Unknown")
+                camera_id = camera.get("id")
 
-                # Get battery percentage (use first active power source)
+                # Get key metrics
                 power_sources = status.get("powerSources", [])
-                battery_percentage = 0
-                battery_voltage = 0
-                if power_sources:
-                    battery_percentage = power_sources[0].get("percentage", 0)
-                    battery_voltage = power_sources[0].get("voltage", 0)
-
-                # Get signal strength
+                battery = power_sources[0].get("percentage", 0) if power_sources else 0
+                temp = status.get("temperature", {})
                 signal = status.get("signal", {}).get("processed", {})
 
-                # Get memory usage
-                memory = status.get("memory", {})
-                memory_used_percent = 0
-                if memory.get("size", 0) > 0:
-                    memory_used_percent = round(
-                        (memory.get("used", 0) / memory.get("size", 1)) * 100, 2
-                    )
+                photo_count = 0
+                photo_limit = 0
+                if subscriptions:
+                    photo_count = subscriptions[0].get("photoCount", 0)
+                    photo_limit = subscriptions[0].get("photoLimit", 0)
 
-                camera_data = {
-                    "id": camera.get("id"),
-                    "name": config.get("name", "Unknown"),
-                    "model": status.get("model"),
-                    "data_matrix_key": camera.get("dataMatrixKey"),
-                    "activation_date": camera.get("activationDate"),
-                    "location": {
-                        "gps_enabled": config.get("gps", False),
-                    },
-                    "status": {
-                        "battery_percent": battery_percentage,
-                        "battery_voltage": battery_voltage,
-                        "battery_type": status.get("batteryType"),
-                        "temperature": status.get("temperature", {}),
-                        "signal_bars": signal.get("bar", 0),
-                        "signal_percent": signal.get("percentage", 0),
-                        "low_signal": signal.get("lowSignal", False),
-                        "last_update": status.get("lastUpdate"),
-                        "install_date": status.get("installDate"),
-                    },
-                    "memory": {
-                        "size_mb": memory.get("size", 0),
-                        "used_mb": memory.get("used", 0),
-                        "used_percent": memory_used_percent,
-                    },
-                    "photos": {
-                        "count_this_month": photo_count,
-                        "limit": photo_limit,
-                        "plan": plan_name,
-                        "hd_since": camera.get("hdSince"),
-                    },
-                    "settings": {
-                        "motion_delay": config.get("motionDelay"),
-                        "sensitivity_level": config.get("sensibility", {}).get("level"),
-                        "operation_mode": config.get("operationMode"),
-                        "multi_shot": config.get("multiShot"),
-                    },
-                    "firmware": {
-                        "version": status.get("version"),
-                        "modem_firmware": status.get("modemFirmware"),
-                    },
-                }
+                status_lines.append(
+                    f"📷 {name} ({camera_id}):\n"
+                    f"  Battery: {battery}% | Temp: {temp.get('value', 'N/A')}°{temp.get('unit', 'F')} | "
+                    f"Signal: {signal.get('bar', 0)}/5 bars\n"
+                    f"  Photos: {photo_count}/{photo_limit} this month\n"
+                )
 
-                processed_cameras.append(camera_data)
-
-            result = {"count": len(processed_cameras), "cameras": processed_cameras}
-            return str(result)
+            return "\n".join(status_lines)
         except Exception as e:
-            logging.error(f"Error getting cameras from SpyPoint API: {str(e)}")
-            return f"Error getting cameras: {str(e)}"
+            logging.error(f"Error getting camera status from SpyPoint API: {str(e)}")
+            return f"Error getting camera status: {str(e)}"
 
     async def get_photos(
         self,
-        date_end: str = "2100-01-01T00:00:00.000Z",
-        limit: int = 100,
+        limit: int = 10,
     ) -> str:
         """
-        Get photos from specified cameras.
+        Get recent photos from all SpyPoint cameras and download them to the agent's workspace.
 
         Args:
-        date_end (str): End date for photo search in ISO format (default: 2100-01-01T00:00:00.000Z)
-        limit (int): Maximum number of photos to return (default: 100)
+        limit (int): Maximum number of photos to download (default: 10)
 
         Returns:
-        str: JSON string containing simplified photo data with URL, camera ID, timestamp, and total count
+        str: Summary of downloaded photos with camera names, timestamps, and file paths
+
+        Notes: Photos are automatically downloaded to the workspace and named as {camera_id}-{timestamp}.jpg
         """
-        if date_end == "None":
-            date_end = "2100-01-01T00:00:00.000Z"
         self._ensure_authenticated()
-        size = "large"
 
         try:
+            # First get camera details for mapping IDs to names
+            camera_url = f"{self.spypoint_uri}/api/v3/camera/all"
+            res = requests.get(
+                camera_url,
+                headers={
+                    "accept": "application/json",
+                    "authorization": f"Bearer {self.spypoint_token}",
+                },
+            )
+            res.raise_for_status()
+            cameras = res.json()
 
+            # Build camera ID to name mapping and status summary
+            camera_map = {}
+            status_lines = [f"📷 Camera Status ({len(cameras)} camera(s)):\n"]
+
+            for camera in cameras:
+                camera_id = camera.get("id")
+                camera_name = camera.get("config", {}).get("name", "Unknown")
+                camera_map[camera_id] = camera_name
+
+                # Get status info
+                status = camera.get("status", {})
+                config = camera.get("config", {})
+                subscriptions = camera.get("subscriptions", [])
+
+                power_sources = status.get("powerSources", [])
+                battery = power_sources[0].get("percentage", 0) if power_sources else 0
+                temp = status.get("temperature", {})
+                signal = status.get("signal", {}).get("processed", {})
+
+                photo_count = 0
+                photo_limit = 0
+                if subscriptions:
+                    photo_count = subscriptions[0].get("photoCount", 0)
+                    photo_limit = subscriptions[0].get("photoLimit", 0)
+
+                status_lines.append(
+                    f"  {camera_name} ({camera_id}): "
+                    f"🔋 {battery}% | 🌡️ {temp.get('value', 'N/A')}°{temp.get('unit', 'F')} | "
+                    f"📶 {signal.get('bar', 0)}/5 | "
+                    f"📸 {photo_count}/{photo_limit}\n"
+                )
+
+            # Get photos
             photo_url = f"{self.spypoint_uri}/api/v3/photo/all"
             res = requests.post(
                 photo_url,
@@ -197,7 +219,7 @@ class spypoint(Extensions):
                 },
                 json={
                     "camera": [],
-                    "dateEnd": date_end,
+                    "dateEnd": "2100-01-01T00:00:00.000Z",
                     "favorite": False,
                     "hd": False,
                     "limit": limit,
@@ -207,31 +229,86 @@ class spypoint(Extensions):
             res.raise_for_status()
             data = res.json()
 
-            # Process photos to construct URLs and simplify data
             photos = data.get("photos", [])
-            processed_photos = []
+            total_count = data.get("countPhotos", len(photos))
+
+            if not photos:
+                return "\n".join(status_lines) + "\nNo photos found."
+
+            # Download photos and build summary
+            summary_lines = status_lines + [
+                f"\n📥 Downloaded {len(photos)} of {total_count} total photos:\n"
+            ]
 
             for photo in photos:
-                photo_data = {
-                    "id": photo.get("id"),
-                    "camera_id": photo.get("camera"),
-                    "timestamp": photo.get("originDate"),
-                }
+                camera_id = photo.get("camera")
+                camera_name = camera_map.get(camera_id, "Unknown")
+                timestamp = photo.get("originDate", "unknown")
+                formatted_time = self._format_timestamp(timestamp)
+                photo_id = photo.get("id")
 
-                # Construct full URL like the spypoint library does
-                size_data = photo.get(size, {})
-                if size_data and "host" in size_data and "path" in size_data:
-                    photo_data["url"] = (
-                        f"https://{size_data['host']}/{size_data['path']}"
+                # Log the photo structure for debugging
+                logging.info(f"Processing photo {photo_id}: {list(photo.keys())}")
+
+                # Try to get image URL - prefer large, fall back to medium or small
+                photo_url = None
+                size_used = None
+
+                for size_name in ["large", "medium", "small"]:
+                    size_data = photo.get(size_name, {})
+                    if size_data and "host" in size_data and "path" in size_data:
+                        photo_url = f"https://{size_data['host']}/{size_data['path']}"
+                        size_used = size_name
+                        break
+
+                if not photo_url:
+                    logging.warning(
+                        f"Photo {photo_id} has no downloadable image URL. Available sizes: {[k for k in photo.keys() if k in ['small', 'medium', 'large']]}"
+                    )
+                    summary_lines.append(
+                        f"⚠️  Photo from {camera_name} ({camera_id}) at {formatted_time} has no downloadable URL"
+                    )
+                    continue
+
+                logging.info(f"Using {size_used} size image for photo {photo_id}")
+
+                # Create filename: camera_id-timestamp.jpg
+                # Clean timestamp for filename (remove special chars)
+                clean_timestamp = (
+                    timestamp.replace(":", "-")
+                    .replace(".", "-")
+                    .replace("T", "_")
+                    .replace("Z", "")
+                )
+                filename = f"{camera_id}-{clean_timestamp}.jpg"
+                filepath = os.path.join(self.WORKING_DIRECTORY, filename)
+
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+                # Download the image
+                try:
+                    logging.info(f"Downloading photo from URL: {photo_url}")
+                    img_response = requests.get(photo_url, timeout=30)
+                    img_response.raise_for_status()
+
+                    with open(filepath, "wb") as f:
+                        f.write(img_response.content)
+
+                    summary_lines.append(
+                        f"📸 {camera_name} ({camera_id}) took picture `{filename}` at {formatted_time}"
+                    )
+                except Exception as e:
+                    error_msg = str(e)
+                    if hasattr(e, "response") and hasattr(e.response, "status_code"):
+                        error_msg = f"HTTP {e.response.status_code}: {error_msg}"
+                    logging.error(f"Error downloading photo {photo_id}: {error_msg}")
+                    logging.error(f"Photo URL was: {photo_url}")
+                    summary_lines.append(
+                        f"⚠️  Failed to download photo from {camera_name} ({camera_id}) at {formatted_time}: {error_msg}"
                     )
 
-                processed_photos.append(photo_data)
-
-            result = {
-                "count": data.get("countPhotos", len(processed_photos)),
-                "photos": processed_photos,
-            }
-            return str(result)
+            return "\n".join(summary_lines)
         except Exception as e:
             logging.error(f"Error getting photos from SpyPoint API: {str(e)}")
             return f"Error getting photos: {str(e)}"
