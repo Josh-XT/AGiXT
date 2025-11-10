@@ -746,13 +746,13 @@ class wallet(Extensions):
             try:
                 # Get user's monthly price from preferences
                 from DB import UserPreferences
-                
+
                 monthly_price_pref = (
                     session.query(UserPreferences)
                     .filter_by(user_id=user_id, pref_key="monthly_price_usd")
                     .first()
                 )
-                
+
                 monthly_price = 50.0  # Default
                 if monthly_price_pref:
                     try:
@@ -771,7 +771,7 @@ class wallet(Extensions):
 
                 # Calculate next billing date (30 days from last payment, or 30 days from now if no payments)
                 from datetime import datetime, timedelta
-                
+
                 if last_payment and last_payment.created_at:
                     next_billing_date = last_payment.created_at + timedelta(days=30)
                 else:
