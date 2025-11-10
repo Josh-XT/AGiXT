@@ -511,6 +511,20 @@ class PaymentTransactionResponse(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class BillingCycle(BaseModel):
+    cycle_number: int
+    due_date: datetime
+    amount_usd: float
+    status: str  # "upcoming", "future"
+
+
+class SubscriptionInfoResponse(BaseModel):
+    monthly_price_usd: float
+    next_billing_date: Optional[datetime] = None
+    subscription_status: str  # "active", "inactive", "trial", "canceled"
+    upcoming_cycles: List[BillingCycle] = []
+
+
 class ResponseMessage(BaseModel):
     message: str
 
