@@ -187,6 +187,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Update Todo Item": self.update_todo_item,
             "Delete Todo Item": self.delete_todo_item,
             "Gather information from website URLs": self.browse_links,
+            "Download File from URL": self.download_file_from_url,
+            "View Image": self.view_image,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -251,6 +253,102 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         )
         return response
 
+    async def download_file_from_url(
+        self, url: str, filename: str = "", headers: str = ""
+    ) -> str:
+        """
+        Download a file from a URL to the agent's workspace
+
+        Args:
+            url (str): The URL to download the file from (must start with https://)
+            filename (str): Optional custom filename to save as. If not provided, uses the filename from the URL
+            headers (str): Optional JSON string of HTTP headers for authentication (e.g., '{"Authorization": "Bearer token"}')
+
+        Returns:
+            str: Success message with download link or error message
+
+        Notes:
+            - Only HTTPS URLs are allowed for security
+            - Downloaded files are saved to the agent's workspace
+            - Supports authentication via custom headers
+            - Automatically detects filename from URL if not provided
+            - File is immediately accessible to user via download link
+
+        Example headers for authentication:
+            '{"Authorization": "Bearer your_token_here"}'
+            '{"X-API-Key": "your_api_key_here"}'
+        """
+        import requests
+        from urllib.parse import urlparse, unquote
+
+        # Security check: only allow HTTPS URLs
+        if not url.startswith("https://"):
+            return "Error: Only HTTPS URLs are allowed for security reasons. Please provide a URL starting with 'https://'"
+
+        try:
+            # Parse headers if provided
+            request_headers = {}
+            if headers:
+                try:
+                    request_headers = json.loads(headers)
+                except json.JSONDecodeError:
+                    return f"Error: Invalid headers format. Headers must be valid JSON string."
+
+            # Make the request
+            logging.info(f"Downloading file from URL: {url}")
+            response = requests.get(
+                url, headers=request_headers, stream=True, timeout=30
+            )
+            response.raise_for_status()
+
+            # Determine filename
+            if not filename:
+                # Try to get filename from Content-Disposition header
+                content_disposition = response.headers.get("Content-Disposition")
+                if content_disposition:
+                    import re
+
+                    filename_match = re.findall(
+                        'filename="?([^"]+)"?', content_disposition
+                    )
+                    if filename_match:
+                        filename = filename_match[0]
+
+                # If still no filename, extract from URL
+                if not filename:
+                    parsed_url = urlparse(url)
+                    filename = unquote(parsed_url.path.split("/")[-1])
+
+                # If still no filename, generate one
+                if not filename or filename == "":
+                    filename = f"downloaded_file_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+            # Ensure filename doesn't contain path separators
+            filename = os.path.basename(filename)
+
+            # Save the file
+            file_path = self.safe_join(filename)
+            with open(file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            file_size = os.path.getsize(file_path)
+            file_size_mb = file_size / (1024 * 1024)
+
+            logging.info(f"Successfully downloaded {filename} ({file_size_mb:.2f} MB)")
+
+            return f"Successfully downloaded file to workspace: {filename} ({file_size_mb:.2f} MB)\n\nDownload link: {self.output_url}/{filename}"
+
+        except requests.exceptions.Timeout:
+            return f"Error: Request timed out while trying to download from {url}"
+        except requests.exceptions.HTTPError as e:
+            return f"Error: HTTP error occurred: {e.response.status_code} - {e.response.reason}"
+        except requests.exceptions.RequestException as e:
+            return f"Error: Failed to download file: {str(e)}"
+        except Exception as e:
+            return f"Error downloading file: {str(e)}"
+
     def safe_join(self, paths) -> str:
         """
         Safely join paths together
@@ -273,6 +371,43 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
     @staticmethod
     def we_are_running_in_a_docker_container() -> bool:
         return os.path.exists("/.dockerenv")
+
+    async def view_image(
+        self, image_path: str, query: str = "What is in this image?"
+    ) -> str:
+        """
+        View and analyze an image file in the agent's workspace
+
+        Args:
+        image_path (str): The path to the image file in the agent's workspace, or a URL to an image to download to the agent's workspace and view.
+        query (str): The question or analysis to perform on the image
+
+        Returns:
+        str: The analysis or description of the image
+
+        Note: Example, the assistant could ask what is in the image, to OCR the image to pull text from it, ask about specific things in the image or details, etc.
+        """
+        if image_path.startswith("https://"):
+            file_name = f"{uuid.uuid4()}_{image_path.split('/')[-1]}"
+            await self.download_file_from_url(url=image_path, filename=file_name)
+            image_path = os.path.join(self.WORKING_DIRECTORY, file_name)
+        # Ensure the image path is safe
+        safe_image_path = self.safe_join(image_path)
+
+        if not os.path.exists(safe_image_path):
+            return f"Error: Image file '{image_path}' does not exist in the workspace."
+        # Read and encode the image in base64
+        import base64
+        from Agent import Agent
+
+        with open(safe_image_path, "rb") as img_file:
+            image_data = img_file.read()
+            base64_image = base64.b64encode(image_data).decode("utf-8")
+        base64_image = f"data:image/{image_path.split('.')[-1]};base64,{base64_image}"
+
+        agent = Agent(agent_id=self.agent_id, ApiClient=self.ApiClient, user=self.user)
+        response = await agent.inference(prompt=query, images=[base64_image])
+        return response
 
     async def read_file(
         self,
