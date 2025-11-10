@@ -383,7 +383,7 @@ class wordpress(Extensions):
 
         result = self._make_request("GET", post_type, params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         posts = []
@@ -593,7 +593,7 @@ class wordpress(Extensions):
 
         result = self._make_request("GET", "pages", params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         pages = []
@@ -695,7 +695,7 @@ class wordpress(Extensions):
         params = {"per_page": min(per_page, 100)}
         result = self._make_request("GET", "categories", params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         categories = []
@@ -769,7 +769,7 @@ class wordpress(Extensions):
         params = {"per_page": min(per_page, 100)}
         result = self._make_request("GET", "tags", params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         tags = []
@@ -806,7 +806,7 @@ class wordpress(Extensions):
 
         result = self._make_request("GET", "comments", params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         comments = []
@@ -902,7 +902,7 @@ class wordpress(Extensions):
 
         result = self._make_request("GET", "users", params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         users = []
@@ -1046,33 +1046,31 @@ class wordpress(Extensions):
 
         # Get posts count
         posts_response = self._make_request("GET", "posts", params={"per_page": 1})
-        if not posts_response.get("error") and isinstance(posts_response, list):
+        if isinstance(posts_response, list):
             stats["total_posts"] = len(posts_response)
 
         # Get pages count
         pages_response = self._make_request("GET", "pages", params={"per_page": 1})
-        if not pages_response.get("error") and isinstance(pages_response, list):
+        if isinstance(pages_response, list):
             stats["total_pages"] = len(pages_response)
 
         # Get comments count
         comments_response = self._make_request(
             "GET", "comments", params={"per_page": 1}
         )
-        if not comments_response.get("error") and isinstance(comments_response, list):
+        if isinstance(comments_response, list):
             stats["total_comments"] = len(comments_response)
 
         # Get categories count
         categories_response = self._make_request(
             "GET", "categories", params={"per_page": 1}
         )
-        if not categories_response.get("error") and isinstance(
-            categories_response, list
-        ):
+        if isinstance(categories_response, list):
             stats["total_categories"] = len(categories_response)
 
         # Get tags count
         tags_response = self._make_request("GET", "tags", params={"per_page": 1})
-        if not tags_response.get("error") and isinstance(tags_response, list):
+        if isinstance(tags_response, list):
             stats["total_tags"] = len(tags_response)
 
         return json.dumps({"site_statistics": stats})
@@ -1203,7 +1201,7 @@ class wordpress(Extensions):
 
         result = self._make_request("GET", "media", params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         media_files = []
@@ -1263,7 +1261,7 @@ class wordpress(Extensions):
             posts = self._make_request(
                 "GET", "posts", params={"search": query, "per_page": per_page}
             )
-            if not posts.get("error") and isinstance(posts, list):
+            if isinstance(posts, list):
                 for post in posts:
                     results.append(
                         {
@@ -1280,7 +1278,7 @@ class wordpress(Extensions):
             pages = self._make_request(
                 "GET", "pages", params={"search": query, "per_page": per_page}
             )
-            if not pages.get("error") and isinstance(pages, list):
+            if isinstance(pages, list):
                 for page in pages:
                     results.append(
                         {
@@ -1592,7 +1590,7 @@ class wordpress(Extensions):
 
         result = self._make_request("GET", post_type, params=params)
 
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             return json.dumps(result)
 
         posts = []

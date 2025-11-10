@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from collections import defaultdict
 from DB import (
     get_session,
     Provider,
@@ -16,6 +17,7 @@ from DB import (
     Agent,
     AgentCommand,
     Chain,
+    ChainStep,
 )
 from Providers import get_providers, get_provider_options
 from Agent import add_agent
@@ -25,6 +27,65 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+def _merge_command_duplicates(session, target_command, duplicates):
+    """Merge duplicate command rows into a target command instance."""
+
+    if not duplicates:
+        return
+
+    for duplicate in duplicates:
+        if duplicate.id == target_command.id:
+            continue
+
+        # Move agent command associations
+        agent_commands = (
+            session.query(AgentCommand)
+            .filter(AgentCommand.command_id == duplicate.id)
+            .all()
+        )
+        for agent_command in agent_commands:
+            existing_ref = (
+                session.query(AgentCommand)
+                .filter(
+                    AgentCommand.agent_id == agent_command.agent_id,
+                    AgentCommand.command_id == target_command.id,
+                )
+                .first()
+            )
+
+            if existing_ref:
+                if agent_command.state:
+                    existing_ref.state = True
+                session.delete(agent_command)
+            else:
+                agent_command.command_id = target_command.id
+
+        # Move arguments linked to the duplicate command
+        arguments = (
+            session.query(Argument).filter(Argument.command_id == duplicate.id).all()
+        )
+        for argument in arguments:
+            existing_arg = (
+                session.query(Argument)
+                .filter_by(command_id=target_command.id, name=argument.name)
+                .first()
+            )
+            if existing_arg:
+                session.delete(argument)
+            else:
+                argument.command_id = target_command.id
+
+        # Update chain steps that target the duplicate command
+        session.query(ChainStep).filter(
+            ChainStep.target_command_id == duplicate.id
+        ).update(
+            {ChainStep.target_command_id: target_command.id},
+            synchronize_session=False,
+        )
+
+        session.delete(duplicate)
 
 
 def get_extension_category(session, extension_name):
@@ -134,6 +195,7 @@ def import_extensions():
 
     ext = Extensions()
     extensions_data = ext.get_extensions()
+    command_owner_map = defaultdict(set)
     # Delete "AGiXT Chains"
     if "AGiXT Chains" in extensions_data:
         del extensions_data["AGiXT Chains"]
@@ -141,6 +203,14 @@ def import_extensions():
     # if "Custom Automation" in extensions_data:
     #     del extensions_data["Custom Automation"]
     extension_settings_data = Extensions().get_extension_settings()
+
+    for extension_data in extensions_data:
+        extension_name = extension_data["extension_name"]
+        for command in extension_data.get("commands", []):
+            friendly_name = command.get("friendly_name", "").strip()
+            if not friendly_name:
+                continue
+            command_owner_map[friendly_name.lower()].add(extension_name)
 
     # Create extension database tables during seed import
     create_extension_tables()
@@ -306,86 +376,60 @@ def import_extensions():
         # Process commands for this extension
         if "commands" in extension_data:
             for command_data in extension_data["commands"]:
-                if "friendly_name" not in command_data:
+                command_name = command_data.get("friendly_name")
+                if not command_name:
                     continue
 
-                command_name = command_data["friendly_name"]
-                command_description = command_data.get("description", "")
+                command_key = command_name.strip().lower()
+                shared_command = len(command_owner_map.get(command_key, set())) > 1
 
-                # Check if this command exists in a different extension (moved command)
-                existing_in_other_extension = (
+                commands_with_name = (
                     session.query(Command)
                     .join(Extension)
-                    .filter(Command.name == command_name, Extension.id != extension.id)
-                    .first()
+                    .filter(Command.name == command_name)
+                    .all()
                 )
 
-                if existing_in_other_extension:
+                command = None
+                duplicates_to_merge = []
 
-                    # Find or create command in current extension
-                    command = (
-                        session.query(Command)
-                        .filter_by(extension_id=extension.id, name=command_name)
-                        .first()
-                    )
-
-                    if not command:
-                        command = Command(
-                            extension_id=extension.id,
-                            name=command_name,
-                        )
-                        session.add(command)
-                        session.flush()
-
-                    # Update all agent command references from old to new
-                    agent_commands = (
-                        session.query(AgentCommand)
-                        .filter(
-                            AgentCommand.command_id == existing_in_other_extension.id
-                        )
-                        .all()
-                    )
-
-                    for agent_command in agent_commands:
-                        # Check if agent already has a reference to the new command
-                        existing_ref = (
-                            session.query(AgentCommand)
-                            .filter(
-                                AgentCommand.agent_id == agent_command.agent_id,
-                                AgentCommand.command_id == command.id,
-                            )
-                            .first()
-                        )
-
-                        if existing_ref:
-                            # Merge - keep enabled if either was enabled
-                            if agent_command.state:
-                                existing_ref.state = True
-                            session.delete(agent_command)
+                for db_command in commands_with_name:
+                    if db_command.extension_id == extension.id:
+                        if command is None:
+                            command = db_command
                         else:
-                            # Update to point to new command
-                            agent_command.command_id = command.id
+                            duplicates_to_merge.append(db_command)
+                    elif not shared_command:
+                        duplicates_to_merge.append(db_command)
 
-                else:
-                    # Normal case - find or create command in this extension
-                    command = (
-                        session.query(Command)
-                        .filter_by(extension_id=extension.id, name=command_name)
-                        .first()
-                    )
-
-                    if not command:
+                if command is None:
+                    if duplicates_to_merge:
+                        command = duplicates_to_merge.pop(0)
+                        old_extension_name = (
+                            command.extension.name if command.extension else "Unknown"
+                        )
+                        if old_extension_name.lower() != extension_name.lower():
+                            logging.info(
+                                "Moving command '%s' from extension '%s' to '%s'",
+                                command_name,
+                                old_extension_name,
+                                extension_name,
+                            )
+                        command.extension_id = extension.id
+                        command.extension = extension
+                    else:
                         command = Command(
                             extension_id=extension.id,
                             name=command_name,
                         )
                         session.add(command)
                         session.flush()
+
+                _merge_command_duplicates(session, command, duplicates_to_merge)
 
                 # Process command arguments if they exist
                 if "command_args" in command_data:
                     for arg_name, arg_type in command_data["command_args"].items():
-                        # Check if argument already exists
                         existing_arg = (
                             session.query(Argument)
                             .filter_by(command_id=command.id, name=arg_name)

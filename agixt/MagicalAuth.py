@@ -389,12 +389,12 @@ def get_agents(email, company=None):
             .all()
         )
 
-        # Check for onboarded2agixt setting
+        # Check for onboardedtoagixt setting
         onboarded = False
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "onboarded2agixt":
+            elif setting.name == "onboardedtoagixt":
                 onboarded = True
 
         if company_id and company:
@@ -459,7 +459,7 @@ def get_agents(email, company=None):
 
                 # Mark as onboarded
                 onboarded_setting = AgentSettingModel(
-                    agent_id=agent.id, name="onboarded2agixt", value="true"
+                    agent_id=agent.id, name="onboardedtoagixt", value="true"
                 )
                 session.add(onboarded_setting)
                 session.commit()

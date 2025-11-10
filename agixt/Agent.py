@@ -25,6 +25,7 @@ from Providers import Providers, get_provider_services
 from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
+from Conversations import get_conversation_id_by_name
 from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
@@ -40,6 +41,7 @@ from typing import Tuple
 import binascii
 from WebhookManager import WebhookEventEmitter
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 # Initialize webhook event emitter
 webhook_emitter = WebhookEventEmitter()
@@ -48,6 +50,61 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+_command_owner_cache = None
+
+
+def _get_command_owner_cache():
+    global _command_owner_cache
+    if _command_owner_cache is not None:
+        return _command_owner_cache
+
+    cache = {}
+    try:
+        extensions = Extensions().get_extensions()
+        for extension_data in extensions:
+            extension_name = extension_data.get("extension_name")
+            for command_data in extension_data.get("commands", []):
+                friendly_name = command_data.get("friendly_name")
+                if not friendly_name:
+                    continue
+                cache.setdefault(friendly_name.lower(), set()).add(extension_name)
+    except Exception as e:
+        logging.debug(f"Unable to build command owner cache: {e}")
+
+    _command_owner_cache = cache
+    return _command_owner_cache
+
+
+def _resolve_command_by_name(session, command_name):
+    if not command_name:
+        return None
+
+    commands = (
+        session.query(Command)
+        .options(joinedload(Command.extension))
+        .filter(Command.name == command_name)
+        .all()
+    )
+
+    if not commands:
+        return None
+    if len(commands) == 1:
+        return commands[0]
+
+    owners = _get_command_owner_cache().get(command_name.lower(), set())
+    if owners:
+        for command in commands:
+            extension_name = command.extension.name if command.extension else None
+            if extension_name in owners:
+                return command
+
+    logging.warning(
+        "Multiple database entries found for command '%s'. Defaulting to first match.",
+        command_name,
+    )
+    return commands[0]
 
 
 # Define the standalone wallet creation function
@@ -219,7 +276,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     # Handle any additional commands passed in the commands parameter
     if commands:
         for command_name, enabled in commands.items():
-            command = session.query(Command).filter_by(name=command_name).first()
+            command = _resolve_command_by_name(session, command_name)
             if command:
                 # Check if agent command already exists (from auto-enabled extensions)
                 existing_agent_command = (
@@ -240,10 +297,10 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     )
                     session.add(agent_command)
 
-    # Set onboarded2agixt to true for new agents since we auto-enabled essential commands
+    # Set onboardedtoagixt to true for new agents since we auto-enabled essential commands
     onboarded_setting = AgentSettingModel(
         agent_id=agent.id,
-        name="onboarded2agixt",
+        name="onboardedtoagixt",
         value="true",
     )
     session.add(onboarded_setting)
@@ -471,9 +528,9 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Check if the agent is in the output already
         if agent.name in [a["name"] for a in output]:
             continue
-        # Get the agent settings `company_id` and `onboarded2agixt` if defined
+        # Get the agent settings `company_id` and `onboardedtoagixt` if defined
         company_id = None
-        onboarded2agixt = None
+        onboardedtoagixt = None
         agent_settings = (
             session.query(AgentSettingModel)
             .filter(AgentSettingModel.agent_id == agent.id)
@@ -482,8 +539,8 @@ def get_agents(user=DEFAULT_USER, company=None):
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "onboarded2agixt":
-                onboarded2agixt = setting.value
+            elif setting.name == "onboardedtoagixt":
+                onboardedtoagixt = setting.value
         if company_id and company:
             if company_id != company:
                 continue
@@ -500,7 +557,7 @@ def get_agents(user=DEFAULT_USER, company=None):
             session.commit()
 
         # Check if agent needs onboarding (enable essential_abilities and notes commands)
-        if not onboarded2agixt or onboarded2agixt.lower() != "true":
+        if not onboardedtoagixt or onboardedtoagixt.lower() != "true":
             # Auto-enable commands from essential_abilities and notes extensions
             essential_extensions = ["Essential Abilities", "Notes"]
             for extension_name in essential_extensions:
@@ -536,10 +593,10 @@ def get_agents(user=DEFAULT_USER, company=None):
                             # Enable the command if it was disabled
                             existing_agent_command.state = True
 
-            # Create the onboarded2agixt setting
+            # Create the onboardedtoagixt setting
             agent_setting = AgentSettingModel(
                 agent_id=agent.id,
-                name="onboarded2agixt",
+                name="onboardedtoagixt",
                 value="true",
             )
             session.add(agent_setting)
@@ -1176,7 +1233,11 @@ class Agent:
             )
         return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
 
-    async def text_to_speech(self, text: str):
+    async def text_to_speech(self, text: str, conversation_id: str = None):
+        if not conversation_id or conversation_id == "-":
+            conversation_id = get_conversation_id_by_name(
+                conversation_name="-", user_id=self.user_id
+            )
         if self.TTS_PROVIDER is not None:
             if "```" in text:
                 text = re.sub(
@@ -1215,15 +1276,13 @@ class Agent:
                     f.write(base64.b64decode(tts_content))
 
                 # Create final secure location in workspace using hardcoded paths only
-                workspace_outputs = "WORKSPACE/outputs"
+                workspace_outputs = f"WORKSPACE/{self.agent_id}/{conversation_id}"
                 os.makedirs(workspace_outputs, exist_ok=True)
-
                 # Move to final location with system-generated filename
                 final_audio_path = f"{workspace_outputs}/{secure_filename}"
                 shutil.move(temp_audio_path, final_audio_path)
-
                 agixt_uri = getenv("AGIXT_URI")
-                output_url = f"{agixt_uri}/outputs/{secure_filename}"
+                output_url = f"{agixt_uri}/outputs/{self.agent_id}/{conversation_id}/{secure_filename}"
                 return output_url
 
     def get_agent_extensions(self):
@@ -1415,7 +1474,7 @@ class Agent:
                     continue
 
                 # First try to find an existing command
-                command = session.query(Command).filter_by(name=command_name).first()
+                command = _resolve_command_by_name(session, command_name)
 
                 if not command:
                     # Check if this is a chain command

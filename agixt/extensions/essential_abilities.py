@@ -198,6 +198,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             os.makedirs(self.WORKING_DIRECTORY)
         self.user_id = kwargs.get("user_id", None)
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
+        self.agent_id = kwargs.get("agent_id")
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
@@ -213,6 +214,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                 api_key=kwargs["api_key"] if "api_key" in kwargs else "",
             )
         )
+        self.user = kwargs.get("user", None)
         self.output_url = kwargs.get("output_url", "")
         self.api_key = kwargs.get("api_key", "")
 
@@ -1395,10 +1397,13 @@ print(output)
         Note:
             The assistant should send the audio URL to the user so they can listen to it, it will embed the audio in the chat when the assistant sends the URL.
         """
-        return self.ApiClient.text_to_speech(
-            text=text,
-            agent_name=self.agent_name,
-        )
+        from Agent import Agent
+
+        return await Agent(
+            agent_id=self.agent_id,
+            ApiClient=self.ApiClient,
+            user=self.user,
+        ).text_to_speech(text=text, conversation_id=self.conversation_id)
 
     async def create_todo_item(
         self,

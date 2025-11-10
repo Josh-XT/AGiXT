@@ -547,7 +547,9 @@ Your response (true or false):"""
                     args["chain"] = args["chain_name"]
                 if "chain" not in args:
                     args["chain"] = chain_name
-                if not args.get("conversation_name"):
+                if not args.get("conversation_name") and not args.get(
+                    "conversation_id"
+                ):
                     args["conversation_name"] = (
                         chain_args.get("conversation_name")
                         or self.conversation_name
@@ -571,37 +573,45 @@ Your response (true or false):"""
                         voice_response=False,
                     )
                 elif prompt_type == "prompt":
+                    if "command_name" in args:
+                        del args["command_name"]
+                    if "chain_name" in args:
+                        del args["chain_name"]
+                    if "chain_args" in args:
+                        del args["chain_args"]
+                    if "chain" in args:
+                        del args["chain"]
+                    args["conversation_name"] = args["conversation_id"]
+                    if prompt_name == "":
+                        prompt_name = "Think About It"
+                    prompt_args = args.copy()
+                    if "browse_links" not in prompt_args:
+                        prompt_args["browse_links"] = False
+                    if current_running_command:
+                        prompt_args["running_command"] = current_running_command
+                    prompt_args["prompt_name"] = prompt_name
+                    prompt_args["log_user_input"] = False
+                    prompt_args["voice_response"] = False
+                    if log_output_flag is None:
+                        prompt_args["log_output"] = False
+                    else:
+                        prompt_args["log_output"] = str(
+                            log_output_flag
+                        ).lower() not in [
+                            "false",
+                            "0",
+                            "no",
+                        ]
+                    prompt_args["user_input"] = user_input
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(prompt_args, indent=2)}```",
                     )
-                    if prompt_name != "":
-                        prompt_args = args.copy()
-                        prompt_args.pop("chain_args", None)
-                        if "browse_links" not in prompt_args:
-                            prompt_args["browse_links"] = False
-                        if current_running_command:
-                            prompt_args["running_command"] = current_running_command
-                        prompt_args["disable_commands"] = True
-                        prompt_args["prompt_name"] = prompt_name
-                        prompt_args["log_user_input"] = False
-                        prompt_args["voice_response"] = False
-                        if log_output_flag is None:
-                            prompt_args["log_output"] = False
-                        else:
-                            prompt_args["log_output"] = str(
-                                log_output_flag
-                            ).lower() not in [
-                                "false",
-                                "0",
-                                "no",
-                            ]
-                        prompt_args["user_input"] = user_input
-                        result = self.ApiClient.prompt_agent(
-                            agent_name=agent_name,
-                            prompt_name=prompt_name,
-                            prompt_args=prompt_args,
-                        )
+                    result = self.ApiClient.prompt_agent(
+                        agent_name=agent_name,
+                        prompt_name=prompt_name,
+                        prompt_args=prompt_args,
+                    )
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
                         role=self.agent_name,
