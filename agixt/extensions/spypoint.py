@@ -175,13 +175,14 @@ class spypoint(Extensions):
         Get photos from specified cameras.
 
         Args:
-        camera_ids (str): Comma-separated list of camera IDs to get photos from. Leave empty to get all cameras.
         date_end (str): End date for photo search in ISO format (default: 2100-01-01T00:00:00.000Z)
         limit (int): Maximum number of photos to return (default: 100)
 
         Returns:
         str: JSON string containing simplified photo data with URL, camera ID, timestamp, and total count
         """
+        if date_end == "None":
+            date_end = "2100-01-01T00:00:00.000Z"
         self._ensure_authenticated()
         size = "large"
 
