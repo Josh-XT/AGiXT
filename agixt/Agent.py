@@ -297,10 +297,10 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     )
                     session.add(agent_command)
 
-    # Set onboardedtoagixt to true for new agents since we auto-enabled essential commands
+    # Set onboarded11102025 to true for new agents since we auto-enabled essential commands
     onboarded_setting = AgentSettingModel(
         agent_id=agent.id,
-        name="onboardedtoagixt",
+        name="onboarded11102025",
         value="true",
     )
     session.add(onboarded_setting)
@@ -528,9 +528,9 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Check if the agent is in the output already
         if agent.name in [a["name"] for a in output]:
             continue
-        # Get the agent settings `company_id` and `onboardedtoagixt` if defined
+        # Get the agent settings `company_id` and `onboarded11102025` if defined
         company_id = None
-        onboardedtoagixt = None
+        onboarded11102025 = None
         agent_settings = (
             session.query(AgentSettingModel)
             .filter(AgentSettingModel.agent_id == agent.id)
@@ -539,8 +539,8 @@ def get_agents(user=DEFAULT_USER, company=None):
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "onboardedtoagixt":
-                onboardedtoagixt = setting.value
+            elif setting.name == "onboarded11102025":
+                onboarded11102025 = setting.value
         if company_id and company:
             if company_id != company:
                 continue
@@ -557,7 +557,7 @@ def get_agents(user=DEFAULT_USER, company=None):
             session.commit()
 
         # Check if agent needs onboarding (enable essential_abilities and notes commands)
-        if not onboardedtoagixt or onboardedtoagixt.lower() != "true":
+        if not onboarded11102025 or onboarded11102025.lower() != "true":
             # Auto-enable commands from essential_abilities and notes extensions
             essential_extensions = ["Essential Abilities", "Notes"]
             for extension_name in essential_extensions:
@@ -593,10 +593,10 @@ def get_agents(user=DEFAULT_USER, company=None):
                             # Enable the command if it was disabled
                             existing_agent_command.state = True
 
-            # Create the onboardedtoagixt setting
+            # Create the onboarded11102025 setting
             agent_setting = AgentSettingModel(
                 agent_id=agent.id,
-                name="onboardedtoagixt",
+                name="onboarded11102025",
                 value="true",
             )
             session.add(agent_setting)
