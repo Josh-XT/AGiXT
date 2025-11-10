@@ -39,6 +39,8 @@ from Models import (
     StripePaymentIntentResponse,
     StripeCustomerPortalRequest,
     StripeCustomerPortalResponse,
+    SubscriptionInfoResponse,
+    BillingCycle,
 )
 from payments import (
     CryptoPaymentService,
@@ -725,6 +727,79 @@ class wallet(Extensions):
                     )
                     for r in records
                 ]
+            finally:
+                session.close()
+
+        @self.router.get(
+            "/v1/billing/subscription",
+            response_model=SubscriptionInfoResponse,
+            tags=["Billing"],
+        )
+        async def get_subscription_info(
+            user=Depends(verify_api_key),
+        ):
+            user_id = self._get_user_id(user)
+            if not user_id:
+                raise HTTPException(status_code=401, detail="User context missing")
+
+            session = get_session()
+            try:
+                # Get user's monthly price from preferences
+                from DB import UserPreferences
+                
+                monthly_price_pref = (
+                    session.query(UserPreferences)
+                    .filter_by(user_id=user_id, pref_key="monthly_price_usd")
+                    .first()
+                )
+                
+                monthly_price = 50.0  # Default
+                if monthly_price_pref:
+                    try:
+                        monthly_price = float(monthly_price_pref.pref_value)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Get last successful payment to calculate next billing date
+                last_payment = (
+                    session.query(PaymentTransaction)
+                    .filter(PaymentTransaction.user_id == user_id)
+                    .filter(PaymentTransaction.status == "completed")
+                    .order_by(PaymentTransaction.created_at.desc())
+                    .first()
+                )
+
+                # Calculate next billing date (30 days from last payment, or 30 days from now if no payments)
+                from datetime import datetime, timedelta
+                
+                if last_payment and last_payment.created_at:
+                    next_billing_date = last_payment.created_at + timedelta(days=30)
+                else:
+                    next_billing_date = datetime.now() + timedelta(days=30)
+
+                # Generate upcoming billing cycles
+                upcoming_cycles = []
+                for i in range(3):  # Next 3 cycles
+                    cycle_date = next_billing_date + timedelta(days=30 * i)
+                    status = "upcoming" if i == 0 else "future"
+                    upcoming_cycles.append(
+                        BillingCycle(
+                            cycle_number=i + 1,
+                            due_date=cycle_date,
+                            amount_usd=monthly_price,
+                            status=status,
+                        )
+                    )
+
+                # Determine subscription status
+                subscription_status = "active" if last_payment else "inactive"
+
+                return SubscriptionInfoResponse(
+                    monthly_price_usd=monthly_price,
+                    next_billing_date=next_billing_date,
+                    subscription_status=subscription_status,
+                    upcoming_cycles=upcoming_cycles,
+                )
             finally:
                 session.close()
 
