@@ -1,5 +1,5 @@
 import json
-from typing import Dict
+from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Header
 from XT import AGiXT
 from Websearch import Websearch
@@ -129,7 +129,7 @@ from Providers import get_providers_with_details, get_provider_options
     dependencies=[Depends(verify_api_key)],
     summary="Get agent providers",
     description="Retrieves the list of providers connected to a specific agent.",
-    response_model=Dict[str, str],
+    response_model=Dict[str, Any],
 )
 async def get_providers_v1(
     agent_id: str,
@@ -143,9 +143,7 @@ async def get_providers_v1(
     new_providers = {}
     # Check each provider against agent settings for a match to see if the key is defined in agent settings and is not empty
     # If it is, set connected = True, else connected = False
-    for provider in providers:
-        provider_name = list(provider.keys())[0]
-        provider_details = list(provider.values())[0]
+    for provider_name, provider_details in providers.items():
         provider_settings = provider_details["settings"]
         connected = False
         for key in provider_settings:

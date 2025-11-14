@@ -1479,7 +1479,8 @@ def discover_extension_models():
     import glob
 
     extension_models = []
-    command_files = glob.glob("extensions/*.py")
+    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+    command_files = glob.glob(os.path.join(extensions_dir, "*.py"))
 
     for command_file in command_files:
         module_name = os.path.splitext(os.path.basename(command_file))[0]
