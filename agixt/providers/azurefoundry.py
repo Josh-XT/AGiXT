@@ -6,41 +6,39 @@ import logging
 import time
 
 
-class Azure_foundryProvider:
+class AzurefoundryProvider:
     """
     This provider uses the Azure AI Foundry Inference API to generate text from prompts. Learn more about how to set it up at <https://learn.microsoft.com/en-us/azure/ai-services/>.
     """
 
     def __init__(
         self,
-        AZURE_FOUNDRY_API_KEY: str = "",
-        AZURE_FOUNDRY_ENDPOINT: str = "https://your-endpoint.openai.azure.com",
-        AZURE_FOUNDRY_DEPLOYMENT_NAME: str = "gpt-4o",
-        AZURE_FOUNDRY_TEMPERATURE: float = 0.7,
-        AZURE_FOUNDRY_TOP_P: float = 0.7,
-        AZURE_FOUNDRY_MAX_TOKENS: int = 120000,
-        AZURE_FOUNDRY_WAIT_BETWEEN_REQUESTS: int = 1,
-        AZURE_FOUNDRY_WAIT_AFTER_FAILURE: int = 3,
+        AZUREFOUNDRY_API_KEY: str = "",
+        AZUREFOUNDRY_ENDPOINT: str = "https://your-endpoint.openai.azure.com",
+        AZUREFOUNDRY_DEPLOYMENT_NAME: str = "gpt-4o",
+        AZUREFOUNDRY_TEMPERATURE: float = 0.7,
+        AZUREFOUNDRY_TOP_P: float = 0.7,
+        AZUREFOUNDRY_MAX_TOKENS: int = 120000,
+        AZUREFOUNDRY_WAIT_BETWEEN_REQUESTS: int = 1,
+        AZUREFOUNDRY_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.friendly_name = "Azure Foundry"
         self.requirements = ["azure-ai-inference"]
-        self.AZURE_FOUNDRY_API_KEY = AZURE_FOUNDRY_API_KEY
-        self.AZURE_FOUNDRY_ENDPOINT = AZURE_FOUNDRY_ENDPOINT
-        self.AI_MODEL = AZURE_FOUNDRY_DEPLOYMENT_NAME
+        self.AZUREFOUNDRY_API_KEY = AZUREFOUNDRY_API_KEY
+        self.AZUREFOUNDRY_ENDPOINT = AZUREFOUNDRY_ENDPOINT
+        self.AI_MODEL = AZUREFOUNDRY_DEPLOYMENT_NAME
         self.AI_TEMPERATURE = (
-            AZURE_FOUNDRY_TEMPERATURE if AZURE_FOUNDRY_TEMPERATURE else 0.7
+            AZUREFOUNDRY_TEMPERATURE if AZUREFOUNDRY_TEMPERATURE else 0.7
         )
-        self.AI_TOP_P = AZURE_FOUNDRY_TOP_P if AZURE_FOUNDRY_TOP_P else 0.7
-        self.MAX_TOKENS = (
-            AZURE_FOUNDRY_MAX_TOKENS if AZURE_FOUNDRY_MAX_TOKENS else 120000
-        )
+        self.AI_TOP_P = AZUREFOUNDRY_TOP_P if AZUREFOUNDRY_TOP_P else 0.7
+        self.MAX_TOKENS = AZUREFOUNDRY_MAX_TOKENS if AZUREFOUNDRY_MAX_TOKENS else 120000
         self.WAIT_AFTER_FAILURE = (
-            AZURE_FOUNDRY_WAIT_AFTER_FAILURE if AZURE_FOUNDRY_WAIT_AFTER_FAILURE else 3
+            AZUREFOUNDRY_WAIT_AFTER_FAILURE if AZUREFOUNDRY_WAIT_AFTER_FAILURE else 3
         )
         self.WAIT_BETWEEN_REQUESTS = (
-            AZURE_FOUNDRY_WAIT_BETWEEN_REQUESTS
-            if AZURE_FOUNDRY_WAIT_BETWEEN_REQUESTS
+            AZUREFOUNDRY_WAIT_BETWEEN_REQUESTS
+            if AZUREFOUNDRY_WAIT_BETWEEN_REQUESTS
             else 1
         )
         self.failures = 0
@@ -53,15 +51,15 @@ class Azure_foundryProvider:
         self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
     ):
         if (
-            self.AZURE_FOUNDRY_API_KEY == ""
-            or self.AZURE_FOUNDRY_API_KEY == "YOUR_API_KEY"
+            self.AZUREFOUNDRY_API_KEY == ""
+            or self.AZUREFOUNDRY_API_KEY == "YOUR_API_KEY"
         ):
             return "Please go to the Agent Management page to set your Azure AI Inference API key."
 
         try:
             client = ChatCompletionsClient(
-                endpoint=self.AZURE_FOUNDRY_ENDPOINT,
-                credential=AzureKeyCredential(self.AZURE_FOUNDRY_API_KEY),
+                endpoint=self.AZUREFOUNDRY_ENDPOINT,
+                credential=AzureKeyCredential(self.AZUREFOUNDRY_API_KEY),
                 api_version="2024-05-01-preview",
             )
         except Exception as e:
