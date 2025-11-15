@@ -147,6 +147,53 @@ def impersonate_user(user_id: str):
     return token
 
 
+def can_user_access_agent(user_id, agent_id, auth: MagicalAuth = None):
+    """
+    Check if a user can access an agent.
+    Returns: (can_access: bool, is_owner: bool, access_level: str)
+    """
+    session = get_session()
+
+    # Get the agent
+    agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
+    if not agent:
+        session.close()
+        return (False, False, None)
+
+    # User is owner
+    if str(agent.user_id) == str(user_id):
+        session.close()
+        return (True, True, "owner")
+
+    # Check if shared and user is in same company
+    agent_settings = (
+        session.query(AgentSettingModel)
+        .filter(AgentSettingModel.agent_id == agent_id)
+        .all()
+    )
+
+    settings_dict = {s.name: s.value for s in agent_settings}
+    is_shared = settings_dict.get("shared", "false") == "true"
+    agent_company_id = settings_dict.get("company_id")
+
+    if not is_shared or not agent_company_id:
+        session.close()
+        return (False, False, None)
+
+    # Use MagicalAuth helper to get user's companies
+    if not auth:
+        token = impersonate_user(user_id=str(user_id))
+        auth = MagicalAuth(token=token)
+
+    user_company_ids = auth.get_user_companies()
+
+    # Check if agent's company is in user's companies
+    has_access = agent_company_id in user_company_ids
+    session.close()
+
+    return (has_access, False, "viewer" if has_access else None)
+
+
 def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
@@ -297,10 +344,10 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     )
                     session.add(agent_command)
 
-    # Set onboardedtoagixt to true for new agents since we auto-enabled essential commands
+    # Set onboarded11102025 to true for new agents since we auto-enabled essential commands
     onboarded_setting = AgentSettingModel(
         agent_id=agent.id,
-        name="onboardedtoagixt",
+        name="onboarded11102025",
         value="true",
     )
     session.add(onboarded_setting)
@@ -510,27 +557,62 @@ def get_agents(user=DEFAULT_USER, company=None):
         )
     except:
         default_agent_id = ""
-    agents = session.query(AgentModel).filter(AgentModel.user_id == user_data.id).all()
+
+    # Get user's companies using MagicalAuth
+    token = impersonate_user(user_id=str(user_data.id))
+    auth = MagicalAuth(token=token)
+    user_company_ids = auth.get_user_companies()
+
+    # Query owned agents
+    owned_agents = (
+        session.query(AgentModel).filter(AgentModel.user_id == user_data.id).all()
+    )
+
+    # Query shared agents if user has companies
+    shared_agents = []
+    if user_company_ids:
+        # Get all agents that are not owned by this user
+        potential_shared = (
+            session.query(AgentModel).filter(AgentModel.user_id != user_data.id).all()
+        )
+
+        for agent in potential_shared:
+            settings = (
+                session.query(AgentSettingModel)
+                .filter(AgentSettingModel.agent_id == agent.id)
+                .all()
+            )
+            settings_dict = {s.name: s.value for s in settings}
+
+            is_shared = settings_dict.get("shared", "false") == "true"
+            agent_company_id = settings_dict.get("company_id")
+
+            if is_shared and agent_company_id in user_company_ids:
+                shared_agents.append(agent)
+
+    # Combine owned and shared agents
+    all_agents = owned_agents + shared_agents
+
     if default_agent_id == "":
         # Add a user preference of the first agent's ID in the agent list
-        if agents:
+        if all_agents:
             user_preference = UserPreferences(
-                user_id=user_data.id, pref_key="agent_id", pref_value=agents[0].id
+                user_id=user_data.id, pref_key="agent_id", pref_value=all_agents[0].id
             )
             session.add(user_preference)
             session.commit()
-            default_agent_id = str(agents[0].id)
+            default_agent_id = str(all_agents[0].id)
         else:
             session.close()
             return []
     output = []
-    for agent in agents:
+    for agent in all_agents:
         # Check if the agent is in the output already
         if agent.name in [a["name"] for a in output]:
             continue
-        # Get the agent settings `company_id` and `onboardedtoagixt` if defined
+        # Get the agent settings `company_id` and `onboarded11102025` if defined
         company_id = None
-        onboardedtoagixt = None
+        onboarded11102025 = None
         agent_settings = (
             session.query(AgentSettingModel)
             .filter(AgentSettingModel.agent_id == agent.id)
@@ -539,8 +621,8 @@ def get_agents(user=DEFAULT_USER, company=None):
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "onboardedtoagixt":
-                onboardedtoagixt = setting.value
+            elif setting.name == "onboarded11102025":
+                onboarded11102025 = setting.value
         if company_id and company:
             if company_id != company:
                 continue
@@ -557,7 +639,7 @@ def get_agents(user=DEFAULT_USER, company=None):
             session.commit()
 
         # Check if agent needs onboarding (enable essential_abilities and notes commands)
-        if not onboardedtoagixt or onboardedtoagixt.lower() != "true":
+        if not onboarded11102025 or onboarded11102025.lower() != "true":
             # Auto-enable commands from essential_abilities and notes extensions
             essential_extensions = ["Essential Abilities", "Notes"]
             for extension_name in essential_extensions:
@@ -593,14 +675,17 @@ def get_agents(user=DEFAULT_USER, company=None):
                             # Enable the command if it was disabled
                             existing_agent_command.state = True
 
-            # Create the onboardedtoagixt setting
+            # Create the onboarded11102025 setting
             agent_setting = AgentSettingModel(
                 agent_id=agent.id,
-                name="onboardedtoagixt",
+                name="onboarded11102025",
                 value="true",
             )
             session.add(agent_setting)
             session.commit()
+        is_owner = agent.user_id == user_data.id
+        is_shared = settings_dict.get("shared", "false") == "true"
+
         output.append(
             {
                 "name": agent.name,
@@ -608,10 +693,73 @@ def get_agents(user=DEFAULT_USER, company=None):
                 "status": False,
                 "company_id": company_id,
                 "default": str(agent.id) == str(default_agent_id),
+                "is_owner": is_owner,
+                "is_shared": is_shared,
+                "access_level": "owner" if is_owner else "viewer",
             }
         )
     session.close()
     return output
+
+
+def clone_agent(agent_id, new_agent_name, user=DEFAULT_USER):
+    """
+    Clone an agent, copying all settings and commands.
+    User must have access to the source agent.
+    """
+    session = get_session()
+    user_data = session.query(User).filter(User.email == user).first()
+
+    # Check access to source agent
+    can_access, is_owner, access_level = can_user_access_agent(
+        user_id=user_data.id, agent_id=agent_id
+    )
+
+    if not can_access:
+        session.close()
+        raise HTTPException(status_code=403, detail="No access to source agent")
+
+    # Get source agent
+    source_agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
+
+    if not source_agent:
+        session.close()
+        raise HTTPException(status_code=404, detail="Source agent not found")
+
+    # Get source agent settings
+    source_settings = (
+        session.query(AgentSettingModel)
+        .filter(AgentSettingModel.agent_id == agent_id)
+        .all()
+    )
+
+    settings_dict = {s.name: s.value for s in source_settings}
+
+    # Remove shared flag - cloned agents are private by default
+    settings_dict.pop("shared", None)
+
+    # Get source agent commands
+    source_commands = (
+        session.query(AgentCommand).filter(AgentCommand.agent_id == agent_id).all()
+    )
+
+    commands_dict = {}
+    for ac in source_commands:
+        command = session.query(Command).filter(Command.id == ac.command_id).first()
+        if command:
+            commands_dict[command.name] = ac.state
+
+    session.close()
+
+    # Create new agent using existing add_agent function
+    result = add_agent(
+        agent_name=new_agent_name,
+        provider_settings=settings_dict,
+        commands=commands_dict,
+        user=user,
+    )
+
+    return result
 
 
 class Agent:

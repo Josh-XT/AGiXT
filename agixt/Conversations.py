@@ -295,6 +295,10 @@ class Conversations:
             return {"interactions": []}
         return_messages = []
         for message in messages:
+            # Store raw UTC timestamps for WebSocket comparison (no timezone conversion)
+            raw_timestamp_utc = message.timestamp
+            raw_updated_at_utc = message.updated_at
+
             msg = {
                 "id": message.id,
                 "role": message.role,
@@ -305,6 +309,9 @@ class Conversations:
                 "updated_at": convert_time(message.updated_at, user_id=user_id),
                 "updated_by": message.updated_by,
                 "feedback_received": message.feedback_received,
+                # Add raw UTC timestamps for WebSocket comparison (before timezone conversion)
+                "timestamp_utc": raw_timestamp_utc,
+                "updated_at_utc": raw_updated_at_utc,
             }
             return_messages.append(msg)
         session.close()
@@ -1221,11 +1228,16 @@ class Conversations:
             session.close()
             return
 
-        # Update the message content directly
+        # Update the message content and metadata
         message.content = str(new_message)  # Ensure the content is a string
+        message.updated_by = user_id  # Track who updated the message
+        message.updated_at = datetime.now()  # Explicitly set the update timestamp
 
         try:
             session.commit()
+            logging.info(
+                f"Message {message_id} successfully updated - committed to database"
+            )
         except Exception as e:
             logging.error(f"Error updating message: {e}")
             session.rollback()
