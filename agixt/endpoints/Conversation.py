@@ -1241,17 +1241,8 @@ async def conversation_stream(
                                 else updated_time
                             )
 
-                            # Debug logging
-                            if "376e9037" in str(message_id):
-                                logging.info(
-                                    f"DEBUG Message {message_id}: has updated_by={message_updated_by}, update_time={update_time}, check_time={check_time}, update>=check={update_time >= check_time}"
-                                )
-
                             # Send update if message was updated since our last check
                             if update_time >= check_time:
-                                logging.info(
-                                    f"WebSocket: Edited message {message_id} detected at {update_time}, last_check: {check_time}, sending update"
-                                )
                                 serializable_message = make_json_serializable(message)
                                 await websocket.send_text(
                                     json.dumps(

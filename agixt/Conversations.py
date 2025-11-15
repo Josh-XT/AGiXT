@@ -1233,10 +1233,6 @@ class Conversations:
         message.updated_by = user_id  # Track who updated the message
         message.updated_at = datetime.now()  # Explicitly set the update timestamp
 
-        logging.info(
-            f"Updating message {message_id} in conversation '{self.conversation_name}' - updated_at: {message.updated_at}"
-        )
-
         try:
             session.commit()
             logging.info(
