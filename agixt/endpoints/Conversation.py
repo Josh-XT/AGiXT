@@ -363,7 +363,16 @@ async def update_by_id(
     message_id: str,
     history: UpdateMessageModel,
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(history.conversation_name)
+        history.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
     Conversations(
         conversation_name=history.conversation_name, user=user
     ).update_message_by_id(
@@ -1198,25 +1207,51 @@ async def conversation_stream(
                     last_message_count = current_message_count
 
                 # Check for updated messages (messages modified since last check)
+                # Simple approach: if updated_by is set and updated_at >= last_check_time, it was edited
                 for message in current_messages:
-                    message_updated_at = message.get("updated_at")
-                    if message_updated_at:
+                    message_updated_at_utc = message.get("updated_at_utc")
+                    message_updated_by = message.get("updated_by")
+                    message_id = message.get("id")
+
+                    # Only check messages that have been explicitly updated (updated_by is set)
+                    if message_updated_by and message_updated_at_utc:
                         try:
-                            # Parse the timestamp - handle both string and datetime objects
-                            if isinstance(message_updated_at, str):
-                                # Try basic ISO format parsing first
+                            # Parse the timestamp
+                            if isinstance(message_updated_at_utc, datetime):
+                                updated_time = message_updated_at_utc
+                            else:
                                 try:
                                     updated_time = datetime.fromisoformat(
-                                        message_updated_at.replace("Z", "+00:00")
+                                        str(message_updated_at_utc).replace(
+                                            "Z", "+00:00"
+                                        )
                                     )
                                 except:
-                                    # Fallback to current time if parsing fails
-                                    updated_time = datetime.now()
-                            else:
-                                updated_time = message_updated_at
+                                    continue
 
-                            # Check if message was updated since last check
-                            if updated_time > last_check_time:
+                            # Make timezone-naive for comparison
+                            check_time = (
+                                last_check_time.replace(tzinfo=None)
+                                if last_check_time.tzinfo
+                                else last_check_time
+                            )
+                            update_time = (
+                                updated_time.replace(tzinfo=None)
+                                if updated_time.tzinfo
+                                else updated_time
+                            )
+
+                            # Debug logging
+                            if "376e9037" in str(message_id):
+                                logging.info(
+                                    f"DEBUG Message {message_id}: has updated_by={message_updated_by}, update_time={update_time}, check_time={check_time}, update>=check={update_time >= check_time}"
+                                )
+
+                            # Send update if message was updated since our last check
+                            if update_time >= check_time:
+                                logging.info(
+                                    f"WebSocket: Edited message {message_id} detected at {update_time}, last_check: {check_time}, sending update"
+                                )
                                 serializable_message = make_json_serializable(message)
                                 await websocket.send_text(
                                     json.dumps(
@@ -1227,7 +1262,9 @@ async def conversation_stream(
                                     )
                                 )
                         except Exception as e:
-                            pass  # Ignore parsing errors
+                            logging.warning(
+                                f"Error checking message update for {message_id}: {e}"
+                            )
 
                 last_check_time = datetime.now()
 
