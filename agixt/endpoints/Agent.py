@@ -14,6 +14,7 @@ from ApiClient import (
     get_api_client,
     is_admin,
 )
+from Agent import can_user_access_agent, clone_agent as clone_agent_func
 from Models import (
     AgentNewName,
     AgentPrompt,
@@ -108,7 +109,8 @@ async def think(
     else:
         agent_prompt.prompt_args["context"] = think_deep
     agent_prompt.prompt_args["user_input"] = agent_prompt.user_input
-    return await prompt_agent(
+    ApiClient = get_api_client(authorization=authorization)
+    return ApiClient.prompt_agent(
         agent_name=agent_prompt.agent_name,
         agent_prompt=AgentPrompt(
             prompt_name="Think About It",
@@ -807,3 +809,38 @@ async def get_agent_wallet_v1(
         private_key=wallet_info["private_key"],
         passphrase=wallet_info["passphrase"],
     )
+
+
+@app.post(
+    "/v1/agent/{agent_id}/clone",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Clone an agent by ID",
+    description="Creates a copy of an agent with all its settings and commands. User must have access to the source agent. The cloned agent is private by default (shared flag is removed).",
+    response_model=ResponseMessage,
+)
+async def clone_agent_v1(
+    agent_id: str,
+    new_name: AgentNewName,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    # Get user_id from auth
+    auth = MagicalAuth(token=authorization)
+
+    # Check if user has access to the agent
+    can_access, is_owner, access_level = can_user_access_agent(
+        user_id=auth.user_id, agent_id=agent_id
+    )
+
+    if not can_access:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this agent"
+        )
+
+    # Clone the agent
+    result = clone_agent_func(
+        agent_id=agent_id, new_agent_name=new_name.new_name, user=user
+    )
+
+    return ResponseMessage(message=result.get("message", "Agent cloned successfully"))
