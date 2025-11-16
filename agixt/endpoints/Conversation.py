@@ -1237,9 +1237,6 @@ async def conversation_stream(
                 # Check for deleted messages by comparing IDs
                 if "previous_message_ids" in locals():
                     deleted_ids = previous_message_ids - current_message_ids
-                    logging.debug(
-                        f"WebSocket: Comparing message IDs - Previous: {len(previous_message_ids)}, Current: {len(current_message_ids)}, Deleted: {len(deleted_ids)}"
-                    )
                     if deleted_ids:
                         # Messages were deleted - send event with deleted IDs
                         deleted_ids_list = [str(id) for id in deleted_ids]
@@ -1257,17 +1254,10 @@ async def conversation_stream(
                             )
                         )
                         logging.info(
-                            f"WebSocket: Sent messages_deleted event for {len(deleted_ids)} IDs: {deleted_ids_list}"
+                            f"WebSocket: Sent messages_deleted event for {len(deleted_ids)} message(s)"
                         )
                         # Reset last_message_count after deletion so new messages are detected correctly
                         last_message_count = current_message_count
-                        logging.debug(
-                            f"WebSocket: Reset last_message_count to {current_message_count} after deletion"
-                        )
-                else:
-                    logging.debug(
-                        f"WebSocket: Initializing previous_message_ids with {len(current_message_ids)} messages"
-                    )
 
                 # Update tracking
                 previous_message_ids = current_message_ids
