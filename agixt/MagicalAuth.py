@@ -13,6 +13,7 @@ from DB import (
     PaymentTransaction,
     CompanyTokenUsage,
 )
+from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 from sendgrid.helpers.mail import Mail
@@ -2304,6 +2305,11 @@ class MagicalAuth:
         total_tokens = input_tokens + output_tokens
 
         try:
+            # Check if billing is enabled
+            price_service = PriceService()
+            token_price = price_service.get_token_price()
+            billing_enabled = token_price > 0
+
             # Get user's company
             user_company = (
                 session.query(UserCompany)
@@ -2311,7 +2317,7 @@ class MagicalAuth:
                 .first()
             )
 
-            if user_company:
+            if user_company and billing_enabled:
                 company = (
                     session.query(Company)
                     .filter(Company.id == user_company.company_id)
@@ -2319,7 +2325,7 @@ class MagicalAuth:
                 )
 
                 if company:
-                    # Check if company has sufficient balance
+                    # Check if company has sufficient balance (only when billing is enabled)
                     if company.token_balance < total_tokens:
                         session.close()
                         raise HTTPException(
