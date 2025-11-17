@@ -83,9 +83,23 @@ class PriceService:
 
     async def get_token_quote(self, token_millions: int) -> Dict[str, Any]:
         """Get quote for token purchase in USD - token_millions is the number of millions of tokens"""
-        token_price_per_million = Decimal(
-            str(getenv("TOKEN_PRICE_PER_MILLION_USD", "1.00"))
-        )
+        try:
+            token_price_per_million = Decimal(
+                str(getenv("TOKEN_PRICE_PER_MILLION_USD"))
+            )
+        except Exception:
+            token_price_per_million = Decimal("0.00")
+
+        # Ensure token price is positive
+        if token_price_per_million <= 0:
+            # No quote needed
+            return {
+                "token_millions": token_millions,
+                "tokens": token_millions * 1_000_000,
+                "amount_usd": 0.00,
+                "price_per_million": 0.00,
+            }
+
         min_topup_usd = Decimal(str(getenv("MIN_TOKEN_TOPUP_USD", "10.00")))
 
         if token_millions < 1:
@@ -234,4 +248,11 @@ class PriceService:
 
     def get_token_price(self) -> Decimal:
         """Get the current token price per million USD"""
-        return Decimal(str(getenv("TOKEN_PRICE_PER_MILLION_USD", "1.00")))
+        try:
+            token_price = Decimal(str(getenv("TOKEN_PRICE_PER_MILLION_USD", "1.00")))
+            # Ensure token price is positive
+            if token_price <= 0:
+                return Decimal("1.00")
+            return token_price
+        except Exception:
+            return Decimal("1.00")
