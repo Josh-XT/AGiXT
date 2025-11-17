@@ -1509,13 +1509,15 @@ def migrate_payment_transaction_table():
                 if not result.fetchone():
                     session.execute(
                         text(
-                            'ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER'
+                            "ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER"
                         )
                     )
                     session.commit()
 
     except Exception as e:
-        logging.debug(f"payment_transaction table migration completed or not needed: {e}")
+        logging.debug(
+            f"payment_transaction table migration completed or not needed: {e}"
+        )
 
 
 def migrate_extension_table():
