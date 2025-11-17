@@ -29,6 +29,11 @@ class TokenTopupStripeRequest(BaseModel):
     company_id: Optional[str] = None
 
 
+class ConfirmPaymentRequest(BaseModel):
+    payment_intent_id: str
+    company_id: Optional[str] = None
+
+
 class DismissWarningRequest(BaseModel):
     company_id: str
 
@@ -180,6 +185,139 @@ async def create_token_topup_stripe(
 
 
 @app.post(
+    "/v1/billing/tokens/topup/stripe/confirm",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def confirm_stripe_payment(
+    request: ConfirmPaymentRequest,
+    authorization: str = Header(None),
+):
+    """Confirm and process a Stripe payment by checking payment intent status"""
+    import stripe as stripe_lib
+    from os import getenv
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Get user companies
+    user_companies = auth.get_user_companies()
+
+    # Use provided company_id or default to primary company
+    if request.company_id:
+        company_id = request.company_id
+        # Verify user has access to this company
+        if company_id not in user_companies:
+            raise HTTPException(
+                status_code=403, detail="You do not have access to this company"
+            )
+    else:
+        # Use primary company (first in the list)
+        if not user_companies:
+            raise HTTPException(
+                status_code=400, detail="User is not associated with any company"
+            )
+        company_id = user_companies[0]
+
+    session = get_session()
+    try:
+        # Find the transaction
+        transaction = (
+            session.query(PaymentTransaction)
+            .filter(
+                PaymentTransaction.stripe_payment_intent_id == request.payment_intent_id
+            )
+            .first()
+        )
+
+        if not transaction:
+            session.close()
+            raise HTTPException(status_code=404, detail="Payment transaction not found")
+
+        # Verify transaction belongs to user's company
+        if transaction.company_id != company_id:
+            session.close()
+            raise HTTPException(
+                status_code=403, detail="Transaction does not belong to your company"
+            )
+
+        # Check if already processed
+        if transaction.status == "completed":
+            tokens_credited = transaction.token_amount
+            session.close()
+            return {
+                "success": True,
+                "message": "Payment already processed",
+                "tokens_credited": tokens_credited,
+            }
+
+        # Retrieve payment intent from Stripe
+        stripe_lib.api_key = getenv("STRIPE_API_KEY")
+        payment_intent = stripe_lib.PaymentIntent.retrieve(request.payment_intent_id)
+
+        # Check if payment succeeded
+        if payment_intent.status == "succeeded":
+            # Store values before session operations
+            tokens_credited = transaction.token_amount
+            transaction_company_id = transaction.company_id
+            transaction_amount_usd = float(transaction.amount_usd)
+
+            # Update transaction status
+            transaction.status = "completed"
+
+            # Credit tokens to company
+            if tokens_credited and transaction_company_id:
+                auth.add_tokens_to_company(
+                    company_id=transaction_company_id,
+                    token_amount=tokens_credited,
+                    amount_usd=transaction_amount_usd,
+                )
+                logging.info(
+                    f"Credited {tokens_credited} tokens to company {transaction_company_id} via payment intent {request.payment_intent_id}"
+                )
+
+            session.commit()
+            session.close()
+            return {
+                "success": True,
+                "message": "Payment confirmed and tokens credited",
+                "tokens_credited": tokens_credited,
+            }
+        elif payment_intent.status == "processing":
+            session.close()
+            return {
+                "success": False,
+                "message": "Payment is still processing. Please try again in a moment.",
+            }
+        elif payment_intent.status == "requires_payment_method":
+            session.close()
+            raise HTTPException(
+                status_code=400, detail="Payment requires a valid payment method"
+            )
+        else:
+            session.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Payment failed with status: {payment_intent.status}",
+            )
+
+    except stripe_lib.error.StripeError as e:
+        session.rollback()
+        session.close()
+        logging.error(f"Stripe API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        session.close()
+        logging.error(f"Error confirming payment: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to confirm payment: {str(e)}"
+        )
+
+
+@app.get(
     "/v1/billing/tokens/warning/dismiss",
     tags=["Billing"],
     dependencies=[Depends(verify_api_key)],
