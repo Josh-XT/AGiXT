@@ -9,7 +9,14 @@ from fastapi import APIRouter, Request, Header, HTTPException, Depends
 from pydantic import BaseModel
 from MagicalAuth import MagicalAuth, verify_api_key  # type: ignore
 from Globals import getenv  # type: ignore
-from DB import get_session, User, UserPreferences, Company, UserCompany  # type: ignore
+from DB import (
+    get_session,
+    User,
+    UserPreferences,
+    Company,
+    UserCompany,
+    PaymentTransaction,
+)  # type: ignore
 from Models import Detail, WebhookModel  # type: ignore
 import stripe as stripe_lib
 
@@ -483,6 +490,42 @@ class stripe_payments(Extensions):
                                 )
                                 if company:
                                     company.user_limit = 1
+
+                    session.commit()
+                    session.close()
+                    return {"success": "true"}
+
+                elif event and event["type"] == "payment_intent.succeeded":
+                    logging.debug("Payment Intent succeeded.")
+                    payment_intent_id = data["id"]
+
+                    # Find the payment transaction
+                    transaction = (
+                        session.query(PaymentTransaction)
+                        .filter(
+                            PaymentTransaction.stripe_payment_intent_id
+                            == payment_intent_id
+                        )
+                        .first()
+                    )
+
+                    if transaction:
+                        # Update transaction status
+                        transaction.status = "completed"
+
+                        # If this is a token purchase, credit the company
+                        if transaction.token_amount and transaction.company_id:
+                            from MagicalAuth import MagicalAuth
+
+                            auth = MagicalAuth()
+                            auth.add_tokens_to_company(
+                                company_id=transaction.company_id,
+                                token_amount=transaction.token_amount,
+                                amount_usd=float(transaction.amount_usd),
+                            )
+                            logging.info(
+                                f"Credited {transaction.token_amount} tokens to company {transaction.company_id}"
+                            )
 
                     session.commit()
                     session.close()
