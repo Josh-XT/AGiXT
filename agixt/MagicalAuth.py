@@ -1174,10 +1174,8 @@ class MagicalAuth:
         except (TypeError, ValueError):
             price_value = 0.0
 
-        # If no Stripe integration AND price is 0, bypass user limits
-        if (
-            not stripe_api_key or stripe_api_key.lower() == "none"
-        ) and price_value == 0:
+        # If price is 0, bypass user limits regardless of Stripe configuration
+        if price_value == 0:
             return True
 
         # We have to check how many users the company purchased from Stripe, compare to user count for the company
@@ -1321,16 +1319,19 @@ class MagicalAuth:
             )
 
             # Determine if paywall is enabled for this instance
-            stripe_configured = (
-                getenv("STRIPE_API_KEY")
-                and str(getenv("STRIPE_API_KEY")).lower() != "none"
-            )
-            wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+            # Paywall is only enabled if price > 0 AND either Stripe or wallet is configured
             price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
             try:
                 price_value = float(str(price_env))
             except (TypeError, ValueError):
                 price_value = 0.0
+
+            stripe_configured = (
+                getenv("STRIPE_API_KEY")
+                and str(getenv("STRIPE_API_KEY")).lower() != "none"
+                and price_value > 0
+            )
+            wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
             wallet_paywall_enabled = (
                 bool(wallet_address)
                 and str(wallet_address).lower() != "none"
