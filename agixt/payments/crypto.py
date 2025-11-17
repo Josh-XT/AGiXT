@@ -25,8 +25,6 @@ class CryptoPaymentService:
         self.rpc_url = getenv(
             "PAYMENT_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"
         )
-        if not self.wallet_address:
-            raise RuntimeError("PAYMENT_WALLET_ADDRESS must be configured")
 
     async def create_invoice(
         self,
