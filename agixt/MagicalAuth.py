@@ -1166,6 +1166,20 @@ class MagicalAuth:
         True = user limit not reached
         False = user limit reached
         """
+        # Check if we should bypass user limits entirely
+        stripe_api_key = getenv("STRIPE_API_KEY")
+        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
+        try:
+            price_value = float(price_env) if price_env else 0.0
+        except (TypeError, ValueError):
+            price_value = 0.0
+
+        # If no Stripe integration AND price is 0, bypass user limits
+        if (
+            not stripe_api_key or stripe_api_key.lower() == "none"
+        ) and price_value == 0:
+            return True
+
         # We have to check how many users the company purchased from Stripe, compare to user count for the company
         session = get_session()
         company = session.query(Company).filter(Company.id == company_id).first()
@@ -1186,7 +1200,6 @@ class MagicalAuth:
             return False
 
         # If no explicit limit is set, check Stripe subscription
-        stripe_api_key = getenv("STRIPE_API_KEY")
         if stripe_api_key and stripe_api_key.lower() != "none":
             try:
                 import stripe

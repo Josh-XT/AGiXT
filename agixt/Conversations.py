@@ -10,7 +10,7 @@ from DB import (
     get_session,
 )
 from Globals import getenv, DEFAULT_USER
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, or_
 from MagicalAuth import convert_time
 
 logging.basicConfig(
@@ -888,6 +888,13 @@ class Conversations:
             else:
                 logging.info(f"{role}: {message}")
         message_id = str(new_message.id)
+
+        # Notify WebSocket listeners about the new message
+        # The WebSocket endpoint polling will pick this up on the next check,
+        # but for USER messages we can also trigger an immediate notification
+        # to improve responsiveness
+        # Note: The actual WebSocket sending happens in the WebSocket endpoint's polling loop
+
         session.close()
         return message_id
 
@@ -1068,6 +1075,168 @@ class Conversations:
         session.delete(message)
         session.commit()
         session.close()
+
+    def delete_messages_after(self, message_id):
+        """
+        Delete all messages after a specific message ID (including that message).
+        This is used when regenerating responses from an edited user message.
+        """
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not conversation:
+            logging.info(f"No conversation found.")
+            session.close()
+            return
+
+        # Find the target message to get its timestamp
+        target_message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.id == message_id,
+            )
+            .first()
+        )
+
+        if not target_message:
+            logging.info(
+                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
+            )
+            session.close()
+            return
+
+        target_timestamp = target_message.timestamp
+        target_message_id = target_message.id
+        logging.info(
+            f"Target message '{message_id}' (role={target_message.role}) has timestamp: {target_timestamp}"
+        )
+
+        # Check if there's an activity message immediately before the target that should also be deleted
+        # Find messages with timestamp < target_timestamp, ordered by timestamp descending
+        activity_messages_to_delete = []
+        previous_messages = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.timestamp < target_timestamp,
+            )
+            .order_by(Message.timestamp.desc())
+            .limit(5)  # Check last 5 messages before target
+            .all()
+        )
+
+        for prev_msg in previous_messages:
+            msg_content = prev_msg.content or ""
+            # Check if this is an activity or subactivity message
+            if msg_content.startswith("[ACTIVITY]") or msg_content.startswith(
+                "[SUBACTIVITY]"
+            ):
+                # Check if this activity message has no other children after it besides our target
+                # (meaning the target is the only thing this activity was doing)
+                messages_between = (
+                    session.query(Message)
+                    .filter(
+                        Message.conversation_id == conversation.id,
+                        Message.timestamp > prev_msg.timestamp,
+                        Message.timestamp < target_timestamp,
+                    )
+                    .count()
+                )
+
+                if messages_between == 0:
+                    # This activity message has no children except the target, so delete it too
+                    activity_messages_to_delete.append(prev_msg)
+                    logging.info(
+                        f"Will also delete parent activity message {prev_msg.id}: {msg_content[:50]}..."
+                    )
+                    break  # Only delete the immediate parent activity
+
+        # Verify the target message still exists before trying to delete
+        verification_check = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.id == message_id,
+            )
+            .first()
+        )
+        if not verification_check:
+            logging.warning(f"Target message {message_id} was already deleted!")
+        else:
+            logging.info(f"Target message {message_id} verified to exist in database")
+
+        # Get all messages that will be deleted for logging
+        messages_to_delete = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.timestamp >= target_timestamp,
+            )
+            .all()
+        )
+
+        # Check if target message is in the deletion list
+        target_in_list = any(msg.id == message_id for msg in messages_to_delete)
+        logging.info(f"Target message in deletion list: {target_in_list}")
+
+        logging.info(
+            f"Found {len(messages_to_delete)} messages to delete with timestamp >= {target_timestamp}"
+        )
+        for msg in messages_to_delete:
+            is_target = " [TARGET MESSAGE]" if msg.id == message_id else ""
+            logging.info(
+                f"  - Will delete message {msg.id} (role={msg.role}, timestamp={msg.timestamp}){is_target}"
+            )
+
+        # If target message is not in the list, something is wrong - log it
+        if not target_in_list:
+            logging.warning(
+                f"Target message {message_id} with timestamp {target_timestamp} is NOT in the deletion query results! "
+                f"This suggests a database query issue."
+            )
+
+        # Delete all messages with timestamp >= target message timestamp OR the target message itself by ID
+        # Also delete any parent activity messages we identified
+        # Using OR condition to ensure target message is included even if timestamp comparison fails
+        activity_ids = [msg.id for msg in activity_messages_to_delete]
+
+        # Get all message IDs that will be deleted BEFORE deleting them
+        messages_query = session.query(Message).filter(
+            Message.conversation_id == conversation.id,
+            or_(
+                Message.timestamp >= target_timestamp,
+                Message.id == message_id,
+                Message.id.in_(activity_ids) if activity_ids else False,
+            ),
+        )
+        deleted_message_ids = [str(msg.id) for msg in messages_query.all()]
+        logging.info(
+            f"About to delete {len(deleted_message_ids)} messages: {deleted_message_ids}"
+        )
+
+        deleted_count = messages_query.delete(synchronize_session=False)
+
+        logging.info(
+            f"Deleted {deleted_count} messages after message '{message_id}' in conversation '{self.conversation_name}'."
+        )
+
+        session.commit()
+        session.close()
+        return {
+            "deleted_count": deleted_count,
+            "deleted_message_ids": deleted_message_ids,
+        }
 
     def toggle_feedback_received(self, message):
         session = get_session()

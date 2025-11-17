@@ -403,6 +403,39 @@ async def delete_by_id(
     return ResponseMessage(message=f"Message deleted.")
 
 
+@app.delete(
+    "/api/conversation/message/{message_id}/after",
+    response_model=ResponseMessage,
+    summary="Delete Messages After Message ID",
+    description="Deletes all messages after and including the specified message ID. Used for regenerating responses.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_messages_after_id(
+    message_id: str,
+    history: DeleteMessageModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_id = uuid.UUID(history.conversation_name)
+        history.conversation_name = get_conversation_name_by_id(
+            conversation_id=str(conversation_id), user_id=auth.user_id
+        )
+    except:
+        conversation_id = None
+    result = Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).delete_messages_after(
+        message_id=message_id,
+    )
+    deleted_count = (
+        result.get("deleted_count", 0) if isinstance(result, dict) else result
+    )
+    return ResponseMessage(message=f"Deleted {deleted_count} messages.")
+
+
 @app.post(
     "/api/conversation/message",
     response_model=MessageIdResponse,
@@ -1137,6 +1170,9 @@ async def conversation_stream(
 
         # Track the last message count to detect new messages
         last_message_count = len(messages) if messages else 0
+        previous_message_ids = (
+            {msg.get("id") for msg in messages if msg.get("id")} if messages else set()
+        )
         last_check_time = datetime.now()
         last_heartbeat_time = datetime.now()
 
@@ -1146,9 +1182,9 @@ async def conversation_stream(
                 # Use wait_for with a timeout to check for incoming messages
                 # This allows us to handle both incoming messages and periodic updates
                 try:
-                    # Wait for incoming message with a 2-second timeout
+                    # Wait for incoming message with a 0.1-second timeout for faster message detection
                     message_data = await asyncio.wait_for(
-                        websocket.receive_json(), timeout=2.0
+                        websocket.receive_json(), timeout=0.1
                     )
 
                     # Handle incoming messages
@@ -1192,6 +1228,39 @@ async def conversation_stream(
                     continue
 
                 current_message_count = len(current_messages)
+
+                # Track current message IDs
+                current_message_ids = {
+                    msg.get("id") for msg in current_messages if msg.get("id")
+                }
+
+                # Check for deleted messages by comparing IDs
+                if "previous_message_ids" in locals():
+                    deleted_ids = previous_message_ids - current_message_ids
+                    if deleted_ids:
+                        # Messages were deleted - send event with deleted IDs
+                        deleted_ids_list = [str(id) for id in deleted_ids]
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "messages_deleted",
+                                    "data": {
+                                        "previous_count": last_message_count,
+                                        "current_count": current_message_count,
+                                        "deleted_count": len(deleted_ids),
+                                        "deleted_message_ids": deleted_ids_list,
+                                    },
+                                }
+                            )
+                        )
+                        logging.info(
+                            f"WebSocket: Sent messages_deleted event for {len(deleted_ids)} message(s)"
+                        )
+                        # Reset last_message_count after deletion so new messages are detected correctly
+                        last_message_count = current_message_count
+
+                # Update tracking
+                previous_message_ids = current_message_ids
 
                 # Check for new messages
                 if current_message_count > last_message_count:
