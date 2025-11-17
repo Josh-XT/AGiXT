@@ -1410,6 +1410,11 @@ def migrate_company_table():
                 ("country", "TEXT"),
                 ("notes", "TEXT"),
                 ("user_limit", "INTEGER DEFAULT 1"),
+                # Token-based billing columns
+                ("token_balance", "INTEGER DEFAULT 0"),
+                ("token_balance_usd", "REAL DEFAULT 0.0"),
+                ("tokens_used_total", "INTEGER DEFAULT 0"),
+                ("last_low_balance_warning", "INTEGER"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -1445,6 +1450,14 @@ def migrate_company_table():
                             pg_column_def = "BOOLEAN DEFAULT true"
                         elif column_name == "user_limit":
                             pg_column_def = "INTEGER DEFAULT 1"
+                        elif column_name == "token_balance":
+                            pg_column_def = "INTEGER DEFAULT 0"
+                        elif column_name == "token_balance_usd":
+                            pg_column_def = "DOUBLE PRECISION DEFAULT 0.0"
+                        elif column_name == "tokens_used_total":
+                            pg_column_def = "INTEGER DEFAULT 0"
+                        elif column_name == "last_low_balance_warning":
+                            pg_column_def = "INTEGER"
                         else:
                             pg_column_def = "TEXT"
 
