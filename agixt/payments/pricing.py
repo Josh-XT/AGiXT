@@ -15,6 +15,7 @@ SUPPORTED_CURRENCIES: Dict[str, Dict[str, Any]] = {
         "network": "solana",
         "decimals": 9,
         "coingecko_id": "solana",
+        "mint": "So11111111111111111111111111111111111111111",
     },
     "USDC": {
         "network": "solana",
@@ -78,6 +79,68 @@ class PriceService:
             "amount_currency": float(amount_currency),
             "exchange_rate": float(self._quantize(rate, 8)),
             "mint": SUPPORTED_CURRENCIES[symbol].get("mint"),
+        }
+
+    async def get_token_quote(self, token_millions: int) -> Dict[str, Any]:
+        """Get quote for token purchase in USD - token_millions is the number of millions of tokens"""
+        token_price_per_million = Decimal(
+            str(getenv("TOKEN_PRICE_PER_MILLION_USD", "1.00"))
+        )
+        min_topup_usd = Decimal(str(getenv("MIN_TOKEN_TOPUP_USD", "10.00")))
+
+        if token_millions < 1:
+            raise HTTPException(
+                status_code=400, detail="Token amount must be at least 1 million"
+            )
+
+        amount_usd = Decimal(token_millions) * token_price_per_million
+
+        if amount_usd < min_topup_usd:
+            min_millions = int(
+                (min_topup_usd / token_price_per_million).to_integral_value(ROUND_UP)
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Minimum top-up is ${float(min_topup_usd)}. Please purchase at least {min_millions}M tokens.",
+            )
+
+        return {
+            "token_millions": token_millions,
+            "tokens": token_millions * 1_000_000,
+            "amount_usd": float(self._quantize(amount_usd, 2)),
+            "price_per_million": float(token_price_per_million),
+        }
+
+    async def get_token_quote_for_currency(
+        self, token_millions: int, currency: str
+    ) -> Dict[str, Any]:
+        """Get quote for token purchase in specific currency"""
+        symbol = currency.upper()
+        if symbol not in SUPPORTED_CURRENCIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported currency '{currency}'. Supported: {', '.join(SUPPORTED_CURRENCIES.keys())}",
+            )
+
+        # Get USD quote first
+        usd_quote = await self.get_token_quote(token_millions)
+        amount_usd = Decimal(str(usd_quote["amount_usd"]))
+
+        # Convert to requested currency
+        rate = await self._get_rate(symbol)
+        decimals = SUPPORTED_CURRENCIES[symbol]["decimals"]
+        amount_currency = self._quantize(amount_usd / rate, decimals)
+
+        return {
+            "token_millions": token_millions,
+            "tokens": token_millions * 1_000_000,
+            "currency": symbol,
+            "network": SUPPORTED_CURRENCIES[symbol].get("network"),
+            "amount_usd": float(usd_quote["amount_usd"]),
+            "amount_currency": float(amount_currency),
+            "exchange_rate": float(self._quantize(rate, 8)),
+            "mint": SUPPORTED_CURRENCIES[symbol].get("mint"),
+            "price_per_million_usd": float(usd_quote["price_per_million"]),
         }
 
     async def _get_rate(self, symbol: str) -> Decimal:
@@ -168,3 +231,7 @@ class PriceService:
     def _quantize(value: Decimal, decimals: int) -> Decimal:
         quant = Decimal(1).scaleb(-decimals)
         return value.quantize(quant, rounding=ROUND_UP)
+
+    def get_token_price(self) -> Decimal:
+        """Get the current token price per million USD"""
+        return Decimal(str(getenv("TOKEN_PRICE_PER_MILLION_USD", "1.00")))

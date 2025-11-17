@@ -23,6 +23,7 @@ from endpoints.Tasks import app as tasks_endpoints
 from endpoints.Legacy import app as legacy_endpoints
 from endpoints.TeslaIntegration import register_tesla_routes
 from endpoints.Webhook import app as webhook_endpoints
+from endpoints.Billing import app as billing_endpoints
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
@@ -147,6 +148,7 @@ app.include_router(auth_endpoints)
 app.include_router(health_endpoints)
 app.include_router(legacy_endpoints)
 app.include_router(webhook_endpoints)
+app.include_router(billing_endpoints)
 
 # Extension router registration will be handled after seed import
 # to ensure hub extensions are available before registration

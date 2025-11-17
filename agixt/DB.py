@@ -2,6 +2,7 @@ import uuid
 import time
 import logging
 import os
+from datetime import datetime
 from sqlalchemy import (
     create_engine,
     Column,
@@ -225,6 +226,13 @@ class Company(Base):
     country = Column(String, nullable=True, default=None)
     notes = Column(Text, nullable=True, default=None)
     user_limit = Column(Integer, nullable=True, default=1)
+    # Token-based billing fields
+    token_balance = Column(Integer, nullable=False, default=0)  # Tokens remaining
+    token_balance_usd = Column(Float, nullable=False, default=0.0)  # USD value
+    tokens_used_total = Column(Integer, nullable=False, default=0)  # Lifetime usage
+    last_low_balance_warning = Column(
+        Integer, nullable=True
+    )  # Last balance when warning shown
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -234,6 +242,31 @@ class Company(Base):
         session.add(new_company)
         session.flush()
         return new_company
+
+
+class CompanyTokenUsage(Base):
+    """Audit trail for token usage by users within a company"""
+
+    __tablename__ = "CompanyTokenUsage"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    total_tokens = Column(Integer, nullable=False, default=0)
+    timestamp = Column(DateTime, nullable=False, default=datetime.now)
 
 
 class UserCompany(Base):
@@ -1114,6 +1147,9 @@ class PaymentTransaction(Base):
         nullable=True,
     )
     seat_count = Column(Integer, nullable=False, default=1)
+    token_amount = Column(
+        Integer, nullable=True
+    )  # Number of tokens purchased (for token-based billing)
     payment_method = Column(String, nullable=False)  # stripe, crypto
     currency = Column(String, nullable=False)
     network = Column(String, nullable=True)
