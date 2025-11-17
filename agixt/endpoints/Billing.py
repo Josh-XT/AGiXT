@@ -442,8 +442,9 @@ async def get_subscription_info(
     # For now, return empty subscription info since we're using token-based billing
     # This endpoint exists to prevent frontend errors
     return {
-        "active": False,
-        "current_period_end": None,
+        "monthly_price_usd": 0.0,
+        "next_billing_date": None,
+        "subscription_status": "inactive",
         "upcoming_cycles": [],
     }
 
