@@ -24,7 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
 import pyotp
 
-from DB import get_session, User, PaymentTransaction
+from DB import get_session, User, PaymentTransaction, Company, UserCompany
 from Models import (
     Detail,
     Login,
@@ -628,6 +628,43 @@ class wallet(Extensions):
             )
             if record.get("status") != "completed":
                 raise HTTPException(status_code=400, detail="Payment not confirmed")
+
+            # Update company user_limit if payment is completed and user has a company
+            seat_count = record.get("seat_count")
+            if seat_count:
+                session = get_session()
+                try:
+                    # Activate the user
+                    user_obj = session.query(User).filter(User.id == user_id).first()
+                    if user_obj:
+                        user_obj.is_active = True
+
+                    # Update company user_limit
+                    user_company = (
+                        session.query(UserCompany)
+                        .filter(UserCompany.user_id == user_id)
+                        .first()
+                    )
+
+                    if user_company:
+                        company = (
+                            session.query(Company)
+                            .filter(Company.id == user_company.company_id)
+                            .first()
+                        )
+                        if company:
+                            company.user_limit = seat_count
+                            logging.info(
+                                f"Updated company {company.id} user_limit to {seat_count} for crypto payment"
+                            )
+
+                    session.commit()
+                except Exception as e:
+                    logging.error(f"Error updating company user_limit: {e}")
+                    session.rollback()
+                finally:
+                    session.close()
+
             return PaymentTransactionResponse(**record)
 
         # ----------------------------

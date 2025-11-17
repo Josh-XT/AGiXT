@@ -224,6 +224,7 @@ class Company(Base):
     zip_code = Column(String, nullable=True, default=None)
     country = Column(String, nullable=True, default=None)
     notes = Column(Text, nullable=True, default=None)
+    user_limit = Column(Integer, nullable=True, default=1)
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -1372,6 +1373,7 @@ def migrate_company_table():
                 ("zip_code", "TEXT"),
                 ("country", "TEXT"),
                 ("notes", "TEXT"),
+                ("user_limit", "INTEGER DEFAULT 1"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -1405,6 +1407,8 @@ def migrate_company_table():
                         # Convert SQLite column definition to PostgreSQL
                         if column_name == "status":
                             pg_column_def = "BOOLEAN DEFAULT true"
+                        elif column_name == "user_limit":
+                            pg_column_def = "INTEGER DEFAULT 1"
                         else:
                             pg_column_def = "TEXT"
 
