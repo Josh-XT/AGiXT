@@ -27,6 +27,7 @@ async def initialize_database(is_restart=False):
 
         # Run all migrations
         DB.migrate_company_table()
+        DB.migrate_payment_transaction_table()
         DB.migrate_extension_table()
         DB.migrate_webhook_outgoing_table()
 

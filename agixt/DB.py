@@ -1472,6 +1472,54 @@ def migrate_company_table():
         logging.debug(f"Company table migration completed or not needed: {e}")
 
 
+def migrate_payment_transaction_table():
+    """
+    Migration function to add token_amount column to payment_transaction table.
+    This supports the new token-based billing system.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # For SQLite, check if column exists
+                result = session.execute(text("PRAGMA table_info(payment_transaction)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "token_amount" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER"
+                        )
+                    )
+                    session.commit()
+            else:
+                # For PostgreSQL, check if column exists
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'payment_transaction' AND column_name = 'token_amount'
+                    """
+                    )
+                )
+
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            "ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER"
+                        )
+                    )
+                    session.commit()
+
+    except Exception as e:
+        logging.debug(
+            f"payment_transaction table migration completed or not needed: {e}"
+        )
+
+
 def migrate_extension_table():
     """
     Migration function to add category_id field to the Extension table if it doesn't exist.
@@ -1736,6 +1784,7 @@ if __name__ == "__main__":
     # Initialize extension tables after core tables
     initialize_extension_tables()
     migrate_company_table()
+    migrate_payment_transaction_table()
     migrate_extension_table()
     migrate_webhook_outgoing_table()
     setup_default_extension_categories()
