@@ -180,6 +180,70 @@ class StripePaymentService:
             "seat_count": current_seat_count,
         }
 
+    async def create_token_payment_intent(
+        self,
+        *,
+        amount_usd: float,
+        token_amount: int,
+        metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create payment intent for token purchase"""
+        if not self.api_key or self.api_key.lower() == "none":
+            raise HTTPException(
+                status_code=400, detail="Stripe API key is not configured"
+            )
+
+        amount_cents = int(
+            (Decimal(str(amount_usd)) * Decimal("100")).quantize(
+                Decimal("1"), rounding=ROUND_UP
+            )
+        )
+        reference_code = uuid.uuid4().hex[:12].upper()
+
+        stripe_payload = await self._create_payment_intent_async(
+            amount_cents=amount_cents,
+            metadata={
+                **(metadata or {}),
+                "reference_code": reference_code,
+                "token_amount": token_amount,
+                "type": "token_purchase",
+            },
+        )
+
+        session = get_session()
+        try:
+            record = PaymentTransaction(
+                reference_code=reference_code,
+                user_id=user_id,
+                company_id=company_id,
+                seat_count=0,  # Not seat-based
+                token_amount=token_amount,
+                payment_method="stripe",
+                currency="USD",
+                network="stripe",
+                amount_usd=amount_usd,
+                amount_currency=amount_usd,
+                exchange_rate=1.0,
+                stripe_payment_intent_id=stripe_payload["id"],
+                status=stripe_payload.get("status", "requires_payment_method"),
+                metadata_json=json.dumps(metadata or {}),
+            )
+            session.add(record)
+            session.commit()
+        finally:
+            session.close()
+
+        return {
+            "reference_code": reference_code,
+            "client_secret": stripe_payload["client_secret"],
+            "payment_intent_id": stripe_payload["id"],
+            "amount_usd": amount_usd,
+            "token_amount": token_amount,
+            "status": stripe_payload.get("status"),
+        }
+
     async def _create_payment_intent_async(
         self, *, amount_cents: int, metadata: Dict[str, Any]
     ) -> Dict[str, Any]:

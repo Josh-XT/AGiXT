@@ -31,14 +31,44 @@ class CryptoPaymentService:
     async def create_invoice(
         self,
         *,
-        seat_count: int,
+        amount_usd: Optional[float] = None,
+        seat_count: Optional[int] = None,
+        token_amount: Optional[int] = None,
         currency: str,
-        expires_in_minutes: int,
+        expires_in_minutes: int = 30,
         memo: Optional[str] = None,
         user_id: Optional[str] = None,
         company_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        quote = await self.price_service.get_quote(currency, seat_count)
+        # Support both seat-based and token-based billing
+        if amount_usd is not None:
+            # Token-based: amount_usd already provided
+            quote_amount_usd = Decimal(str(amount_usd))
+            # Still need to get currency conversion
+            rate = await self.price_service._get_rate(currency.upper())
+            symbol = currency.upper()
+            decimals = SUPPORTED_CURRENCIES[symbol]["decimals"]
+            amount_currency = self.price_service._quantize(
+                quote_amount_usd / rate, decimals
+            )
+            quote = {
+                "currency": symbol,
+                "network": SUPPORTED_CURRENCIES[symbol].get("network"),
+                "amount_usd": float(quote_amount_usd),
+                "amount_currency": float(amount_currency),
+                "exchange_rate": float(self.price_service._quantize(rate, 8)),
+                "mint": SUPPORTED_CURRENCIES[symbol].get("mint"),
+            }
+            actual_seat_count = seat_count or 0
+        else:
+            # Seat-based: use existing logic
+            if seat_count is None:
+                raise HTTPException(
+                    status_code=400, detail="Either amount_usd or seat_count required"
+                )
+            quote = await self.price_service.get_quote(currency, seat_count)
+            actual_seat_count = seat_count
+
         reference_code = self._generate_reference()
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
         memo_value = memo or f"AGIXT-{reference_code}"
@@ -51,7 +81,8 @@ class CryptoPaymentService:
                 reference_code=reference_code,
                 user_id=user_id,
                 company_id=company_id,
-                seat_count=seat_count,
+                seat_count=actual_seat_count,
+                token_amount=token_amount,
                 payment_method="crypto",
                 currency=quote["currency"],
                 network=quote.get("network"),
@@ -257,6 +288,17 @@ class CryptoPaymentService:
                 "confirmed_amount": str(received_amount),
             }
         )
+
+        # Credit tokens to company if this is a token purchase
+        if record.token_amount and record.company_id:
+            from MagicalAuth import MagicalAuth
+
+            auth = MagicalAuth()
+            auth.add_tokens_to_company(
+                company_id=record.company_id,
+                token_amount=record.token_amount,
+                amount_usd=float(record.amount_usd),
+            )
 
     @staticmethod
     def _extract_sol_amount(

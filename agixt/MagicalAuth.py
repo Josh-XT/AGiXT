@@ -11,6 +11,7 @@ from DB import (
     default_roles,
     TokenBlacklist,
     PaymentTransaction,
+    CompanyTokenUsage,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -2300,57 +2301,174 @@ class MagicalAuth:
     def increase_token_counts(self, input_tokens: int = 0, output_tokens: int = 0):
         self.validate_user()
         session = get_session()
-        counts = self.get_token_counts()
-        current_input_tokens = int(counts["input_tokens"])
-        current_output_tokens = int(counts["output_tokens"])
-        updated_input_tokens = current_input_tokens + input_tokens
-        updated_output_tokens = current_output_tokens + output_tokens
-        user_preferences = (
-            session.query(UserPreferences)
-            .filter(UserPreferences.user_id == self.user_id)
-            .all()
-        )
-        if not user_preferences:
-            user_input_tokens = None
-            user_output_tokens = None
-        else:
-            user_input_tokens = next(
-                (x for x in user_preferences if x.pref_key == "input_tokens"),
-                None,
+        total_tokens = input_tokens + output_tokens
+
+        try:
+            # Get user's company
+            user_company = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .first()
             )
-            user_output_tokens = next(
-                (x for x in user_preferences if x.pref_key == "output_tokens"),
-                None,
+
+            if user_company:
+                company = (
+                    session.query(Company)
+                    .filter(Company.id == user_company.company_id)
+                    .first()
+                )
+
+                if company:
+                    # Check if company has sufficient balance
+                    if company.token_balance < total_tokens:
+                        session.close()
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Insufficient token balance. Please top up your company's token balance.",
+                        )
+
+                    # Deduct from company balance
+                    company.token_balance -= total_tokens
+                    company.tokens_used_total += total_tokens
+
+                    # Record usage for audit trail
+                    usage = CompanyTokenUsage(
+                        company_id=company.id,
+                        user_id=self.user_id,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens,
+                    )
+                    session.add(usage)
+
+            # Still track per-user for analytics (existing logic)
+            counts = self.get_token_counts()
+            current_input_tokens = int(counts["input_tokens"])
+            current_output_tokens = int(counts["output_tokens"])
+            updated_input_tokens = current_input_tokens + input_tokens
+            updated_output_tokens = current_output_tokens + output_tokens
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == self.user_id)
+                .all()
             )
-        # Update input tokens
-        if user_input_tokens is None:
-            user_input_tokens = UserPreferences(
-                user_id=self.user_id,
-                pref_key="input_tokens",
-                pref_value=str(updated_input_tokens),
-            )
-            session.add(user_input_tokens)
+            if not user_preferences:
+                user_input_tokens = None
+                user_output_tokens = None
+            else:
+                user_input_tokens = next(
+                    (x for x in user_preferences if x.pref_key == "input_tokens"),
+                    None,
+                )
+                user_output_tokens = next(
+                    (x for x in user_preferences if x.pref_key == "output_tokens"),
+                    None,
+                )
+            # Update input tokens
+            if user_input_tokens is None:
+                user_input_tokens = UserPreferences(
+                    user_id=self.user_id,
+                    pref_key="input_tokens",
+                    pref_value=str(updated_input_tokens),
+                )
+                session.add(user_input_tokens)
+            else:
+                user_input_tokens.pref_value = str(updated_input_tokens)
+
+            # Update output tokens
+            if user_output_tokens is None:
+                user_output_tokens = UserPreferences(
+                    user_id=self.user_id,
+                    pref_key="output_tokens",
+                    pref_value=str(updated_output_tokens),
+                )
+                session.add(user_output_tokens)
+            else:
+                user_output_tokens.pref_value = str(updated_output_tokens)
+
             session.commit()
-        else:
-            user_input_tokens.pref_value = str(updated_input_tokens)
+            return {
+                "input_tokens": updated_input_tokens,
+                "output_tokens": updated_output_tokens,
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error increasing token counts: {str(e)}")
+            raise
+        finally:
+            session.close()
+
+    def get_company_token_balance(self, company_id: str) -> dict:
+        """Get company token balance and usage stats"""
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            low_balance_threshold = int(getenv("LOW_BALANCE_WARNING_THRESHOLD"))
+            return {
+                "token_balance": company.token_balance,
+                "token_balance_usd": company.token_balance_usd,
+                "tokens_used_total": company.tokens_used_total,
+                "low_balance_warning": company.token_balance <= low_balance_threshold,
+            }
+        finally:
+            session.close()
+
+    def should_show_low_balance_warning(self, company_id: str) -> bool:
+        """Check if low balance warning should be shown to admin"""
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                return False
+
+            current_balance = company.token_balance
+            last_warning = company.last_low_balance_warning or 0
+            low_balance_threshold = int(getenv("LOW_BALANCE_WARNING_THRESHOLD"))
+            warning_increment = int(getenv("TOKEN_WARNING_INCREMENT"))
+
+            # Show warning if below threshold and dropped at least increment since last warning
+            if (
+                current_balance <= low_balance_threshold
+                and (last_warning - current_balance) >= warning_increment
+            ):
+                return True
+            return False
+        finally:
+            session.close()
+
+    def dismiss_low_balance_warning(self, company_id: str):
+        """Admin dismisses warning, record current balance"""
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            company.last_low_balance_warning = company.token_balance
             session.commit()
-        # Update output tokens
-        if user_output_tokens is None:
-            user_output_tokens = UserPreferences(
-                user_id=self.user_id,
-                pref_key="output_tokens",
-                pref_value=str(updated_output_tokens),
-            )
-            session.add(user_output_tokens)
+        finally:
+            session.close()
+
+    def add_tokens_to_company(
+        self, company_id: str, token_amount: int, amount_usd: float
+    ):
+        """Add tokens to company balance after successful payment"""
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            company.token_balance += token_amount
+            company.token_balance_usd += amount_usd
             session.commit()
-        else:
-            user_output_tokens.pref_value = str(updated_output_tokens)
-            session.commit()
-        session.close()
-        return {
-            "input_tokens": updated_input_tokens,
-            "output_tokens": updated_output_tokens,
-        }
+        finally:
+            session.close()
 
     def get_user_companies(self) -> List[str]:
         """Get list of company IDs that the user has access to"""
