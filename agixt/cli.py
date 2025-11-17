@@ -166,9 +166,8 @@ def get_default_env_vars():
         "EXTENSIONS_HUB": "",
         "EXTENSIONS_HUB_TOKEN": "",
         # Payment configuration
-        "PAYMENT_WALLET_ADDRESS": "",
+        "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
-        "MONTHLY_PRICE_PER_USER_USD": "0",
         "TOKEN_PRICE_PER_MILLION_USD": "0",
         "MIN_TOKEN_TOPUP_USD": "10.00",
         "STRIPE_API_KEY": "",
