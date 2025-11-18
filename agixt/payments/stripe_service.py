@@ -195,10 +195,20 @@ class StripePaymentService:
                 status_code=400, detail="Stripe API key is not configured"
             )
 
-        amount_cents = int(
-            (Decimal(str(amount_usd)) * Decimal("100")).quantize(
-                Decimal("1"), rounding=ROUND_UP
+        # Defensive: do not create Stripe payment intents for zero or negative amounts
+        try:
+            amount_decimal = Decimal(str(amount_usd))
+        except Exception:
+            amount_decimal = Decimal("0")
+
+        if amount_decimal <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid amount: billing is disabled or the requested amount is zero",
             )
+
+        amount_cents = int(
+            (amount_decimal * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_UP)
         )
         reference_code = uuid.uuid4().hex[:12].upper()
 

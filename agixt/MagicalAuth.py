@@ -1701,10 +1701,20 @@ class MagicalAuth:
             price_value = float(str(price_env))
         except (TypeError, ValueError):
             price_value = 0.0
+        # Determine if billing is enabled globally (token price > 0)
+        price_service = PriceService()
+        try:
+            token_price = price_service.get_token_price()
+        except Exception:
+            # If pricing service fails for any reason, default to billing enabled
+            token_price = 1
+        billing_enabled = token_price > 0
+
         wallet_paywall_enabled = (
             bool(wallet_address)
             and str(wallet_address).lower() != "none"
             and price_value > 0
+            and billing_enabled
         )
         has_active_subscription = False
         user_requirements = self.registration_requirements()
@@ -1780,22 +1790,28 @@ class MagicalAuth:
                                 "stripe_id" not in user_preferences
                                 or not user_preferences["stripe_id"].startswith("cus_")
                             ):
-                                customer = stripe.Customer.create(email=user.email)
-                                user_preferences["stripe_id"] = customer.id
-                                user_preference = UserPreferences(
-                                    user_id=self.user_id,
-                                    pref_key="stripe_id",
-                                    pref_value=customer.id,
-                                )
-                                session.add(user_preference)
-                                session.commit()
-                                raise HTTPException(
-                                    status_code=402,
-                                    detail={
-                                        "message": "No active subscriptions.",
-                                        "customer_id": customer.id,
-                                    },
-                                )
+                                # Only create Stripe customers / enforce paywall when billing is enabled
+                                if billing_enabled:
+                                    customer = stripe.Customer.create(email=user.email)
+                                    user_preferences["stripe_id"] = customer.id
+                                    user_preference = UserPreferences(
+                                        user_id=self.user_id,
+                                        pref_key="stripe_id",
+                                        pref_value=customer.id,
+                                    )
+                                    session.add(user_preference)
+                                    session.commit()
+                                    raise HTTPException(
+                                        status_code=402,
+                                        detail={
+                                            "message": "No active subscriptions.",
+                                            "customer_id": customer.id,
+                                        },
+                                    )
+                                else:
+                                    logging.info(
+                                        f"Billing disabled; skipping subscription paywall for user {self.user_id}"
+                                    )
                             else:
                                 relevant_subscriptions = self.get_subscribed_products(
                                     api_key, user.email
@@ -1804,38 +1820,45 @@ class MagicalAuth:
                                     logging.info(
                                         f"No active subscriptions for this app detected."
                                     )
-                                    if getenv("STRIPE_PRICING_TABLE_ID"):
-                                        c_session = stripe.CustomerSession.create(
-                                            customer=user_preferences["stripe_id"],
-                                            components={
-                                                "pricing_table": {"enabled": True}
+                                    # Only enforce subscription locking when billing enabled
+                                    if billing_enabled:
+                                        if getenv("STRIPE_PRICING_TABLE_ID"):
+                                            c_session = stripe.CustomerSession.create(
+                                                customer=user_preferences["stripe_id"],
+                                                components={
+                                                    "pricing_table": {"enabled": True}
+                                                },
+                                            )
+                                        else:
+                                            c_session = ""
+
+                                        user = (
+                                            session.query(User)
+                                            .filter(User.id == self.user_id)
+                                            .first()
+                                        )
+                                        user.is_active = False
+                                        session.commit()
+                                        session.close()
+                                        raise HTTPException(
+                                            status_code=402,
+                                            detail={
+                                                "message": f"No active subscriptions.",
+                                                "customer_session": c_session,
+                                                "customer_id": user_preferences[
+                                                    "stripe_id"
+                                                ],
                                             },
                                         )
                                     else:
-                                        c_session = ""
-
-                                    user = (
-                                        session.query(User)
-                                        .filter(User.id == self.user_id)
-                                        .first()
-                                    )
-                                    user.is_active = False
-                                    session.commit()
-                                    session.close()
-                                    raise HTTPException(
-                                        status_code=402,
-                                        detail={
-                                            "message": f"No active subscriptions.",
-                                            "customer_session": c_session,
-                                            "customer_id": user_preferences[
-                                                "stripe_id"
-                                            ],
-                                        },
-                                    )
+                                        logging.info(
+                                            f"Billing disabled; skipping subscription enforcement for user {self.user_id}"
+                                        )
             if not has_active_subscription and not user.email.endswith(".xt"):
                 if wallet_paywall_enabled and not self._has_active_payment_transaction(
                     session, user_companies
                 ):
+                    # wallet_paywall_enabled already considers billing_enabled; enforce only when billing is enabled
                     user.is_active = False
                     session.commit()
                     session.close()
