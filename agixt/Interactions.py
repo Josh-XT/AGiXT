@@ -350,7 +350,7 @@ class Interactions:
         if context != [] and context != "":
             if isinstance(context, list):
                 context = "\n".join(context)
-            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user. If the file has not been referenced in context or from activities, do not attempt to link to it as it may not exist. Use exact file names and links from context only.** If linking an image, use the format `![<alt_text>](<url>)`\n"
+            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user. If the file has not been referenced in context or from activities, do not attempt to link to it as it may not exist. Use exact file names and links from context only.** If linking an image, use the format `![alt_text](URL). The assistant can render HTML in chat including using javascript and threejs just by using an HTML code block.`\n"
         else:
             context = ""
         file_contents = ""
