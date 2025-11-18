@@ -113,6 +113,13 @@ async def create_token_topup_crypto(
         request.token_millions, request.currency
     )
 
+    # If billing is disabled (price == 0), do not create crypto invoices
+    if float(quote.get("amount_usd", 0)) <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Billing is disabled; token purchases are not available",
+        )
+
     # Create crypto invoice
     crypto_service = CryptoPaymentService()
     try:
@@ -166,6 +173,13 @@ async def create_token_topup_stripe(
     # Get pricing quote
     price_service = PriceService()
     quote = await price_service.get_token_quote(request.token_millions)
+
+    # If billing is disabled (price == 0), do not create Stripe payment intents
+    if float(quote.get("amount_usd", 0)) <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Billing is disabled; token purchases are not available",
+        )
 
     # Create Stripe payment intent
     stripe_service = StripePaymentService()

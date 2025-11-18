@@ -249,10 +249,8 @@ class PriceService:
     def get_token_price(self) -> Decimal:
         """Get the current token price per million USD"""
         try:
-            token_price = Decimal(str(getenv("TOKEN_PRICE_PER_MILLION_USD", "1.00")))
-            # Ensure token price is positive
-            if token_price <= 0:
-                return Decimal("1.00")
-            return token_price
+            token_price = Decimal(str(getenv("TOKEN_PRICE_PER_MILLION_USD", "0")))
+            # Return the actual value, including 0 (which means billing disabled)
+            return token_price if token_price >= 0 else Decimal("0")
         except Exception:
-            return Decimal("1.00")
+            return Decimal("0")
