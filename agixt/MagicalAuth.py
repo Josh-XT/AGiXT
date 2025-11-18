@@ -12,6 +12,7 @@ from DB import (
     TokenBlacklist,
     PaymentTransaction,
     CompanyTokenUsage,
+    ExtensionCategory,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -391,12 +392,12 @@ def get_agents(email, company=None):
             .all()
         )
 
-        # Check for onboarded11102025 setting
+        # Check for agentonboarded11182025 setting
         onboarded = False
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "onboarded11102025":
+            elif setting.name == "agentonboarded11182025":
                 onboarded = True
 
         if company_id and company:
@@ -416,21 +417,20 @@ def get_agents(email, company=None):
         # Retroactive onboarding: Enable essential abilities if not already onboarded
         if not onboarded:
             try:
-                # Get essential_abilities and notes extensions
-                essential_ext = (
-                    session.query(Extension)
-                    .filter(Extension.name == "essential_abilities")
+                # Get all extensions in the Core Abilities category
+                core_abilities_category = (
+                    session.query(ExtensionCategory)
+                    .filter(ExtensionCategory.name == "Core Abilities")
                     .first()
-                )
-                notes_ext = (
-                    session.query(Extension).filter(Extension.name == "notes").first()
                 )
 
                 extensions_to_enable = []
-                if essential_ext:
-                    extensions_to_enable.append(essential_ext)
-                if notes_ext:
-                    extensions_to_enable.append(notes_ext)
+                if core_abilities_category:
+                    extensions_to_enable = (
+                        session.query(Extension)
+                        .filter(Extension.category_id == core_abilities_category.id)
+                        .all()
+                    )
 
                 # Enable all commands from these extensions for this agent
                 enabled_count = 0
@@ -440,7 +440,6 @@ def get_agents(email, company=None):
                         .filter(Command.extension_id == extension.id)
                         .all()
                     )
-
                     for command in commands:
                         # Check if command is already enabled for this agent
                         existing = (
@@ -458,10 +457,14 @@ def get_agents(email, company=None):
                             )
                             session.add(agent_command)
                             enabled_count += 1
+                        else:
+                            # Enable it if it was disabled
+                            existing.state = True
+                            enabled_count += 1
 
                 # Mark as onboarded
                 onboarded_setting = AgentSettingModel(
-                    agent_id=agent.id, name="onboarded11102025", value="true"
+                    agent_id=agent.id, name="agentonboarded11182025", value="true"
                 )
                 session.add(onboarded_setting)
                 session.commit()

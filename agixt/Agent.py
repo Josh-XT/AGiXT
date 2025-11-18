@@ -13,6 +13,7 @@ from DB import (
     Provider as ProviderModel,
     User,
     Extension,
+    ExtensionCategory,
     UserPreferences,
     get_session,
     UserOAuth,
@@ -290,13 +291,21 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         )
         session.add(agent_setting)
 
-    # Auto-enable commands from essential_abilities and notes extensions
-    essential_extensions = ["Essential Abilities", "Notes"]
-    for extension_name in essential_extensions:
-        extension = (
-            session.query(Extension).filter(Extension.name == extension_name).first()
+    # Auto-enable commands from Core Abilities category
+    core_abilities_category = (
+        session.query(ExtensionCategory)
+        .filter(ExtensionCategory.name == "Core Abilities")
+        .first()
+    )
+
+    if core_abilities_category:
+        core_extensions = (
+            session.query(Extension)
+            .filter(Extension.category_id == core_abilities_category.id)
+            .all()
         )
-        if extension:
+
+        for extension in core_extensions:
             # Get all commands from this extension
             extension_commands = (
                 session.query(Command)
@@ -343,14 +352,6 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                         agent_id=agent.id, command_id=command.id, state=enabled
                     )
                     session.add(agent_command)
-
-    # Set onboarded11102025 to true for new agents since we auto-enabled essential commands
-    onboarded_setting = AgentSettingModel(
-        agent_id=agent.id,
-        name="onboarded11102025",
-        value="true",
-    )
-    session.add(onboarded_setting)
 
     session.commit()
     session.close()
@@ -610,9 +611,9 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Check if the agent is in the output already
         if agent.name in [a["name"] for a in output]:
             continue
-        # Get the agent settings `company_id` and `onboarded11102025` if defined
+        # Get the agent settings `company_id` and `agentonboarded11182025` if defined
         company_id = None
-        onboarded11102025 = None
+        agentonboarded11182025 = None
         agent_settings = (
             session.query(AgentSettingModel)
             .filter(AgentSettingModel.agent_id == agent.id)
@@ -621,8 +622,8 @@ def get_agents(user=DEFAULT_USER, company=None):
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "onboarded11102025":
-                onboarded11102025 = setting.value
+            elif setting.name == "agentonboarded11182025":
+                agentonboarded11182025 = setting.value
         if company_id and company:
             if company_id != company:
                 continue
@@ -638,24 +639,29 @@ def get_agents(user=DEFAULT_USER, company=None):
             session.add(agent_setting)
             session.commit()
 
-        # Check if agent needs onboarding (enable essential_abilities and notes commands)
-        if not onboarded11102025 or onboarded11102025.lower() != "true":
-            # Auto-enable commands from essential_abilities and notes extensions
-            essential_extensions = ["Essential Abilities", "Notes"]
-            for extension_name in essential_extensions:
-                extension = (
+        # Check if agent needs onboarding (enable Core Abilities commands)
+        if not agentonboarded11182025 or agentonboarded11182025.lower() != "true":
+            # Get all extensions in the Core Abilities category
+            core_abilities_category = (
+                session.query(ExtensionCategory)
+                .filter(ExtensionCategory.name == "Core Abilities")
+                .first()
+            )
+
+            if core_abilities_category:
+                core_extensions = (
                     session.query(Extension)
-                    .filter(Extension.name == extension_name)
-                    .first()
+                    .filter(Extension.category_id == core_abilities_category.id)
+                    .all()
                 )
-                if extension:
-                    # Get all commands from this extension
+
+                # Enable all commands from these extensions
+                for extension in core_extensions:
                     extension_commands = (
                         session.query(Command)
                         .filter(Command.extension_id == extension.id)
                         .all()
                     )
-                    # Enable all commands from these extensions
                     for command in extension_commands:
                         # Check if agent command already exists
                         existing_agent_command = (
@@ -675,10 +681,10 @@ def get_agents(user=DEFAULT_USER, company=None):
                             # Enable the command if it was disabled
                             existing_agent_command.state = True
 
-            # Create the onboarded11102025 setting
+            # Create the agentonboarded11182025 setting
             agent_setting = AgentSettingModel(
                 agent_id=agent.id,
-                name="onboarded11102025",
+                name="agentonboarded11182025",
                 value="true",
             )
             session.add(agent_setting)
