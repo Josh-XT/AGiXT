@@ -1727,7 +1727,7 @@ class MagicalAuth:
             # If pricing service fails for any reason, default to billing enabled
             token_price = 1
         billing_enabled = token_price > 0
-        
+
         # Separate subscription billing from token billing
         subscription_billing_enabled = price_value > 0
         token_billing_enabled = token_price > 0
