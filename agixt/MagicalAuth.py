@@ -1301,6 +1301,24 @@ class MagicalAuth:
                 return True
         return False
 
+    def _has_sufficient_token_balance(self, session, user_companies) -> bool:
+        """Check if any of the user's companies have a positive token balance"""
+        company_ids = {
+            user_company.company_id
+            for user_company in user_companies
+            if getattr(user_company, "company_id", None)
+        }
+        if company_ids:
+            company_with_balance = (
+                session.query(Company)
+                .filter(Company.id.in_(list(company_ids)))
+                .filter(Company.token_balance > 0)
+                .first()
+            )
+            if company_with_balance:
+                return True
+        return False
+
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
@@ -1709,12 +1727,16 @@ class MagicalAuth:
             # If pricing service fails for any reason, default to billing enabled
             token_price = 1
         billing_enabled = token_price > 0
+        
+        # Separate subscription billing from token billing
+        subscription_billing_enabled = price_value > 0
+        token_billing_enabled = token_price > 0
 
         wallet_paywall_enabled = (
             bool(wallet_address)
             and str(wallet_address).lower() != "none"
             and price_value > 0
-            and billing_enabled
+            and token_billing_enabled
         )
         has_active_subscription = False
         user_requirements = self.registration_requirements()
@@ -1810,7 +1832,7 @@ class MagicalAuth:
                                     )
                                 else:
                                     logging.info(
-                                        f"Billing disabled; skipping subscription paywall for user {self.user_id}"
+                                        f"Subscription billing disabled; skipping subscription paywall for user {self.user_id}"
                                     )
                             else:
                                 relevant_subscriptions = self.get_subscribed_products(
@@ -1820,8 +1842,8 @@ class MagicalAuth:
                                     logging.info(
                                         f"No active subscriptions for this app detected."
                                     )
-                                    # Only enforce subscription locking when billing enabled
-                                    if billing_enabled:
+                                    # Only enforce subscription locking when subscription billing enabled
+                                    if subscription_billing_enabled:
                                         if getenv("STRIPE_PRICING_TABLE_ID"):
                                             c_session = stripe.CustomerSession.create(
                                                 customer=user_preferences["stripe_id"],
@@ -1852,10 +1874,11 @@ class MagicalAuth:
                                         )
                                     else:
                                         logging.info(
-                                            f"Billing disabled; skipping subscription enforcement for user {self.user_id}"
+                                            f"Subscription billing disabled; skipping subscription enforcement for user {self.user_id}"
                                         )
             if not has_active_subscription and not user.email.endswith(".xt"):
-                if wallet_paywall_enabled and not self._has_active_payment_transaction(
+                # For token-based billing, check if company has sufficient token balance
+                if wallet_paywall_enabled and not self._has_sufficient_token_balance(
                     session, user_companies
                 ):
                     # wallet_paywall_enabled already considers billing_enabled; enforce only when billing is enabled
@@ -1865,7 +1888,7 @@ class MagicalAuth:
                     raise HTTPException(
                         status_code=402,
                         detail={
-                            "message": "No active payments found.",
+                            "message": "Insufficient token balance. Please top up your tokens.",
                             "customer_session": {"client_secret": None},
                             "wallet_address": wallet_address,
                             "monthly_price_usd": price_value,

@@ -269,6 +269,10 @@ async def confirm_stripe_payment(
         stripe_lib.api_key = getenv("STRIPE_API_KEY")
         payment_intent = stripe_lib.PaymentIntent.retrieve(request.payment_intent_id)
 
+        logging.info(
+            f"Retrieved Stripe PaymentIntent {request.payment_intent_id}: status={getattr(payment_intent, 'status', None)} request_id={getattr(payment_intent, 'id', None)}"
+        )
+
         # Check if payment succeeded
         if payment_intent.status == "succeeded":
             # Store values before session operations
@@ -298,6 +302,7 @@ async def confirm_stripe_payment(
                 "tokens_credited": tokens_credited,
             }
         elif payment_intent.status == "processing":
+            logging.info(f"PaymentIntent {request.payment_intent_id} still processing")
             session.close()
             return {
                 "success": False,
@@ -309,6 +314,9 @@ async def confirm_stripe_payment(
                 status_code=400, detail="Payment requires a valid payment method"
             )
         else:
+            logging.warning(
+                f"PaymentIntent {request.payment_intent_id} returned unexpected status: {getattr(payment_intent, 'status', None)}"
+            )
             session.close()
             raise HTTPException(
                 status_code=400,
