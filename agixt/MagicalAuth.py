@@ -4062,19 +4062,46 @@ def cleanup_expired_oauth_tokens():
         session.close()
 
 
+def _normalize_user_id_value(user_id):
+    """Ensure downstream helpers receive a scalar user identifier."""
+
+    if isinstance(user_id, dict):
+        for key in ("id", "user_id"):
+            candidate = user_id.get(key)
+            if candidate is not None:
+                return candidate
+
+        email = user_id.get("email")
+        if email:
+            try:
+                return get_user_id(email)
+            except HTTPException:
+                return None
+
+        return None
+
+    return user_id
+
+
 def get_user_timezone(user_id):
+    normalized_user_id = _normalize_user_id_value(user_id)
+    if normalized_user_id is None:
+        return getenv("TZ") or "UTC"
+
     session = get_session()
     user_preferences = (
         session.query(UserPreferences)
         .filter(
-            UserPreferences.user_id == user_id,
+            UserPreferences.user_id == normalized_user_id,
             UserPreferences.pref_key == "timezone",
         )
         .first()
     )
     if not user_preferences:
         user_preferences = UserPreferences(
-            user_id=user_id, pref_key="timezone", pref_value=getenv("TZ")
+            user_id=normalized_user_id,
+            pref_key="timezone",
+            pref_value=getenv("TZ") or "UTC",
         )
         session.add(user_preferences)
         session.commit()
@@ -4085,16 +4112,23 @@ def get_user_timezone(user_id):
 
 def convert_time(utc_time, user_id) -> datetime:
     """Convert a UTC time to the user's local timezone"""
+    if utc_time is None:
+        return None
+
+    normalized_user_id = _normalize_user_id_value(user_id)
     gmt = pytz.timezone("GMT")
-    local_tz = pytz.timezone(get_user_timezone(user_id))
-    return gmt.localize(utc_time).astimezone(local_tz)
+    local_tz = pytz.timezone(get_user_timezone(normalized_user_id))
+    if utc_time.tzinfo is None:
+        return gmt.localize(utc_time).astimezone(local_tz)
+    return utc_time.astimezone(local_tz)
 
 
 def convert_user_time_to_utc(user_time, user_id) -> datetime:
     """Convert a user's local time to UTC for database storage"""
     import pytz
 
-    user_timezone = get_user_timezone(user_id)
+    normalized_user_id = _normalize_user_id_value(user_id)
+    user_timezone = get_user_timezone(normalized_user_id)
     local_tz = pytz.timezone(user_timezone)
 
     # If the user_time is a naive datetime, assume it's in user's timezone
@@ -4109,7 +4143,8 @@ def get_current_user_time(user_id) -> datetime:
     """Get the current time in the user's timezone"""
     import pytz
 
-    user_timezone = get_user_timezone(user_id)
+    normalized_user_id = _normalize_user_id_value(user_id)
+    user_timezone = get_user_timezone(normalized_user_id)
     local_tz = pytz.timezone(user_timezone)
     return datetime.now(local_tz)
 
