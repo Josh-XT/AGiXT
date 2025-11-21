@@ -189,6 +189,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Gather information from website URLs": self.browse_links,
             "Download File from URL": self.download_file_from_url,
             "View Image": self.view_image,
+            "Get Web UI Tips": self.get_webui_tips,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -2652,3 +2653,110 @@ Execute this task thoroughly and report on the completion."""
             return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()
+
+    async def get_webui_tips(page: str = "all") -> str:
+        """
+        Provide quick tips for navigating and using the AGiXT web UI. This is useful for assisting users with navigating the web interface.
+
+        Args:
+            page (str): Specific page to get tips for (default: "all", options: "chat", "billing", "team", "automation")
+        Returns:
+            str: Markdown formatted tips for the specified page or all pages
+
+        Note: It is generally best to get all pages unless the users question is specific enough to narrow it down.
+        - The user is talking to the assistant through the AGiXT web UI, if they ask how to do something within the ui or application, use this to get tips.
+        - AGiXT is an open source AI agent platform that allows users to create and manage AI agents, automation, and more through the multitenant system.
+        """
+        if not page or str(page).lower() == "none":
+            page = "all"
+        general_information = """## Tips for Navigating the AGiXT Web UI
+- With the exception of the chat page, each page has a chat icon in the top right next to the user avatar which will take them back to the chat page.
+- User avatar can be changed on gravatar.com using the email address associated with their user account.
+- Themes are accessible by clicking the user avatar in the top right and selecting `Themes` from the dropdown menu. The options are dark and light."""
+        chat_page = """## Chat page
+
+To start a new conversation, click the `+` button on the top right of the page.
+
+### Agent switching, extensions, training, and settings
+
+In the bottom right of the chat page above the input box, you will see `AGENT NAME at TEAM NAME`, which indicates the currently selected agent and team/company. Click on this to open the agent switcher modal, where you can:
+
+- Switch between agents you have access to
+- Click "Extensions": Access the agent's extensions where third party software can be connected and abilities granted to the selected agent
+- Click "Training": Access the agent's training section to update the agents mandatory context, and train from files or URLs
+- Click "Settings": Access the agent's settings to modify the agent's name, which inference providers it uses, to clone the agent, share it with your team, or delete it.
+- Click "+ Add Agent": Create a new agent. On the agent creation screen, enter the new agent's name and select the company it is to be associated with, then click "Create Agent"
+
+### Conversational Workspaces
+
+Each conversation has its own workspace for the agent to work in. Any files uploaded by the user (paperclip button on the chat input box) or created/downloaded/modified by the agent during the conversation are stored in that conversation's workspace. You can view and manage the files in the workspace by clicking the folder icon next to the paperclip button. You can create new folders, upload files, download files, delete files, and navigate between folders within the workspace interface.
+
+### Conversation Sharing
+
+Conversations and their workspaces can be shared with other users. You can choose to share it as a public link, to a user in your company by email, or to export it as a JSON file. To share a conversation, click the share icon at the top right of the chat page. You can also optionally set an expiration date for the shared link.
+
+### Conversation Search
+
+The search icon at the top right of the chat page allows you to search for different conversations by name or content and switch to them quickly. There is also a list of recent conversations in the left sidebar for easy access (click the 3 horizontal lines at the top left to toggle the sidebar).
+
+### Voice Input and Output
+
+The microphone button on the chat input box allows you to use voice input for your messages. Click the microphone button to start recording your voice message, and click it again to stop recording. Your voice message will be transcribed to text and sent as a chat message to the agent.
+
+On agent responses, there is a speaker icon which will translate the agent's text response into speech using text-to-speech synthesis. Click the speaker icon to listen to the agent's response.
+
+### Other chat buttons that show up on messages
+
+- The edit (pencil) button allows you to edit any message in the conversation as well as regenerate agent responses post-edit optionally.
+- The fork button allows you to fork the current conversation into a new conversation, preserving the context up to that point.
+- The copy button allows you to copy the message text to your clipboard in markdown format.
+- The delete (trash can) button allows you to delete any message in the conversation.
+- The thumbs up and thumbs down buttons allow you to provide feedback on agent responses to help improve the agent's performance. (AI responses only)
+"""
+        billing_page = """
+## Billing page
+
+The billing page is accessible by clicking the user's avatar in the top right corner and selecting `Billing` from the dropdown menu (only visible to company admins). The billing page allows company admins to:
+
+- View token balance and usage analytics for all team members
+- Purchase additional tokens for the company by card or crypto payments
+- View billing transaction history for the company
+
+Only company admins (role_id 1-2) can access the billing page. Regular users (role_id 3+) will not see the billing option in the dropdown menu and will be redirected to the chat page if they try to access `/billing`.
+
+If a company runs out of tokens, they are paywalled to the top up screen until tokens are purchased. Low balance warnings will also appear on the chat page and billing page when the company's token balance gets to 1M tokens or lower.
+"""
+        team_page = """## Team Management
+
+For company admins only.
+
+On the sidebar, expanding `Team Management` reveals the following pages:
+
+- Companies & Teams: View your companies and teams, create new companies/teams.
+- Users: View and manage users in your companies/teams, invite new users.
+- Training: Team-wide training data management for the agent which includes mandatory context, file training, and URL training that will be appended to all agents in the team's training.
+- Extensions: Team-wide extension management for connecting third party software to agents in the team and granting abilities to all agents in the team.
+- Settings: Manage company/team settings such as team's default agent name, and team-wide inference providers.
+"""
+        automation_page = """## Automation
+
+On the sidebar, expanding `Automation` reveals the following pages:
+
+- Automation Chains: Create and manage automation chains (like pre-defined sequences of tasks for agents to perform) that can be enabled as agent abilities.
+- Prompt Library: Create and manage reusable prompts that can be used in automation chains.
+- Tasks: Create and manage scheduled or triggered tasks that agents can perform automatically. Useful for scheduling automated messages or actions.
+- Webhooks: Manage incoming and outgoing webhooks for integrating with other services."""
+
+        # Use a switch case instead of if
+        page = str(page).lower()
+        match page:
+            case "chat":
+                return f"{general_information}\n\n{chat_page}"
+            case "billing":
+                return f"{general_information}\n\n{billing_page}"
+            case "team":
+                return f"{general_information}\n\n{team_page}"
+            case "automation":
+                return f"{general_information}\n\n{automation_page}"
+            case _:
+                return f"# AGiXT Web UI Quick Tips\n\n{general_information}\n\n{chat_page}\n\n{billing_page}\n\n{team_page}\n\n{automation_page}"

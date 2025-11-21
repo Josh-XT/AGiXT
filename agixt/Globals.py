@@ -83,6 +83,10 @@ def getenv(var_name: str, default_value: str = "") -> str:
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"
+    if var_name == "TOKEN_PRICE_PER_MILLION_USD":
+        monthly = os.getenv("MONTHLY_PRICE_PER_USER_USD", "0")
+        if monthly != "0":
+            return monthly
     if default_value != "":
         default_values[var_name] = default_value
     default_value = default_values[var_name] if var_name in default_values else ""

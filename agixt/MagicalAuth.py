@@ -12,6 +12,7 @@ from DB import (
     TokenBlacklist,
     PaymentTransaction,
     CompanyTokenUsage,
+    ExtensionCategory,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -391,12 +392,12 @@ def get_agents(email, company=None):
             .all()
         )
 
-        # Check for onboarded11102025 setting
+        # Check for agentonboarded11182025 setting
         onboarded = False
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "onboarded11102025":
+            elif setting.name == "agentonboarded11182025":
                 onboarded = True
 
         if company_id and company:
@@ -416,21 +417,20 @@ def get_agents(email, company=None):
         # Retroactive onboarding: Enable essential abilities if not already onboarded
         if not onboarded:
             try:
-                # Get essential_abilities and notes extensions
-                essential_ext = (
-                    session.query(Extension)
-                    .filter(Extension.name == "essential_abilities")
+                # Get all extensions in the Core Abilities category
+                core_abilities_category = (
+                    session.query(ExtensionCategory)
+                    .filter(ExtensionCategory.name == "Core Abilities")
                     .first()
-                )
-                notes_ext = (
-                    session.query(Extension).filter(Extension.name == "notes").first()
                 )
 
                 extensions_to_enable = []
-                if essential_ext:
-                    extensions_to_enable.append(essential_ext)
-                if notes_ext:
-                    extensions_to_enable.append(notes_ext)
+                if core_abilities_category:
+                    extensions_to_enable = (
+                        session.query(Extension)
+                        .filter(Extension.category_id == core_abilities_category.id)
+                        .all()
+                    )
 
                 # Enable all commands from these extensions for this agent
                 enabled_count = 0
@@ -440,7 +440,6 @@ def get_agents(email, company=None):
                         .filter(Command.extension_id == extension.id)
                         .all()
                     )
-
                     for command in commands:
                         # Check if command is already enabled for this agent
                         existing = (
@@ -458,10 +457,14 @@ def get_agents(email, company=None):
                             )
                             session.add(agent_command)
                             enabled_count += 1
+                        else:
+                            # Enable it if it was disabled
+                            existing.state = True
+                            enabled_count += 1
 
                 # Mark as onboarded
                 onboarded_setting = AgentSettingModel(
-                    agent_id=agent.id, name="onboarded11102025", value="true"
+                    agent_id=agent.id, name="agentonboarded11182025", value="true"
                 )
                 session.add(onboarded_setting)
                 session.commit()
@@ -1301,6 +1304,24 @@ class MagicalAuth:
                 return True
         return False
 
+    def _has_sufficient_token_balance(self, session, user_companies) -> bool:
+        """Check if any of the user's companies have a positive token balance"""
+        company_ids = {
+            user_company.company_id
+            for user_company in user_companies
+            if getattr(user_company, "company_id", None)
+        }
+        if company_ids:
+            company_with_balance = (
+                session.query(Company)
+                .filter(Company.id.in_(list(company_ids)))
+                .filter(Company.token_balance > 0)
+                .first()
+            )
+            if company_with_balance:
+                return True
+        return False
+
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
@@ -1710,11 +1731,15 @@ class MagicalAuth:
             token_price = 1
         billing_enabled = token_price > 0
 
+        # Separate subscription billing from token billing
+        subscription_billing_enabled = price_value > 0
+        token_billing_enabled = token_price > 0
+
         wallet_paywall_enabled = (
             bool(wallet_address)
             and str(wallet_address).lower() != "none"
             and price_value > 0
-            and billing_enabled
+            and token_billing_enabled
         )
         has_active_subscription = False
         user_requirements = self.registration_requirements()
@@ -1810,7 +1835,7 @@ class MagicalAuth:
                                     )
                                 else:
                                     logging.info(
-                                        f"Billing disabled; skipping subscription paywall for user {self.user_id}"
+                                        f"Subscription billing disabled; skipping subscription paywall for user {self.user_id}"
                                     )
                             else:
                                 relevant_subscriptions = self.get_subscribed_products(
@@ -1820,8 +1845,8 @@ class MagicalAuth:
                                     logging.info(
                                         f"No active subscriptions for this app detected."
                                     )
-                                    # Only enforce subscription locking when billing enabled
-                                    if billing_enabled:
+                                    # Only enforce subscription locking when subscription billing enabled
+                                    if subscription_billing_enabled:
                                         if getenv("STRIPE_PRICING_TABLE_ID"):
                                             c_session = stripe.CustomerSession.create(
                                                 customer=user_preferences["stripe_id"],
@@ -1852,10 +1877,11 @@ class MagicalAuth:
                                         )
                                     else:
                                         logging.info(
-                                            f"Billing disabled; skipping subscription enforcement for user {self.user_id}"
+                                            f"Subscription billing disabled; skipping subscription enforcement for user {self.user_id}"
                                         )
             if not has_active_subscription and not user.email.endswith(".xt"):
-                if wallet_paywall_enabled and not self._has_active_payment_transaction(
+                # For token-based billing, check if company has sufficient token balance
+                if wallet_paywall_enabled and not self._has_sufficient_token_balance(
                     session, user_companies
                 ):
                     # wallet_paywall_enabled already considers billing_enabled; enforce only when billing is enabled
@@ -1865,7 +1891,7 @@ class MagicalAuth:
                     raise HTTPException(
                         status_code=402,
                         detail={
-                            "message": "No active payments found.",
+                            "message": "Insufficient token balance. Please top up your tokens.",
                             "customer_session": {"client_secret": None},
                             "wallet_address": wallet_address,
                             "monthly_price_usd": price_value,
