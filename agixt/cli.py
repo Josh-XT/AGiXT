@@ -377,13 +377,43 @@ def set_environment(env_updates=None, mode="docker"):
             )
             for i in range(64)
         )
-    # Write to .env file
+    # Write to .env file without destroying comments/custom entries
     env_file_path = REPO_ROOT / ".env"
-    env_file_content = "\n".join(
-        [f'{key}="{value}"' for key, value in env_vars.items()]
-    )
-    with open(env_file_path, "w") as file:
-        file.write(env_file_content)
+    existing_lines: list[str] = []
+    if env_file_path.exists():
+        existing_lines = env_file_path.read_text(encoding="utf-8").splitlines()
+
+    if existing_lines:
+        line_lookup: dict[str, int] = {}
+        pattern = re.compile(r"^\s*([A-Za-z0-9_]+)\s*=")
+        for idx, line in enumerate(existing_lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            match = pattern.match(stripped)
+            if match:
+                line_lookup[match.group(1)] = idx
+
+        pending_additions: list[str] = []
+        for key, value in env_vars.items():
+            new_line = f'{key}="{value}"'
+            if key in line_lookup:
+                existing_lines[line_lookup[key]] = new_line
+            else:
+                pending_additions.append(new_line)
+
+        if pending_additions:
+            if existing_lines and existing_lines[-1].strip() != "":
+                existing_lines.append("")
+            existing_lines.extend(pending_additions)
+        env_file_content = "\n".join(existing_lines)
+    else:
+        env_file_content = "\n".join(
+            [f'{key}="{value}"' for key, value in env_vars.items()]
+        )
+
+    with open(env_file_path, "w", encoding="utf-8") as file:
+        file.write(env_file_content + "\n")
 
     # Handle auto-update based on mode
     if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
