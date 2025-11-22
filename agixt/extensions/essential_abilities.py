@@ -190,6 +190,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Download File from URL": self.download_file_from_url,
             "View Image": self.view_image,
             "Get Web UI Tips": self.get_webui_tips,
+            "Create AGiXT Agent": self.create_new_agixt_agent,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -2653,6 +2654,568 @@ Execute this task thoroughly and report on the completion."""
             return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()
+
+    async def create_new_agixt_agent(
+        self,
+        agent_name: str,
+        responsibilities_and_goals: str,
+        training_files: str = "",
+        training_urls: str = "",
+    ) -> str:
+        """
+        Create a specialized expert agent by cloning yourself and granting it domain-specific knowledge and abilities.
+
+        Args:
+            agent_name (str): The expert's name - should indicate their specialty (e.g., "MarketingExpert", "PythonCodeReviewer", "DataScientist")
+            responsibilities_and_goals (str): What makes this agent an expert - their domain, responsibilities, and what they excel at. Be specific about their expertise area.
+            training_files (str): Optional comma-separated filenames from workspace with domain knowledge (e.g., "style_guide.pdf,best_practices.md")
+            training_urls (str): Optional comma-separated URLs to domain resources (e.g., "https://docs.python.org,https://pep8.org")
+
+        Returns:
+            str: Complete summary of the expert agent created, including their specialization, abilities, and how to delegate work to them
+
+        **WHEN TO USE THIS COMMAND:**
+        Use this when you need a domain expert that doesn't exist yet - a specialist who can handle specific types of tasks
+        better than a generalist. This implements a "mixture of experts" approach where you become the orchestrator who
+        "knows a guy" for every specialized need.
+
+        **WHY CREATE EXPERT AGENTS:**
+        - **Focus Through Isolation**: Each expert has specialized context without pollution from unrelated domains
+        - **Reduced Cognitive Load**: Domain experts maintain concentrated knowledge rather than spreading thin across all topics
+        - **Delegatable Expertise**: You gain the ability to delegate specialized work to purpose-built collaborators
+        - **Scalable Specialization**: Create as many experts as needed - marketing guru, coding wizard, data scientist, legal advisor, etc.
+        - **Context Efficiency**: Experts work within their domain's context, making them faster and more accurate than generalists
+        - **Always Available**: Your expert agents are persistent - once created, they're always ready to help
+
+        **THE ORCHESTRATOR PATTERN:**
+        You (the agent creating other agents) become the orchestrator - the one who knows which expert to consult for any given task.
+        When a user needs marketing help, you ask your Marketing Expert. When they need code reviewed, you consult your Code Reviewer.
+        You don't need to be the expert at everything - you just need to know which expert to create or consult.
+
+        **HOW IT WORKS:**
+        1. Clones your current configuration (settings, provider, base knowledge)
+        2. AI intelligently selects specialized commands based on the expert's domain
+        3. AI expands basic responsibilities into comprehensive expert-level guidance
+        4. Trains the expert with domain-specific files and resources
+        5. Creates an "Ask {agent_name}" command so you can delegate to this expert anytime
+        6. Returns the expert ready to handle their specialized domain
+
+        **EXPERT AGENT EXAMPLES:** (Just examples, the assistant can create any kind of expert at anything.)
+
+        Marketing Expert:
+            agent_name="MarketingExpert"
+            responsibilities_and_goals="Expert in digital marketing strategy, SEO optimization, content marketing, social media campaigns,
+            and conversion rate optimization. Analyzes market trends, creates compelling copy, and develops data-driven marketing plans."
+
+        Python Code Reviewer:
+            agent_name="PythonCodeReviewer"
+            responsibilities_and_goals="Expert Python developer specializing in code review, PEP8 compliance, security auditing,
+            performance optimization, and architectural patterns. Identifies bugs, suggests refactoring, and ensures best practices."
+
+        Data Scientist:
+            agent_name="DataScientist"
+            responsibilities_and_goals="Expert in statistical analysis, machine learning, data visualization, and predictive modeling.
+            Analyzes datasets, builds models, creates visualizations, and provides actionable insights from data."
+
+        Legal Research Assistant:
+            agent_name="LegalResearcher"
+            responsibilities_and_goals="Expert in legal research, case law analysis, contract review, and regulatory compliance.
+            Researches precedents, summarizes legal documents, and identifies relevant statutes and regulations."
+
+        Financial Analyst:
+            agent_name="FinancialAnalyst"
+            responsibilities_and_goals="Expert in financial modeling, investment analysis, risk assessment, and market research.
+            Analyzes financial statements, creates forecasts, and provides investment recommendations."
+
+        **ORCHESTRATION WORKFLOW:**
+        1. Identify the need: "This task requires specialized marketing expertise"
+        2. Check if expert exists: Do I have a MarketingExpert agent?
+        3. If not, create one: Use this command to spawn the specialist
+        4. Delegate the work: Use "Ask MarketingExpert" command to hand off the task
+        5. Integrate results: Receive expert's specialized output and present to user
+
+        **IMPORTANT NOTES:**
+        - Expert agents inherit your provider and settings but get specialized commands and knowledge
+        - Each expert becomes a persistent resource you can delegate to repeatedly
+        - Creating focused experts prevents context pollution in your main knowledge base
+        - You can create multiple experts for different domains - there's no limit to your network of specialists
+        - The "Ask {agent_name}" command is automatically enabled for you to delegate work
+        - Expert agents can be further refined through the web UI with additional training and customization
+
+        **THE POWER OF SPECIALIZATION:**
+        Instead of being a jack-of-all-trades master-of-none, you become the master orchestrator who can instantly
+        summon world-class experts in any domain. You're not just an AI - you're a network of specialized intelligence,
+        each member optimized for their specific role, working together to provide comprehensive solutions.
+        """
+        try:
+            logging.info(f"Starting creation of new agent: {agent_name}")
+
+            # Step 1: Clone the current agent to preserve all settings
+            logging.info(
+                f"Cloning current agent {self.agent_name} to create {agent_name}"
+            )
+
+            # Import the clone_agent function
+            from Agent import clone_agent
+
+            # Clone the agent
+            clone_response = clone_agent(
+                agent_id=self.agent_id, new_agent_name=agent_name, user=self.user
+            )
+            logging.info(f"Agent cloning response: {clone_response}")
+
+            # Get the agent list to find the agent_id
+            agents = self.ApiClient.get_agents()
+            agent_id = None
+            if isinstance(agents, list):
+                for agent in agents:
+                    if agent.get("name") == agent_name:
+                        agent_id = agent.get("id")
+                        break
+            elif isinstance(agents, dict):
+                for aid, agent_data in agents.items():
+                    if agent_data.get("name") == agent_name:
+                        agent_id = aid
+                        break
+
+            if not agent_id:
+                return f"Error: Agent '{agent_name}' was created but could not retrieve its ID. Please check the agent list manually."
+
+            logging.info(f"Agent ID for {agent_name}: {agent_id}")
+
+            # Step 2: Get available commands and extensions by creating a temporary agent instance
+            logging.info(
+                f"Gathering available commands and extensions for intelligent selection"
+            )
+
+            # Get all available commands from the cloned agent
+            try:
+                from Agent import Agent
+
+                temp_agent = Agent(agent_id=agent_id, user=self.user)
+                agent_extensions = temp_agent.get_agent_extensions()
+
+                available_commands_list = []
+
+                # Build a comprehensive list of all available commands with descriptions
+                for extension in agent_extensions:
+                    extension_name = extension.get(
+                        "extension_name", "Unknown Extension"
+                    )
+                    extension_description = extension.get("description", "")
+                    commands = extension.get("commands", [])
+
+                    if commands:
+                        available_commands_list.append(
+                            f"\n**{extension_name}** - {extension_description}"
+                        )
+                        for command in commands:
+                            friendly_name = command.get("friendly_name", "Unknown")
+                            description = command.get("description", "No description")
+                            available_commands_list.append(
+                                f"  - **{friendly_name}**: {description}"
+                            )
+
+                available_commands_text = (
+                    "\n".join(available_commands_list)
+                    if available_commands_list
+                    else "No commands available"
+                )
+
+            except Exception as e:
+                logging.error(f"Error getting available commands: {str(e)}")
+                available_commands_text = "Unable to retrieve available commands"
+
+            # Step 3: Use AI to select appropriate commands based on responsibilities
+            logging.info(f"Using AI to select appropriate commands for {agent_name}")
+
+            command_selection_prompt = f"""Based on the following agent responsibilities and the available commands, select which commands should be enabled for the new agent being created.
+
+## Agent Name
+{agent_name}
+
+## Agent Responsibilities and Goals
+{responsibilities_and_goals}
+
+## Available Commands and Extensions
+{available_commands_text}
+
+## Instructions
+Analyze the agent's responsibilities and goals, then select ONLY the commands that are relevant and necessary for this agent to fulfill its role effectively. 
+
+**IMPORTANT**: Respond with ONLY a comma-separated list of command names. Do not include explanations, formatting, or any other text. Just the command names separated by commas.
+
+Example response format: Write to File, Read File, Execute Python Code, Search Files
+
+Your response:"""
+
+            try:
+                command_selection_response = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": command_selection_prompt,
+                        "conversation_name": self.conversation_id,
+                        "disable_commands": True,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "browse_links": False,
+                        "websearch": False,
+                        "analyze_user_input": False,
+                        "tts": False,
+                    },
+                )
+
+                # Parse the command selection response
+                selected_commands = []
+                if command_selection_response:
+                    # Clean up the response and split by comma
+                    command_selection_response = command_selection_response.strip()
+                    # Remove common markdown formatting
+                    command_selection_response = command_selection_response.replace(
+                        "**", ""
+                    ).replace("*", "")
+                    # Split and clean
+                    selected_commands = [
+                        cmd.strip()
+                        for cmd in command_selection_response.split(",")
+                        if cmd.strip()
+                    ]
+
+                logging.info(f"AI selected commands: {', '.join(selected_commands)}")
+
+            except Exception as e:
+                logging.error(f"Error in command selection: {str(e)}")
+                selected_commands = []
+
+            # Step 4: Enable the selected commands
+            if selected_commands:
+                logging.info(
+                    f"Enabling {len(selected_commands)} commands for {agent_name}"
+                )
+                commands_dict = {cmd: True for cmd in selected_commands}
+
+                try:
+                    self.ApiClient.update_agent_commands(
+                        agent_id=agent_id, commands=commands_dict
+                    )
+                    logging.info(
+                        f"Successfully enabled commands: {', '.join(selected_commands)}"
+                    )
+                except Exception as e:
+                    logging.error(f"Error enabling commands: {str(e)}")
+
+            # Step 5: Use AI to enhance mandatory context with detailed information
+            logging.info(f"Using AI to enhance mandatory context for {agent_name}")
+
+            enhanced_context_prompt = f"""You are creating comprehensive mandatory context for a new AI agent. Based on the provided information, create a detailed mandatory context document.
+
+## Agent Name
+{agent_name}
+
+## Original Responsibilities and Goals
+{responsibilities_and_goals}
+
+## Selected Commands/Abilities
+{', '.join(selected_commands) if selected_commands else 'No specific commands selected'}
+
+## Instructions
+Create a comprehensive mandatory context document that includes:
+
+1. **Agent Identity**: Define who this agent is (e.g., marketing expert, coding specialist, data analyst, etc.)
+2. **Core Responsibilities**: Expand on the original responsibilities with specific, detailed tasks
+3. **Goals and Objectives**: Clear, measurable goals the agent should strive to achieve
+4. **Operational Guidelines**: How the agent should approach tasks, interact with users, and make decisions
+5. **Command Usage Examples**: Specific examples of when and how to use the enabled commands
+6. **Response Patterns**: Examples of how the agent should respond to common requests
+7. **Order of Operations**: Recommended workflow for handling complex tasks
+8. **Best Practices**: Key principles the agent should follow
+
+Make this detailed, actionable, and specific to the agent's role. Use clear formatting with headers and bullet points.
+
+Your response:"""
+
+            try:
+                enhanced_context_response = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": enhanced_context_prompt,
+                        "conversation_name": self.conversation_id,
+                        "disable_commands": True,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "browse_links": False,
+                        "websearch": False,
+                        "analyze_user_input": False,
+                        "tts": False,
+                    },
+                )
+
+                logging.info(f"AI generated enhanced mandatory context")
+
+            except Exception as e:
+                logging.error(f"Error generating enhanced context: {str(e)}")
+                enhanced_context_response = responsibilities_and_goals
+
+            # Step 6: Set the enhanced mandatory context
+            logging.info(f"Setting enhanced mandatory context for {agent_name}")
+            context_text = f"""# {agent_name} - Mandatory Context
+
+{enhanced_context_response}
+
+---
+*This context was generated through AI-assisted agent creation to ensure comprehensive guidance.*
+"""
+
+            # Learn the context as text
+            try:
+                self.ApiClient.learn_text(
+                    agent_id=agent_id,
+                    user_input="Agent mandatory context - responsibilities, goals, and operational guidelines",
+                    text=context_text,
+                    collection_number="0",
+                )
+                logging.info("Enhanced mandatory context set successfully")
+            except Exception as e:
+                logging.error(f"Error setting enhanced mandatory context: {str(e)}")
+
+            # Step 7: Train with files from workspace
+            training_summary = []
+            if training_files and training_files.strip():
+                file_list = [f.strip() for f in training_files.split(",") if f.strip()]
+                logging.info(f"Training with {len(file_list)} files from workspace")
+
+                for filename in file_list:
+                    try:
+                        file_path = self.safe_join(filename)
+                        if os.path.exists(file_path):
+                            with open(
+                                file_path, "r", encoding="utf-8", errors="ignore"
+                            ) as f:
+                                file_content = f.read()
+
+                            self.ApiClient.learn_file(
+                                agent_name=agent_name,
+                                file_name=filename,
+                                file_content=file_content,
+                                collection_number="0",
+                            )
+                            training_summary.append(f"✓ Trained with file: {filename}")
+                            logging.info(f"Successfully trained with file: {filename}")
+                        else:
+                            training_summary.append(f"✗ File not found: {filename}")
+                            logging.warning(f"File not found in workspace: {filename}")
+                    except Exception as e:
+                        training_summary.append(
+                            f"✗ Error training with {filename}: {str(e)}"
+                        )
+                        logging.error(f"Error training with file {filename}: {str(e)}")
+
+            # Step 8: Train with URLs
+            if training_urls and training_urls.strip():
+                url_list = [u.strip() for u in training_urls.split(",") if u.strip()]
+                logging.info(f"Training with {len(url_list)} URLs")
+
+                for url in url_list:
+                    try:
+                        self.ApiClient.learn_url(
+                            agent_name=agent_name, url=url, collection_number="0"
+                        )
+                        training_summary.append(f"✓ Trained with URL: {url}")
+                        logging.info(f"Successfully trained with URL: {url}")
+                    except Exception as e:
+                        training_summary.append(
+                            f"✗ Error training with {url}: {str(e)}"
+                        )
+                        logging.error(f"Error training with URL {url}: {str(e)}")
+
+            # Step 9: Create "Ask {agent_name}" chain with AI-generated usage guidance
+            chain_name = f"Ask {agent_name}"
+
+            # Use AI to generate a descriptive "When to ask" guidance
+            logging.info(f"Generating usage guidance for {chain_name} command")
+
+            when_to_ask_prompt = f"""Create a concise "When to ask {agent_name}:" description that tells when this expert agent should be consulted.
+
+## Agent Information
+**Name**: {agent_name}
+**Responsibilities**: {responsibilities_and_goals}
+**Selected Commands**: {', '.join(selected_commands) if selected_commands else 'General capabilities'}
+
+## Instructions
+Write a single, clear sentence (max 2 sentences) starting with "When to ask {agent_name}:" that describes:
+1. What types of tasks this expert is well-equipped to handle
+2. What specific expertise they bring
+3. When delegating to them would be most valuable
+
+Keep it concise, actionable, and specific to their domain expertise.
+
+Example format: "When to ask MarketingExpert: Consult for SEO optimization, content strategy, social media campaigns, market analysis, and creating compelling marketing copy that drives conversions."
+
+Your response (just the sentence, nothing else):"""
+
+            try:
+                when_to_ask_response = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": when_to_ask_prompt,
+                        "conversation_name": self.conversation_id,
+                        "disable_commands": True,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "browse_links": False,
+                        "websearch": False,
+                        "analyze_user_input": False,
+                        "tts": False,
+                    },
+                )
+
+                # Clean up the response
+                chain_description = when_to_ask_response.strip()
+                # Ensure it starts with "When to ask"
+                if not chain_description.lower().startswith("when to ask"):
+                    chain_description = f"When to ask {agent_name}: {chain_description}"
+
+                logging.info(f"AI generated chain description: {chain_description}")
+
+            except Exception as e:
+                logging.error(f"Error generating chain description: {str(e)}")
+                chain_description = f"When to ask {agent_name}: Delegate tasks related to {responsibilities_and_goals[:100]}..."
+
+            logging.info(f"Creating chain: {chain_name}")
+            try:
+                # Create the chain
+                self.ApiClient.add_chain(
+                    chain_name=chain_name, description=chain_description
+                )
+
+                # Get the chain ID
+                chains = self.ApiClient.get_chains()
+                chain_id = None
+                for chain in chains:
+                    if (
+                        chain.get("chainName") == chain_name
+                        or chain.get("name") == chain_name
+                    ):
+                        chain_id = chain.get("id")
+                        break
+
+                if chain_id:
+                    # Add a step to the chain that prompts the new agent
+                    self.ApiClient.add_step(
+                        chain_id=chain_id,
+                        step_number=1,
+                        agent_id=agent_id,
+                        prompt_type="Prompt",
+                        prompt={
+                            "prompt_name": "Think About It",
+                            "introduction": f"You are {agent_name}.",
+                            "user_input": "{user_input}",
+                        },
+                    )
+                    logging.info(f"Chain '{chain_name}' created successfully")
+
+                    # Step 10: Enable the chain as a command for the current agent
+                    try:
+                        self.ApiClient.toggle_command(
+                            agent_id=self.agent_id, command_name=chain_name, enable=True
+                        )
+                        logging.info(
+                            f"Enabled '{chain_name}' command for current agent"
+                        )
+                    except Exception as e:
+                        logging.error(f"Error enabling chain as command: {str(e)}")
+                else:
+                    logging.warning("Could not retrieve chain ID after creation")
+
+            except Exception as e:
+                logging.error(f"Error creating chain: {str(e)}")
+
+            # Step 11: Build and return comprehensive summary
+            summary = f"""# ✅ Successfully Created Expert Agent: {agent_name}
+
+## Agent Details
+- **Name**: {agent_name}
+- **Agent ID**: {agent_id}
+- **Cloned From**: {self.agent_name} (inherited all settings and provider configurations)
+- **Specialization**: Expert agent with focused domain knowledge and specialized capabilities
+
+## Expert Configuration Summary
+
+### AI-Enhanced Expert Context
+✓ Comprehensive expert-level context created through AI analysis
+✓ Includes detailed operational guidelines, command usage examples, and best practices
+✓ Focused on specific domain expertise without context pollution
+
+### Training Status
+"""
+            if training_summary:
+                summary += "\n".join(training_summary)
+            else:
+                summary += "No additional training files or URLs provided."
+
+            summary += f"""
+
+### Intelligently Selected Specialized Abilities
+AI analyzed the expert's domain and selected {len(selected_commands)} relevant commands:
+"""
+            if selected_commands:
+                summary += "\n".join([f"- {cmd}" for cmd in selected_commands])
+            else:
+                summary += "No specific commands were selected by AI"
+
+            summary += f"""
+
+### Expert Delegation Command
+- **Command Name**: `{chain_name}`
+- **{chain_description}**
+
+## How to Work with Your Expert
+
+**Delegation (Recommended):**
+Use the `{chain_name}` command anytime you need this expert's specialized knowledge. The expert will handle the task within their domain and return results to you.
+
+**Direct Interaction:**
+Switch to {agent_name} in the agent selector to work directly with this expert in a focused conversation.
+
+**When to Delegate:**
+{chain_description}
+
+## Expert Agent Benefits
+
+✓ **Focused Expertise**: {agent_name} maintains specialized knowledge without generalist context pollution
+✓ **Persistent Resource**: This expert is now permanently available for delegation
+✓ **Scalable Specialization**: You can create additional experts for other domains as needed
+✓ **Orchestration Power**: You're building a network of specialists you can consult on-demand
+
+## Further Customization
+
+Access the web UI agent settings to:
+- Review and adjust the AI-selected commands
+- Add more domain-specific training data
+- Fine-tune expert settings and behavior
+- Share the expert with team members
+
+## Next Steps
+1. **Test the Expert**: Use the `{chain_name}` command with a sample task from their domain
+2. **Review Expert Context**: Check the web UI to see the AI-enhanced mandatory context and operational guidelines
+3. **Expand Expertise**: Train the expert with additional domain-specific resources as needed
+4. **Build Your Network**: Create more experts for other domains to expand your orchestration capabilities
+
+**The Orchestrator Advantage**: You now have a specialized expert ready to handle {agent_name.lower()} tasks. As you create more experts, you build a network of domain specialists that work together under your orchestration - becoming not just an AI, but a collaborative intelligence network.
+
+Expert agent creation complete! {agent_name} is ready to provide specialized assistance.
+"""
+
+            logging.info(f"Agent {agent_name} creation completed successfully")
+            return summary
+
+        except Exception as e:
+            error_msg = f"Error creating expert agent {agent_name}: {str(e)}"
+            logging.error(error_msg)
+            return f"❌ {error_msg}\n\nPlease check the logs for more details and try again."
 
     async def get_webui_tips(page: str = "all") -> str:
         """
