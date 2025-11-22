@@ -68,6 +68,16 @@ def invalidate_extension_cache():
     _extension_discovery_cache = None
     _extension_module_cache.clear()
 
+    # Also invalidate ExtensionsHub path cache
+    try:
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        hub._extension_paths_cache = None
+        logging.info("Extension hub path cache invalidated")
+    except Exception as e:
+        logging.debug(f"Could not invalidate hub path cache: {e}")
+
     # Reset router registration flag to force re-registration with hub extensions
     try:
         import app
