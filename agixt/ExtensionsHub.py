@@ -25,6 +25,49 @@ class ExtensionsHub:
         )
         self.hub_urls = getenv("EXTENSIONS_HUB")
         self.hub_token = getenv("EXTENSIONS_HUB_TOKEN")
+        # Cache for extension search paths
+        self._extension_paths_cache = None
+
+    def get_extension_search_paths(self) -> List[str]:
+        """
+        Get all paths to search for extensions, including local paths from EXTENSIONS_HUB
+
+        Returns:
+            List of absolute paths to search for extensions
+        """
+        if self._extension_paths_cache is not None:
+            return self._extension_paths_cache
+
+        search_paths = []
+
+        # Always include the default extensions directory
+        default_ext_dir = (
+            "extensions" if os.path.exists("extensions") else "agixt/extensions"
+        )
+        search_paths.append(os.path.abspath(default_ext_dir))
+
+        # Parse hub sources
+        hub_sources = self._parse_hub_urls()
+
+        for source in hub_sources:
+            if self._is_local_path(source):
+                # For local paths, add them directly to search paths
+                abs_path = os.path.abspath(os.path.expanduser(source))
+                if os.path.exists(abs_path) and os.path.isdir(abs_path):
+                    search_paths.append(abs_path)
+                    logging.info(f"Added local extension path: {abs_path}")
+                else:
+                    logging.warning(f"Local extension path does not exist: {abs_path}")
+            else:
+                # For GitHub URLs, add the cloned directory to search paths
+                if self._validate_github_url(source):
+                    hub_dir_name = self._get_hub_directory_name(source)
+                    hub_path = os.path.join(self.extensions_dir, hub_dir_name)
+                    if os.path.exists(hub_path):
+                        search_paths.append(os.path.abspath(hub_path))
+
+        self._extension_paths_cache = search_paths
+        return search_paths
 
     def _is_local_path(self, path: str) -> bool:
         """Check if the path is a local filesystem path"""
@@ -95,37 +138,6 @@ class ExtensionsHub:
         import hashlib
 
         return f"hub_{hashlib.md5(source.encode()).hexdigest()[:8]}"
-
-    def _copy_local_extensions(self, source_path: str, dest_path: str) -> bool:
-        """Copy extensions from a local directory"""
-        try:
-            # Resolve the source path to absolute
-            source_path = os.path.abspath(os.path.expanduser(source_path))
-
-            if not os.path.exists(source_path):
-                logging.error(f"Local extensions path does not exist: {source_path}")
-                return False
-
-            if not os.path.isdir(source_path):
-                logging.error(
-                    f"Local extensions path is not a directory: {source_path}"
-                )
-                return False
-
-            # Copy the entire directory tree
-            shutil.copytree(source_path, dest_path, dirs_exist_ok=False)
-
-            # Remove sensitive files for safety
-            self._remove_sensitive_files(dest_path)
-
-            logging.info(
-                f"Successfully copied extensions from {source_path} to {dest_path}"
-            )
-            return True
-
-        except Exception as e:
-            logging.error(f"Error copying local extensions from {source_path}: {e}")
-            return False
 
     def _remove_sensitive_files(self, hub_path: str) -> None:
         """Remove sensitive configuration files from cloned hub for safety"""
@@ -232,17 +244,29 @@ class ExtensionsHub:
                         logging.error(f"Error removing hub directory {hub_path}: {e}")
                         continue
 
-                # Copy from local path or clone from repository
+                # Skip local paths - they don't need copying, just add to search paths
                 if is_local:
-                    if self._copy_local_extensions(source, hub_path):
+                    abs_path = os.path.abspath(os.path.expanduser(source))
+                    if os.path.exists(abs_path) and os.path.isdir(abs_path):
+                        logging.info(f"Local extension source configured: {abs_path}")
                         success_count += 1
-                else:
-                    if self._clone_repository(source, hub_path):
-                        success_count += 1
+                    else:
+                        logging.error(
+                            f"Local extension path does not exist: {abs_path}"
+                        )
+                    continue
+
+                # Clone repository
+                if self._clone_repository(source, hub_path):
+                    success_count += 1
 
             except Exception as e:
                 logging.error(f"Error managing extensions hub {source}: {e}")
                 continue
+
+        # Invalidate the paths cache so it gets rebuilt
+        self._extension_paths_cache = None
+
         return success_count > 0
 
     async def clone_or_update_hub(self) -> bool:
@@ -308,19 +332,29 @@ class ExtensionsHub:
                         logging.error(f"Error removing hub directory {hub_path}: {e}")
                         continue
 
-                # Copy from local path or clone from repository
+                # Skip local paths - they don't need copying, just add to search paths
                 if is_local:
-                    logging.info(f"Copying extensions from local path {source}")
-                    if self._copy_local_extensions(source, hub_path):
+                    abs_path = os.path.abspath(os.path.expanduser(source))
+                    if os.path.exists(abs_path) and os.path.isdir(abs_path):
+                        logging.info(f"Local extension source configured: {abs_path}")
                         success_count += 1
-                else:
-                    logging.info(f"Cloning extensions hub from {source}")
-                    if self._clone_repository(source, hub_path):
-                        success_count += 1
+                    else:
+                        logging.error(
+                            f"Local extension path does not exist: {abs_path}"
+                        )
+                    continue
+
+                # Clone repository
+                logging.info(f"Cloning extensions hub from {source}")
+                if self._clone_repository(source, hub_path):
+                    success_count += 1
 
             except Exception as e:
                 logging.error(f"Error managing extensions hub {source}: {e}")
                 continue
+
+        # Invalidate the paths cache so it gets rebuilt
+        self._extension_paths_cache = None
 
         logging.info(
             f"Extensions Hub: {success_count}/{total_count} sources processed successfully"
@@ -385,10 +419,11 @@ def find_extension_files(
     base_dir: str = "extensions", excluded_dirs: Optional[List[str]] = None
 ) -> List[str]:
     """
-    Recursively find all Python files in extensions directory and subdirectories
+    Recursively find all Python files in extensions directory and subdirectories,
+    including paths from EXTENSIONS_HUB
 
     Args:
-        base_dir: Base directory to search in
+        base_dir: Base directory to search in (default extensions directory)
         excluded_dirs: List of directory names to exclude (e.g., '__pycache__', 'tests')
 
     Returns:
@@ -399,27 +434,34 @@ def find_extension_files(
 
     extension_files = []
 
-    # Handle different working directories - check if we're in project root or agixt subdir
-    search_paths = [base_dir, f"agixt/{base_dir}"]
-    actual_base_dir = None
+    # Get all extension search paths from ExtensionsHub
+    try:
+        hub = ExtensionsHub()
+        search_paths = hub.get_extension_search_paths()
+    except Exception as e:
+        logging.warning(f"Could not get extension search paths from hub: {e}")
+        # Fallback to default behavior
+        search_paths = []
+        search_base = [base_dir, f"agixt/{base_dir}"]
+        for search_path in search_base:
+            if os.path.exists(search_path):
+                search_paths.append(os.path.abspath(search_path))
+                break
 
+    # Search all paths for extension files
     for search_path in search_paths:
-        if os.path.exists(search_path):
-            actual_base_dir = search_path
-            break
+        if not os.path.exists(search_path):
+            continue
 
-    if not actual_base_dir:
-        return extension_files
+        for root, dirs, files in os.walk(search_path):
+            # Exclude specified directories
+            dirs[:] = [d for d in dirs if d not in excluded_dirs]
 
-    for root, dirs, files in os.walk(actual_base_dir):
-        # Exclude specified directories
-        dirs[:] = [d for d in dirs if d not in excluded_dirs]
-
-        for file in files:
-            if file.endswith(".py") and not file.startswith("__"):
-                # Get the full path
-                full_path = os.path.join(root, file)
-                extension_files.append(full_path)
+            for file in files:
+                if file.endswith(".py") and not file.startswith("__"):
+                    # Get the full path
+                    full_path = os.path.join(root, file)
+                    extension_files.append(full_path)
 
     return extension_files
 
