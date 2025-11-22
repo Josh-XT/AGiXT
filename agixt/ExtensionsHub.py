@@ -26,6 +26,14 @@ class ExtensionsHub:
         self.hub_urls = getenv("EXTENSIONS_HUB")
         self.hub_token = getenv("EXTENSIONS_HUB_TOKEN")
 
+    def _is_local_path(self, path: str) -> bool:
+        """Check if the path is a local filesystem path"""
+        if not path:
+            return False
+
+        # Check if it's an absolute path or starts with ./ or ../
+        return os.path.isabs(path) or path.startswith("./") or path.startswith("../")
+
     def _validate_github_url(self, url: str) -> bool:
         """Validate that the URL is a valid GitHub repository URL"""
         if not url:
@@ -50,19 +58,27 @@ class ExtensionsHub:
 
         return url
 
-    def _get_hub_directory_name(self, url: str) -> str:
-        """Generate a unique directory name from GitHub URL"""
+    def _get_hub_directory_name(self, source: str) -> str:
+        """Generate a unique directory name from GitHub URL or local path"""
         from urllib.parse import urlparse
 
-        # Extract repo name from GitHub URL
-        # e.g., "https://github.com/user/repo.git" -> "user_repo"
-        url = url.strip()
-        if url.endswith(".git"):
-            url = url[:-4]
+        source = source.strip()
+
+        # Handle local paths
+        if self._is_local_path(source):
+            # Use the last directory name from the path
+            normalized_path = os.path.normpath(source)
+            dir_name = os.path.basename(normalized_path)
+            # Clean up the directory name to be filesystem-safe
+            return dir_name.replace("/", "_").replace("-", "_").replace(" ", "_")
+
+        # Handle GitHub URLs
+        if source.endswith(".git"):
+            source = source[:-4]
 
         try:
             # Parse the URL properly to validate hostname
-            parsed = urlparse(url)
+            parsed = urlparse(source)
 
             # Only process if hostname is exactly github.com
             if parsed.hostname == "github.com" and parsed.path:
@@ -75,10 +91,41 @@ class ExtensionsHub:
             # Fall through to fallback if URL parsing fails
             pass
 
-        # Fallback - use hash of URL
+        # Fallback - use hash of source
         import hashlib
 
-        return f"hub_{hashlib.md5(url.encode()).hexdigest()[:8]}"
+        return f"hub_{hashlib.md5(source.encode()).hexdigest()[:8]}"
+
+    def _copy_local_extensions(self, source_path: str, dest_path: str) -> bool:
+        """Copy extensions from a local directory"""
+        try:
+            # Resolve the source path to absolute
+            source_path = os.path.abspath(os.path.expanduser(source_path))
+
+            if not os.path.exists(source_path):
+                logging.error(f"Local extensions path does not exist: {source_path}")
+                return False
+
+            if not os.path.isdir(source_path):
+                logging.error(
+                    f"Local extensions path is not a directory: {source_path}"
+                )
+                return False
+
+            # Copy the entire directory tree
+            shutil.copytree(source_path, dest_path, dirs_exist_ok=False)
+
+            # Remove sensitive files for safety
+            self._remove_sensitive_files(dest_path)
+
+            logging.info(
+                f"Successfully copied extensions from {source_path} to {dest_path}"
+            )
+            return True
+
+        except Exception as e:
+            logging.error(f"Error copying local extensions from {source_path}: {e}")
+            return False
 
     def _remove_sensitive_files(self, hub_path: str) -> None:
         """Remove sensitive configuration files from cloned hub for safety"""
@@ -124,28 +171,33 @@ class ExtensionsHub:
 
     def clone_or_update_hub_sync(self) -> bool:
         """Synchronous version of clone_or_update_hub to avoid event loop conflicts"""
-        hub_urls = self._parse_hub_urls()
+        hub_sources = self._parse_hub_urls()
 
-        if not hub_urls:
+        if not hub_sources:
             return False
 
         # Ensure extensions directory exists
         os.makedirs(self.extensions_dir, exist_ok=True)
 
         success_count = 0
-        total_count = len(hub_urls)
+        total_count = len(hub_sources)
 
-        for url in hub_urls:
-            if not self._validate_github_url(url):
-                logging.error(f"Invalid GitHub URL: {url}")
+        for source in hub_sources:
+            is_local = self._is_local_path(source)
+
+            # Validate source
+            if not is_local and not self._validate_github_url(source):
+                logging.error(
+                    f"Invalid source (not a local path or GitHub URL): {source}"
+                )
                 continue
 
             try:
-                hub_dir_name = self._get_hub_directory_name(url)
+                hub_dir_name = self._get_hub_directory_name(source)
                 hub_path = os.path.join(self.extensions_dir, hub_dir_name)
 
-                # Always remove and re-clone for simplicity and security
-                # This ensures we get the latest version and avoid git state issues
+                # Always remove and re-copy/re-clone for simplicity and security
+                # This ensures we get the latest version and avoid state issues
                 if os.path.exists(hub_path):
                     try:
                         # More robust removal with retry logic
@@ -180,39 +232,48 @@ class ExtensionsHub:
                         logging.error(f"Error removing hub directory {hub_path}: {e}")
                         continue
 
-                # Clone repository
-                if self._clone_repository(url, hub_path):
-                    success_count += 1
+                # Copy from local path or clone from repository
+                if is_local:
+                    if self._copy_local_extensions(source, hub_path):
+                        success_count += 1
+                else:
+                    if self._clone_repository(source, hub_path):
+                        success_count += 1
 
             except Exception as e:
-                logging.error(f"Error managing extensions hub {url}: {e}")
+                logging.error(f"Error managing extensions hub {source}: {e}")
                 continue
         return success_count > 0
 
     async def clone_or_update_hub(self) -> bool:
         """Clone or update all extensions hub repositories"""
-        hub_urls = self._parse_hub_urls()
+        hub_sources = self._parse_hub_urls()
 
-        if not hub_urls:
+        if not hub_sources:
             return False
 
         # Ensure extensions directory exists
         os.makedirs(self.extensions_dir, exist_ok=True)
 
         success_count = 0
-        total_count = len(hub_urls)
+        total_count = len(hub_sources)
 
-        for url in hub_urls:
-            if not self._validate_github_url(url):
-                logging.error(f"Invalid GitHub URL: {url}")
+        for source in hub_sources:
+            is_local = self._is_local_path(source)
+
+            # Validate source
+            if not is_local and not self._validate_github_url(source):
+                logging.error(
+                    f"Invalid source (not a local path or GitHub URL): {source}"
+                )
                 continue
 
             try:
-                hub_dir_name = self._get_hub_directory_name(url)
+                hub_dir_name = self._get_hub_directory_name(source)
                 hub_path = os.path.join(self.extensions_dir, hub_dir_name)
 
-                # Always remove and re-clone for simplicity and security
-                # This ensures we get the latest version and avoid git state issues
+                # Always remove and re-copy/re-clone for simplicity and security
+                # This ensures we get the latest version and avoid state issues
                 if os.path.exists(hub_path):
                     try:
                         # More robust removal with retry logic
@@ -247,17 +308,22 @@ class ExtensionsHub:
                         logging.error(f"Error removing hub directory {hub_path}: {e}")
                         continue
 
-                # Clone repository
-                logging.info(f"Cloning extensions hub from {url}")
-                if self._clone_repository(url, hub_path):
-                    success_count += 1
+                # Copy from local path or clone from repository
+                if is_local:
+                    logging.info(f"Copying extensions from local path {source}")
+                    if self._copy_local_extensions(source, hub_path):
+                        success_count += 1
+                else:
+                    logging.info(f"Cloning extensions hub from {source}")
+                    if self._clone_repository(source, hub_path):
+                        success_count += 1
 
             except Exception as e:
-                logging.error(f"Error managing extensions hub {url}: {e}")
+                logging.error(f"Error managing extensions hub {source}: {e}")
                 continue
 
         logging.info(
-            f"Extensions Hub: {success_count}/{total_count} repositories processed successfully"
+            f"Extensions Hub: {success_count}/{total_count} sources processed successfully"
         )
         return success_count > 0
 
