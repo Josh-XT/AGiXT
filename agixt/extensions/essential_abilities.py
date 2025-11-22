@@ -2679,6 +2679,16 @@ Execute this task thoroughly and report on the completion."""
         better than a generalist. This implements a "mixture of experts" approach where you become the orchestrator who
         "knows a guy" for every specialized need.
 
+        **IMPORTANT - GATHER RESOURCES FIRST:**
+        Before creating the expert agent, review your current conversation's workspace for any files or resources that would
+        be valuable training data for the new expert. For example:
+        - User uploaded a financial spreadsheet → Include it in training_files for your "ExpensesExpert"
+        - User provided style guidelines → Include them for your "ContentWriter" expert
+        - You generated analysis documents → Pass them to specialists who need that context
+
+        Think like delegating work: if you (the VP) need a manager to handle something, you'd give them all relevant documents
+        and context upfront. The expert agents you create are your managers - equip them with the resources they need to succeed.
+
         **WHY CREATE EXPERT AGENTS:**
         - **Focus Through Isolation**: Each expert has specialized context without pollution from unrelated domains
         - **Reduced Cognitive Load**: Domain experts maintain concentrated knowledge rather than spreading thin across all topics
@@ -2691,6 +2701,15 @@ Execute this task thoroughly and report on the completion."""
         You (the agent creating other agents) become the orchestrator - the one who knows which expert to consult for any given task.
         When a user needs marketing help, you ask your Marketing Expert. When they need code reviewed, you consult your Code Reviewer.
         You don't need to be the expert at everything - you just need to know which expert to create or consult.
+
+        This mirrors organizational hierarchy:
+        - **User = CEO**: Sets high-level goals and requests
+        - **You (AI) = VP**: Receives requests and delegates to specialized managers
+        - **Expert Agents = Managers**: Handle specific domains with deep expertise
+
+        When the CEO asks the VP for something, the VP often consults managers beneath them. Similarly, when users ask you for
+        specialized work, you create or consult expert agents. The experts can even be consulted "silently" - you delegate to
+        them, they provide their specialized analysis, and you integrate it into your response to the user seamlessly.
 
         **HOW IT WORKS:**
         1. Clones your current configuration (settings, provider, base knowledge)
@@ -2706,33 +2725,52 @@ Execute this task thoroughly and report on the completion."""
             agent_name="MarketingExpert"
             responsibilities_and_goals="Expert in digital marketing strategy, SEO optimization, content marketing, social media campaigns,
             and conversion rate optimization. Analyzes market trends, creates compelling copy, and develops data-driven marketing plans."
+            training_files="brand_guidelines.pdf,competitor_analysis.xlsx"  # From workspace if available
 
         Python Code Reviewer:
             agent_name="PythonCodeReviewer"
             responsibilities_and_goals="Expert Python developer specializing in code review, PEP8 compliance, security auditing,
             performance optimization, and architectural patterns. Identifies bugs, suggests refactoring, and ensures best practices."
+            training_files="coding_standards.md,architecture_docs.pdf"  # From workspace if available
 
         Data Scientist:
             agent_name="DataScientist"
             responsibilities_and_goals="Expert in statistical analysis, machine learning, data visualization, and predictive modeling.
             Analyzes datasets, builds models, creates visualizations, and provides actionable insights from data."
+            training_files="quarterly_sales.csv,customer_demographics.xlsx"  # From workspace if user uploaded data
 
         Legal Research Assistant:
             agent_name="LegalResearcher"
             responsibilities_and_goals="Expert in legal research, case law analysis, contract review, and regulatory compliance.
             Researches precedents, summarizes legal documents, and identifies relevant statutes and regulations."
+            training_files="contract_templates.pdf,compliance_requirements.docx"  # From workspace if available
 
         Financial Analyst:
             agent_name="FinancialAnalyst"
             responsibilities_and_goals="Expert in financial modeling, investment analysis, risk assessment, and market research.
             Analyzes financial statements, creates forecasts, and provides investment recommendations."
+            training_files="financial_statements.xlsx,budget_2024.csv"  # From workspace if user provided financials
 
         **ORCHESTRATION WORKFLOW:**
-        1. Identify the need: "This task requires specialized marketing expertise"
-        2. Check if expert exists: Do I have a MarketingExpert agent?
-        3. If not, create one: Use this command to spawn the specialist
-        4. Delegate the work: Use "Ask MarketingExpert" command to hand off the task
-        5. Integrate results: Receive expert's specialized output and present to user
+        1. **Receive User Request**: User asks for something requiring specialized expertise
+        2. **Assess Resources**: Check workspace for relevant files/data the expert will need
+        3. **Create or Select Expert**: Use this command to spawn specialist with relevant training files
+        4. **Silent Delegation**: Use "Ask ExpertName" command - expert works in background, returns results
+        5. **Integrate & Present**: Combine expert's output with your analysis, present cohesive answer to user
+
+        **RESOURCE DELEGATION EXAMPLES:**
+
+        User uploads `expenses_2024.xlsx`:
+        → Create "ExpensesExpert" with training_files="expenses_2024.xlsx"
+        → Expert gets the data immediately, can analyze without asking user for it again
+
+        User provides API documentation URL:
+        → Create "APIIntegrationExpert" with training_urls="https://api.example.com/docs"
+        → Expert has the docs in their knowledge, ready to help with integration
+
+        You generated analysis in `market_report.md`:
+        → Create "MarketingStrategist" with training_files="market_report.md"
+        → Expert builds on your analysis with specialized marketing strategy
 
         **IMPORTANT NOTES:**
         - Expert agents inherit your provider and settings but get specialized commands and knowledge
@@ -2847,7 +2885,7 @@ Analyze the agent's responsibilities and goals, then select ONLY the commands th
 
 Example response format: Write to File, Read File, Execute Python Code, Search Files
 
-Your response:"""
+The assistant's full response should be in the answer block."""
 
             try:
                 command_selection_response = self.ApiClient.prompt_agent(
@@ -2933,7 +2971,7 @@ Create a comprehensive mandatory context document that includes:
 
 Make this detailed, actionable, and specific to the agent's role. Use clear formatting with headers and bullet points.
 
-Your response:"""
+The assistant's full response should be in the answer block."""
 
             try:
                 enhanced_context_response = self.ApiClient.prompt_agent(
@@ -3048,7 +3086,7 @@ Keep it concise, actionable, and specific to their domain expertise.
 
 Example format: "When to ask MarketingExpert: Consult for SEO optimization, content strategy, social media campaigns, market analysis, and creating compelling marketing copy that drives conversions."
 
-Your response (just the sentence, nothing else):"""
+Your response (just the sentence in the answer block):"""
 
             try:
                 when_to_ask_response = self.ApiClient.prompt_agent(
