@@ -97,6 +97,7 @@ def get_default_env_vars():
         "APP_PORT": "3437",
         "AGIXT_AGENT": "XT",
         "AGIXT_BRANCH": "stable",
+        "AGIXT_RUN_TYPE": "docker",
         "AGIXT_FILE_UPLOAD_ENABLED": "true",
         "AGIXT_VOICE_INPUT_ENABLED": "true",
         "AGIXT_FOOTER_MESSAGE": "AGiXT 2025",
@@ -1290,6 +1291,7 @@ def _show_env_help() -> None:
             "AGIXT_INTERACTIVE_PORT",
             "AGIXT_AGENT",
             "AGIXT_BRANCH",
+            "AGIXT_RUN_TYPE",
             "AGIXT_AUTO_UPDATE",
             "AGIXT_HEALTH_URL",
         ],
@@ -1494,12 +1496,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="For env command: KEY=VALUE pairs or 'help' to list all variables",
     )
     parser.add_argument(
-        "--local", action="store_true", help="Operate on the local Python process"
+        "--local",
+        action="store_true",
+        help="Operate on the local Python process (saved to AGIXT_RUN_TYPE for future commands)",
     )
     parser.add_argument(
         "--docker",
         action="store_true",
-        help="Operate on the Docker stack (default when no mode is specified)",
+        help="Operate on the Docker stack (saved to AGIXT_RUN_TYPE for future commands; default when no mode is specified)",
     )
     parser.add_argument(
         "--ezlocalai",
@@ -1574,8 +1578,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                 print("No valid environment variables to update.")
                 return 1
 
+            # Determine mode for set_environment based on AGIXT_RUN_TYPE
+            mode = "docker"  # default
+            if "AGIXT_RUN_TYPE" in env_updates:
+                mode = env_updates["AGIXT_RUN_TYPE"].lower()
+            else:
+                # Check existing .env for AGIXT_RUN_TYPE
+                load_dotenv(ENV_FILE)
+                run_type = os.getenv("AGIXT_RUN_TYPE", "docker").lower()
+                mode = run_type
+
             print("Updating environment variables...")
-            set_environment(env_updates=env_updates, mode="docker")
+            set_environment(env_updates=env_updates, mode=mode)
             print("Environment variables updated successfully!")
             print("\nUpdated variables:")
             for key, value in env_updates.items():
@@ -1595,6 +1609,24 @@ def main(argv: Optional[list[str]] = None) -> int:
         # Handle mode conflicts
         if args.local and args.docker:
             parser.error("Choose either --local or --docker, not both.")
+
+        # Determine run type (local or docker)
+        run_local = False
+        env_updates = {}
+
+        if args.local:
+            # --local flag explicitly set
+            run_local = True
+            env_updates["AGIXT_RUN_TYPE"] = "local"
+        elif args.docker:
+            # --docker flag explicitly set
+            run_local = False
+            env_updates["AGIXT_RUN_TYPE"] = "docker"
+        else:
+            # No flag set, check environment variable
+            load_dotenv(ENV_FILE)
+            run_type = os.getenv("AGIXT_RUN_TYPE", "docker").lower()
+            run_local = run_type == "local"
 
         # Count service flags
         service_flags = sum([args.ezlocalai, args.web, args.all])
@@ -1621,7 +1653,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         # Handle web-only operations
         if args.web:
-            if args.local:
+            if run_local:
                 if args.action == "start":
                     _start_web_local()
                 elif args.action == "stop":
@@ -1640,43 +1672,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                 elif args.action == "logs":
                     _logs_web_docker(follow=args.follow)
             return 0
-            if args.action == "start":
-                start_ezlocalai()
-            elif args.action == "stop":
-                stop_ezlocalai()
-            elif args.action == "restart":
-                restart_ezlocalai()
-            return 0
-
-        # Handle web-only operations
-        if args.web:
-            if args.local:
-                if args.action == "start":
-                    _start_web_local()
-                elif args.action == "stop":
-                    _stop_web_local()
-                elif args.action == "restart":
-                    _restart_web_local()
-            else:
-                if args.action == "start":
-                    _start_web_docker()
-                elif args.action == "stop":
-                    _stop_web_docker()
-                elif args.action == "restart":
-                    _restart_web_docker()
-            return 0
 
         # Handle --all flag (all services)
         if args.all:
             if args.action == "start":
                 _start_all(
-                    local=args.local, env_updates=env_updates if env_updates else None
+                    local=run_local, env_updates=env_updates if env_updates else None
                 )
             elif args.action == "stop":
-                _stop_all(local=args.local)
+                _stop_all(local=run_local)
             elif args.action == "restart":
                 _restart_all(
-                    local=args.local, env_updates=env_updates if env_updates else None
+                    local=run_local, env_updates=env_updates if env_updates else None
                 )
             return 0
 
@@ -1697,8 +1704,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "env_vars",
             ]
         }
-        # Convert hyphenated arg names back to underscore format
-        env_updates = {k.upper().replace("-", "_"): v for k, v in arg_dict.items()}
+        # Convert hyphenated arg names back to underscore format and merge with existing env_updates
+        additional_updates = {
+            k.upper().replace("-", "_"): v for k, v in arg_dict.items()
+        }
+        env_updates.update(additional_updates)
 
         # Check if .env file exists and if AGIXT_AUTO_UPDATE is not set via command line
         env_file_path = REPO_ROOT / ".env"
@@ -1718,7 +1728,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             env_updates["AGIXT_AUTO_UPDATE"] = auto_update
 
         # Handle regular AGiXT operations
-        if args.local:
+        if run_local:
             if args.action == "start":
                 _start_local(env_updates=env_updates if env_updates else None)
             elif args.action == "stop":
