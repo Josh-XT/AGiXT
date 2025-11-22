@@ -2963,18 +2963,13 @@ Your response:"""
             context_text = f"""# {agent_name} - Mandatory Context
 
 {enhanced_context_response}
-
----
-*This context was generated through AI-assisted agent creation to ensure comprehensive guidance.*
+# End of Mandatory Context
 """
-
             # Learn the context as text
             try:
-                self.ApiClient.learn_text(
-                    agent_id=agent_id,
-                    user_input="Agent mandatory context - responsibilities, goals, and operational guidelines",
-                    text=context_text,
-                    collection_number="0",
+                self.ApiClient.update_persona(
+                    agent_name=agent_name,
+                    persona=context_text,
                 )
                 logging.info("Enhanced mandatory context set successfully")
             except Exception as e:
@@ -3105,14 +3100,12 @@ Your response (just the sentence, nothing else):"""
                 if chain_id:
                     # Add a step to the chain that prompts the new agent
                     self.ApiClient.add_step(
-                        chain_id=chain_id,
+                        chain_name=chain_name,
                         step_number=1,
-                        agent_id=agent_id,
+                        agent_name=agent_name,
                         prompt_type="Prompt",
                         prompt={
                             "prompt_name": "Think About It",
-                            "introduction": f"You are {agent_name}.",
-                            "user_input": "{user_input}",
                         },
                     )
                     logging.info(f"Chain '{chain_name}' created successfully")
@@ -3120,7 +3113,9 @@ Your response (just the sentence, nothing else):"""
                     # Step 10: Enable the chain as a command for the current agent
                     try:
                         self.ApiClient.toggle_command(
-                            agent_id=self.agent_id, command_name=chain_name, enable=True
+                            agent_name=self.agent_name,
+                            command_name=chain_name,
+                            enable=True,
                         )
                         logging.info(
                             f"Enabled '{chain_name}' command for current agent"
