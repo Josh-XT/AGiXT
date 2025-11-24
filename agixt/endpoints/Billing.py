@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Header, HTTPException, Depends
 from typing import Optional, List
 from pydantic import BaseModel
+from datetime import datetime
 from MagicalAuth import MagicalAuth, verify_api_key
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
@@ -539,3 +540,127 @@ async def get_billing_config():
         "billing_enabled": token_price > 0,
         "token_price_usd": token_price,
     }
+
+
+@app.post(
+    "/v1/credit",
+    tags=["Billing"],
+    summary="Issue credits to a company",
+    description="Admin-only endpoint to manually issue credits to a company as if they purchased them. Requires AGiXT API Key.",
+)
+async def issue_company_credits(
+    company: str,
+    amount: str,
+    authorization: str = Header(None),
+):
+    """
+    Issue credits to a company manually (admin only - requires AGiXT API Key).
+
+    This endpoint allows administrators to issue credits to a company as if they purchased them
+    through Stripe or crypto payment. The credits are added to the company's token balance.
+
+    Args:
+        company: The company ID to credit
+        amount: The amount in USD to credit (as string to avoid float precision issues)
+        authorization: AGiXT API Key (required)
+
+    Returns:
+        Success message with credited amount and token count
+
+    Raises:
+        HTTPException: If unauthorized, company not found, or invalid amount
+    """
+    from Globals import getenv
+    from decimal import Decimal
+
+    # Verify AGiXT API Key
+    agixt_api_key = getenv("AGIXT_API_KEY")
+    provided_key = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+
+    if not agixt_api_key or provided_key != agixt_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. This endpoint requires the AGiXT API Key.",
+        )
+
+    # Convert and validate amount
+    try:
+        amount_decimal = Decimal(str(amount))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid amount format")
+
+    if amount_decimal <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+
+    # Get company
+    session = get_session()
+    try:
+        from DB import Company
+
+        company_record = session.query(Company).filter(Company.id == company).first()
+        if not company_record:
+            raise HTTPException(status_code=404, detail=f"Company {company} not found")
+
+        # Calculate tokens based on current pricing
+        price_service = PriceService()
+        token_price = price_service.get_token_price()
+
+        if token_price <= 0:
+            # If billing is disabled, still allow manual crediting
+            # Default to $0.50 per million tokens for calculation
+            token_price = Decimal("0.50")
+        else:
+            token_price = Decimal(str(token_price))
+
+        # Calculate how many tokens this amount buys
+        token_millions = amount_decimal / token_price
+        tokens = int(token_millions * 1_000_000)
+
+        # Add tokens to company balance
+        company_record.token_balance = (company_record.token_balance or 0) + tokens
+        company_record.token_balance_usd = (
+            company_record.token_balance_usd or 0
+        ) + float(amount_decimal)
+
+        # Create a payment transaction record for audit trail
+        transaction = PaymentTransaction(
+            user_id=None,  # Admin credit, no specific user
+            company_id=company,
+            seat_count=0,  # Not seat-based, it's token-based
+            token_amount=tokens,
+            payment_method="manual_credit",
+            currency="USD",
+            network=None,
+            amount_usd=float(amount_decimal),
+            amount_currency=float(amount_decimal),  # Same as USD for manual credits
+            exchange_rate=1.0,  # 1:1 for USD
+            status="completed",
+            reference_code=f"ADMIN_CREDIT_{company}_{int(datetime.now().timestamp())}",
+        )
+        session.add(transaction)
+
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": company,
+            "amount_usd": float(amount_decimal),
+            "tokens_credited": tokens,
+            "token_millions": float(token_millions),
+            "new_balance_tokens": company_record.token_balance,
+            "new_balance_usd": company_record.token_balance_usd,
+            "transaction_id": transaction.id,
+            "reference_code": transaction.reference_code,
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error issuing credits to company {company}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to issue credits: {str(e)}"
+        )
+    finally:
+        session.close()
