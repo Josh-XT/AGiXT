@@ -2,8 +2,14 @@ import os
 import json
 import tiktoken
 from dotenv import load_dotenv
+from multiprocessing import Manager
 
 load_dotenv()
+
+# Global state for Machine Control Extension WebSocket connections
+# Use multiprocessing.Manager to create a truly shared dict across ALL Python contexts
+_manager = Manager()
+MACHINE_ACTIVE_TERMINALS = _manager.dict()
 
 
 def getenv(var_name: str, default_value: str = "") -> str:
