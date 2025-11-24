@@ -6,7 +6,14 @@ from MagicalAuth import MagicalAuth, verify_api_key
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
-from DB import PaymentTransaction, CompanyTokenUsage, User, get_session
+from DB import (
+    PaymentTransaction,
+    CompanyTokenUsage,
+    User,
+    UserCompany,
+    UserPreferences,
+    get_session,
+)
 from sqlalchemy import desc
 import logging
 
@@ -521,6 +528,82 @@ async def get_company_usage(
                     ),
                 }
             )
+
+        return result
+    finally:
+        session.close()
+
+
+@app.get(
+    "/v1/billing/usage/totals",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_usage_totals(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """Get cumulative token usage totals for all users in the company"""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Verify user has access to this company
+    user_companies = auth.get_user_companies()
+    if company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    session = get_session()
+    try:
+        # Get all users in the company
+        user_companies_records = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id == company_id)
+            .all()
+        )
+
+        result = []
+        for uc in user_companies_records:
+            user = session.query(User).filter(User.id == uc.user_id).first()
+            if not user:
+                continue
+
+            # Get user's token preferences
+            input_tokens_pref = (
+                session.query(UserPreferences)
+                .filter(
+                    UserPreferences.user_id == uc.user_id,
+                    UserPreferences.pref_key == "input_tokens",
+                )
+                .first()
+            )
+            output_tokens_pref = (
+                session.query(UserPreferences)
+                .filter(
+                    UserPreferences.user_id == uc.user_id,
+                    UserPreferences.pref_key == "output_tokens",
+                )
+                .first()
+            )
+
+            input_tokens = int(input_tokens_pref.pref_value) if input_tokens_pref else 0
+            output_tokens = (
+                int(output_tokens_pref.pref_value) if output_tokens_pref else 0
+            )
+
+            result.append(
+                {
+                    "user_id": str(uc.user_id),
+                    "user_email": user.email,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                }
+            )
+
+        # Sort by total tokens descending
+        result.sort(key=lambda x: x["total_tokens"], reverse=True)
 
         return result
     finally:

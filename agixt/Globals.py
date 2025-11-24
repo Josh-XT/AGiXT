@@ -105,6 +105,26 @@ def get_tokens(text: str) -> int:
     return num_tokens
 
 
+def get_data_size_kb(data) -> int:
+    """
+    Calculate the size of any data in kilobytes.
+
+    Args:
+        data: Any data type (dict, list, str, int, json, etc.)
+
+    Returns:
+        int: Size in KB, rounded to the nearest whole number
+    """
+    if isinstance(data, (dict, list)):
+        data_str = json.dumps(data)
+    else:
+        data_str = str(data)
+
+    size_bytes = len(data_str.encode("utf-8"))
+    size_kb = round(size_bytes / 1024)
+    return size_kb
+
+
 def get_default_agent_settings():
     agent_settings = {
         "provider": "rotation",

@@ -2378,7 +2378,7 @@ class MagicalAuth:
                     if company.token_balance < total_tokens:
                         session.close()
                         raise HTTPException(
-                            status_code=403,
+                            status_code=402,
                             detail="Insufficient token balance. Please top up your company's token balance.",
                         )
 
