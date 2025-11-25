@@ -233,6 +233,17 @@ class Company(Base):
     last_low_balance_warning = Column(
         Integer, nullable=True
     )  # Last balance when warning shown
+    # Auto top-up subscription fields
+    auto_topup_enabled = Column(Boolean, nullable=False, default=False)
+    auto_topup_amount_usd = Column(
+        Float, nullable=True, default=None
+    )  # Monthly top-up amount in USD
+    stripe_customer_id = Column(
+        String, nullable=True, default=None
+    )  # Stripe customer ID for company
+    stripe_subscription_id = Column(
+        String, nullable=True, default=None
+    )  # Active subscription ID
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -333,6 +344,7 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
+    tos_accepted_at = Column(DateTime, nullable=True)
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -1302,6 +1314,7 @@ default_roles = [
     {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
     {"id": 3, "name": "user", "friendly_name": "User"},
     {"id": 4, "name": "child", "friendly_name": "Child"},
+    {"id": 5, "name": "chat_user", "friendly_name": "Chat User"},
 ]
 
 default_extension_categories = [
@@ -1415,6 +1428,11 @@ def migrate_company_table():
                 ("token_balance_usd", "REAL DEFAULT 0.0"),
                 ("tokens_used_total", "INTEGER DEFAULT 0"),
                 ("last_low_balance_warning", "INTEGER"),
+                # Auto top-up subscription columns
+                ("auto_topup_enabled", "BOOLEAN DEFAULT 0"),
+                ("auto_topup_amount_usd", "REAL"),
+                ("stripe_customer_id", "TEXT"),
+                ("stripe_subscription_id", "TEXT"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -1458,6 +1476,10 @@ def migrate_company_table():
                             pg_column_def = "INTEGER DEFAULT 0"
                         elif column_name == "last_low_balance_warning":
                             pg_column_def = "INTEGER"
+                        elif column_name == "auto_topup_enabled":
+                            pg_column_def = "BOOLEAN DEFAULT false"
+                        elif column_name == "auto_topup_amount_usd":
+                            pg_column_def = "DOUBLE PRECISION"
                         else:
                             pg_column_def = "TEXT"
 
@@ -1757,6 +1779,54 @@ def migrate_extensions_to_new_categories():
         logging.error(traceback.format_exc())
 
 
+def migrate_user_table():
+    """
+    Migration function to add new optional fields to the User table if they don't exist.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("tos_accepted_at", "TIMESTAMP"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE user ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'user' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "user" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+    except Exception as e:
+        logging.error(f"Error migrating user table: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -1787,6 +1857,7 @@ if __name__ == "__main__":
     migrate_payment_transaction_table()
     migrate_extension_table()
     migrate_webhook_outgoing_table()
+    migrate_user_table()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
     setup_default_roles()

@@ -531,6 +531,120 @@ class stripe_payments(Extensions):
                     session.close()
                     return {"success": "true"}
 
+                elif event and event["type"] == "checkout.session.completed":
+                    # Check if this is an auto top-up subscription checkout
+                    session_data = data
+                    if session_data.get("mode") == "subscription":
+                        metadata = session_data.get("metadata", {})
+                        if metadata.get("type") == "auto_topup_subscription":
+                            company_id = metadata.get("company_id")
+                            amount_usd = float(metadata.get("amount_usd", 0))
+                            subscription_id = session_data.get("subscription")
+
+                            if company_id and subscription_id:
+                                # Update company with subscription info
+                                company = (
+                                    session.query(Company)
+                                    .filter(Company.id == company_id)
+                                    .first()
+                                )
+                                if company:
+                                    company.auto_topup_enabled = True
+                                    company.auto_topup_amount_usd = amount_usd
+                                    company.stripe_subscription_id = subscription_id
+                                    logging.info(
+                                        f"Auto top-up subscription activated for company {company_id}: ${amount_usd}/month"
+                                    )
+
+                    session.commit()
+                    session.close()
+                    return {"success": "true"}
+
+                elif event and event["type"] == "invoice.payment_succeeded":
+                    # Handle successful subscription invoice payment
+                    invoice = data
+                    subscription_id = invoice.get("subscription")
+
+                    if subscription_id:
+                        # Find company with this subscription
+                        company = (
+                            session.query(Company)
+                            .filter(Company.stripe_subscription_id == subscription_id)
+                            .first()
+                        )
+
+                        if company and company.auto_topup_enabled:
+                            # Get the amount paid from the invoice
+                            amount_cents = invoice.get("amount_paid", 0)
+                            amount_usd = amount_cents / 100.0
+
+                            if amount_usd > 0:
+                                # Calculate tokens based on amount
+                                token_price_per_million = float(
+                                    getenv("TOKEN_PRICE_PER_MILLION_USD", "0.50")
+                                )
+                                if token_price_per_million <= 0:
+                                    token_price_per_million = 0.50
+
+                                token_millions = amount_usd / token_price_per_million
+                                tokens = int(token_millions * 1_000_000)
+
+                                # Credit tokens to company
+                                company.token_balance = (
+                                    company.token_balance or 0
+                                ) + tokens
+                                company.token_balance_usd = (
+                                    company.token_balance_usd or 0.0
+                                ) + amount_usd
+
+                                # Create payment transaction record
+                                invoice_id = invoice.get("id", "unknown")
+                                transaction = PaymentTransaction(
+                                    user_id=None,
+                                    company_id=str(company.id),
+                                    seat_count=0,
+                                    token_amount=tokens,
+                                    payment_method="stripe_subscription",
+                                    currency="USD",
+                                    network="stripe",
+                                    amount_usd=amount_usd,
+                                    amount_currency=amount_usd,
+                                    exchange_rate=1.0,
+                                    stripe_payment_intent_id=invoice_id,
+                                    status="completed",
+                                    reference_code=f"SUB_{subscription_id[:20]}_{invoice_id[:20]}",
+                                )
+                                session.add(transaction)
+
+                                logging.info(
+                                    f"Auto top-up: Credited {tokens} tokens (${amount_usd}) to company {company.id}"
+                                )
+
+                    session.commit()
+                    session.close()
+                    return {"success": "true"}
+
+                elif event and event["type"] == "invoice.payment_failed":
+                    # Handle failed subscription payment
+                    invoice = data
+                    subscription_id = invoice.get("subscription")
+
+                    if subscription_id:
+                        company = (
+                            session.query(Company)
+                            .filter(Company.stripe_subscription_id == subscription_id)
+                            .first()
+                        )
+
+                        if company:
+                            logging.warning(
+                                f"Auto top-up payment failed for company {company.id}"
+                            )
+                            # Optionally notify or take action on payment failure
+
+                    session.close()
+                    return {"success": "true"}
+
                 else:
                     session.close()
                     return {"success": "true"}

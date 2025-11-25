@@ -30,6 +30,7 @@ async def initialize_database(is_restart=False):
         DB.migrate_payment_transaction_table()
         DB.migrate_extension_table()
         DB.migrate_webhook_outgoing_table()
+        DB.migrate_user_table()
 
         # Initialize extension tables
         DB.initialize_extension_tables()
