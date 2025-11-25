@@ -233,6 +233,17 @@ class Company(Base):
     last_low_balance_warning = Column(
         Integer, nullable=True
     )  # Last balance when warning shown
+    # Auto top-up subscription fields
+    auto_topup_enabled = Column(Boolean, nullable=False, default=False)
+    auto_topup_amount_usd = Column(
+        Float, nullable=True, default=None
+    )  # Monthly top-up amount in USD
+    stripe_customer_id = Column(
+        String, nullable=True, default=None
+    )  # Stripe customer ID for company
+    stripe_subscription_id = Column(
+        String, nullable=True, default=None
+    )  # Active subscription ID
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -1415,6 +1426,11 @@ def migrate_company_table():
                 ("token_balance_usd", "REAL DEFAULT 0.0"),
                 ("tokens_used_total", "INTEGER DEFAULT 0"),
                 ("last_low_balance_warning", "INTEGER"),
+                # Auto top-up subscription columns
+                ("auto_topup_enabled", "BOOLEAN DEFAULT 0"),
+                ("auto_topup_amount_usd", "REAL"),
+                ("stripe_customer_id", "TEXT"),
+                ("stripe_subscription_id", "TEXT"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -1458,6 +1474,10 @@ def migrate_company_table():
                             pg_column_def = "INTEGER DEFAULT 0"
                         elif column_name == "last_low_balance_warning":
                             pg_column_def = "INTEGER"
+                        elif column_name == "auto_topup_enabled":
+                            pg_column_def = "BOOLEAN DEFAULT false"
+                        elif column_name == "auto_topup_amount_usd":
+                            pg_column_def = "DOUBLE PRECISION"
                         else:
                             pg_column_def = "TEXT"
 
