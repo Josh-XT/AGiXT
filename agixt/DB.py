@@ -344,6 +344,7 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
+    tos_accepted_at = Column(DateTime, nullable=True)
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -1777,6 +1778,54 @@ def migrate_extensions_to_new_categories():
         logging.error(traceback.format_exc())
 
 
+def migrate_user_table():
+    """
+    Migration function to add new optional fields to the User table if they don't exist.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("tos_accepted_at", "TIMESTAMP"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE user ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'user' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "user" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+    except Exception as e:
+        logging.error(f"Error migrating user table: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -1807,6 +1856,7 @@ if __name__ == "__main__":
     migrate_payment_transaction_table()
     migrate_extension_table()
     migrate_webhook_outgoing_table()
+    migrate_user_table()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
     setup_default_roles()

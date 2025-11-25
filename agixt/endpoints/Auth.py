@@ -168,6 +168,9 @@ async def get_user(
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
         "companies": companies,
+        "tos_accepted_at": (
+            user_data.tos_accepted_at.isoformat() if user_data.tos_accepted_at else None
+        ),
         **user_preferences,
     }
 
@@ -406,6 +409,39 @@ async def send_mfa_email(request: Request):
     token = impersonate_user(email)
     auth = MagicalAuth(token=token)
     return {"detail": auth.send_email_code()}
+
+
+@app.post(
+    "/v1/user/tos/accept",
+    dependencies=[Depends(verify_api_key)],
+    response_model=Detail,
+    summary="Accept Terms of Service",
+    tags=["Auth"],
+)
+async def accept_tos(
+    request: Request,
+    authorization: str = Header(None),
+):
+    """Record that the user has accepted the Terms of Service."""
+    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+    auth = MagicalAuth(token=token)
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+    user_data = auth.login(ip_address=client_ip)
+
+    # Update the user's TOS acceptance timestamp
+    from DB import get_session, User
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == auth.user_id).first()
+        if user:
+            user.tos_accepted_at = datetime.now()
+            session.commit()
+            return Detail(detail="Terms of Service accepted successfully.")
+        else:
+            raise HTTPException(status_code=404, detail="User not found")
+    finally:
+        session.close()
 
 
 @app.get(
