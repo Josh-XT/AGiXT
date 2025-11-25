@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Header, HTTPException, Depends
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from MagicalAuth import MagicalAuth, verify_api_key
 from payments.pricing import PriceService
@@ -9,6 +9,7 @@ from payments.stripe_service import StripePaymentService
 from DB import (
     PaymentTransaction,
     CompanyTokenUsage,
+    Company,
     User,
     UserCompany,
     UserPreferences,
@@ -46,6 +47,30 @@ class DismissWarningRequest(BaseModel):
     company_id: str
 
 
+class AutoTopupSetupRequest(BaseModel):
+    """Request to set up monthly auto top-up subscription"""
+
+    company_id: str
+    amount_usd: float = Field(
+        ..., ge=5.0, description="Monthly top-up amount in USD (minimum $5)"
+    )
+
+
+class AutoTopupUpdateRequest(BaseModel):
+    """Request to update auto top-up amount"""
+
+    company_id: str
+    amount_usd: float = Field(
+        ..., ge=5.0, description="New monthly top-up amount in USD (minimum $5)"
+    )
+
+
+class AutoTopupCancelRequest(BaseModel):
+    """Request to cancel auto top-up subscription"""
+
+    company_id: str
+
+
 # Endpoints
 @app.get(
     "/v1/billing/tokens/balance",
@@ -54,9 +79,10 @@ class DismissWarningRequest(BaseModel):
 )
 async def get_token_balance(
     company_id: str,
+    sync: bool = True,
     authorization: str = Header(None),
 ):
-    """Get company token balance - admin only"""
+    """Get company token balance - admin only. Automatically syncs payments from Stripe to catch missed webhooks."""
     auth = MagicalAuth(token=authorization)
     auth.validate_user()
 
@@ -67,7 +93,50 @@ async def get_token_balance(
             status_code=403, detail="You do not have access to this company"
         )
 
-    return auth.get_company_token_balance(company_id)
+    # Sync payments from Stripe to catch any missed webhooks
+    sync_result = None
+    if sync:
+        try:
+            stripe_service = StripePaymentService()
+            sync_result = await stripe_service.sync_payments(company_id=company_id)
+        except Exception as e:
+            logging.warning(f"Failed to sync payments: {e}")
+
+    balance = auth.get_company_token_balance(company_id)
+    if sync_result:
+        balance["sync_result"] = sync_result
+    return balance
+
+
+@app.post(
+    "/v1/billing/sync",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def sync_payments_endpoint(
+    company_id: Optional[str] = None,
+    authorization: str = Header(None),
+):
+    """
+    Sync payments from Stripe that may not have been processed by webhooks.
+
+    This checks for subscription invoices, completed checkout sessions, and
+    token purchases that were paid but not recorded in the system.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # If company_id provided, verify user has access
+    if company_id:
+        user_companies = auth.get_user_companies()
+        if company_id not in user_companies:
+            raise HTTPException(
+                status_code=403, detail="You do not have access to this company"
+            )
+
+    stripe_service = StripePaymentService()
+    result = await stripe_service.sync_payments(company_id=company_id)
+    return result
 
 
 @app.post("/v1/billing/tokens/quote", tags=["Billing"])
@@ -623,6 +692,176 @@ async def get_billing_config():
         "billing_enabled": token_price > 0,
         "token_price_usd": token_price,
     }
+
+
+# ============================================================================
+# Auto Top-Up Subscription Endpoints
+# ============================================================================
+
+
+@app.get(
+    "/v1/billing/auto-topup",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get auto top-up subscription status",
+)
+async def get_auto_topup_status(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Get the current auto top-up subscription status for a company.
+
+    Returns subscription status, amount, and next billing date if active.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Verify user has access to this company
+    user_companies = auth.get_user_companies()
+    if company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    stripe_service = StripePaymentService()
+    return await stripe_service.get_auto_topup_status(company_id=company_id)
+
+
+@app.post(
+    "/v1/billing/auto-topup",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Set up monthly auto top-up subscription",
+)
+async def setup_auto_topup(
+    request: AutoTopupSetupRequest,
+    authorization: str = Header(None),
+):
+    """
+    Set up a monthly auto top-up subscription for a company.
+
+    This creates a Stripe Checkout session for setting up recurring monthly payments.
+    The subscription will automatically credit tokens to the company each month.
+
+    **Recommendations:**
+    - Plan for approximately $20 per active user per month
+    - Power users may exceed this, so monitor usage and adjust as needed
+    - Tokens don't expire and can be topped up anytime
+    - Tokens are non-refundable as they prepay for compute resources
+
+    **Minimum:** $5/month
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Verify user has access to this company
+    user_companies = auth.get_user_companies()
+    if request.company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    # Get user email for Stripe customer creation
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == auth.user_id).first()
+        user_email = user.email if user else None
+    finally:
+        session.close()
+
+    stripe_service = StripePaymentService()
+    try:
+        result = await stripe_service.create_auto_topup_subscription(
+            company_id=request.company_id,
+            amount_usd=request.amount_usd,
+            user_email=user_email,
+        )
+        return result
+    except Exception as e:
+        logging.error(f"Error creating auto top-up subscription: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create subscription: {str(e)}"
+        )
+
+
+@app.put(
+    "/v1/billing/auto-topup",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Update auto top-up amount",
+)
+async def update_auto_topup(
+    request: AutoTopupUpdateRequest,
+    authorization: str = Header(None),
+):
+    """
+    Update the monthly auto top-up amount.
+
+    This cancels the existing subscription and creates a new checkout session
+    for the updated amount. The user will need to complete the checkout again.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Verify user has access to this company
+    user_companies = auth.get_user_companies()
+    if request.company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    stripe_service = StripePaymentService()
+    try:
+        result = await stripe_service.update_auto_topup_amount(
+            company_id=request.company_id,
+            new_amount_usd=request.amount_usd,
+        )
+        return result
+    except Exception as e:
+        logging.error(f"Error updating auto top-up: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update subscription: {str(e)}"
+        )
+
+
+@app.delete(
+    "/v1/billing/auto-topup",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Cancel auto top-up subscription",
+)
+async def cancel_auto_topup(
+    request: AutoTopupCancelRequest,
+    authorization: str = Header(None),
+):
+    """
+    Cancel the monthly auto top-up subscription.
+
+    The subscription will be cancelled immediately. No further charges will be made.
+    Existing token balance remains available and does not expire.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Verify user has access to this company
+    user_companies = auth.get_user_companies()
+    if request.company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    stripe_service = StripePaymentService()
+    try:
+        result = await stripe_service.cancel_auto_topup_subscription(
+            company_id=request.company_id,
+        )
+        return result
+    except Exception as e:
+        logging.error(f"Error cancelling auto top-up: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to cancel subscription: {str(e)}"
+        )
 
 
 @app.post(
