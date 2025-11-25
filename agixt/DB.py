@@ -1314,6 +1314,7 @@ default_roles = [
     {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
     {"id": 3, "name": "user", "friendly_name": "User"},
     {"id": 4, "name": "child", "friendly_name": "Child"},
+    {"id": 5, "name": "chat_user", "friendly_name": "Chat User"},
 ]
 
 default_extension_categories = [
