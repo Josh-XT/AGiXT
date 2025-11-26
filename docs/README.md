@@ -73,6 +73,8 @@ agixt start
 
 The script automatically handles Docker setup and starts all services.
 
+> 🤖 **ezLocalai Included**: By default, AGiXT starts with [ezLocalai](https://github.com/DevXT-LLC/ezlocalai) for local AI inference. This provides local LLM, vision, TTS, and STT capabilities out of the box. To disable, set `WITH_EZLOCALAI=false` in your environment.
+
 #### Option 2: Local Installation (Without Docker)
 
 ```bash
@@ -121,20 +123,30 @@ agixt restart --web              # Restart web Docker service
 
 **ezLocalai Management (Local AI Models):**
 
+> 🤖 **Default Behavior**: ezLocalai is automatically started with `agixt start` when `WITH_EZLOCALAI=true` (the default). Set `WITH_EZLOCALAI=false` to disable.
+
 ```bash
-agixt start --ezlocalai          # Start ezLocalai
-agixt stop --ezlocalai           # Stop ezLocalai
-agixt restart --ezlocalai        # Restart ezLocalai (updates repo)
+agixt start --ezlocalai          # Start ezLocalai only
+agixt stop --ezlocalai           # Stop ezLocalai only
+agixt restart --ezlocalai        # Restart ezLocalai only
 agixt logs --ezlocalai [-f]      # View ezLocalai logs (use -f to follow)
+
+# Disable ezLocalai from starting with AGiXT
+agixt env WITH_EZLOCALAI=false
 ```
 
-> 🎯 **Auto-Configuration**: ezLocalai `.env` file is automatically created with values from AGiXT backend. GPU layers are calculated based on available VRAM.
+> 🎯 **Auto-Configuration**: ezLocalai automatically detects GPU availability and optimizes settings. Configuration is stored in `~/.ezlocalai/.env`.
 
 **All Services Management:**
 
 ```bash
-# Start/Stop/Restart Everything at Once
-agixt start --all [--local]      # Start all services (AGiXT + ezLocalai + web)
+# Default behavior: AGiXT + ezLocalai start together
+agixt start [--local]            # Starts AGiXT + ezLocalai
+agixt stop [--local]             # Stops AGiXT + ezLocalai
+agixt restart [--local]          # Restarts AGiXT + ezLocalai
+
+# Include web interface too
+agixt start --all [--local]      # Start AGiXT + ezLocalai + web
 agixt stop --all [--local]       # Stop all services
 agixt restart --all [--local]    # Restart all services
 ```
@@ -161,9 +173,10 @@ agixt env OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-ant-...
 
 - 📂 **Log Files**: Local logs stored in `~/.agixt/agixt-local-*.log` (keeps 5 most recent)
 - 🔄 **Auto-Updates**: Environment changes in backend automatically sync to web and ezLocalai
-- 🎮 **GPU Detection**: ezLocalai automatically calculates optimal GPU layers based on VRAM
+- 🤖 **ezLocalai Default**: ezLocalai starts automatically with AGiXT (disable with `WITH_EZLOCALAI=false`)
+- 🎮 **GPU Detection**: ezLocalai automatically detects NVIDIA GPU and enables GPU acceleration
 - 🌐 **Web .env**: Contains AGIXT_SERVER, APP_URI, APP_NAME, STRIPE keys, AGIXT_AGENT, and auth settings
-- 🤖 **ezLocalai .env**: Contains 15 variables including GPU_LAYERS, models, and performance settings
+- 🤖 **ezLocalai Config**: Stored in `~/.ezlocalai/.env` with GPU settings, models, and performance options
 
 ### 🎯 Access AGiXT
 
@@ -177,11 +190,18 @@ After installation, access these interfaces:
 **Complete Stack with All Services:**
 
 ```bash
-# Start everything at once (AGiXT + ezLocalai + Web)
+# Default: AGiXT + ezLocalai (local inference)
+agixt start --local
+
+# Include web interface
 agixt start --all --local
 
 # Or with Docker
 agixt start --all
+
+# Disable local inference (AGiXT only)
+agixt env WITH_EZLOCALAI=false
+agixt start --local
 ```
 
 **Customize Configuration:**

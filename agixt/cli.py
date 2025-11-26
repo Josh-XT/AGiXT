@@ -204,7 +204,7 @@ def get_default_env_vars():
         "WALMART_MARKETPLACE_ID": "",
         "X_CLIENT_ID": "",
         "X_CLIENT_SECRET": "",
-        "WITH_EZLOCALAI": "false",
+        "WITH_EZLOCALAI": "true",
     }
 
 
@@ -450,6 +450,12 @@ def restart_ezlocalai():
         )
     except subprocess.CalledProcessError as e:
         raise CLIError(f"Failed to restart ezLocalai: {e}")
+
+
+def _is_ezlocalai_enabled() -> bool:
+    """Check if ezLocalai integration is enabled via environment."""
+    load_dotenv(ENV_FILE)
+    return os.getenv("WITH_EZLOCALAI", "true").lower() == "true"
 
 
 def _create_web_env() -> None:
@@ -933,6 +939,13 @@ def _stop_local() -> None:
     # Clean up PID file
     LOCAL_PID_FILE.unlink(missing_ok=True)
 
+    # Stop ezLocalai if enabled
+    if _is_ezlocalai_enabled():
+        try:
+            stop_ezlocalai()
+        except CLIError as e:
+            print(f"Warning: {e}")
+
 
 def _restart_local(env_updates: Optional[dict] = None) -> None:
     _stop_local()
@@ -1007,6 +1020,13 @@ def _stop_docker() -> None:
     compose_file = _determine_compose_file()
     _docker_compose(compose_file, "stop")
     print(f"Stopped AGiXT Docker services ({compose_file.name}).")
+
+    # Stop ezLocalai if enabled
+    if _is_ezlocalai_enabled():
+        try:
+            stop_ezlocalai()
+        except CLIError as e:
+            print(f"Warning: {e}")
 
 
 def _restart_docker(env_updates: Optional[dict] = None) -> None:
