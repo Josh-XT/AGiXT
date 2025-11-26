@@ -396,7 +396,9 @@ async def get_agentconfig(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
     for key, value in agent_config["settings"].items():
-        if value.strip() != "":
+        if value is None:
+            continue
+        if isinstance(value, str) and value.strip() != "":
             if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
                 agent_config["settings"][key] = "HIDDEN"
             else:

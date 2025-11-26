@@ -2009,7 +2009,9 @@ class Query:
             config = agent_instance.get_agent_config()
             agent_settings = {}
             for key, value in config["settings"].items():
-                if value.strip() != "":
+                if value is None:
+                    continue
+                if isinstance(value, str) and value.strip() != "":
                     if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
                         agent_settings[key] = "HIDDEN"
                     else:
@@ -2051,7 +2053,9 @@ class Query:
         agents = get_agents(user=user)
         settings = []
         for key, value in config["settings"].items():
-            if value.strip() != "":
+            if value is None:
+                continue
+            if isinstance(value, str) and value.strip() != "":
                 if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
                     settings.append(AgentSetting(name=key, value="HIDDEN"))
                 else:
