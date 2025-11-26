@@ -860,6 +860,16 @@ class Interactions:
                 },
                 user_id=self.user,
             )
+
+        # Inject planning phase prompt for multi-step tasks before initial inference
+        # Note: complexity_score.planning_required already checks both is_multi_step AND planning_phase_enabled
+        if complexity_score and complexity_score.planning_required:
+            planning_prompt = get_planning_phase_prompt(user_input)
+            formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
+            logging.info(
+                f"Planning phase injected for multi-step task (score: {complexity_score.total_score})"
+            )
+
         try:
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, use_smartest=use_smartest

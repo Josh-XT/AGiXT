@@ -244,8 +244,15 @@ def calculate_complexity_score(
     """
     agent_settings = agent_settings or {}
 
-    # Check if complexity scaling is disabled
-    if not agent_settings.get("complexity_scaling_enabled", True):
+    # Check if complexity scaling is disabled (handle bool, int, and string)
+    complexity_enabled = agent_settings.get("complexity_scaling_enabled", True)
+    # Handle: True, 1, "true", "1", etc.
+    is_enabled = (
+        complexity_enabled is True
+        or complexity_enabled == 1
+        or str(complexity_enabled).lower() in ("true", "1")
+    )
+    if not is_enabled:
         return ComplexityScore(
             total_score=0,
             tier=ComplexityTier.LOW,
@@ -331,15 +338,19 @@ def calculate_complexity_score(
         or (tier == ComplexityTier.HIGH and (requires_code or requires_math))
     )
 
+    # Helper to check boolean settings (handles bool, int, string)
+    def is_setting_enabled(setting):
+        return setting is True or setting == 1 or str(setting).lower() in ("true", "1")
+
     # Answer review only for high complexity
-    answer_review_enabled = tier == ComplexityTier.HIGH and agent_settings.get(
-        "answer_review_enabled", True
+    answer_review_setting = agent_settings.get("answer_review_enabled", True)
+    answer_review_enabled = tier == ComplexityTier.HIGH and is_setting_enabled(
+        answer_review_setting
     )
 
     # Planning required for multi-step tasks
-    planning_required = is_multi_step and agent_settings.get(
-        "planning_phase_enabled", True
-    )
+    planning_setting = agent_settings.get("planning_phase_enabled", True)
+    planning_required = is_multi_step and is_setting_enabled(planning_setting)
 
     return ComplexityScore(
         total_score=total_score,
@@ -557,6 +568,7 @@ def log_complexity_decision(
         f"Complexity Score: {complexity_score.total_score} ({complexity_score.tier.value}) "
         f"| Code: {complexity_score.requires_code} | Math: {complexity_score.requires_math} "
         f"| Terminal: {complexity_score.requires_terminal} | Multi-step: {complexity_score.is_multi_step} "
+        f"| Planning: {complexity_score.planning_required} "
         f"| Budget: {complexity_score.thinking_budget} | Route to smartest: {complexity_score.route_to_smartest} "
         f"| Input: {user_input_preview[:100]}..."
     )
