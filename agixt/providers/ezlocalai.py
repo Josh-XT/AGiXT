@@ -1,3 +1,4 @@
+import base64
 import logging
 import random
 import re
@@ -28,8 +29,9 @@ class EzlocalaiProvider:
         self,
         EZLOCALAI_API_KEY: str = "",
         EZLOCALAI_API_URI: str = getenv("EZLOCALAI_API_URI"),
-        EZLOCALAI_AI_MODEL: str = "ezlocalai",
-        EZLOCALAI_MAX_TOKENS: int = 8192,
+        EZLOCALAI_AI_MODEL: str = "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        EZLOCALAI_CODING_MODEL: str = "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+        EZLOCALAI_MAX_TOKENS: int = 32000,
         EZLOCALAI_TEMPERATURE: float = 1.33,
         EZLOCALAI_TOP_P: float = 0.95,
         EZLOCALAI_VOICE: str = "HAL9000",
@@ -40,6 +42,11 @@ class EzlocalaiProvider:
         self.requirements = ["openai"]
         self.AI_MODEL = EZLOCALAI_AI_MODEL if EZLOCALAI_AI_MODEL else "ezlocalai"
         self.MAX_TOKENS = EZLOCALAI_MAX_TOKENS if EZLOCALAI_MAX_TOKENS else 8192
+        self.EZLOCALAI_CODING_MODEL = (
+            EZLOCALAI_CODING_MODEL
+            if EZLOCALAI_CODING_MODEL
+            else "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"
+        )
         if not EZLOCALAI_API_URI.endswith("/"):
             EZLOCALAI_API_URI += "/"
         self.API_URI = (
@@ -95,6 +102,8 @@ class EzlocalaiProvider:
     ):
         if not self.AI_MODEL:
             self.AI_MODEL = "default"
+        if use_smartest:
+            self.AI_MODEL = self.EZLOCALAI_CODING_MODEL
         max_tokens = int(self.MAX_TOKENS) if tokens == 0 else tokens
         openai.base_url = self.API_URI
         openai.api_key = self.EZLOCALAI_API_KEY
@@ -206,7 +215,8 @@ class EzlocalaiProvider:
             input=text,
             extra_body={"language": self.TTS_LANGUAGE},
         )
-        return tts_response.content
+        # Agent.py expects base64 encoded content
+        return base64.b64encode(tts_response.content).decode("utf-8")
 
     async def generate_image(self, prompt: str) -> str:
         filename = f"{uuid.uuid4()}.png"
