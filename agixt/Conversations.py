@@ -61,6 +61,31 @@ def get_conversation_name_by_id(conversation_id, user_id):
     return conversation_name
 
 
+def get_conversation_name_by_message_id(message_id, user_id):
+    """Get the conversation name that contains a specific message for a user."""
+    session = get_session()
+    message = (
+        session.query(Message)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .filter(
+            Message.id == message_id,
+            Conversation.user_id == user_id,
+        )
+        .first()
+    )
+    if not message:
+        session.close()
+        return None
+    conversation = (
+        session.query(Conversation)
+        .filter(Conversation.id == message.conversation_id)
+        .first()
+    )
+    conversation_name = conversation.name if conversation else None
+    session.close()
+    return conversation_name
+
+
 class Conversations:
     def __init__(self, conversation_name=None, user=DEFAULT_USER):
         self.conversation_name = conversation_name

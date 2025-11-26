@@ -16,6 +16,7 @@ from Conversations import (
     Conversations,
     get_conversation_name_by_id,
     get_conversation_id_by_name,
+    get_conversation_name_by_message_id,
 )
 from DB import Message, Agent as DBAgent, User
 from XT import AGiXT
@@ -905,9 +906,17 @@ async def get_tts(
     authorization: str = Header(None),
 ):
     auth = MagicalAuth(token=authorization)
-    conversation_name = get_conversation_name_by_id(
-        conversation_id=conversation_id, user_id=auth.user_id
-    )
+    # If conversation_id is "-", look up the conversation from the message_id
+    if conversation_id == "-":
+        conversation_name = get_conversation_name_by_message_id(
+            message_id=message_id, user_id=auth.user_id
+        )
+        if not conversation_name:
+            raise HTTPException(status_code=404, detail="Message not found")
+    else:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
     c = Conversations(conversation_name=conversation_name, user=user)
     message = c.get_message_by_id(message_id=message_id)
     agent_name = c.get_last_agent_name()

@@ -902,7 +902,7 @@ def _start_local(env_updates: Optional[dict] = None) -> None:
     cleanup_log_files()
 
 
-def _stop_local() -> None:
+def _stop_local(stop_ezlocalai_too: bool = True) -> None:
     # First, try to stop using the PID file
     pid = _read_pid(LOCAL_PID_FILE)
     stopped_by_pid = False
@@ -939,8 +939,8 @@ def _stop_local() -> None:
     # Clean up PID file
     LOCAL_PID_FILE.unlink(missing_ok=True)
 
-    # Stop ezLocalai if enabled
-    if _is_ezlocalai_enabled():
+    # Stop ezLocalai if enabled and requested
+    if stop_ezlocalai_too and _is_ezlocalai_enabled():
         try:
             stop_ezlocalai()
         except CLIError as e:
@@ -948,7 +948,8 @@ def _stop_local() -> None:
 
 
 def _restart_local(env_updates: Optional[dict] = None) -> None:
-    _stop_local()
+    # Don't stop ezlocalai during restart - only stop AGiXT
+    _stop_local(stop_ezlocalai_too=False)
     _start_local(env_updates=env_updates)
 
 
@@ -1016,13 +1017,13 @@ def _start_docker(env_updates: Optional[dict] = None) -> None:
         print(f"An error occurred: {e}")
 
 
-def _stop_docker() -> None:
+def _stop_docker(stop_ezlocalai_too: bool = True) -> None:
     compose_file = _determine_compose_file()
     _docker_compose(compose_file, "stop")
     print(f"Stopped AGiXT Docker services ({compose_file.name}).")
 
-    # Stop ezLocalai if enabled
-    if _is_ezlocalai_enabled():
+    # Stop ezLocalai if enabled and requested
+    if stop_ezlocalai_too and _is_ezlocalai_enabled():
         try:
             stop_ezlocalai()
         except CLIError as e:
@@ -1031,7 +1032,8 @@ def _stop_docker() -> None:
 
 def _restart_docker(env_updates: Optional[dict] = None) -> None:
     try:
-        _stop_docker()
+        # Don't stop ezlocalai during restart - only stop AGiXT
+        _stop_docker(stop_ezlocalai_too=False)
     except (CLIError, subprocess.CalledProcessError) as exc:
         print(f"Warning: failed to stop containers cleanly: {exc}")
     _start_docker(env_updates=env_updates)
