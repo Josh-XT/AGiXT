@@ -22,6 +22,16 @@ from ApiClient import (
 from MagicalAuth import MagicalAuth, convert_time, impersonate_user
 from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
+from Complexity import (
+    ComplexityScore,
+    ComplexityTier,
+    should_intervene,
+    count_thinking_steps,
+    get_planning_phase_prompt,
+    get_todo_review_prompt,
+    get_answer_review_prompt,
+    check_todo_list_exists,
+)
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -618,6 +628,16 @@ class Interactions:
                 True if str(kwargs["use_smartest"]).lower() == "true" else False
             )
             del kwargs["use_smartest"]
+
+        # Extract complexity score from kwargs if provided
+        complexity_score = None
+        if "complexity_score" in kwargs:
+            complexity_score = kwargs["complexity_score"]
+            del kwargs["complexity_score"]
+            # Override use_smartest based on complexity scoring
+            if complexity_score and complexity_score.route_to_smartest:
+                use_smartest = True
+
         websearch = False
         websearch_depth = 3
         conversation_results = 5
@@ -947,10 +967,17 @@ class Interactions:
                 response=self.response, thinking_id=thinking_id, c=c
             )
 
+        # Complexity-aware thinking budget enforcement
+        planning_phase_complete = False
+        todo_list_created = False
+
         if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
             self._processed_commands = set()
             processed_length = 0
             no_changes = 0
+            intervention_count = 0  # Track interventions to prevent infinite loops
+            max_interventions = 3  # Maximum number of thinking budget interventions
+
             # Then enter the main processing loop
             while True:
                 if "<think>" in self.response:
@@ -961,6 +988,41 @@ class Interactions:
                     self.response = self.process_thinking_tags(
                         response=self.response, thinking_id=thinking_id, c=c
                     )
+
+                # Check for to-do list creation (for multi-step planning phase)
+                if (
+                    complexity_score
+                    and complexity_score.planning_required
+                    and not todo_list_created
+                ):
+                    todo_list_created = check_todo_list_exists(self.response)
+                    if todo_list_created:
+                        logging.info("Planning phase complete: to-do list created")
+
+                # Thinking budget enforcement for medium/high complexity tasks
+                if (
+                    complexity_score
+                    and complexity_score.thinking_budget > 0
+                    and intervention_count < max_interventions
+                ):
+                    needs_intervention, intervention_prompt = should_intervene(
+                        self.response, complexity_score
+                    )
+                    if needs_intervention:
+                        intervention_count += 1
+                        logging.info(
+                            f"Thinking budget intervention {intervention_count}/{max_interventions}: "
+                            f"Current steps: {count_thinking_steps(self.response)}, "
+                            f"Required: {complexity_score.min_thinking_steps}"
+                        )
+                        # Inject intervention prompt to encourage more thinking
+                        intervention_full = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\n{intervention_prompt}"
+                        intervention_response = await self.agent.inference(
+                            prompt=intervention_full, use_smartest=use_smartest
+                        )
+                        self.response = f"{self.response}{intervention_response}"
+                        continue
+
                 # First handle any initial commands
                 if "<execute>" in self.response:
                     await self.execution_agent(conversation_name=conversation_name)
@@ -1055,6 +1117,45 @@ class Interactions:
                             "<answer>", ""
                         )
                     else:
+                        # Answer review phase for high complexity tasks
+                        if complexity_score and complexity_score.answer_review_enabled:
+                            # Check if to-do list exists and needs review
+                            if complexity_score.planning_required and todo_list_created:
+                                todo_review = get_todo_review_prompt()
+                                review_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\n{todo_review}"
+                                review_response = await self.agent.inference(
+                                    prompt=review_prompt, use_smartest=use_smartest
+                                )
+                                # Check if agent wants to continue working
+                                if "<execute>" in review_response:
+                                    self.response = f"{self.response}{review_response}"
+                                    # Reset answer - agent wants to do more work
+                                    self.response = self.response.replace(
+                                        "</answer>", ""
+                                    ).replace("<answer>", "")
+                                    continue
+
+                            # High complexity answer review
+                            answer_review = get_answer_review_prompt()
+                            review_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\n{answer_review}"
+                            review_response = await self.agent.inference(
+                                prompt=review_prompt, use_smartest=use_smartest
+                            )
+                            # Check if agent wants to revise or execute more
+                            if (
+                                "<execute>" in review_response
+                                or "<answer>" in review_response
+                            ):
+                                self.response = f"{self.response}{review_response}"
+                                if "<answer>" in review_response:
+                                    # Agent revised the answer, we're done
+                                    break
+                                # Agent wants to execute more commands
+                                self.response = self.response.replace(
+                                    "</answer>", ""
+                                ).replace("<answer>", "")
+                                continue
+                            logging.info("High complexity answer review complete")
                         break
                 no_changes += 1
                 if no_changes > 5:

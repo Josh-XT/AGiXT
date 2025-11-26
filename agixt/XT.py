@@ -5,6 +5,12 @@ from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName, TranslationRequest
+from Complexity import (
+    calculate_complexity_score,
+    ComplexityTier,
+    ComplexityScore,
+    log_complexity_decision,
+)
 from datetime import datetime
 from typing import (
     List,
@@ -281,12 +287,28 @@ Your response (true or false):"""
             del kwargs["tts"]
         if "conversation_name" in kwargs:
             del kwargs["conversation_name"]
+
+        # Calculate complexity score for inference-time compute scaling
+        complexity_score = calculate_complexity_score(
+            user_input=user_input,
+            agent_settings=self.agent_settings,
+        )
+
+        # Log complexity decision for debugging
+        log_complexity_decision(
+            complexity_score, user_input[:100] if user_input else ""
+        )
+
+        # Determine use_smartest based on complexity scoring
         if "use_smartest" not in kwargs:
             kwargs["use_smartest"] = False
         if kwargs["use_smartest"] == False:
-            kwargs["use_smartest"] = await self.check_if_coding_required(
-                user_input=user_input
-            )
+            # Use complexity-based routing instead of just coding check
+            kwargs["use_smartest"] = complexity_score.route_to_smartest
+
+        # Pass complexity score to interactions for thinking budget enforcement
+        kwargs["complexity_score"] = complexity_score
+
         response = await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,
