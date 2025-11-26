@@ -18,11 +18,6 @@ import random
 import socket
 from dotenv import load_dotenv
 
-try:
-    import win32com.client as wim  # type: ignore
-except ImportError:
-    wim = None
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 XTSYS_ROOT = REPO_ROOT.parent  # Parent of AGiXT folder
@@ -30,14 +25,12 @@ LOCAL_SCRIPT = Path(__file__).resolve().parent / "run-local.py"
 DOCKER_COMPOSE_FILE_STABLE = REPO_ROOT / "docker-compose.yml"
 DOCKER_COMPOSE_FILE_DEV = REPO_ROOT / "docker-compose-dev.yml"
 ENV_FILE = REPO_ROOT / ".env"
-EZLOCALAI_DIR = XTSYS_ROOT / "ezlocalai"
 WEB_DIR = XTSYS_ROOT / "web"
 STATE_DIR = Path.home() / ".agixt"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_PID_FILE = STATE_DIR / "agixt-local.pid"
 LOCAL_LOG_FILE = STATE_DIR / f"agixt-local-{int(time.time())}.log"
 WEB_PID_FILE = STATE_DIR / "agixt-web.pid"
-EZLOCALAI_PID_FILE = STATE_DIR / "ezlocalai.pid"
 
 
 class CLIError(RuntimeError):
@@ -55,35 +48,6 @@ def get_local_ip():
         return ip
     except Exception as e:
         return "localhost"
-
-
-def get_cuda_vram():
-    try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.total,memory.free",
-                "--format=csv,noheader,nounits",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-        lines = result.stdout.strip().split("\n")
-        if len(lines) == 0:
-            return 0, 0
-        total_vram, free_vram = map(int, lines[0].split(","))
-        return total_vram, free_vram
-    except FileNotFoundError:
-        print("nvidia-smi not found. No CUDA support.")
-        return 0, 0
-    except subprocess.CalledProcessError as e:
-        print(f"nvidia-smi failed with error: {e.stderr}")
-        return 0, 0
-    except Exception as e:
-        print(f"Error getting CUDA information: {e}")
-        return 0, 0
 
 
 def get_default_env_vars():
@@ -196,10 +160,7 @@ def get_default_env_vars():
         "EZLOCALAI_URL": "http://localhost:8091",
         "DEFAULT_MODEL": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
         "VISION_MODEL": "",
-        "IMG_ENABLED": "false",
-        "IMG_DEVICE": "cpu",
-        "SD_MODEL": "",
-        "LLM_MAX_TOKENS": "64000",
+        "IMG_MODEL": "",
         "WHISPER_MODEL": "base",
         "MAX_CONCURRENT_REQUESTS": "2",
         "MAX_QUEUE_SIZE": "100",
@@ -452,152 +413,43 @@ def set_environment(env_updates=None, mode="docker"):
     return env_vars
 
 
-def _create_ezlocalai_env(gpu_layers: int) -> None:
-    """Create .env file for ezLocalai with values from backend .env or defaults."""
-    ezlocalai_env_path = EZLOCALAI_DIR / ".env"
-
-    # Load backend .env to get values
-    load_dotenv(ENV_FILE)
-
-    # Define ezLocalai env variables with backend inheritance or defaults
-    ezlocalai_env_vars = {
-        "GPU_LAYERS": str(gpu_layers),  # Calculated based on VRAM
-        "MAIN_GPU": os.getenv("MAIN_GPU", "0"),
-        "NGROK_TOKEN": os.getenv("NGROK_TOKEN", ""),
-        "EZLOCALAI_API_KEY": os.getenv("EZLOCALAI_API_KEY", ""),
-        "EZLOCALAI_URL": os.getenv("EZLOCALAI_URL", "http://localhost:8091"),
-        "DEFAULT_MODEL": os.getenv(
-            "DEFAULT_MODEL", "unsloth/Qwen3-4B-Instruct-2507-GGUF"
-        ),
-        "VISION_MODEL": os.getenv("VISION_MODEL", ""),
-        "IMG_ENABLED": os.getenv("IMG_ENABLED", "false"),
-        "IMG_DEVICE": os.getenv("IMG_DEVICE", "cpu"),
-        "SD_MODEL": os.getenv("SD_MODEL", ""),
-        "LLM_MAX_TOKENS": os.getenv("LLM_MAX_TOKENS", "64000"),
-        "WHISPER_MODEL": os.getenv("WHISPER_MODEL", "base"),
-        "MAX_CONCURRENT_REQUESTS": os.getenv("MAX_CONCURRENT_REQUESTS", "2"),
-        "MAX_QUEUE_SIZE": os.getenv("MAX_QUEUE_SIZE", "100"),
-        "REQUEST_TIMEOUT": os.getenv("REQUEST_TIMEOUT", "300"),
-    }
-
-    # Write to ezLocalai .env file
-    print(f"Creating ezLocalai .env file at {ezlocalai_env_path}...")
-    with ezlocalai_env_path.open("w", encoding="utf-8") as f:
-        for key, value in ezlocalai_env_vars.items():
-            f.write(f"{key}={value}\n")
-    print("ezLocalai .env file created successfully.")
-
-
 def start_ezlocalai():
-    load_dotenv()
-    env = get_default_env_vars()
-    nvidia_gpu = False
-    ezlocalai_path = EZLOCALAI_DIR
-    if not ezlocalai_path.exists():
-        print(f"Cloning ezLocalai to {ezlocalai_path}...")
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "https://github.com/DevXT-LLC/ezlocalai",
-                str(ezlocalai_path),
-            ],
-            check=True,
+    """Start ezLocalai using the ezlocalai CLI."""
+    print("Starting ezLocalai...")
+    try:
+        subprocess.run(["ezlocalai", "start"], check=True)
+    except FileNotFoundError:
+        raise CLIError(
+            "ezlocalai CLI not found. Install it with: pip install ezlocalai"
         )
-    else:
-        print(f"Updating ezLocalai at {ezlocalai_path}...")
-        subprocess.run(["git", "pull"], cwd=ezlocalai_path, check=True)
-
-    total_vram, free_vram = get_cuda_vram()
-    # if free vram is greater than 16gb, use 33 GPU layers
-    gpu_layers = int(env["GPU_LAYERS"])
-    if free_vram == 0:
-        gpu_layers = 0
-    if free_vram > 0 and gpu_layers == -1:
-        if free_vram > 16 * 1024:
-            gpu_layers = 33
-        elif free_vram > 8 * 1024:
-            gpu_layers = 16
-        elif free_vram > 4 * 1024:
-            gpu_layers = 8
-        elif free_vram > 2 * 1024:
-            gpu_layers = 0
-
-    # Create ezLocalai .env file with backend values
-    _create_ezlocalai_env(gpu_layers)
-
-    if platform.system() == "Windows":
-        wmi = wim.GetObject("winmgmts:")
-        for video_controller in wmi.InstancesOf("Win32_VideoController"):
-            if "NVIDIA" in video_controller.Name:
-                nvidia_gpu = True
-    elif platform.system() == "Linux":
-        cmd = "lspci | grep 'VGA' | grep 'NVIDIA'"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        gpu_name_match = re.search(r"NVIDIA\s+([^:]+)", result.stdout)
-        if gpu_name_match:
-            nvidia_gpu = True
-
-    if nvidia_gpu and total_vram > 0:
-        subprocess.run(
-            ["docker", "compose", "-f", "docker-compose-cuda.yml", "up", "-d"],
-            cwd=ezlocalai_path,
-            check=True,
-        )
-    else:
-        subprocess.run(
-            ["docker", "compose", "up", "-d"],
-            cwd=ezlocalai_path,
-            check=True,
-        )
-    print("ezLocalai started successfully!")
+    except subprocess.CalledProcessError as e:
+        raise CLIError(f"Failed to start ezLocalai: {e}")
 
 
 def stop_ezlocalai():
-    """Stop ezLocalai containers."""
-    ezlocalai_path = EZLOCALAI_DIR
-    if not ezlocalai_path.exists():
-        print("ezLocalai directory not found. Nothing to stop.")
-        return
-
+    """Stop ezLocalai using the ezlocalai CLI."""
     print("Stopping ezLocalai...")
-    total_vram, free_vram = get_cuda_vram()
-    nvidia_gpu = False
-
-    if platform.system() == "Windows":
-        if wim:
-            wmi = wim.GetObject("winmgmts:")
-            for video_controller in wmi.InstancesOf("Win32_VideoController"):
-                if "NVIDIA" in video_controller.Name:
-                    nvidia_gpu = True
-    elif platform.system() == "Linux":
-        cmd = "lspci | grep 'VGA' | grep 'NVIDIA'"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if "NVIDIA" in result.stdout:
-            nvidia_gpu = True
-
     try:
-        if nvidia_gpu and total_vram > 0:
-            subprocess.run(
-                ["docker", "compose", "-f", "docker-compose-cuda.yml", "stop"],
-                cwd=ezlocalai_path,
-                check=True,
-            )
-        else:
-            subprocess.run(
-                ["docker", "compose", "stop"],
-                cwd=ezlocalai_path,
-                check=True,
-            )
-        print("ezLocalai stopped successfully!")
+        subprocess.run(["ezlocalai", "stop"], check=True)
+    except FileNotFoundError:
+        raise CLIError(
+            "ezlocalai CLI not found. Install it with: pip install ezlocalai"
+        )
     except subprocess.CalledProcessError as e:
         print(f"Error stopping ezLocalai: {e}")
 
 
 def restart_ezlocalai():
-    """Restart ezLocalai containers."""
-    stop_ezlocalai()
-    start_ezlocalai()
+    """Restart ezLocalai using the ezlocalai CLI."""
+    print("Restarting ezLocalai...")
+    try:
+        subprocess.run(["ezlocalai", "restart"], check=True)
+    except FileNotFoundError:
+        raise CLIError(
+            "ezlocalai CLI not found. Install it with: pip install ezlocalai"
+        )
+    except subprocess.CalledProcessError as e:
+        raise CLIError(f"Failed to restart ezLocalai: {e}")
 
 
 def _create_web_env() -> None:
@@ -1213,27 +1065,15 @@ def _logs_docker(follow: bool = False) -> None:
 
 
 def _logs_ezlocalai(follow: bool = False) -> None:
-    """Display ezLocalai Docker logs."""
-    if not EZLOCALAI_DIR.exists():
-        raise CLIError(f"ezLocalai directory not found at {EZLOCALAI_DIR}")
-
-    # Detect if using CUDA
-    total_vram, free_vram = get_cuda_vram()
-    compose_file = "docker-compose-cuda.yml" if total_vram > 0 else "docker-compose.yml"
-    compose_path = EZLOCALAI_DIR / compose_file
-
-    if not compose_path.exists():
-        raise CLIError(f"Docker compose file not found: {compose_path}")
-
-    args = ["logs"]
-    if follow:
-        args.append("-f")
-
+    """Display ezLocalai logs using the ezlocalai CLI."""
     try:
-        subprocess.run(
-            ["docker", "compose", "-f", str(compose_path), *args],
-            cwd=EZLOCALAI_DIR,
-            check=True,
+        cmd = ["ezlocalai", "logs"]
+        if follow:
+            cmd.append("-f")
+        subprocess.run(cmd, check=True)
+    except FileNotFoundError:
+        raise CLIError(
+            "ezlocalai CLI not found. Install it with: pip install ezlocalai"
         )
     except KeyboardInterrupt:
         if follow:
@@ -1375,18 +1215,14 @@ def _show_env_help() -> None:
             "XAI_MAX_TOKENS",
             "DEFAULT_MODEL",
             "VISION_MODEL",
-            "LLM_MAX_TOKENS",
             "WHISPER_MODEL",
-            "GPU_LAYERS",
             "WITH_EZLOCALAI",
         ],
         "ezLocalai Configuration": [
             "EZLOCALAI_URL",
             "MAIN_GPU",
             "NGROK_TOKEN",
-            "IMG_ENABLED",
-            "IMG_DEVICE",
-            "SD_MODEL",
+            "IMG_MODEL",
             "MAX_CONCURRENT_REQUESTS",
             "MAX_QUEUE_SIZE",
             "REQUEST_TIMEOUT",
