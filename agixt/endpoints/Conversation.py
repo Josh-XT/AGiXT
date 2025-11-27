@@ -1146,13 +1146,14 @@ async def conversation_stream(
                     f"Unexpected initial_history format: {type(initial_history)}"
                 )
 
-            for message in messages:
-                # Convert datetime objects to ISO format strings for JSON serialization
-                serializable_message = make_json_serializable(message)
+            # Batch all initial messages into a single WebSocket send for efficiency
+            # This reduces N+1 WebSocket sends to just 1, significantly improving load time
+            if messages:
+                serializable_messages = [
+                    make_json_serializable(msg) for msg in messages
+                ]
                 await websocket.send_text(
-                    json.dumps(
-                        {"type": "initial_message", "data": serializable_message}
-                    )
+                    json.dumps({"type": "initial_data", "data": serializable_messages})
                 )
 
         except Exception as e:
@@ -1177,6 +1178,9 @@ async def conversation_stream(
             )
         )
 
+        # Track conversation name to detect renames
+        last_known_name = conversation_name
+
         # Track the last message count to detect new messages
         last_message_count = len(messages) if messages else 0
         previous_message_ids = (
@@ -1189,11 +1193,10 @@ async def conversation_stream(
         while True:
             try:
                 # Use wait_for with a timeout to check for incoming messages
-                # This allows us to handle both incoming messages and periodic updates
+                # Increased to 0.5s to reduce CPU usage while still being responsive
                 try:
-                    # Wait for incoming message with a 0.1-second timeout for faster message detection
                     message_data = await asyncio.wait_for(
-                        websocket.receive_json(), timeout=0.1
+                        websocket.receive_json(), timeout=0.5
                     )
 
                     # Handle incoming messages
@@ -1218,123 +1221,89 @@ async def conversation_stream(
                     # Error receiving message, but don't break the connection
                     logging.warning(f"Error receiving WebSocket message: {e}")
 
-                # Get current conversation state
-                current_history = c.get_conversation()
+                # Use efficient change detection instead of fetching all messages
+                changes = c.get_conversation_changes(
+                    since_timestamp=last_check_time,
+                    last_known_ids=(
+                        previous_message_ids if previous_message_ids else None
+                    ),
+                )
 
-                # Handle different formats of conversation history
-                current_messages = []
-                if current_history is None:
-                    current_messages = []
-                elif isinstance(current_history, list):
-                    current_messages = current_history
-                elif (
-                    isinstance(current_history, dict)
-                    and "interactions" in current_history
-                ):
-                    current_messages = current_history["interactions"]
-
-                if not current_messages:
-                    continue
-
-                current_message_count = len(current_messages)
-
-                # Track current message IDs
-                current_message_ids = {
-                    msg.get("id") for msg in current_messages if msg.get("id")
-                }
-
-                # Check for deleted messages by comparing IDs
-                if "previous_message_ids" in locals():
-                    deleted_ids = previous_message_ids - current_message_ids
-                    if deleted_ids:
-                        # Messages were deleted - send event with deleted IDs
-                        deleted_ids_list = [str(id) for id in deleted_ids]
-                        await websocket.send_text(
-                            json.dumps(
-                                {
-                                    "type": "messages_deleted",
-                                    "data": {
-                                        "previous_count": last_message_count,
-                                        "current_count": current_message_count,
-                                        "deleted_count": len(deleted_ids),
-                                        "deleted_message_ids": deleted_ids_list,
-                                    },
-                                }
-                            )
+                # Handle deleted messages
+                if changes["deleted_ids"]:
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "messages_deleted",
+                                "data": {
+                                    "previous_count": last_message_count,
+                                    "current_count": changes["current_count"],
+                                    "deleted_count": len(changes["deleted_ids"]),
+                                    "deleted_message_ids": changes["deleted_ids"],
+                                },
+                            }
                         )
-                        logging.info(
-                            f"WebSocket: Sent messages_deleted event for {len(deleted_ids)} message(s)"
+                    )
+                    logging.info(
+                        f"WebSocket: Sent messages_deleted event for {len(changes['deleted_ids'])} message(s)"
+                    )
+                    # Update IDs after deletion
+                    for deleted_id in changes["deleted_ids"]:
+                        previous_message_ids.discard(deleted_id)
+
+                # Handle new messages
+                for message in changes["new_messages"]:
+                    serializable_message = make_json_serializable(message)
+                    await websocket.send_text(
+                        json.dumps(
+                            {"type": "message_added", "data": serializable_message}
                         )
-                        # Reset last_message_count after deletion so new messages are detected correctly
-                        last_message_count = current_message_count
+                    )
+                    # Track new message ID
+                    if message.get("id"):
+                        previous_message_ids.add(str(message["id"]))
+
+                # Handle updated messages
+                for message in changes["updated_messages"]:
+                    serializable_message = make_json_serializable(message)
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "message_updated",
+                                "data": serializable_message,
+                            }
+                        )
+                    )
+
+                # Check for conversation rename
+                current_name = c.get_current_name_from_db()
+                if current_name and current_name != last_known_name:
+                    old_name = last_known_name
+                    last_known_name = current_name
+                    # Update the conversation object's name as well
+                    c.conversation_name = current_name
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "conversation_renamed",
+                                "data": {
+                                    "conversation_id": (
+                                        str(conversation_id)
+                                        if conversation_id
+                                        else None
+                                    ),
+                                    "old_name": old_name,
+                                    "new_name": current_name,
+                                },
+                            }
+                        )
+                    )
+                    logging.info(
+                        f"WebSocket: Sent conversation_renamed event '{old_name}' -> '{current_name}'"
+                    )
 
                 # Update tracking
-                previous_message_ids = current_message_ids
-
-                # Check for new messages
-                if current_message_count > last_message_count:
-                    # Send new messages
-                    new_messages = current_messages[last_message_count:]
-                    for message in new_messages:
-                        serializable_message = make_json_serializable(message)
-                        await websocket.send_text(
-                            json.dumps(
-                                {"type": "message_added", "data": serializable_message}
-                            )
-                        )
-                    last_message_count = current_message_count
-
-                # Check for updated messages (messages modified since last check)
-                # Simple approach: if updated_by is set and updated_at >= last_check_time, it was edited
-                for message in current_messages:
-                    message_updated_at_utc = message.get("updated_at_utc")
-                    message_updated_by = message.get("updated_by")
-                    message_id = message.get("id")
-
-                    # Only check messages that have been explicitly updated (updated_by is set)
-                    if message_updated_by and message_updated_at_utc:
-                        try:
-                            # Parse the timestamp
-                            if isinstance(message_updated_at_utc, datetime):
-                                updated_time = message_updated_at_utc
-                            else:
-                                try:
-                                    updated_time = datetime.fromisoformat(
-                                        str(message_updated_at_utc).replace(
-                                            "Z", "+00:00"
-                                        )
-                                    )
-                                except:
-                                    continue
-
-                            # Make timezone-naive for comparison
-                            check_time = (
-                                last_check_time.replace(tzinfo=None)
-                                if last_check_time.tzinfo
-                                else last_check_time
-                            )
-                            update_time = (
-                                updated_time.replace(tzinfo=None)
-                                if updated_time.tzinfo
-                                else updated_time
-                            )
-
-                            # Send update if message was updated since our last check
-                            if update_time >= check_time:
-                                serializable_message = make_json_serializable(message)
-                                await websocket.send_text(
-                                    json.dumps(
-                                        {
-                                            "type": "message_updated",
-                                            "data": serializable_message,
-                                        }
-                                    )
-                                )
-                        except Exception as e:
-                            logging.warning(
-                                f"Error checking message update for {message_id}: {e}"
-                            )
-
+                last_message_count = changes["current_count"]
                 last_check_time = datetime.now()
 
                 # Send heartbeat every 30 seconds to keep connection alive

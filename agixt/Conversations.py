@@ -108,6 +108,38 @@ class Conversations:
                 conversation_name="-", user_id=user_id
             )
 
+    def get_current_name_from_db(self):
+        """
+        Get the current conversation name directly from the database.
+        This is useful for detecting renames that happened since the object was created.
+
+        Returns:
+            str: The current name from the database, or None if not found
+        """
+        if not self.conversation_id:
+            return self.conversation_name
+
+        session = get_session()
+        try:
+            user_data = session.query(User).filter(User.email == self.user).first()
+            if not user_data:
+                return self.conversation_name
+            user_id = user_data.id
+
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.id == self.conversation_id,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+            if conversation:
+                return conversation.name
+            return self.conversation_name
+        finally:
+            session.close()
+
     def export_conversation(self):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
@@ -293,6 +325,150 @@ class Conversations:
 
         session.close()
         return result
+
+    def get_conversation_changes(self, since_timestamp=None, last_known_ids=None):
+        """
+        Efficiently get only the changes since the last check.
+
+        Args:
+            since_timestamp: Only return messages created/updated after this time
+            last_known_ids: Set of message IDs we already have - used to detect deletions
+
+        Returns:
+            {
+                "new_messages": [...],      # Messages added since last check
+                "updated_messages": [...],  # Messages updated since last check
+                "deleted_ids": [...],       # IDs of deleted messages
+                "current_count": int        # Current total message count
+            }
+        """
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        # Get conversation ID
+        if self.conversation_id:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.id == self.conversation_id,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+        else:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+
+        if not conversation:
+            session.close()
+            return {
+                "new_messages": [],
+                "updated_messages": [],
+                "deleted_ids": [],
+                "current_count": 0,
+            }
+
+        # Get current message count and IDs for deletion detection
+        from sqlalchemy import func
+
+        current_count = (
+            session.query(func.count(Message.id))
+            .filter(Message.conversation_id == conversation.id)
+            .scalar()
+        )
+
+        current_ids = set()
+        if last_known_ids is not None:
+            # Only query IDs if we need to check for deletions
+            id_query = (
+                session.query(Message.id)
+                .filter(Message.conversation_id == conversation.id)
+                .all()
+            )
+            current_ids = {str(row[0]) for row in id_query}
+
+        # Calculate deleted IDs
+        deleted_ids = []
+        if last_known_ids:
+            # Convert to strings for comparison
+            last_known_str = {str(id) for id in last_known_ids}
+            deleted_ids = list(last_known_str - current_ids)
+
+        new_messages = []
+        updated_messages = []
+
+        if since_timestamp is not None:
+            # Query for new messages (created after timestamp)
+            new_query = (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.timestamp > since_timestamp,
+                )
+                .order_by(Message.timestamp.asc())
+                .all()
+            )
+
+            for message in new_query:
+                msg = {
+                    "id": message.id,
+                    "role": message.role,
+                    "message": str(message.content).replace(
+                        "http://localhost:7437", getenv("AGIXT_URI")
+                    ),
+                    "timestamp": convert_time(message.timestamp, user_id=user_id),
+                    "updated_at": convert_time(message.updated_at, user_id=user_id),
+                    "updated_by": message.updated_by,
+                    "feedback_received": message.feedback_received,
+                    "timestamp_utc": message.timestamp,
+                    "updated_at_utc": message.updated_at,
+                }
+                new_messages.append(msg)
+
+            # Query for updated messages (updated_at > timestamp but timestamp <= since_timestamp)
+            # This catches edits to existing messages
+            updated_query = (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.timestamp <= since_timestamp,
+                    Message.updated_at > since_timestamp,
+                    Message.updated_by != None,  # Only actually edited messages
+                )
+                .order_by(Message.timestamp.asc())
+                .all()
+            )
+
+            for message in updated_query:
+                msg = {
+                    "id": message.id,
+                    "role": message.role,
+                    "message": str(message.content).replace(
+                        "http://localhost:7437", getenv("AGIXT_URI")
+                    ),
+                    "timestamp": convert_time(message.timestamp, user_id=user_id),
+                    "updated_at": convert_time(message.updated_at, user_id=user_id),
+                    "updated_by": message.updated_by,
+                    "feedback_received": message.feedback_received,
+                    "timestamp_utc": message.timestamp,
+                    "updated_at_utc": message.updated_at,
+                }
+                updated_messages.append(msg)
+
+        session.close()
+        return {
+            "new_messages": new_messages,
+            "updated_messages": updated_messages,
+            "deleted_ids": deleted_ids,
+            "current_count": current_count,
+        }
 
     def get_conversation(self, limit=1000, page=1):
         session = get_session()
