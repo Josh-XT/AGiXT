@@ -1045,10 +1045,13 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
+        # Get conversation_id first - it's stable even if name changes
+        conversation_id = self.get_conversation_id()
+        # Look up by ID instead of name to handle renames during a request
         conversation = (
             session.query(Conversation)
             .filter(
-                Conversation.name == self.conversation_name,
+                Conversation.id == conversation_id,
                 Conversation.user_id == user_id,
             )
             .first()
@@ -1065,6 +1068,8 @@ class Conversations:
             conversation = self.new_conversation()
             session.close()
             session = get_session()
+            # Get the new conversation_id after creating
+            conversation_id = self.get_conversation_id()
         else:
             conversation = conversation.__dict__
             conversation = {
@@ -1076,7 +1081,6 @@ class Conversations:
             message = message[:-1]
         if message.endswith("\n"):
             message = message[:-1]
-        conversation_id = self.get_conversation_id()
         try:
             new_message = Message(
                 role=role,
@@ -1674,19 +1678,33 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
+        # Use conversation_id for lookup if available - more stable than name
+        conversation_id = self.get_conversation_id()
         conversation = (
             session.query(Conversation)
             .filter(
-                Conversation.name == self.conversation_name,
+                Conversation.id == conversation_id,
                 Conversation.user_id == user_id,
             )
             .first()
         )
         if not conversation:
+            # Fallback to name-based lookup for backwards compatibility
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+        if not conversation:
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
             session.add(conversation)
             session.commit()
         conversation.name = new_name
+        # Also update internal state so future lookups use the new name
+        self.conversation_name = new_name
         session.commit()
         session.close()
         return new_name
