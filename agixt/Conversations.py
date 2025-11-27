@@ -32,8 +32,11 @@ def get_conversation_id_by_name(conversation_name, user_id):
         .first()
     )
     if not conversation:
-        c = Conversations(conversation_name=conversation_name, user=user.email)
-        conversation_id = c.get_conversation_id()
+        # Create conversation directly to avoid recursive call to Conversations.__init__
+        conversation = Conversation(name=conversation_name, user_id=user_id)
+        session.add(conversation)
+        session.commit()
+        conversation_id = str(conversation.id)
     else:
         conversation_id = str(conversation.id)
     session.close()
