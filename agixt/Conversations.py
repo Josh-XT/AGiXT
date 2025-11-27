@@ -1651,6 +1651,10 @@ class Conversations:
             session.close()
 
     def get_conversation_id(self):
+        # Return cached ID if available - this is stable even if name changes
+        if self.conversation_id:
+            return str(self.conversation_id)
+
         if not self.conversation_name:
             conversation_name = "-"
         else:
@@ -1671,6 +1675,8 @@ class Conversations:
             session.add(conversation)
             session.commit()
         conversation_id = str(conversation.id)
+        # Cache the ID for future calls
+        self.conversation_id = conversation_id
         session.close()
         return conversation_id
 

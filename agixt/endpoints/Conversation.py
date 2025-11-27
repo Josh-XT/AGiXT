@@ -1121,8 +1121,12 @@ async def conversation_stream(
             await websocket.close()
             return
 
-        # Initialize conversation handler
-        c = Conversations(conversation_name=conversation_name, user=user)
+        # Initialize conversation handler with conversation_id so we can detect renames
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
 
         # Get initial conversation history
         try:

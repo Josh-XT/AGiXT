@@ -132,7 +132,13 @@ class Interactions:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
             conversation_name = "-"
-        c = Conversations(conversation_name=conversation_name, user=self.user)
+        # Use conversation_id if provided - it's more stable than name during renames
+        conversation_id = kwargs.get("conversation_id")
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+            conversation_id=conversation_id,
+        )
         conversation_id = c.get_conversation_id()
         conversation_outputs = (
             f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
@@ -572,6 +578,7 @@ class Interactions:
         shots: int = 1,
         disable_memory: bool = True,
         conversation_name: str = "",
+        conversation_id: str = None,
         browse_links: bool = False,
         persist_context_in_history: bool = False,
         images: list = [],
@@ -582,6 +589,9 @@ class Interactions:
         **kwargs,
     ):
         global AGIXT_URI
+        # Store conversation_id in kwargs for downstream use
+        if conversation_id:
+            kwargs["conversation_id"] = conversation_id
         for setting in self.agent.AGENT_CONFIG["settings"]:
             if setting not in kwargs:
                 kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
@@ -690,7 +700,13 @@ class Interactions:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
             conversation_name = "-"
-        c = Conversations(conversation_name=conversation_name, user=self.user)
+        # Use conversation_id if provided - it's more stable than name during renames
+        conversation_id = kwargs.get("conversation_id")
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+            conversation_id=conversation_id,
+        )
         async_tasks = []
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
@@ -1035,7 +1051,10 @@ class Interactions:
 
                 # First handle any initial commands
                 if "<execute>" in self.response:
-                    await self.execution_agent(conversation_name=conversation_name)
+                    await self.execution_agent(
+                        conversation_name=conversation_name,
+                        conversation_id=conversation_id,
+                    )
                     new_processed_length = len(self.response)
                     if new_processed_length > processed_length:
                         # Get continuation only if we got new content
@@ -1071,7 +1090,10 @@ class Interactions:
                         self.response = self.process_thinking_tags(
                             response=self.response, thinking_id=thinking_id, c=c
                         )
-                    await self.execution_agent(conversation_name=conversation_name)
+                    await self.execution_agent(
+                        conversation_name=conversation_name,
+                        conversation_id=conversation_id,
+                    )
                     new_processed_length = len(self.response)
 
                     if new_processed_length > processed_length:
@@ -1109,7 +1131,10 @@ class Interactions:
                         and "</output>" not in pre_answer.split("<execute>")[-1]
                     ):
                         # There's an unprocessed command before the answer block
-                        await self.execution_agent(conversation_name=conversation_name)
+                        await self.execution_agent(
+                            conversation_name=conversation_name,
+                            conversation_id=conversation_id,
+                        )
                         new_processed_length = len(self.response)
                         if new_processed_length > processed_length:
                             # Continue processing if we got new content
@@ -1399,8 +1424,12 @@ class Interactions:
                 extracted_commands.append((command_block, command_name, args))
         return extracted_commands
 
-    async def execution_agent(self, conversation_name):
-        c = Conversations(conversation_name=conversation_name, user=self.user)
+    async def execution_agent(self, conversation_name, conversation_id=None):
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+            conversation_id=conversation_id,
+        )
         command_list = [
             available_command["friendly_name"]
             for available_command in self.agent.available_commands

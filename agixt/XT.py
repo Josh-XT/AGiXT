@@ -427,6 +427,7 @@ Your response (true or false):"""
             conversation_results=conversation_results,
             shots=shots,
             conversation_name=self.conversation_name,
+            conversation_id=self.conversation_id,
             browse_links=browse_links,
             images=images,
             tts=voice_response,
@@ -2015,10 +2016,6 @@ Your response (true or false):"""
             del prompt_args["log_user_input"]
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
-            # Start background task to rename new conversations immediately after user input
-            # This runs in parallel with response generation so the user sees the rename quickly
-            if self.conversation_name == "-":
-                asyncio.create_task(self.rename_new_conversation(new_prompt))
         if log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
         file_contents = []
@@ -2209,8 +2206,10 @@ Your response (true or false):"""
                     role=self.agent_name,
                     message=response,
                 )
-                # Note: Conversation renaming now happens as a background task
-                # right after user input is logged (see rename_new_conversation)
+                # Rename new conversations after response is complete
+                # Run as background task so it doesn't block the response being returned
+                if self.conversation_name == "-":
+                    asyncio.create_task(self.rename_new_conversation(new_prompt))
         if isinstance(response, dict):
             response = json.dumps(response, indent=2)
         if not isinstance(response, str):
