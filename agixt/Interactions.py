@@ -1747,20 +1747,11 @@ class Interactions:
                             for m in matches:
                                 content = m.group(1).strip()
 
-                                # Log the execution intent
+                                # Don't log here - execution_agent will handle logging
+                                # Just mark as processed and yield the event
                                 tag_id = f"{tag_name}:{hash(content)}"
                                 if tag_id not in processed_thinking_ids and content:
                                     processed_thinking_ids.add(tag_id)
-                                    log_msg = f"[SUBACTIVITY][{thinking_id}][EXECUTION] Preparing to execute command:\n```\n{content}\n```"
-
-                                    if current_tag_message_id:
-                                        c.update_message_by_id(
-                                            current_tag_message_id, log_msg
-                                        )
-                                    else:
-                                        c.log_interaction(
-                                            role=self.agent_name, message=log_msg
-                                        )
 
                                     yield {
                                         "type": tag_name,
