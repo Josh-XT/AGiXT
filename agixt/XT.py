@@ -2558,7 +2558,7 @@ Your response (true or false):"""
             # Use the streaming inference pipeline to stream tokens in real-time
             # This properly handles thinking/reflection tags and streams answer content
             final_answer = ""
-            
+
             async for event in self.agent_interactions.run_stream(
                 user_input=new_prompt,
                 prompt_category=prompt_category,
@@ -2570,7 +2570,7 @@ Your response (true or false):"""
                 browse_links=browse_links,
                 websearch=websearch,
                 log_user_input=False,  # Already logged above
-                log_output=False,  # run_stream handles this
+                log_output=True,  # Log the final answer to the conversation
                 complexity_score=complexity_score,
                 use_smartest=use_smartest,
                 **prompt_args,
@@ -2578,7 +2578,7 @@ Your response (true or false):"""
                 event_type = event.get("type", "")
                 content = event.get("content", "")
                 is_complete = event.get("complete", False)
-                
+
                 # Stream answer tokens to the frontend via SSE
                 if event_type == "answer" and content:
                     if is_complete:
@@ -2600,17 +2600,21 @@ Your response (true or false):"""
                             ],
                         }
                         yield f"data: {json.dumps(chunk)}\n\n"
-                
-                # Thinking/reflection events are logged to WebSocket via run_stream
-                # The frontend receives them via the existing WebSocket activity subscription
-                
-                # For progressive thinking streaming (thinking_stream, reflection_stream)
-                # These can optionally be sent as a different event type if frontend wants them
+
+                # Stream progressive thinking/reflection content
                 elif event_type in ("thinking_stream", "reflection_stream"):
-                    # These are already being pushed via WebSocket through log_interaction
-                    # No need to send via SSE - frontend will get them through activities
-                    pass
-                
+                    # Send as a custom SSE event for progressive activity streaming
+                    activity_type = event_type.replace("_stream", "")
+                    activity_chunk = {
+                        "id": chunk_id,
+                        "object": "activity.stream",
+                        "type": activity_type,
+                        "created": created_time,
+                        "content": content,
+                        "complete": is_complete,
+                    }
+                    yield f"data: {json.dumps(activity_chunk)}\n\n"
+
                 elif event_type == "error":
                     error_chunk = {
                         "id": chunk_id,
@@ -2634,6 +2638,7 @@ Your response (true or false):"""
         except Exception as e:
             logging.error(f"Streaming error: {str(e)}")
             import traceback
+
             logging.error(traceback.format_exc())
             # Send error chunk
             error_chunk = {

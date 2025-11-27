@@ -1641,7 +1641,7 @@ class Conversations:
 
         try:
             session.commit()
-            logging.info(
+            logging.debug(
                 f"Message {message_id} successfully updated - committed to database"
             )
         except Exception as e:
