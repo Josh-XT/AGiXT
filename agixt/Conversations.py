@@ -11,7 +11,7 @@ from DB import (
 )
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func, or_
-from MagicalAuth import convert_time
+from MagicalAuth import convert_time, get_user_id
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -87,9 +87,26 @@ def get_conversation_name_by_message_id(message_id, user_id):
 
 
 class Conversations:
-    def __init__(self, conversation_name=None, user=DEFAULT_USER):
-        self.conversation_name = conversation_name
+    def __init__(self, conversation_name=None, user=DEFAULT_USER, conversation_id=None):
         self.user = user
+        self.conversation_id = conversation_id
+        self.conversation_name = conversation_name
+
+        # Resolve missing ID or name from the other
+        user_id = get_user_id(user)
+        if not self.conversation_id and self.conversation_name:
+            self.conversation_id = get_conversation_id_by_name(
+                conversation_name=conversation_name, user_id=user_id
+            )
+        elif not self.conversation_name and self.conversation_id:
+            self.conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=user_id
+            )
+        elif not self.conversation_name and not self.conversation_id:
+            self.conversation_name = "-"
+            self.conversation_id = get_conversation_id_by_name(
+                conversation_name="-", user_id=user_id
+            )
 
     def export_conversation(self):
         session = get_session()
@@ -283,14 +300,26 @@ class Conversations:
         user_id = user_data.id
         if not self.conversation_name:
             self.conversation_name = "-"
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+
+        # Prefer conversation_id lookup to avoid duplicate name issues
+        if self.conversation_id:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.id == self.conversation_id,
+                    Conversation.user_id == user_id,
+                )
+                .first()
             )
-            .first()
-        )
+        else:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
         if not conversation:
             # Create the conversation
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
