@@ -2311,18 +2311,26 @@ Your response (true or false):"""
 
     async def _execute_chat_completions_stream(self, prompt: ChatCompletions):
         """
-        Internal method that does the actual streaming chat completion processing
+        Internal method that does the actual streaming chat completion processing.
+        This implementation properly handles tags like <thinking>, <execute>, <answer> etc.
+        to ensure backend processing happens while streaming visible content to the frontend.
         """
-        import json
-        import time
-        import asyncio
+        from Complexity import (
+            calculate_complexity_score,
+            should_intervene,
+            count_thinking_steps,
+            get_planning_phase_prompt,
+            get_todo_review_prompt,
+            get_answer_review_prompt,
+            check_todo_list_exists,
+        )
 
         conversation_id = self.conversation_id
-        chunk_id = conversation_id  # Use conversation_id as the chunk ID
+        chunk_id = conversation_id
         created_time = int(time.time())
-
-        # Process the prompt exactly like the non-streaming version
         c = self.conversation
+
+        # Initialize all parameters like the non-streaming version
         urls = []
         files = []
         new_prompt = ""
@@ -2332,7 +2340,11 @@ Your response (true or false):"""
         language = "en"
         log_output = True
         log_user_input = True
+        disable_commands = False
+        running_command = None
+        additional_context = ""
         command_overrides = None
+
         if prompt.tools:
             command_overrides = prompt.tools
         if "websearch" in self.agent_settings:
@@ -2414,9 +2426,8 @@ Your response (true or false):"""
             include_sources = (
                 str(self.agent_settings["include_sources"]).lower() == "true"
             )
-        additional_context = ""
 
-        # Extract user message content from the prompt
+        # Extract user message content from the prompt (same as non-streaming)
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -2480,6 +2491,10 @@ Your response (true or false):"""
                     if isinstance(message["download_headers"], str)
                     else message["download_headers"]
                 )
+            if "disable_commands" in message:
+                disable_commands = str(message["disable_commands"]).lower() == "true"
+            if "running_command" in message:
+                running_command = message["running_command"]
             if "content" not in message:
                 continue
             if isinstance(message["content"], str):
@@ -2495,7 +2510,6 @@ Your response (true or false):"""
                         role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
-                    # Handle any file/URL content
                     if isinstance(msg, dict):
                         for key, value in msg.items():
                             if "_url" in key:
@@ -2505,6 +2519,9 @@ Your response (true or false):"""
         # Log user input
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
+
+        # Get thinking_id for activity logging
+        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
 
         # Send initial streaming chunk
         initial_chunk = {
@@ -2523,94 +2540,52 @@ Your response (true or false):"""
         yield f"data: {json.dumps(initial_chunk)}\n\n"
 
         try:
-            # Check if the provider supports streaming
-            import inspect
-
-            provider_stream_supported = (
-                hasattr(self.agent.PROVIDER, "inference")
-                and "stream"
-                in inspect.signature(self.agent.PROVIDER.inference).parameters
+            # Calculate complexity score for inference-time compute scaling
+            complexity_score = calculate_complexity_score(
+                user_input=new_prompt,
+                agent_settings=self.agent_settings,
             )
 
-            if provider_stream_supported and mode == "prompt":
-                # For streaming providers, we need to format the prompt with memories first
-                formatted_prompt, _, _ = await self.agent_interactions.format_prompt(
-                    user_input=new_prompt,
-                    top_results=context_results,
-                    min_relevance_score=0.3,
-                    conversation_results=conversation_results,
-                    prompt_name=prompt_name,
-                    prompt_category=prompt_category,
-                    log_user_input=False,
-                    log_output=False,
-                    **prompt_args,
-                )
+            # Determine use_smartest based on complexity scoring
+            use_smartest = complexity_score.route_to_smartest
 
-                # Use real provider streaming
-                stream_response = await self.agent.PROVIDER.inference(
-                    prompt=formatted_prompt, stream=True
-                )
+            # Build prompt args for processing
+            if disable_commands:
+                prompt_args["disable_commands"] = True
+            if running_command:
+                prompt_args["running_command"] = running_command
 
-                full_response = ""
-
-                # Handle the stream response (OpenAI-style)
-                if hasattr(stream_response, "__aiter__"):
-                    async for chunk in stream_response:
-                        if hasattr(chunk, "choices") and len(chunk.choices) > 0:
-                            choice = chunk.choices[0]
-                            if hasattr(choice, "delta") and hasattr(
-                                choice.delta, "content"
-                            ):
-                                content = choice.delta.content
-                                if content:
-                                    full_response += content
-                                    stream_chunk = {
-                                        "id": chunk_id,
-                                        "object": "chat.completion.chunk",
-                                        "created": created_time,
-                                        "model": self.agent_name,
-                                        "choices": [
-                                            {
-                                                "index": 0,
-                                                "delta": {"content": content},
-                                                "finish_reason": None,
-                                            }
-                                        ],
-                                    }
-                                    yield f"data: {json.dumps(stream_chunk)}\n\n"
-                elif hasattr(stream_response, "__iter__"):
-                    # Handle sync iterator
-                    for chunk in stream_response:
-                        if hasattr(chunk, "choices") and len(chunk.choices) > 0:
-                            choice = chunk.choices[0]
-                            if hasattr(choice, "delta") and hasattr(
-                                choice.delta, "content"
-                            ):
-                                content = choice.delta.content
-                                if content:
-                                    full_response += content
-                                    stream_chunk = {
-                                        "id": chunk_id,
-                                        "object": "chat.completion.chunk",
-                                        "created": created_time,
-                                        "model": self.agent_name,
-                                        "choices": [
-                                            {
-                                                "index": 0,
-                                                "delta": {"content": content},
-                                                "finish_reason": None,
-                                            }
-                                        ],
-                                    }
-                                    yield f"data: {json.dumps(stream_chunk)}\n\n"
-                else:
-                    # Fall back to simulated streaming if the response isn't iterable
-                    response = str(stream_response)
-                    full_response = response
-                    # Simulate streaming by chunking the response
-                    words = response.split(" ")
-
-                    for i, word in enumerate(words):
+            # Use the streaming inference pipeline to stream tokens in real-time
+            # This properly handles thinking/reflection tags and streams answer content
+            final_answer = ""
+            
+            async for event in self.agent_interactions.run_stream(
+                user_input=new_prompt,
+                prompt_category=prompt_category,
+                prompt_name=prompt_name,
+                context_results=context_results,
+                conversation_results=conversation_results,
+                conversation_name=self.conversation_name,
+                conversation_id=self.conversation_id,
+                browse_links=browse_links,
+                websearch=websearch,
+                log_user_input=False,  # Already logged above
+                log_output=False,  # run_stream handles this
+                complexity_score=complexity_score,
+                use_smartest=use_smartest,
+                **prompt_args,
+            ):
+                event_type = event.get("type", "")
+                content = event.get("content", "")
+                is_complete = event.get("complete", False)
+                
+                # Stream answer tokens to the frontend via SSE
+                if event_type == "answer" and content:
+                    if is_complete:
+                        # Final answer - we've already streamed it progressively
+                        final_answer = content
+                    else:
+                        # Progressive answer streaming - send each token
                         chunk = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
@@ -2619,55 +2594,25 @@ Your response (true or false):"""
                             "choices": [
                                 {
                                     "index": 0,
-                                    "delta": {"content": word + " "},
+                                    "delta": {"content": content},
                                     "finish_reason": None,
                                 }
                             ],
                         }
                         yield f"data: {json.dumps(chunk)}\n\n"
-                        await asyncio.sleep(
-                            0.01
-                        )  # Small delay to simulate real streaming
-
-                # Log the complete response
-                if log_output and full_response:
-                    self.conversation.log_interaction(
-                        role=self.agent_name,
-                        message=full_response,
-                    )
-            else:
-                # Fallback: Use the regular inference method and simulate streaming
-                response = await self.inference(
-                    user_input=new_prompt,
-                    prompt_name=prompt_name,
-                    prompt_category=prompt_category,
-                    injected_memories=context_results,
-                    conversation_results=conversation_results,
-                    shots=prompt.n,
-                    websearch=websearch,
-                    browse_links=browse_links,
-                    voice_response=False,
-                    log_user_input=False,
-                    log_output=False,
-                    language=language,
-                    command_overrides=command_overrides,
-                    **prompt_args,
-                )
-
-                if response.startswith(f"{self.agent_name}:"):
-                    response = response[len(f"{self.agent_name}:") :]
-                if response.startswith(f"{self.agent_name} :"):
-                    response = response[len(f"{self.agent_name} :") :]
-
-                # Remove any special tags
-                response = self.remove_tagged_content(response, "execute")
-                response = self.remove_tagged_content(response, "output")
-
-                # Simulate streaming by chunking the response
-                words = response.split(" ")
-
-                for i, word in enumerate(words):
-                    chunk = {
+                
+                # Thinking/reflection events are logged to WebSocket via run_stream
+                # The frontend receives them via the existing WebSocket activity subscription
+                
+                # For progressive thinking streaming (thinking_stream, reflection_stream)
+                # These can optionally be sent as a different event type if frontend wants them
+                elif event_type in ("thinking_stream", "reflection_stream"):
+                    # These are already being pushed via WebSocket through log_interaction
+                    # No need to send via SSE - frontend will get them through activities
+                    pass
+                
+                elif event_type == "error":
+                    error_chunk = {
                         "id": chunk_id,
                         "object": "chat.completion.chunk",
                         "created": created_time,
@@ -2675,25 +2620,21 @@ Your response (true or false):"""
                         "choices": [
                             {
                                 "index": 0,
-                                "delta": {"content": word + " "},
-                                "finish_reason": None,
+                                "delta": {"content": f"Error: {content}"},
+                                "finish_reason": "stop",
                             }
                         ],
                     }
-                    yield f"data: {json.dumps(chunk)}\n\n"
-                    await asyncio.sleep(0.01)  # Small delay to simulate real streaming
+                    yield f"data: {json.dumps(error_chunk)}\n\n"
 
-                # Log the response
-                if log_output:
-                    self.conversation.log_interaction(
-                        role=self.agent_name,
-                        message=response,
-                    )
+            # Handle conversation rename for new conversations
+            if self.conversation_name == "-":
+                asyncio.create_task(self.rename_new_conversation(new_prompt))
 
         except Exception as e:
-            import logging
-
             logging.error(f"Streaming error: {str(e)}")
+            import traceback
+            logging.error(traceback.format_exc())
             # Send error chunk
             error_chunk = {
                 "id": chunk_id,
@@ -2703,7 +2644,7 @@ Your response (true or false):"""
                 "choices": [
                     {
                         "index": 0,
-                        "delta": {"content": "Error: An internal error has occurred."},
+                        "delta": {"content": f"Error: {str(e)}"},
                         "finish_reason": "stop",
                     }
                 ],

@@ -70,7 +70,8 @@ class RotationProvider:
         tokens: int = 0,
         images: List[Any] = None,
         use_smartest: bool = False,
-    ) -> str:
+        stream: bool = False,
+    ):
         """
         Attempt inference using providers with sufficient token limits.
 
@@ -177,8 +178,17 @@ class RotationProvider:
                 **self.AGENT_SETTINGS,
             )
             result = await provider_instance.inference(
-                prompt=prompt, tokens=tokens, images=images, use_smartest=use_smartest
+                prompt=prompt,
+                tokens=tokens,
+                images=images,
+                use_smartest=use_smartest,
+                stream=stream,
             )
+
+            # For streaming, return the stream object directly
+            if stream:
+                return result
+
             if isinstance(result, str) and result.startswith("Error:"):
                 raise Exception(f"Provider {provider} returned an error: {result}")
             if not isinstance(result, str):
