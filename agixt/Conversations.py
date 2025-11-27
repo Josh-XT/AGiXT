@@ -974,18 +974,6 @@ class Conversations:
             session.close()
             return None
 
-        # Get the most recent non-thinking activity message
-        current_parent_activity = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.content.like("[ACTIVITY]%"),
-                Message.content != "[ACTIVITY] Thinking.",
-            )
-            .order_by(Message.timestamp.desc())
-            .first()
-        )
-
         # Get the most recent thinking activity
         current_thinking = (
             session.query(Message)
@@ -997,13 +985,27 @@ class Conversations:
             .first()
         )
 
-        # If there's a parent activity and it's more recent than the last thinking activity
-        if current_parent_activity:
+        # Get the most recent non-subactivity message (user message, agent response, or non-thinking activity)
+        # This represents the last "real" conversation turn
+        most_recent_message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                ~Message.content.like("[SUBACTIVITY]%"),
+                Message.content != "[ACTIVITY] Thinking.",
+            )
+            .order_by(Message.timestamp.desc())
+            .first()
+        )
+
+        # If there's a recent message and it's more recent than the last thinking activity,
+        # create a new thinking activity for this new conversation turn
+        if most_recent_message:
             if (
                 not current_thinking
-                or current_parent_activity.timestamp > current_thinking.timestamp
+                or most_recent_message.timestamp > current_thinking.timestamp
             ):
-                # Create new thinking activity as we have a new parent
+                # Create new thinking activity as we have a new conversation turn
                 thinking_id = self.log_interaction(
                     role=agent_name,
                     message="[ACTIVITY] Thinking.",
@@ -1011,12 +1013,12 @@ class Conversations:
                 session.close()
                 return str(thinking_id)
 
-        # If we have a current thinking activity and it's the most recent,
-        # or if there's no parent activity at all, reuse the existing thinking ID
+        # If we have a current thinking activity and it's the most recent message,
+        # or if there's no other messages at all, reuse the existing thinking ID
         if current_thinking:
             if (
-                not current_parent_activity
-                or current_thinking.timestamp > current_parent_activity.timestamp
+                not most_recent_message
+                or current_thinking.timestamp > most_recent_message.timestamp
             ):
                 session.close()
                 return str(current_thinking.id)
