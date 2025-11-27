@@ -5,6 +5,12 @@ from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName, TranslationRequest
+from Complexity import (
+    calculate_complexity_score,
+    ComplexityTier,
+    ComplexityScore,
+    log_complexity_decision,
+)
 from datetime import datetime
 from typing import (
     List,
@@ -182,6 +188,116 @@ class AGiXT:
         )
         return formatted_prompt
 
+    async def rename_new_conversation(self, user_input: str):
+        """
+        Rename a new conversation (one with name "-") based on the user input.
+        This runs asynchronously and should be called right after user input is logged.
+        The WebSocket will notify the frontend when the rename completes.
+
+        Args:
+            user_input (str): The user's first message in the conversation
+        """
+        if self.conversation_name != "-":
+            return  # Only rename new conversations
+
+        try:
+            c = Conversations(
+                conversation_name=self.conversation_name, user=self.user_email
+            )
+
+            # Default fallback name
+            new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
+
+            # Get list of existing conversations to avoid duplicates
+            conversation_list = c.get_conversations()
+
+            # Use LLM to generate a meaningful name based on user input
+            new_convo = await self.inference(
+                user_input=f"Rename conversation based on: {user_input[:500]}",  # Limit context
+                prompt_name="Name Conversation",
+                conversation_list="\n".join(conversation_list),
+                conversation_results=5,  # Reduced from 10 for speed
+                websearch=False,
+                browse_links=False,
+                voice_response=False,
+                log_user_input=False,
+                log_output=False,
+                conversation_name=self.conversation_name,
+            )
+
+            # Extract JSON from the response
+            try:
+                if "```json" in new_convo:
+                    json_text = new_convo.split("```json")[1].split("```")[0].strip()
+                elif "```" in new_convo:
+                    json_text = new_convo.split("```")[1].split("```")[0].strip()
+                else:
+                    json_start = new_convo.find("{")
+                    json_end = new_convo.rfind("}")
+                    if json_start != -1 and json_end != -1 and json_end > json_start:
+                        json_text = new_convo[json_start : json_end + 1]
+                    else:
+                        raise ValueError("No valid JSON found in response")
+
+                parsed_json = json.loads(json_text)
+                new_name = parsed_json.get("suggested_conversation_name", new_name)
+
+                # Handle duplicate names
+                if new_name in conversation_list:
+                    new_convo = await self.inference(
+                        user_input=f"**Do not use {new_name}!**",
+                        prompt_name="Name Conversation",
+                        conversation_list="\n".join(conversation_list),
+                        conversation_results=5,
+                        websearch=False,
+                        browse_links=False,
+                        voice_response=False,
+                        log_user_input=False,
+                        log_output=False,
+                    )
+
+                    if "```json" in new_convo:
+                        json_text = (
+                            new_convo.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in new_convo:
+                        json_text = new_convo.split("```")[1].split("```")[0].strip()
+                    else:
+                        json_start = new_convo.find("{")
+                        json_end = new_convo.rfind("}")
+                        if (
+                            json_start != -1
+                            and json_end != -1
+                            and json_end > json_start
+                        ):
+                            json_text = new_convo[json_start : json_end + 1]
+                        else:
+                            raise ValueError("No valid JSON found in second response")
+
+                    parsed_json = json.loads(json_text)
+                    new_name = parsed_json.get("suggested_conversation_name", new_name)
+
+                    if new_name in conversation_list:
+                        new_name = datetime.now().strftime(
+                            "Conversation Created %Y-%m-%d %I:%M %p"
+                        )
+
+            except Exception as e:
+                logging.error(f"Error parsing conversation name: {e}")
+                if new_convo and isinstance(new_convo, str) and len(new_convo) < 100:
+                    new_name = str(new_convo)
+
+            # Apply the rename
+            c.set_conversation_summary(summary=new_name)
+            self.conversation_name = c.rename_conversation(new_name=new_name)
+            logging.info(f"Renamed conversation to: {new_name}")
+
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            logging.error(f"Error in rename_new_conversation: {e}")
+
     async def check_if_coding_required(self, user_input: str) -> bool:
         """
         Evaluates if coding is required to assist with the user's request.
@@ -281,12 +397,28 @@ Your response (true or false):"""
             del kwargs["tts"]
         if "conversation_name" in kwargs:
             del kwargs["conversation_name"]
+
+        # Calculate complexity score for inference-time compute scaling
+        complexity_score = calculate_complexity_score(
+            user_input=user_input,
+            agent_settings=self.agent_settings,
+        )
+
+        # Log complexity decision for debugging
+        log_complexity_decision(
+            complexity_score, user_input[:100] if user_input else ""
+        )
+
+        # Determine use_smartest based on complexity scoring
         if "use_smartest" not in kwargs:
             kwargs["use_smartest"] = False
         if kwargs["use_smartest"] == False:
-            kwargs["use_smartest"] = await self.check_if_coding_required(
-                user_input=user_input
-            )
+            # Use complexity-based routing instead of just coding check
+            kwargs["use_smartest"] = complexity_score.route_to_smartest
+
+        # Pass complexity score to interactions for thinking budget enforcement
+        kwargs["complexity_score"] = complexity_score
+
         response = await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,
@@ -295,6 +427,7 @@ Your response (true or false):"""
             conversation_results=conversation_results,
             shots=shots,
             conversation_name=self.conversation_name,
+            conversation_id=self.conversation_id,
             browse_links=browse_links,
             images=images,
             tts=voice_response,
@@ -2073,111 +2206,10 @@ Your response (true or false):"""
                     role=self.agent_name,
                     message=response,
                 )
+                # Rename new conversations after response is complete
+                # Run as background task so it doesn't block the response being returned
                 if self.conversation_name == "-":
-                    # Rename the conversation
-                    new_name = datetime.now().strftime(
-                        "Conversation Created %Y-%m-%d %I:%M %p"
-                    )
-                    conversation_list = c.get_conversations()
-                    new_convo = await self.inference(
-                        user_input=f"Rename conversation",
-                        prompt_name="Name Conversation",
-                        conversation_list="\n".join(conversation_list),
-                        conversation_results=10,
-                        websearch=False,
-                        browse_links=False,
-                        voice_response=False,
-                        log_user_input=False,
-                        log_output=False,
-                        conversation_name=self.conversation_name,
-                    )
-
-                    # Extract JSON from the response
-                    try:
-                        # Check if the response contains a code block with JSON
-                        if "```json" in new_convo:
-                            json_text = (
-                                new_convo.split("```json")[1].split("```")[0].strip()
-                            )
-                        elif "```" in new_convo:
-                            # Check for plain code block that might contain JSON
-                            json_text = (
-                                new_convo.split("```")[1].split("```")[0].strip()
-                            )
-                        else:
-                            # If no code block, try to extract anything that looks like JSON
-                            json_start = new_convo.find("{")
-                            json_end = new_convo.rfind("}")
-                            if (
-                                json_start != -1
-                                and json_end != -1
-                                and json_end > json_start
-                            ):
-                                json_text = new_convo[json_start : json_end + 1]
-                            else:
-                                raise ValueError("No valid JSON found in response")
-
-                        # Parse the JSON
-                        parsed_json = json.loads(json_text)
-                        new_name = parsed_json.get(
-                            "suggested_conversation_name", new_name
-                        )
-                        if new_name in conversation_list:
-                            # Do not use the same name
-                            new_convo = await self.inference(
-                                user_input=f"**Do not use {new_name}!**",
-                                prompt_name="Name Conversation",
-                                conversation_list="\n".join(conversation_list),
-                                conversation_results=10,
-                                websearch=False,
-                                browse_links=False,
-                                voice_response=False,
-                                log_user_input=False,
-                                log_output=False,
-                            )
-                            # Extract JSON again with same robust method
-                            if "```json" in new_convo:
-                                json_text = (
-                                    new_convo.split("```json")[1]
-                                    .split("```")[0]
-                                    .strip()
-                                )
-                            elif "```" in new_convo:
-                                json_text = (
-                                    new_convo.split("```")[1].split("```")[0].strip()
-                                )
-                            else:
-                                json_start = new_convo.find("{")
-                                json_end = new_convo.rfind("}")
-                                if (
-                                    json_start != -1
-                                    and json_end != -1
-                                    and json_end > json_start
-                                ):
-                                    json_text = new_convo[json_start : json_end + 1]
-                                else:
-                                    raise ValueError(
-                                        "No valid JSON found in second response"
-                                    )
-
-                            parsed_json = json.loads(json_text)
-                            new_name = parsed_json.get(
-                                "suggested_conversation_name", new_name
-                            )
-
-                            if new_name in conversation_list:
-                                new_name = datetime.now().strftime(
-                                    "Conversation Created %Y-%m-%d %I:%M %p"
-                                )
-                    except Exception as e:
-                        import traceback
-
-                        traceback.print_exc()
-                        logging.error(f"Error renaming conversation: {e}")
-                        if new_convo:
-                            new_name = str(new_convo)
-                    c.set_conversation_summary(summary=new_name)
-                    self.conversation_name = c.rename_conversation(new_name=new_name)
+                    asyncio.create_task(self.rename_new_conversation(new_prompt))
         if isinstance(response, dict):
             response = json.dumps(response, indent=2)
         if not isinstance(response, str):
