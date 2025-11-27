@@ -1755,9 +1755,25 @@ class MagicalAuth:
         if user.is_active:
             has_active_subscription = True
 
+        # Early check: If any associated company has available token credit, skip Stripe checks entirely
+        # This prevents unnecessary Stripe API calls on every /v1/user request
+        if not has_active_subscription and self._has_sufficient_token_balance(
+            session, user_companies
+        ):
+            has_active_subscription = True
+            logging.info(
+                f"User {self.user_id} has sufficient token balance, skipping Stripe checks"
+            )
+
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            if api_key != "" and api_key is not None and str(api_key).lower() != "none":
+            # Only proceed with Stripe checks if we haven't already confirmed active subscription via token balance
+            if (
+                not has_active_subscription
+                and api_key != ""
+                and api_key is not None
+                and str(api_key).lower() != "none"
+            ):
                 import stripe
 
                 stripe.api_key = api_key
