@@ -1827,6 +1827,79 @@ def migrate_user_table():
         logging.error(f"Error migrating user table: {e}")
 
 
+def migrate_machine_approval_table():
+    """
+    Migration function to add new fields to the machine_approval table if they don't exist.
+    This is for the XTSystems machines extension.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("assigned_to_user_id", "TEXT"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                # Check if table exists first
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='machine_approval'"
+                    )
+                )
+                if not result.fetchone():
+                    logging.debug("machine_approval table does not exist yet, skipping migration")
+                    return
+
+                result = session.execute(text("PRAGMA table_info(machine_approval)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE machine_approval ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to machine_approval table")
+            else:
+                # PostgreSQL - check if table exists first
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'machine_approval'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    logging.debug("machine_approval table does not exist yet, skipping migration")
+                    return
+
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'machine_approval' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE machine_approval ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to machine_approval table")
+    except Exception as e:
+        logging.debug(f"machine_approval table migration completed or not needed: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -1858,6 +1931,7 @@ if __name__ == "__main__":
     migrate_extension_table()
     migrate_webhook_outgoing_table()
     migrate_user_table()
+    migrate_machine_approval_table()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
     setup_default_roles()
