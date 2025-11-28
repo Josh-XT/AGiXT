@@ -293,6 +293,9 @@ class Interactions:
                 if len(interactions) > 0:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
+                    logging.info(
+                        f"[format_prompt] Including {len(interactions)} conversation interactions (conversation_results={conversation_results})"
+                    )
                 conversation_history += "\n## The assistant's recent activities:\n"
                 conversation_history += c.get_activities_with_subactivities()
         if conversation_history != "":
@@ -1564,9 +1567,7 @@ class Interactions:
         processed_thinking_ids = set()
         in_answer = False
         answer_content = ""
-        should_continue_after_execution = (
-            False  # Track if we need to continue after command execution
-        )
+        is_executing = False  # Flag to pause streaming during command execution
 
         # Patterns for tag detection
         tag_open_pattern = re.compile(
@@ -1753,27 +1754,24 @@ class Interactions:
                             for m in matches:
                                 content = m.group(1).strip()
 
-                                # Don't log here - execution_agent will handle logging
-                                # Just mark as processed and yield the event
+                                # Mark as processed
                                 tag_id = f"{tag_name}:{hash(content)}"
                                 if tag_id not in processed_thinking_ids and content:
                                     processed_thinking_ids.add(tag_id)
 
-                                    yield {
-                                        "type": tag_name,
-                                        "content": content,
-                                        "complete": True,
-                                    }
-
-                            # Execute commands and break to continue with new context
+                            # Execute commands and STOP inference at </execute>
+                            # This matches the non-streaming behavior
                             if (
                                 "{COMMANDS}" in unformatted_prompt
                                 and "disable_commands" not in kwargs
                             ):
+                                # Set flag to pause progressive updates during execution
+                                is_executing = True
+
                                 # Store current response
                                 self.response = full_response
 
-                                # Execute the commands
+                                # Execute the commands synchronously - this blocks until complete
                                 await self.execution_agent(
                                     conversation_name=conversation_name,
                                     conversation_id=conversation_id,
@@ -1783,9 +1781,15 @@ class Interactions:
                                 # Update full_response with the execution output
                                 full_response = self.response
 
-                                # Break the stream to continue with new prompt that includes output
-                                should_continue_after_execution = True
-                                break  # Break from the streaming loop
+                                # Clear the flag after execution completes
+                                is_executing = False
+
+                                # STOP INFERENCE at </execute> tag
+                                # Break from stream to handle continuation with fresh inference
+                                logging.info(
+                                    "[run_stream] Execution complete, stopping inference at </execute> tag"
+                                )
+                                break
 
                             current_tag = None
                             current_tag_content = ""
@@ -1851,15 +1855,17 @@ class Interactions:
                                         )
 
                                     # Update the existing streaming message with final content
-                                    if current_tag_message_id:
-                                        c.update_message_by_id(
-                                            current_tag_message_id, log_msg
-                                        )
-                                    else:
-                                        # Fallback: create new message if we don't have a message ID
-                                        c.log_interaction(
-                                            role=self.agent_name, message=log_msg
-                                        )
+                                    # Skip during execution to prevent WebSocket events
+                                    if not is_executing:
+                                        if current_tag_message_id:
+                                            c.update_message_by_id(
+                                                current_tag_message_id, log_msg
+                                            )
+                                        else:
+                                            # Fallback: create new message if we don't have a message ID
+                                            c.log_interaction(
+                                                role=self.agent_name, message=log_msg
+                                            )
 
                                     # Also yield for direct notification
                                     yield {
@@ -1872,7 +1878,8 @@ class Interactions:
                             current_tag_message_id = None  # Reset for next tag
 
                 # If we're in an answer tag, yield the token for SSE streaming
-                if in_answer:
+                # Skip during command execution to avoid UI flickering
+                if in_answer and not is_executing:
                     # Only yield tokens that are part of the answer content (after <answer>)
                     answer_match = re.search(
                         r"<answer>(.*?)$", full_response, re.DOTALL | re.IGNORECASE
@@ -1892,7 +1899,12 @@ class Interactions:
                             answer_content = new_answer
 
                 # Stream current thinking content progressively
-                if current_tag and current_tag in ("thinking", "reflection", "execute"):
+                # Skip progressive updates during command execution to avoid UI flickering
+                if (
+                    current_tag
+                    and current_tag in ("thinking", "reflection", "execute")
+                    and not is_executing
+                ):
                     # Extract current partial content
                     tag_start_pattern = f"<{current_tag}>"
                     if tag_start_pattern in full_response:
@@ -1924,21 +1936,21 @@ class Interactions:
                                 else:
                                     tag_type = "ACTIVITY"
 
-                                if current_tag == "execute":
-                                    updated_msg = f"[SUBACTIVITY][{thinking_id}][{tag_type}] Preparing to execute command:\n```\n{current_tag_content}\n```"
-                                else:
+                                # Skip creating/updating messages for execute tags during streaming
+                                # The execution_agent handles all execution logging
+                                if current_tag != "execute" and not is_executing:
                                     updated_msg = f"[SUBACTIVITY][{thinking_id}][{tag_type}] {current_tag_content}"
 
-                                if current_tag_message_id:
-                                    # Update existing message
-                                    c.update_message_by_id(
-                                        current_tag_message_id, updated_msg
-                                    )
-                                else:
-                                    # Create initial message with first meaningful content
-                                    current_tag_message_id = c.log_interaction(
-                                        role=self.agent_name, message=updated_msg
-                                    )
+                                    if current_tag_message_id:
+                                        # Update existing message
+                                        c.update_message_by_id(
+                                            current_tag_message_id, updated_msg
+                                        )
+                                    else:
+                                        # Create initial message with first meaningful content
+                                        current_tag_message_id = c.log_interaction(
+                                            role=self.agent_name, message=updated_msg
+                                        )
 
                             yield {
                                 "type": f"{current_tag}_stream",
@@ -1962,39 +1974,63 @@ class Interactions:
         # Store the full response
         self.response = full_response
 
-        # Check if we need to continue after command execution
-        # This happens when execution interrupted the stream
+        # Continuation logic: Handle execution outputs and incomplete answers
+        # This matches the non-streaming behavior where we inject output and run inference again
         max_continuation_loops = 10  # Prevent infinite loops
         continuation_count = 0
 
         while (
-            should_continue_after_execution
+            "</answer>" not in self.response
             and continuation_count < max_continuation_loops
         ):
-            continuation_count += 1
-            logging.info(
-                f"[run_stream] Continuation loop {continuation_count}: Response has execution output, continuing..."
+            # Check if there was an execution (has </execute> tag) or incomplete answer
+            has_execution = "</execute>" in self.response
+            has_incomplete_answer = (
+                "<answer>" in self.response and "</answer>" not in self.response
             )
 
-            # Check if we already have an answer - if so, stop
-            if "</answer>" in self.response:
-                logging.info("[run_stream] Answer block found, stopping continuation")
+            if not has_execution and not has_incomplete_answer:
+                # No execution and no incomplete answer - agent didn't finish properly or gave up
+                logging.info(
+                    "[run_stream] No answer, no execution, no incomplete answer - stopping"
+                )
                 break
 
-            # Create continuation prompt
-            continuation_prompt = f"{unformatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process. Proceed with thinking, responding, or executing more commands before providing the final response to the user. This can be used to evaluate output of previously executed commands and retry executing a command if the output was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
+            continuation_count += 1
 
-            # Reset continuation flag
-            should_continue_after_execution = False
+            if has_execution:
+                logging.info(
+                    f"[run_stream] Continuation {continuation_count}: Injecting execution output and running fresh inference"
+                )
+                # Get the command output
+                command_output = self.response.strip()
 
-            # Get continuation stream
+                # Create continuation prompt with command output injected
+                # Match the non-streaming pattern exactly
+                continuation_prompt = f"{unformatted_prompt}\n\n{self.agent_name}: {command_output}\n\nCommand executed with output. The assistant should continue its thought process based on this command output, evaluating if the output provides the needed information or if additional commands are needed. Do not make up command outputs - they are provided above. Proceed with thinking, responding, or executing more commands before the final response in the <answer> block."
+            else:
+                # Incomplete answer - prompt to continue
+                logging.info(
+                    f"[run_stream] Continuation {continuation_count}: Answer block incomplete, prompting to continue"
+                )
+                continuation_prompt = f"{unformatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+
             try:
+                # Run FRESH inference with stream=True
                 continuation_stream = await self.agent.inference(
                     prompt=continuation_prompt, use_smartest=use_smartest, stream=True
                 )
 
-                # Process continuation stream (simplified - just accumulate response)
+                # Process the continuation stream with FULL tag processing
+                # This is similar to the main stream processing but for continuation
                 continuation_response = ""
+                continuation_in_answer = False
+                continuation_current_tag = None
+                continuation_current_tag_content = ""
+                continuation_current_tag_message_id = None
+                continuation_thinking_id = thinking_id  # Reuse same thinking activity
+                continuation_processed_thinking_ids = set()
+
                 async for chunk_data in iterate_stream(continuation_stream):
                     # Extract token from chunk
                     token = None
@@ -2009,47 +2045,177 @@ class Interactions:
                         continue
 
                     continuation_response += token
-                    full_response += token
-                    self.response += token
 
-                    # Yield the continuation tokens
-                    yield {"type": "answer", "content": token, "complete": False}
+                    # Process tags in continuation (thinking, reflection, execute, answer)
+                    # Check for opening tags
+                    for tag_name in ["thinking", "reflection", "execute", "answer"]:
+                        if (
+                            f"<{tag_name}>" in continuation_response
+                            and continuation_current_tag != tag_name
+                        ):
+                            continuation_current_tag = tag_name
+                            continuation_current_tag_content = ""
+                            if tag_name == "answer":
+                                continuation_in_answer = True
+                            break
 
-                    # Check for new execute tags
-                    if (
-                        "</execute>" in continuation_response
-                        and "<output>"
-                        not in continuation_response.split("</execute>")[-1]
+                    # Check for closing tags
+                    for tag_name in ["thinking", "reflection", "execute", "answer"]:
+                        if (
+                            f"</{tag_name}>" in continuation_response
+                            and continuation_current_tag == tag_name
+                        ):
+                            # Tag closed - process it
+                            if tag_name == "execute":
+                                # Execute commands and stop the continuation stream
+                                logging.info(
+                                    "[run_stream] Nested execution detected in continuation"
+                                )
+                                self.response += continuation_response
+
+                                await self.execution_agent(
+                                    conversation_name=conversation_name,
+                                    conversation_id=conversation_id,
+                                    thinking_id=continuation_thinking_id,
+                                )
+
+                                # Break to start new continuation with execution output
+                                break
+                            elif tag_name in ("thinking", "reflection"):
+                                # Extract and log the complete tag content
+                                tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
+                                matches = list(
+                                    re.finditer(
+                                        tag_pattern,
+                                        continuation_response,
+                                        re.DOTALL | re.IGNORECASE,
+                                    )
+                                )
+                                for m in matches:
+                                    content = m.group(1).strip()
+                                    tag_id = f"{tag_name}:{hash(content)}"
+                                    if (
+                                        tag_id
+                                        not in continuation_processed_thinking_ids
+                                        and content
+                                    ):
+                                        continuation_processed_thinking_ids.add(tag_id)
+
+                                        if tag_name == "thinking":
+                                            log_msg = f"[SUBACTIVITY][{continuation_thinking_id}][THOUGHT] {content}"
+                                        else:
+                                            log_msg = f"[SUBACTIVITY][{continuation_thinking_id}][REFLECTION] {content}"
+
+                                        # Update or create message
+                                        if continuation_current_tag_message_id:
+                                            c.update_message_by_id(
+                                                continuation_current_tag_message_id,
+                                                log_msg,
+                                            )
+                                        else:
+                                            c.log_interaction(
+                                                role=self.agent_name, message=log_msg
+                                            )
+
+                                        yield {
+                                            "type": tag_name,
+                                            "content": content,
+                                            "complete": True,
+                                        }
+
+                            continuation_current_tag = None
+                            continuation_current_tag_content = ""
+                            continuation_current_tag_message_id = None
+
+                    # Stream progressive content for current tag
+                    if continuation_current_tag and continuation_current_tag in (
+                        "thinking",
+                        "reflection",
                     ):
-                        # New execution needed
-                        await self.execution_agent(
-                            conversation_name=conversation_name,
-                            conversation_id=conversation_id,
-                            thinking_id=thinking_id,
-                        )
-                        full_response = self.response
-                        should_continue_after_execution = True
-                        break  # Break to continue loop
+                        tag_start_pattern = f"<{continuation_current_tag}>"
+                        if tag_start_pattern in continuation_response:
+                            last_start = continuation_response.rfind(tag_start_pattern)
+                            partial = continuation_response[
+                                last_start + len(tag_start_pattern) :
+                            ]
+                            if "<" in partial:
+                                partial = partial.split("<")[0]
+                            if len(partial) > len(continuation_current_tag_content):
+                                delta = partial[len(continuation_current_tag_content) :]
+                                continuation_current_tag_content = partial
 
-                logging.info(
-                    f"[run_stream] Continuation added {len(continuation_response)} characters"
-                )
+                                # Create/update message if meaningful content
+                                stripped_content = (
+                                    continuation_current_tag_content.strip()
+                                )
+                                if (
+                                    len(stripped_content) >= 10
+                                    or len(stripped_content.split()) >= 3
+                                ):
+                                    tag_type = (
+                                        "THOUGHT"
+                                        if continuation_current_tag == "thinking"
+                                        else "REFLECTION"
+                                    )
+                                    updated_msg = f"[SUBACTIVITY][{continuation_thinking_id}][{tag_type}] {continuation_current_tag_content}"
+
+                                    if continuation_current_tag_message_id:
+                                        c.update_message_by_id(
+                                            continuation_current_tag_message_id,
+                                            updated_msg,
+                                        )
+                                    else:
+                                        continuation_current_tag_message_id = (
+                                            c.log_interaction(
+                                                role=self.agent_name,
+                                                message=updated_msg,
+                                            )
+                                        )
+
+                                yield {
+                                    "type": f"{continuation_current_tag}_stream",
+                                    "content": delta,
+                                    "complete": False,
+                                }
+
+                    # Yield answer tokens
+                    if continuation_in_answer:
+                        answer_match = re.search(
+                            r"<answer>(.*?)$",
+                            continuation_response,
+                            re.DOTALL | re.IGNORECASE,
+                        )
+                        if answer_match:
+                            new_answer = answer_match.group(1)
+                            if "<" not in token:  # Only yield if no tag boundary
+                                yield {
+                                    "type": "answer",
+                                    "content": token,
+                                    "complete": False,
+                                }
+
+                # Append continuation to main response
+                self.response += continuation_response
+
+                # If we got an answer tag, we're done
+                if "</answer>" in continuation_response:
+                    logging.info("[run_stream] Continuation completed with answer")
+                    break
+
+                # If we hit an execute tag, continue loop to handle it
+                if "</execute>" in continuation_response:
+                    continue
 
             except Exception as e:
-                logging.error(f"Error during continuation stream: {e}")
+                logging.error(f"Error during continuation: {e}")
+                import traceback
+
+                logging.error(traceback.format_exc())
                 break
 
-        # Store the full response
-        self.response = full_response
-
-        # Handle command execution if needed
-        if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
-            if "<execute>" in self.response:
-                await self.execution_agent(
-                    conversation_name=conversation_name,
-                    conversation_id=conversation_id,
-                    thinking_id=thinking_id,
-                )
+        logging.info(
+            f"[run_stream] Continuation loop ended after {continuation_count} iterations"
+        )
 
         # Extract final answer
         final_answer = ""
@@ -2120,7 +2286,9 @@ class Interactions:
                 extracted_commands.append((command_block, command_name, args))
         return extracted_commands
 
-    async def execution_agent(self, conversation_name, conversation_id=None, thinking_id=None):
+    async def execution_agent(
+        self, conversation_name, conversation_id=None, thinking_id=None
+    ):
         c = Conversations(
             conversation_name=conversation_name,
             user=self.user,
