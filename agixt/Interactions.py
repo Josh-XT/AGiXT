@@ -983,6 +983,7 @@ class Interactions:
 
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
+        thinking_id = None  # Initialize to avoid UnboundLocalError
         if "<think>" in self.response:
             self.response.replace("<think>", "<thinking>")
             self.response.replace("</think>", "</thinking>")
