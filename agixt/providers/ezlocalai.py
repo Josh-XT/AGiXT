@@ -109,9 +109,11 @@ class EzlocalaiProvider:
         import httpx
         from openai import OpenAI
 
+        # Use a dummy API key if none is set to avoid "Illegal header value b'Bearer '" error
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
         client = OpenAI(
             base_url=self.API_URI,
-            api_key=self.EZLOCALAI_API_KEY,
+            api_key=api_key,
             timeout=httpx.Timeout(300.0, read=300.0, write=30.0, connect=10.0),
         )
         messages = []

@@ -397,6 +397,8 @@ Your response (true or false):"""
             del kwargs["tts"]
         if "conversation_name" in kwargs:
             del kwargs["conversation_name"]
+        if "conversation_id" in kwargs:
+            del kwargs["conversation_id"]
 
         # Calculate complexity score for inference-time compute scaling
         complexity_score = calculate_complexity_score(
@@ -690,11 +692,20 @@ Your response (true or false):"""
                     )
                 if args.get("conversation"):
                     args["conversation_name"] = args["conversation"]
+                # Ensure we have a conversation_id - it's more stable than name
                 if not args.get("conversation_id"):
                     if chain_args.get("conversation_id"):
                         args["conversation_id"] = chain_args["conversation_id"]
                     elif self.conversation_id:
                         args["conversation_id"] = self.conversation_id
+                    elif args.get("conversation_name"):
+                        # Get the conversation_id from the name if we only have a name
+                        from Conversations import Conversations as ConvHelper
+
+                        conv_helper = ConvHelper(
+                            conversation_name=args["conversation_name"], user=self.user
+                        )
+                        args["conversation_id"] = conv_helper.get_conversation_id()
                 if prompt_type == "command":
                     self.conversation.log_interaction(
                         role=self.agent_name,
@@ -714,7 +725,10 @@ Your response (true or false):"""
                         del args["chain_args"]
                     if "chain" in args:
                         del args["chain"]
-                    args["conversation_name"] = args["conversation_id"]
+                    # Always use conversation_id as conversation_name since IDs are stable and unique
+                    args["conversation_name"] = args.get("conversation_id") or args.get(
+                        "conversation_name"
+                    )
                     if prompt_name == "":
                         prompt_name = "Think About It"
                     prompt_args = args.copy()
