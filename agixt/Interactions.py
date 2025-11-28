@@ -1054,6 +1054,7 @@ class Interactions:
                     await self.execution_agent(
                         conversation_name=conversation_name,
                         conversation_id=conversation_id,
+                        thinking_id=thinking_id,
                     )
                     new_processed_length = len(self.response)
                     if new_processed_length > processed_length:
@@ -1093,6 +1094,7 @@ class Interactions:
                     await self.execution_agent(
                         conversation_name=conversation_name,
                         conversation_id=conversation_id,
+                        thinking_id=thinking_id,
                     )
                     new_processed_length = len(self.response)
 
@@ -1134,6 +1136,7 @@ class Interactions:
                         await self.execution_agent(
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
+                            thinking_id=thinking_id,
                         )
                         new_processed_length = len(self.response)
                         if new_processed_length > processed_length:
@@ -1410,6 +1413,7 @@ class Interactions:
         log_output: bool = True,
         complexity_score=None,
         use_smartest: bool = False,
+        thinking_id: str = None,
         **kwargs,
     ):
         """
@@ -1534,7 +1538,9 @@ class Interactions:
             formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
 
         # Get streaming response from the LLM
-        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        # Use provided thinking_id if available, otherwise get a new one
+        if not thinking_id:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
 
         try:
             logging.info(f"[run_stream] Starting streaming inference...")
@@ -1771,6 +1777,7 @@ class Interactions:
                                 await self.execution_agent(
                                     conversation_name=conversation_name,
                                     conversation_id=conversation_id,
+                                    thinking_id=thinking_id,
                                 )
 
                                 # Update full_response with the execution output
@@ -2018,6 +2025,7 @@ class Interactions:
                         await self.execution_agent(
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
+                            thinking_id=thinking_id,
                         )
                         full_response = self.response
                         should_continue_after_execution = True
@@ -2040,6 +2048,7 @@ class Interactions:
                 await self.execution_agent(
                     conversation_name=conversation_name,
                     conversation_id=conversation_id,
+                    thinking_id=thinking_id,
                 )
 
         # Extract final answer
@@ -2111,7 +2120,7 @@ class Interactions:
                 extracted_commands.append((command_block, command_name, args))
         return extracted_commands
 
-    async def execution_agent(self, conversation_name, conversation_id=None):
+    async def execution_agent(self, conversation_name, conversation_id=None, thinking_id=None):
         c = Conversations(
             conversation_name=conversation_name,
             user=self.user,
@@ -2123,7 +2132,9 @@ class Interactions:
             if available_command["enabled"] == True
         ]
         logging.info(f"Agent command list: {command_list}")
-        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        # Use provided thinking_id if available, otherwise get a new one
+        if not thinking_id:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
         # Extract commands from the response
         commands_to_execute = self.extract_commands_from_response(self.response)
         logging.debug(f"Commands to execute: {commands_to_execute}")

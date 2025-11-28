@@ -966,12 +966,14 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
-        if not self.conversation_name:
-            self.conversation_name = "-"
+
+        # Use get_conversation_id() to get the stable conversation ID
+        # This prevents issues during conversation renames
+        conversation_id = self.get_conversation_id()
         conversation = (
             session.query(Conversation)
             .filter(
-                Conversation.name == self.conversation_name,
+                Conversation.id == conversation_id,
                 Conversation.user_id == user_id,
             )
             .first()

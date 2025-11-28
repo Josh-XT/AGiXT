@@ -2573,6 +2573,7 @@ Your response (true or false):"""
                 log_output=True,  # Log the final answer to the conversation
                 complexity_score=complexity_score,
                 use_smartest=use_smartest,
+                thinking_id=thinking_id,  # Pass the thinking_id to avoid creating a duplicate
                 **prompt_args,
             ):
                 event_type = event.get("type", "")

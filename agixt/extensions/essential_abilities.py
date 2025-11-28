@@ -1863,10 +1863,26 @@ print(output)
             # Filter out empty pairs and validate
             valid_todos = []
             for i, (title, description) in enumerate(todo_pairs, 1):
-                if title.strip() and description.strip():
-                    valid_todos.append((title.strip(), description.strip()))
-                elif title.strip() or description.strip():
-                    # One is filled but not the other
+                # Skip if both are None or empty
+                if not title or not description:
+                    if title or description:
+                        # One is filled but not the other
+                        return json.dumps(
+                            {
+                                "success": False,
+                                "error": f"Todo {i}: Both title and description must be provided or both must be empty",
+                            }
+                        )
+                    continue
+
+                # Strip and validate
+                title_stripped = title.strip()
+                description_stripped = description.strip()
+
+                if title_stripped and description_stripped:
+                    valid_todos.append((title_stripped, description_stripped))
+                elif title_stripped or description_stripped:
+                    # One is filled but not the other after stripping
                     return json.dumps(
                         {
                             "success": False,
