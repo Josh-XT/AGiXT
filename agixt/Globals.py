@@ -174,6 +174,12 @@ def get_default_agent_settings():
         "WEBSEARCH_TIMEOUT": 0,
         "persona": getenv("AGENT_PERSONA"),
         "tts": False,
+        # Complexity scaling settings for inference-time compute
+        "complexity_scaling_enabled": True,
+        "thinking_budget_enabled": True,
+        "thinking_budget_override": None,  # Optional int to bypass auto-calculation
+        "answer_review_enabled": True,  # Two-phase answer for high complexity
+        "planning_phase_enabled": True,  # Mandatory to-do list for multi-step tasks
     }
     for key in list(agent_settings.keys()):
         if agent_settings[key] == "":

@@ -11,7 +11,7 @@ from DB import (
 )
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func, or_
-from MagicalAuth import convert_time
+from MagicalAuth import convert_time, get_user_id
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -32,8 +32,11 @@ def get_conversation_id_by_name(conversation_name, user_id):
         .first()
     )
     if not conversation:
-        c = Conversations(conversation_name=conversation_name, user=user.email)
-        conversation_id = c.get_conversation_id()
+        # Create conversation directly to avoid recursive call to Conversations.__init__
+        conversation = Conversation(name=conversation_name, user_id=user_id)
+        session.add(conversation)
+        session.commit()
+        conversation_id = str(conversation.id)
     else:
         conversation_id = str(conversation.id)
     session.close()
@@ -61,10 +64,84 @@ def get_conversation_name_by_id(conversation_id, user_id):
     return conversation_name
 
 
+def get_conversation_name_by_message_id(message_id, user_id):
+    """Get the conversation name that contains a specific message for a user."""
+    session = get_session()
+    message = (
+        session.query(Message)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .filter(
+            Message.id == message_id,
+            Conversation.user_id == user_id,
+        )
+        .first()
+    )
+    if not message:
+        session.close()
+        return None
+    conversation = (
+        session.query(Conversation)
+        .filter(Conversation.id == message.conversation_id)
+        .first()
+    )
+    conversation_name = conversation.name if conversation else None
+    session.close()
+    return conversation_name
+
+
 class Conversations:
-    def __init__(self, conversation_name=None, user=DEFAULT_USER):
-        self.conversation_name = conversation_name
+    def __init__(self, conversation_name=None, user=DEFAULT_USER, conversation_id=None):
         self.user = user
+        self.conversation_id = conversation_id
+        self.conversation_name = conversation_name
+
+        # Resolve missing ID or name from the other
+        user_id = get_user_id(user)
+        if not self.conversation_id and self.conversation_name:
+            self.conversation_id = get_conversation_id_by_name(
+                conversation_name=conversation_name, user_id=user_id
+            )
+        elif not self.conversation_name and self.conversation_id:
+            self.conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id, user_id=user_id
+            )
+        elif not self.conversation_name and not self.conversation_id:
+            self.conversation_name = "-"
+            self.conversation_id = get_conversation_id_by_name(
+                conversation_name="-", user_id=user_id
+            )
+
+    def get_current_name_from_db(self):
+        """
+        Get the current conversation name directly from the database.
+        This is useful for detecting renames that happened since the object was created.
+
+        Returns:
+            str: The current name from the database, or None if not found
+        """
+        if not self.conversation_id:
+            return self.conversation_name
+
+        session = get_session()
+        try:
+            user_data = session.query(User).filter(User.email == self.user).first()
+            if not user_data:
+                return self.conversation_name
+            user_id = user_data.id
+
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.id == self.conversation_id,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+            if conversation:
+                return conversation.name
+            return self.conversation_name
+        finally:
+            session.close()
 
     def export_conversation(self):
         session = get_session()
@@ -252,20 +329,176 @@ class Conversations:
         session.close()
         return result
 
+    def get_conversation_changes(self, since_timestamp=None, last_known_ids=None):
+        """
+        Efficiently get only the changes since the last check.
+
+        Args:
+            since_timestamp: Only return messages created/updated after this time
+            last_known_ids: Set of message IDs we already have - used to detect deletions
+
+        Returns:
+            {
+                "new_messages": [...],      # Messages added since last check
+                "updated_messages": [...],  # Messages updated since last check
+                "deleted_ids": [...],       # IDs of deleted messages
+                "current_count": int        # Current total message count
+            }
+        """
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        # Get conversation ID
+        if self.conversation_id:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.id == self.conversation_id,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+        else:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+
+        if not conversation:
+            session.close()
+            return {
+                "new_messages": [],
+                "updated_messages": [],
+                "deleted_ids": [],
+                "current_count": 0,
+            }
+
+        # Get current message count and IDs for deletion detection
+        from sqlalchemy import func
+
+        current_count = (
+            session.query(func.count(Message.id))
+            .filter(Message.conversation_id == conversation.id)
+            .scalar()
+        )
+
+        current_ids = set()
+        if last_known_ids is not None:
+            # Only query IDs if we need to check for deletions
+            id_query = (
+                session.query(Message.id)
+                .filter(Message.conversation_id == conversation.id)
+                .all()
+            )
+            current_ids = {str(row[0]) for row in id_query}
+
+        # Calculate deleted IDs
+        deleted_ids = []
+        if last_known_ids:
+            # Convert to strings for comparison
+            last_known_str = {str(id) for id in last_known_ids}
+            deleted_ids = list(last_known_str - current_ids)
+
+        new_messages = []
+        updated_messages = []
+
+        if since_timestamp is not None:
+            # Query for new messages (created after timestamp)
+            new_query = (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.timestamp > since_timestamp,
+                )
+                .order_by(Message.timestamp.asc())
+                .all()
+            )
+
+            for message in new_query:
+                msg = {
+                    "id": message.id,
+                    "role": message.role,
+                    "message": str(message.content).replace(
+                        "http://localhost:7437", getenv("AGIXT_URI")
+                    ),
+                    "timestamp": convert_time(message.timestamp, user_id=user_id),
+                    "updated_at": convert_time(message.updated_at, user_id=user_id),
+                    "updated_by": message.updated_by,
+                    "feedback_received": message.feedback_received,
+                    "timestamp_utc": message.timestamp,
+                    "updated_at_utc": message.updated_at,
+                }
+                new_messages.append(msg)
+
+            # Query for updated messages (updated_at > timestamp but timestamp <= since_timestamp)
+            # This catches edits to existing messages
+            updated_query = (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.timestamp <= since_timestamp,
+                    Message.updated_at > since_timestamp,
+                    Message.updated_by != None,  # Only actually edited messages
+                )
+                .order_by(Message.timestamp.asc())
+                .all()
+            )
+
+            for message in updated_query:
+                msg = {
+                    "id": message.id,
+                    "role": message.role,
+                    "message": str(message.content).replace(
+                        "http://localhost:7437", getenv("AGIXT_URI")
+                    ),
+                    "timestamp": convert_time(message.timestamp, user_id=user_id),
+                    "updated_at": convert_time(message.updated_at, user_id=user_id),
+                    "updated_by": message.updated_by,
+                    "feedback_received": message.feedback_received,
+                    "timestamp_utc": message.timestamp,
+                    "updated_at_utc": message.updated_at,
+                }
+                updated_messages.append(msg)
+
+        session.close()
+        return {
+            "new_messages": new_messages,
+            "updated_messages": updated_messages,
+            "deleted_ids": deleted_ids,
+            "current_count": current_count,
+        }
+
     def get_conversation(self, limit=1000, page=1):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
         if not self.conversation_name:
             self.conversation_name = "-"
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+
+        # Prefer conversation_id lookup to avoid duplicate name issues
+        if self.conversation_id:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.id == self.conversation_id,
+                    Conversation.user_id == user_id,
+                )
+                .first()
             )
-            .first()
-        )
+        else:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
         if not conversation:
             # Create the conversation
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
@@ -812,10 +1045,13 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
+        # Get conversation_id first - it's stable even if name changes
+        conversation_id = self.get_conversation_id()
+        # Look up by ID instead of name to handle renames during a request
         conversation = (
             session.query(Conversation)
             .filter(
-                Conversation.name == self.conversation_name,
+                Conversation.id == conversation_id,
                 Conversation.user_id == user_id,
             )
             .first()
@@ -832,6 +1068,8 @@ class Conversations:
             conversation = self.new_conversation()
             session.close()
             session = get_session()
+            # Get the new conversation_id after creating
+            conversation_id = self.get_conversation_id()
         else:
             conversation = conversation.__dict__
             conversation = {
@@ -843,7 +1081,6 @@ class Conversations:
             message = message[:-1]
         if message.endswith("\n"):
             message = message[:-1]
-        conversation_id = self.get_conversation_id()
         try:
             new_message = Message(
                 role=role,
@@ -1414,6 +1651,10 @@ class Conversations:
             session.close()
 
     def get_conversation_id(self):
+        # Return cached ID if available - this is stable even if name changes
+        if self.conversation_id:
+            return str(self.conversation_id)
+
         if not self.conversation_name:
             conversation_name = "-"
         else:
@@ -1434,6 +1675,8 @@ class Conversations:
             session.add(conversation)
             session.commit()
         conversation_id = str(conversation.id)
+        # Cache the ID for future calls
+        self.conversation_id = conversation_id
         session.close()
         return conversation_id
 
@@ -1441,19 +1684,33 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
+        # Use conversation_id for lookup if available - more stable than name
+        conversation_id = self.get_conversation_id()
         conversation = (
             session.query(Conversation)
             .filter(
-                Conversation.name == self.conversation_name,
+                Conversation.id == conversation_id,
                 Conversation.user_id == user_id,
             )
             .first()
         )
         if not conversation:
+            # Fallback to name-based lookup for backwards compatibility
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+        if not conversation:
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
             session.add(conversation)
             session.commit()
         conversation.name = new_name
+        # Also update internal state so future lookups use the new name
+        self.conversation_name = new_name
         session.commit()
         session.close()
         return new_name

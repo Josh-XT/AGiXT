@@ -1832,7 +1832,11 @@ class Query:
             conversation_id=conversation_id, user_id=magical.user_id
         )
         # Get conversation metadata
-        c = Conversations(user=user, conversation_name=conversation_name)
+        c = Conversations(
+            user=user,
+            conversation_name=conversation_name,
+            conversation_id=conversation_id,
+        )
         result = {"conversations": c.get_conversations_with_detail()}
         if conversation_id not in result["conversations"]:
             raise Exception(f"Conversation {conversation_id} not found")
@@ -1849,8 +1853,10 @@ class Query:
             attachment_count=details["attachment_count"],
         )
 
-        # Get messages with pagination
-        c = Conversations(user=user, conversation_name=metadata.name)
+        # Get messages with pagination - use conversation_id to avoid duplicate name issues
+        c = Conversations(
+            user=user, conversation_name=metadata.name, conversation_id=conversation_id
+        )
         history_result = c.get_conversation()
 
         messages = [
@@ -2009,7 +2015,9 @@ class Query:
             config = agent_instance.get_agent_config()
             agent_settings = {}
             for key, value in config["settings"].items():
-                if value.strip() != "":
+                if value is None:
+                    continue
+                if isinstance(value, str) and value.strip() != "":
                     if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
                         agent_settings[key] = "HIDDEN"
                     else:
@@ -2051,7 +2059,9 @@ class Query:
         agents = get_agents(user=user)
         settings = []
         for key, value in config["settings"].items():
-            if value.strip() != "":
+            if value is None:
+                continue
+            if isinstance(value, str) and value.strip() != "":
                 if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
                     settings.append(AgentSetting(name=key, value="HIDDEN"))
                 else:

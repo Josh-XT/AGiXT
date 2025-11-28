@@ -1388,6 +1388,11 @@ class Agent:
         return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
 
     async def text_to_speech(self, text: str, conversation_id: str = None):
+        if not text:
+            raise HTTPException(
+                status_code=400,
+                detail="No text provided for text-to-speech.",
+            )
         if not conversation_id or conversation_id == "-":
             conversation_id = get_conversation_id_by_name(
                 conversation_name="-", user_id=self.user_id
