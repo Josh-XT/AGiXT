@@ -61,7 +61,7 @@ webhook_manager = WebhookManager()
 event_emitter = WebhookEventEmitter()
 
 
-@app.post("/api/webhook/{webhook_id}", tags=["Webhooks"])
+@app.post("/v1/webhook/{webhook_id}", tags=["Webhooks"])
 async def process_webhook(
     webhook_id: str, request: Request, background_tasks: BackgroundTasks
 ):

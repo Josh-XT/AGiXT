@@ -72,6 +72,106 @@ def sanitize_path_component_local(component):
 app = APIRouter()
 
 
+# V1 Agent List and Create Endpoints
+
+
+@app.get(
+    "/v1/agent",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get all agents",
+    description="Retrieves a list of all available agents with their IDs for the authenticated user.",
+    response_model=AgentListResponse,
+)
+async def get_agents_v1(
+    user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    agents = get_agents(user=user)
+    create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
+    if create_agent:
+        agent_list = [agent["name"] for agent in agents]
+        agent_name = getenv("AGENT_NAME")
+        if agent_name not in agent_list:
+            agent_config = get_default_agent()
+            agent_settings = agent_config["settings"]
+            agent_commands = agent_config["commands"]
+            create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
+            training_urls = (
+                get_agixt_training_urls()
+                if create_agixt_agent and agent_name == "AGiXT"
+                else agent_config["training_urls"]
+            )
+            ApiClient = get_api_client(authorization=authorization)
+            ApiClient.add_agent(
+                agent_name=agent_name,
+                settings=agent_settings,
+                commands=agent_commands,
+                training_urls=training_urls,
+            )
+    return {"agents": agents}
+
+
+@app.post(
+    "/v1/agent",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Create a new agent",
+    description="Creates a new agent with specified settings and optionally trains it with provided URLs. Returns the agent ID.",
+    response_model=AgentResponse,
+)
+async def add_agent_v1(
+    agent: AgentSettings,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> Dict[str, str]:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    result = add_agent(
+        agent_name=agent.agent_name,
+        provider_settings=agent.settings,
+        commands=agent.commands,
+        user=user,
+    )
+    agent_id = result.get("id") if isinstance(result, dict) else None
+    if agent.training_urls != [] and agent.training_urls != None:
+        if len(agent.training_urls) < 1:
+            return {"message": "Agent added.", "id": agent_id}
+        ApiClient = get_api_client(authorization=authorization)
+        _agent = Agent(agent_name=agent.agent_name, user=user, ApiClient=ApiClient)
+        reader = Websearch(
+            collection_number="0",
+            agent=_agent,
+            user=user,
+            ApiClient=ApiClient,
+        )
+        for url in agent.training_urls:
+            await reader.get_web_content(url=url)
+        return {"message": "Agent added and trained.", "id": agent_id}
+    return {"message": "Agent added.", "id": agent_id}
+
+
+@app.post(
+    "/v1/agent/import",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Import an agent configuration",
+    description="Imports an existing agent configuration including settings and commands. Returns the agent ID.",
+    response_model=AgentResponse,
+)
+async def import_agent_v1(
+    agent: AgentConfig, user=Depends(verify_api_key), authorization: str = Header(None)
+) -> Dict[str, str]:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    result = add_agent(
+        agent_name=agent.agent_name,
+        provider_settings=agent.settings,
+        commands=agent.commands,
+        user=user,
+    )
+    return result
+
+
 @app.post(
     "/v1/agent/think",
     tags=["Agent"],

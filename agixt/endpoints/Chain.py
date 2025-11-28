@@ -394,3 +394,125 @@ async def move_step_by_id_v1(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# V1 Chain Run Endpoints
+
+
+@app.post(
+    "/v1/chain/{chain_id}/run",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=str,
+    summary="Run chain by ID",
+    description="Executes a chain using its ID and returns the final output.",
+)
+async def run_chain_v1(
+    chain_id: str,
+    user_input: RunChain,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if chain_id == "":
+        raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+
+    # Get the chain name from chain ID
+    chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)
+    if chain_data is None:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    chain_name = chain_data["name"]
+
+    agents = get_agents(user=user)
+    agent_name = agents[0]["name"] if agents else None
+    if user_input.agent_override:
+        for agent in agents:
+            if (
+                agent.get("id") == user_input.agent_override
+                or agent.get("name") == user_input.agent_override
+            ):
+                agent_name = agent["name"]
+                break
+
+    conversation_name = user_input.conversation_name
+    chain_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=conversation_name,
+    ).execute_chain(
+        chain_name=chain_name,
+        user_input=user_input.prompt,
+        agent_override=user_input.agent_override,
+        from_step=user_input.from_step,
+        chain_args=user_input.chain_args,
+        log_user_input=False,
+        log_output=False,
+    )
+    try:
+        if "Chain failed to complete" in chain_response:
+            raise HTTPException(status_code=500, detail=f"{chain_response}")
+    except:
+        return f"{chain_response}"
+    return chain_response
+
+
+@app.post(
+    "/v1/chain/{chain_id}/run/step/{step_number}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=str,
+    summary="Run chain step by ID",
+    description="Executes a specific step within a chain using chain ID and returns the output.",
+)
+async def run_chain_step_v1(
+    chain_id: str,
+    step_number: str,
+    user_input: RunChainStep,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if chain_id == "":
+        raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+
+    # Get the chain name from chain ID
+    chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)
+    if chain_data is None:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    chain_name = chain_data["name"]
+
+    chain = Chain(user=user)
+    chain_steps = chain.get_chain(chain_name=chain_name)
+    try:
+        step = chain_steps["step"][step_number]
+    except Exception as e:
+        raise HTTPException(
+            status_code=404, detail=f"Step {step_number} not found. {e}"
+        )
+    agent_name = (
+        user_input.agent_override if user_input.agent_override else step["agent"]
+    )
+    chain_step_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=user_input.conversation_name,
+    ).run_chain_step(
+        chain_run_id=user_input.chain_run_id,
+        step=step,
+        chain_name=chain_name,
+        user_input=user_input.prompt,
+        agent_override=user_input.agent_override,
+        chain_args=user_input.chain_args,
+    )
+    if chain_step_response == None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error running step {step_number} in chain {chain_name}",
+        )
+    if "Chain failed to complete" in chain_step_response:
+        raise HTTPException(status_code=500, detail=chain_step_response)
+    return chain_step_response
