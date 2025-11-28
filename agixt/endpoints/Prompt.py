@@ -19,6 +19,87 @@ logging.basicConfig(
 )
 
 
+# Static routes MUST come before dynamic routes to avoid path conflicts
+@app.get(
+    "/v1/prompts",
+    tags=["Prompt"],
+    summary="Get all prompts with IDs",
+    description="Retrieve all prompts for a category including their IDs.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_prompts_v1(
+    category: str = "Default",
+    prompt_category: str = None,
+    user=Depends(verify_api_key),
+):
+    # Support both 'category' and 'prompt_category' params for backwards compatibility
+    cat = prompt_category if prompt_category else category
+    prompts = Prompts(user=user).get_prompts(prompt_category=cat, include_ids=True)
+    return {"prompts": prompts, "category": cat}
+
+
+@app.get(
+    "/v1/prompt/categories",
+    tags=["Prompt"],
+    summary="Get all prompt categories with IDs",
+    description="Retrieve all prompt categories including their IDs.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_prompt_categories_v1(user=Depends(verify_api_key)):
+    categories = Prompts(user=user).get_prompt_categories(include_ids=True)
+    return {"categories": categories, "prompt_categories": categories}
+
+
+@app.get(
+    "/v1/prompt/all",
+    tags=["Prompt"],
+    summary="Get all user and global prompts with full details",
+    description="Retrieve all global and user prompts with their IDs and full details.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_all_prompts_v1(user=Depends(verify_api_key)):
+    global_prompts = Prompts(user=user).get_global_prompts()
+    user_prompts = Prompts(user=user).get_user_prompts()
+    return {"global_prompts": global_prompts, "user_prompts": user_prompts}
+
+
+@app.get(
+    "/v1/prompt/category/{category_id}",
+    tags=["Prompt"],
+    summary="Get prompts by category ID",
+    description="Retrieve all prompts for a specific category by category ID.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_prompts_by_category_id_v1(category_id: str, user=Depends(verify_api_key)):
+    prompts = Prompts(user=user).get_prompts_by_category_id(category_id=category_id)
+    return {"prompts": prompts, "category_id": category_id}
+
+
+@app.post(
+    "/v1/prompt",
+    tags=["Prompt"],
+    summary="Create a new prompt",
+    description="Create a new prompt with the specified name, content, and category. Returns the prompt ID.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def create_prompt_v1(
+    prompt: CustomPromptModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    prompt_id = Prompts(user=user).add_prompt(
+        prompt_name=prompt.prompt_name,
+        prompt=prompt.prompt,
+        prompt_category=prompt.prompt_category,
+    )
+    return ResponseMessage(
+        message=f"Prompt '{prompt.prompt_name}' created with ID: {prompt_id}"
+    )
+
+
+# Dynamic routes with path parameters come AFTER static routes
 @app.get(
     "/v1/prompt/{prompt_id}",
     tags=["Prompt"],

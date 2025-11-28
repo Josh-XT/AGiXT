@@ -49,6 +49,7 @@ class Prompts:
             session.add(argument)
         session.commit()
         session.close()
+        return str(prompt_obj.id)
 
     def get_prompt(self, prompt_name: str, prompt_category: str = "Default"):
         session = get_session()
@@ -157,6 +158,7 @@ class Prompts:
                     prompt_args = []
                 prompts.append(
                     {
+                        "id": str(prompt.id),
                         "name": prompt.name,
                         "category": prompt.prompt_category.name,
                         "content": prompt.content,
@@ -182,6 +184,7 @@ class Prompts:
                 prompt_args = []
             prompts.append(
                 {
+                    "id": str(prompt.id),
                     "name": prompt.name,
                     "category": prompt.prompt_category.name,
                     "content": prompt.content,
@@ -204,7 +207,7 @@ class Prompts:
             prompt_markdown += f"**Arguments:** {', '.join(prompt['arguments'])}\n"
         return prompt_markdown
 
-    def get_prompts(self, prompt_category="Default"):
+    def get_prompts(self, prompt_category="Default", include_ids: bool = False):
         if not prompt_category:
             prompt_category = "Default"
         session = get_session()
@@ -231,9 +234,43 @@ class Prompts:
         )
         prompts = []
         for prompt in global_prompts:
-            prompts.append(prompt.name)
+            if include_ids:
+                prompts.append({"id": str(prompt.id), "name": prompt.name})
+            else:
+                prompts.append(prompt.name)
         for prompt in user_prompts:
-            prompts.append(prompt.name)
+            if include_ids:
+                prompts.append({"id": str(prompt.id), "name": prompt.name})
+            else:
+                prompts.append(prompt.name)
+        session.close()
+        return prompts
+
+    def get_prompts_by_category_id(self, category_id: str):
+        """Get prompts by category ID with full details including ID"""
+        session = get_session()
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        global_prompts = (
+            session.query(Prompt)
+            .filter(
+                Prompt.user_id == user_data.id,
+                Prompt.prompt_category_id == category_id,
+            )
+            .all()
+        )
+        user_prompts = (
+            session.query(Prompt)
+            .filter(
+                Prompt.user_id == self.user_id,
+                Prompt.prompt_category_id == category_id,
+            )
+            .all()
+        )
+        prompts = []
+        for prompt in global_prompts:
+            prompts.append({"id": str(prompt.id), "name": prompt.name})
+        for prompt in user_prompts:
+            prompts.append({"id": str(prompt.id), "name": prompt.name})
         session.close()
         return prompts
 
@@ -344,7 +381,7 @@ class Prompts:
             session.commit()
         session.close()
 
-    def get_prompt_categories(self):
+    def get_prompt_categories(self, include_ids: bool = False):
         session = get_session()
         user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
         global_prompt_categories = (
@@ -359,9 +396,27 @@ class Prompts:
         )
         prompt_categories = []
         for prompt_category in global_prompt_categories:
-            prompt_categories.append(prompt_category.name)
+            if include_ids:
+                prompt_categories.append(
+                    {
+                        "id": str(prompt_category.id),
+                        "name": prompt_category.name,
+                        "description": prompt_category.description,
+                    }
+                )
+            else:
+                prompt_categories.append(prompt_category.name)
         for prompt_category in user_prompt_categories:
-            prompt_categories.append(prompt_category.name)
+            if include_ids:
+                prompt_categories.append(
+                    {
+                        "id": str(prompt_category.id),
+                        "name": prompt_category.name,
+                        "description": prompt_category.description,
+                    }
+                )
+            else:
+                prompt_categories.append(prompt_category.name)
         session.close()
         return prompt_categories
 
