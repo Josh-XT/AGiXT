@@ -1255,8 +1255,12 @@ async def conversation_stream(
                     for deleted_id in changes["deleted_ids"]:
                         previous_message_ids.discard(deleted_id)
 
-                # Handle new messages
+                # Handle new messages - only send messages we haven't already sent
                 for message in changes["new_messages"]:
+                    message_id = str(message.get("id")) if message.get("id") else None
+                    # Skip if we've already sent this message
+                    if message_id and message_id in previous_message_ids:
+                        continue
                     serializable_message = make_json_serializable(message)
                     await websocket.send_text(
                         json.dumps(
@@ -1264,8 +1268,8 @@ async def conversation_stream(
                         )
                     )
                     # Track new message ID
-                    if message.get("id"):
-                        previous_message_ids.add(str(message["id"]))
+                    if message_id:
+                        previous_message_ids.add(message_id)
 
                 # Handle updated messages
                 for message in changes["updated_messages"]:

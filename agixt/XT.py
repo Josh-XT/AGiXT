@@ -2016,6 +2016,7 @@ Your response (true or false):"""
             del prompt_args["log_user_input"]
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
+        thinking_id = ""
         if log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
         file_contents = []
