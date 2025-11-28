@@ -1970,17 +1970,25 @@ class Interactions:
         max_continuation_loops = 10  # Prevent infinite loops
         continuation_count = 0
 
+        # Track the length of processed content to detect new executions
+        processed_length = len(self.response)
+
         while (
             "</answer>" not in self.response
             and continuation_count < max_continuation_loops
         ):
-            # Check if there was an execution (has </execute> tag) or incomplete answer
-            has_execution = "</execute>" in self.response
+            # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
+            unprocessed_response = (
+                self.response[processed_length:]
+                if continuation_count > 0
+                else self.response
+            )
+            has_new_execution = "</execute>" in unprocessed_response
             has_incomplete_answer = (
                 "<answer>" in self.response and "</answer>" not in self.response
             )
 
-            if not has_execution and not has_incomplete_answer:
+            if not has_new_execution and not has_incomplete_answer:
                 # No execution and no incomplete answer - agent didn't finish properly or gave up
                 logging.info(
                     "[run_stream] No answer, no execution, no incomplete answer - stopping"
@@ -1989,7 +1997,7 @@ class Interactions:
 
             continuation_count += 1
 
-            if has_execution:
+            if has_new_execution:
                 logging.info(
                     f"[run_stream] Continuation {continuation_count}: Injecting execution output and running fresh inference"
                 )
@@ -2066,10 +2074,16 @@ class Interactions:
                                 self.response += continuation_response
                                 broke_for_execution = True
 
+                                # Update processed_length before execution so we can detect new executions
+                                processed_length = len(self.response)
+
                                 await self.execution_agent(
                                     conversation_name=conversation_name,
                                     conversation_id=conversation_id,
                                 )
+
+                                # Update processed_length again after execution adds output
+                                processed_length = len(self.response)
 
                                 # Break to start new continuation with execution output
                                 break
@@ -2189,6 +2203,9 @@ class Interactions:
                 if not broke_for_execution:
                     self.response += continuation_response
 
+                # Update processed_length to track what we've handled
+                processed_length = len(self.response)
+
                 # If we got an answer tag, we're done
                 if "</answer>" in continuation_response:
                     logging.info("[run_stream] Continuation completed with answer")
@@ -2196,6 +2213,9 @@ class Interactions:
 
                 # If we hit an execute tag, continue loop to handle it
                 if "</execute>" in continuation_response:
+                    logging.info(
+                        "[run_stream] Execute tag found in continuation, looping to handle it"
+                    )
                     continue
 
             except Exception as e:

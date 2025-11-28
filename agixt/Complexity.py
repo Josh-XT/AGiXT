@@ -68,7 +68,8 @@ COMPLEXITY_WEIGHTS = {
     "code_generation": 4,
     "math_calculation": 4,
     "complex_terminal": 3,
-    "multi_step_per_step": 2,
+    # Multi-step no longer contributes to score - just triggers planning
+    # "multi_step_per_step": 2,
     "input_tokens_per_2k": 1,
     "ambiguous_request": 2,
 }
@@ -89,8 +90,10 @@ THINKING_BUDGETS = {
 
 # Patterns for detecting complexity factors
 CODE_PATTERNS = [
-    r"\b(write|create|code|script|program|function|class|implement|debug|fix|refactor)\b",
-    r"\b(python|javascript|typescript|java|rust|c\+\+|golang|ruby|php|sql)\b",
+    # Only match write/create when followed by code-related terms
+    r"\b(write|create)\s+(a\s+)?(code|script|program|function|class|module|library|package|component)\b",
+    r"\b(implement|debug|fix|refactor)\b",
+    r"\b(python|javascript|typescript|java|rust|c\+\+|golang|ruby|php|sql)\s+(code|script|program|function|class)\b",
     r"\b(api|endpoint|database|schema|query)\b",
     r"\b(compile|build|deploy|test)\s+(code|app|application|script|program)\b",
     r"```",  # Code blocks in user input
@@ -291,10 +294,10 @@ def calculate_complexity_score(
     if requires_terminal:
         total_score += COMPLEXITY_WEIGHTS["complex_terminal"]
 
-    # Multi-step task (+2 per step)
+    # Multi-step task detection (used for planning, NOT for scoring)
     is_multi_step, step_count = detect_multi_step_task(user_input)
-    if is_multi_step:
-        total_score += COMPLEXITY_WEIGHTS["multi_step_per_step"] * step_count
+    # Multi-step tasks no longer add to complexity score
+    # They just trigger planning phase with todo list
 
     # Input token length (+1 per 2k tokens)
     token_estimate = estimate_input_token_count(user_input)
