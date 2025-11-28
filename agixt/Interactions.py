@@ -1542,8 +1542,8 @@ class Interactions:
 
         # Get streaming response from the LLM
         # Use provided thinking_id if available, otherwise get a new one
-        if not thinking_id:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        # We don't need a thinking_id anymore - subactivities will be grouped by frontend
+        # Just send SUBACTIVITY messages directly
 
         try:
             logging.info(f"[run_stream] Starting streaming inference...")
@@ -1719,8 +1719,7 @@ class Interactions:
                         elif tag_name in ("thinking", "reflection", "execute"):
                             current_tag = tag_name
                             current_tag_content = ""
-                            # Don't create message yet - wait for actual content
-                            current_tag_message_id = None
+                            current_tag_message_id = None  # Reset for new tag
 
                 # Check for closing tags
                 for match in tag_close_pattern.finditer(
@@ -1793,7 +1792,7 @@ class Interactions:
 
                             current_tag = None
                             current_tag_content = ""
-                            current_tag_message_id = None
+                            current_tag_message_id = None  # Reset for next tag
                         elif tag_name in ("thinking", "reflection"):
                             # Extract the complete tag content
                             tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
@@ -1844,25 +1843,23 @@ class Interactions:
                                 if tag_id not in processed_thinking_ids and content:
                                     processed_thinking_ids.add(tag_id)
 
-                                    # Prepare the final message
+                                    # Prepare the final message - no parent activity needed
                                     if tag_name == "thinking":
-                                        log_msg = f"[SUBACTIVITY][{thinking_id}][THOUGHT] {content}"
+                                        log_msg = f"[SUBACTIVITY][THOUGHT] {content}"
                                     elif tag_name == "reflection":
-                                        log_msg = f"[SUBACTIVITY][{thinking_id}][REFLECTION] {content}"
+                                        log_msg = f"[SUBACTIVITY][REFLECTION] {content}"
                                     else:
-                                        log_msg = (
-                                            f"[SUBACTIVITY][{thinking_id}] {content}"
-                                        )
+                                        log_msg = f"[SUBACTIVITY] {content}"
 
-                                    # Update the existing streaming message with final content
+                                    # Create the database message when tag closes (not during streaming)
                                     # Skip during execution to prevent WebSocket events
                                     if not is_executing:
+                                        # Update existing message if we have one, otherwise create new
                                         if current_tag_message_id:
                                             c.update_message_by_id(
                                                 current_tag_message_id, log_msg
                                             )
                                         else:
-                                            # Fallback: create new message if we don't have a message ID
                                             c.log_interaction(
                                                 role=self.agent_name, message=log_msg
                                             )
@@ -1899,7 +1896,7 @@ class Interactions:
                             answer_content = new_answer
 
                 # Stream current thinking content progressively
-                # Skip progressive updates during command execution to avoid UI flickering
+                # Create message once, then update as content streams in
                 if (
                     current_tag
                     and current_tag in ("thinking", "reflection", "execute")
@@ -1917,41 +1914,35 @@ class Interactions:
                             delta = partial[len(current_tag_content) :]
                             current_tag_content = partial
 
-                            # Create or update the streaming message
-                            # Only create when we have meaningful content (more than just a word or two)
-                            # Require at least 10 characters or 2 words to avoid creating entries for partial content
-                            stripped_content = current_tag_content.strip()
-                            has_meaningful_content = (
-                                len(stripped_content) >= 10
-                                or len(stripped_content.split()) >= 3
-                            )
+                            # Create message format - no parent activity needed
+                            if current_tag == "thinking":
+                                tag_type = "THOUGHT"
+                            elif current_tag == "reflection":
+                                tag_type = "REFLECTION"
+                            elif current_tag == "execute":
+                                tag_type = "EXECUTION"
+                            else:
+                                tag_type = "ACTIVITY"
 
-                            if has_meaningful_content:
-                                if current_tag == "thinking":
-                                    tag_type = "THOUGHT"
-                                elif current_tag == "reflection":
-                                    tag_type = "REFLECTION"
-                                elif current_tag == "execute":
-                                    tag_type = "EXECUTION"
+                            # Skip for execute tags - execution_agent handles those
+                            if current_tag != "execute":
+                                # Just [SUBACTIVITY][TYPE] - frontend will group consecutive ones
+                                updated_msg = (
+                                    f"[SUBACTIVITY][{tag_type}] {current_tag_content}"
+                                )
+
+                                if not current_tag_message_id:
+                                    # Create message once with first content
+                                    current_tag_message_id = c.log_interaction(
+                                        role=self.agent_name, message=updated_msg
+                                    )
                                 else:
-                                    tag_type = "ACTIVITY"
+                                    # Update existing message as content grows
+                                    c.update_message_by_id(
+                                        current_tag_message_id, updated_msg
+                                    )
 
-                                # Skip creating/updating messages for execute tags during streaming
-                                # The execution_agent handles all execution logging
-                                if current_tag != "execute" and not is_executing:
-                                    updated_msg = f"[SUBACTIVITY][{thinking_id}][{tag_type}] {current_tag_content}"
-
-                                    if current_tag_message_id:
-                                        # Update existing message
-                                        c.update_message_by_id(
-                                            current_tag_message_id, updated_msg
-                                        )
-                                    else:
-                                        # Create initial message with first meaningful content
-                                        current_tag_message_id = c.log_interaction(
-                                            role=self.agent_name, message=updated_msg
-                                        )
-
+                            # Yield for streaming API response
                             yield {
                                 "type": f"{current_tag}_stream",
                                 "content": delta,
@@ -2027,9 +2018,9 @@ class Interactions:
                 continuation_in_answer = False
                 continuation_current_tag = None
                 continuation_current_tag_content = ""
-                continuation_current_tag_message_id = None
-                continuation_thinking_id = thinking_id  # Reuse same thinking activity
+                continuation_current_tag_message_id = None  # Track message ID
                 continuation_processed_thinking_ids = set()
+                broke_for_execution = False  # Track if we broke early for execution
 
                 async for chunk_data in iterate_stream(continuation_stream):
                     # Extract token from chunk
@@ -2071,12 +2062,13 @@ class Interactions:
                                 logging.info(
                                     "[run_stream] Nested execution detected in continuation"
                                 )
+
                                 self.response += continuation_response
+                                broke_for_execution = True
 
                                 await self.execution_agent(
                                     conversation_name=conversation_name,
                                     conversation_id=conversation_id,
-                                    thinking_id=continuation_thinking_id,
                                 )
 
                                 # Break to start new continuation with execution output
@@ -2102,11 +2094,15 @@ class Interactions:
                                         continuation_processed_thinking_ids.add(tag_id)
 
                                         if tag_name == "thinking":
-                                            log_msg = f"[SUBACTIVITY][{continuation_thinking_id}][THOUGHT] {content}"
+                                            log_msg = (
+                                                f"[SUBACTIVITY][THOUGHT] {content}"
+                                            )
                                         else:
-                                            log_msg = f"[SUBACTIVITY][{continuation_thinking_id}][REFLECTION] {content}"
+                                            log_msg = (
+                                                f"[SUBACTIVITY][REFLECTION] {content}"
+                                            )
 
-                                        # Update or create message
+                                        # Update existing or create new message
                                         if continuation_current_tag_message_id:
                                             c.update_message_by_id(
                                                 continuation_current_tag_message_id,
@@ -2125,7 +2121,7 @@ class Interactions:
 
                             continuation_current_tag = None
                             continuation_current_tag_content = ""
-                            continuation_current_tag_message_id = None
+                            continuation_current_tag_message_id = None  # Reset
 
                     # Stream progressive content for current tag
                     if continuation_current_tag and continuation_current_tag in (
@@ -2144,34 +2140,29 @@ class Interactions:
                                 delta = partial[len(continuation_current_tag_content) :]
                                 continuation_current_tag_content = partial
 
-                                # Create/update message if meaningful content
-                                stripped_content = (
-                                    continuation_current_tag_content.strip()
+                                # Create/update message
+                                tag_type = (
+                                    "THOUGHT"
+                                    if continuation_current_tag == "thinking"
+                                    else "REFLECTION"
                                 )
-                                if (
-                                    len(stripped_content) >= 10
-                                    or len(stripped_content.split()) >= 3
-                                ):
-                                    tag_type = (
-                                        "THOUGHT"
-                                        if continuation_current_tag == "thinking"
-                                        else "REFLECTION"
+                                updated_msg = f"[SUBACTIVITY][{tag_type}] {continuation_current_tag_content}"
+
+                                if not continuation_current_tag_message_id:
+                                    # Create message once
+                                    continuation_current_tag_message_id = (
+                                        c.log_interaction(
+                                            role=self.agent_name, message=updated_msg
+                                        )
                                     )
-                                    updated_msg = f"[SUBACTIVITY][{continuation_thinking_id}][{tag_type}] {continuation_current_tag_content}"
+                                else:
+                                    # Update existing message
+                                    c.update_message_by_id(
+                                        continuation_current_tag_message_id,
+                                        updated_msg,
+                                    )
 
-                                    if continuation_current_tag_message_id:
-                                        c.update_message_by_id(
-                                            continuation_current_tag_message_id,
-                                            updated_msg,
-                                        )
-                                    else:
-                                        continuation_current_tag_message_id = (
-                                            c.log_interaction(
-                                                role=self.agent_name,
-                                                message=updated_msg,
-                                            )
-                                        )
-
+                                # Yield for streaming API
                                 yield {
                                     "type": f"{continuation_current_tag}_stream",
                                     "content": delta,
@@ -2194,8 +2185,9 @@ class Interactions:
                                     "complete": False,
                                 }
 
-                # Append continuation to main response
-                self.response += continuation_response
+                # Append continuation to main response (only if we didn't already do it when breaking for execution)
+                if not broke_for_execution:
+                    self.response += continuation_response
 
                 # If we got an answer tag, we're done
                 if "</answer>" in continuation_response:
