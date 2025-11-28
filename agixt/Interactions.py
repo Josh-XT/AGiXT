@@ -1767,10 +1767,30 @@ class Interactions:
                                 # Set flag to pause progressive updates during execution
                                 is_executing = True
 
-                                # Store current response
+                                # CRITICAL: Truncate response at </execute> to discard hallucinated output
+                                # The LLM may have streamed tokens after </execute> that we need to throw away
+                                # because those would be the LLM's guess at what the output should be
+                                execute_end_match = re.search(
+                                    r"</execute>", full_response, re.IGNORECASE
+                                )
+                                if execute_end_match:
+                                    truncated_response = full_response[
+                                        : execute_end_match.end()
+                                    ]
+                                    discarded_content = full_response[
+                                        execute_end_match.end() :
+                                    ]
+                                    if discarded_content.strip():
+                                        logging.info(
+                                            f"[run_stream] Discarding hallucinated output after </execute>: {discarded_content[:200]}..."
+                                        )
+                                    full_response = truncated_response
+
+                                # Store truncated response
                                 self.response = full_response
 
                                 # Execute the commands synchronously - this blocks until complete
+                                # execution_agent will inject actual output as <output>...</output>
                                 await self.execution_agent(
                                     conversation_name=conversation_name,
                                     conversation_id=conversation_id,
@@ -2001,18 +2021,19 @@ class Interactions:
                 logging.info(
                     f"[run_stream] Continuation {continuation_count}: Injecting execution output and running fresh inference"
                 )
-                # Get the command output
+                # Get the response with command output (execution_agent already injected real output)
                 command_output = self.response.strip()
 
                 # Create continuation prompt with command output injected
+                # Use formatted_prompt (full context) not unformatted_prompt (just template name)
                 # Match the non-streaming pattern exactly
-                continuation_prompt = f"{unformatted_prompt}\n\n{self.agent_name}: {command_output}\n\nCommand executed with output. The assistant should continue its thought process based on this command output, evaluating if the output provides the needed information or if additional commands are needed. Do not make up command outputs - they are provided above. Proceed with thinking, responding, or executing more commands before the final response in the <answer> block."
+                continuation_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {command_output}\n\nCommand executed with output. The assistant should continue its thought process based on this command output, evaluating if the output provides the needed information or if additional commands are needed. Do not make up command outputs - they are provided above. Proceed with thinking, responding, or executing more commands before the final response in the <answer> block."
             else:
                 # Incomplete answer - prompt to continue
                 logging.info(
                     f"[run_stream] Continuation {continuation_count}: Answer block incomplete, prompting to continue"
                 )
-                continuation_prompt = f"{unformatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+                continuation_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
 
             try:
                 # Run FRESH inference with stream=True
@@ -2070,6 +2091,23 @@ class Interactions:
                                 logging.info(
                                     "[run_stream] Nested execution detected in continuation"
                                 )
+
+                                # CRITICAL: Truncate at </execute> to discard hallucinated output
+                                execute_end_match = re.search(
+                                    r"</execute>", continuation_response, re.IGNORECASE
+                                )
+                                if execute_end_match:
+                                    truncated_continuation = continuation_response[
+                                        : execute_end_match.end()
+                                    ]
+                                    discarded_content = continuation_response[
+                                        execute_end_match.end() :
+                                    ]
+                                    if discarded_content.strip():
+                                        logging.info(
+                                            f"[run_stream] Discarding hallucinated output in continuation after </execute>: {discarded_content[:200]}..."
+                                        )
+                                    continuation_response = truncated_continuation
 
                                 self.response += continuation_response
                                 broke_for_execution = True
