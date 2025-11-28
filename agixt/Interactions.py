@@ -1541,10 +1541,6 @@ class Interactions:
             formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
 
         # Get streaming response from the LLM
-        # Use provided thinking_id if available, otherwise get a new one
-        # We don't need a thinking_id anymore - subactivities will be grouped by frontend
-        # Just send SUBACTIVITY messages directly
-
         try:
             logging.info(f"[run_stream] Starting streaming inference...")
             stream = await self.agent.inference(
@@ -1560,22 +1556,10 @@ class Interactions:
 
         # Process the stream
         full_response = ""
-        current_tag = None
-        current_tag_content = ""
-        current_tag_message_id = None  # Track message ID for progressive updates
-        tag_stack = []  # Track nested tags
         processed_thinking_ids = set()
         in_answer = False
         answer_content = ""
         is_executing = False  # Flag to pause streaming during command execution
-
-        # Patterns for tag detection
-        tag_open_pattern = re.compile(
-            r"<(thinking|reflection|answer|execute|output|step)>", re.IGNORECASE
-        )
-        tag_close_pattern = re.compile(
-            r"</(thinking|reflection|answer|execute|output|step)>", re.IGNORECASE
-        )
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -1666,6 +1650,9 @@ class Interactions:
 
         try:
             chunk_count = 0
+            # Track last processed position for incremental tag detection
+            last_tag_check_pos = 0
+
             async for chunk in iterate_stream(stream):
                 chunk_count += 1
                 if chunk_count <= 3:
@@ -1697,277 +1684,164 @@ class Interactions:
 
                 full_response += token
 
-                # Process for tag detection
-                # Check for opening tags
-                for match in tag_open_pattern.finditer(
-                    full_response[len(full_response) - len(token) - 50 :]
-                    if len(full_response) > 50
-                    else full_response
-                ):
-                    tag_name = match.group(1).lower()
-                    if tag_name not in tag_stack:
-                        # Don't open answer/execute tags while inside thinking/reflection
-                        # This prevents "<answer>" text in thinking from being interpreted as a tag
-                        if tag_name in ("answer", "execute", "output") and (
-                            "thinking" in tag_stack or "reflection" in tag_stack
-                        ):
-                            continue
+                # Simple tag state detection based on COMPLETE response
+                # Count open/close tags to determine current state
+                def get_tag_depth(text, tag_name):
+                    """Count net depth of a tag (opens - closes)"""
+                    opens = len(re.findall(f"<{tag_name}>", text, re.IGNORECASE))
+                    closes = len(re.findall(f"</{tag_name}>", text, re.IGNORECASE))
+                    return opens - closes
 
-                        tag_stack.append(tag_name)
-                        if tag_name == "answer":
-                            in_answer = True
-                        elif tag_name in ("thinking", "reflection", "execute"):
-                            current_tag = tag_name
-                            current_tag_content = ""
-                            current_tag_message_id = None  # Reset for new tag
+                # Determine current tag state from full response
+                thinking_depth = get_tag_depth(full_response, "thinking")
+                reflection_depth = get_tag_depth(full_response, "reflection")
+                in_thinking_or_reflection = thinking_depth > 0 or reflection_depth > 0
 
-                # Check for closing tags
-                for match in tag_close_pattern.finditer(
-                    full_response[len(full_response) - len(token) - 50 :]
-                    if len(full_response) > 50
-                    else full_response
+                # Check for answer tag - only valid at top level (not inside thinking/reflection)
+                # Find the LAST <answer> tag and check if it's inside thinking/reflection
+                answer_depth = get_tag_depth(full_response, "answer")
+
+                # Properly determine if we're in an answer block at top level
+                # We need to check if <answer> appears AFTER all thinking/reflection blocks close
+                last_thinking_close = max(
+                    [
+                        m.end()
+                        for m in re.finditer(
+                            r"</thinking>", full_response, re.IGNORECASE
+                        )
+                    ]
+                    or [0]
+                )
+                last_reflection_close = max(
+                    [
+                        m.end()
+                        for m in re.finditer(
+                            r"</reflection>", full_response, re.IGNORECASE
+                        )
+                    ]
+                    or [0]
+                )
+                last_closed_pos = max(last_thinking_close, last_reflection_close)
+
+                # Find answer tags that appear after all thinking/reflection closes
+                answer_after_thinking = re.search(
+                    r"<answer>", full_response[last_closed_pos:], re.IGNORECASE
+                )
+                answer_closed_after = re.search(
+                    r"</answer>", full_response[last_closed_pos:], re.IGNORECASE
+                )
+
+                in_answer = (
+                    answer_after_thinking is not None and answer_closed_after is None
+                )
+
+                # Check for execute tag completion - only at top level
+                # Find </execute> that's NOT inside thinking/reflection
+                execute_pattern = r"<execute>.*?</execute>"
+                for match in re.finditer(
+                    execute_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
-                    tag_name = match.group(1).lower()
-                    # Only process closing tags that are actually in the stack
-                    # Don't close answer/execute tags while inside thinking/reflection
-                    if tag_name in ("answer", "execute", "output") and (
-                        "thinking" in tag_stack or "reflection" in tag_stack
+                    execute_end = match.end()
+                    # Check if this execute is inside a thinking/reflection block
+                    text_before = full_response[: match.start()]
+                    if (
+                        get_tag_depth(text_before, "thinking") > 0
+                        or get_tag_depth(text_before, "reflection") > 0
                     ):
+                        continue  # This execute is inside thinking/reflection, skip
+
+                    # This is a top-level execute - check if we've processed it
+                    execute_content = match.group(0)
+                    execute_id = f"execute:{hash(execute_content)}"
+                    if execute_id in processed_thinking_ids:
                         continue
 
-                    if tag_name in tag_stack:
-                        tag_stack.remove(tag_name)
-                        if tag_name == "answer":
-                            in_answer = False
-                        elif tag_name == "execute":
-                            # Special handling for execute - we need to actually run the command
-                            # Extract the execute content
-                            tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
-                            matches = list(
-                                re.finditer(
-                                    tag_pattern,
-                                    full_response,
-                                    re.DOTALL | re.IGNORECASE,
-                                )
+                    processed_thinking_ids.add(execute_id)
+
+                    # Execute commands and STOP inference
+                    if (
+                        "{COMMANDS}" in unformatted_prompt
+                        and "disable_commands" not in kwargs
+                    ):
+                        is_executing = True
+
+                        # CRITICAL: Truncate at </execute> to discard hallucinated output
+                        truncated_response = full_response[:execute_end]
+                        discarded_content = full_response[execute_end:]
+                        if discarded_content.strip():
+                            logging.info(
+                                f"[run_stream] Discarding hallucinated output after </execute>: {discarded_content[:200]}..."
                             )
-                            for m in matches:
-                                content = m.group(1).strip()
+                        full_response = truncated_response
+                        self.response = full_response
 
-                                # Mark as processed
-                                tag_id = f"{tag_name}:{hash(content)}"
-                                if tag_id not in processed_thinking_ids and content:
-                                    processed_thinking_ids.add(tag_id)
+                        # Execute the command
+                        await self.execution_agent(
+                            conversation_name=conversation_name,
+                            conversation_id=conversation_id,
+                            thinking_id=thinking_id,
+                        )
 
-                            # Execute commands and STOP inference at </execute>
-                            # This matches the non-streaming behavior
-                            if (
-                                "{COMMANDS}" in unformatted_prompt
-                                and "disable_commands" not in kwargs
-                            ):
-                                # Set flag to pause progressive updates during execution
-                                is_executing = True
+                        full_response = self.response
+                        is_executing = False
 
-                                # CRITICAL: Truncate response at </execute> to discard hallucinated output
-                                # The LLM may have streamed tokens after </execute> that we need to throw away
-                                # because those would be the LLM's guess at what the output should be
-                                execute_end_match = re.search(
-                                    r"</execute>", full_response, re.IGNORECASE
-                                )
-                                if execute_end_match:
-                                    truncated_response = full_response[
-                                        : execute_end_match.end()
-                                    ]
-                                    discarded_content = full_response[
-                                        execute_end_match.end() :
-                                    ]
-                                    if discarded_content.strip():
-                                        logging.info(
-                                            f"[run_stream] Discarding hallucinated output after </execute>: {discarded_content[:200]}..."
-                                        )
-                                    full_response = truncated_response
+                        logging.info(
+                            "[run_stream] Execution complete, stopping inference"
+                        )
+                        break  # Break to continuation loop
 
-                                # Store truncated response
-                                self.response = full_response
+                # Process completed thinking/reflection tags for logging
+                for tag_name in ["thinking", "reflection"]:
+                    tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
+                    for match in re.finditer(
+                        tag_pattern, full_response, re.DOTALL | re.IGNORECASE
+                    ):
+                        content = match.group(1).strip()
+                        tag_id = f"{tag_name}:{hash(content)}"
+                        if tag_id in processed_thinking_ids or not content:
+                            continue
 
-                                # Execute the commands synchronously - this blocks until complete
-                                # execution_agent will inject actual output as <output>...</output>
-                                await self.execution_agent(
-                                    conversation_name=conversation_name,
-                                    conversation_id=conversation_id,
-                                    thinking_id=thinking_id,
-                                )
+                        processed_thinking_ids.add(tag_id)
 
-                                # Update full_response with the execution output
-                                full_response = self.response
+                        # Clean content - remove any tag mentions
+                        content = re.sub(
+                            r"</?(?:answer|execute|output|step)>", "", content
+                        )
+                        content = re.sub(r"\n\s*\n\s*\n", "\n\n", content).strip()
 
-                                # Clear the flag after execution completes
-                                is_executing = False
+                        if content:
+                            if tag_name == "thinking":
+                                log_msg = f"[SUBACTIVITY][THOUGHT] {content}"
+                            else:
+                                log_msg = f"[SUBACTIVITY][REFLECTION] {content}"
 
-                                # STOP INFERENCE at </execute> tag
-                                # Break from stream to handle continuation with fresh inference
-                                logging.info(
-                                    "[run_stream] Execution complete, stopping inference at </execute> tag"
-                                )
-                                break
+                            if not is_executing:
+                                c.log_interaction(role=self.agent_name, message=log_msg)
 
-                            current_tag = None
-                            current_tag_content = ""
-                            current_tag_message_id = None  # Reset for next tag
-                        elif tag_name in ("thinking", "reflection"):
-                            # Extract the complete tag content
-                            tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
-                            matches = list(
-                                re.finditer(
-                                    tag_pattern,
-                                    full_response,
-                                    re.DOTALL | re.IGNORECASE,
-                                )
-                            )
-                            for m in matches:
-                                content = m.group(1).strip()
-                                # Clean up the content - remove any nested tags that shouldn't be there
-                                content = re.sub(
-                                    r"<answer>.*?</answer>",
-                                    "",
-                                    content,
-                                    flags=re.DOTALL,
-                                )
-                                content = re.sub(
-                                    r"<execute>.*?</execute>",
-                                    "",
-                                    content,
-                                    flags=re.DOTALL,
-                                )
-                                content = re.sub(
-                                    r"<output>.*?</output>",
-                                    "",
-                                    content,
-                                    flags=re.DOTALL,
-                                )
-                                content = re.sub(
-                                    r"<step>.*?</step>", "", content, flags=re.DOTALL
-                                )
-                                # Also remove standalone tag references (when agent mentions tags in text)
-                                content = content.replace("<answer>", "").replace(
-                                    "</answer>", ""
-                                )
-                                content = content.replace("</reflection>", "").replace(
-                                    "</thinking>", ""
-                                )
-                                content = re.sub(
-                                    r"\n\s*\n\s*\n", "\n\n", content
-                                ).strip()
+                            yield {
+                                "type": tag_name,
+                                "content": content,
+                                "complete": True,
+                            }
 
-                                # Create unique identifier
-                                tag_id = f"{tag_name}:{hash(content)}"
-                                if tag_id not in processed_thinking_ids and content:
-                                    processed_thinking_ids.add(tag_id)
-
-                                    # Prepare the final message - no parent activity needed
-                                    if tag_name == "thinking":
-                                        log_msg = f"[SUBACTIVITY][THOUGHT] {content}"
-                                    elif tag_name == "reflection":
-                                        log_msg = f"[SUBACTIVITY][REFLECTION] {content}"
-                                    else:
-                                        log_msg = f"[SUBACTIVITY] {content}"
-
-                                    # Create the database message when tag closes (not during streaming)
-                                    # Skip during execution to prevent WebSocket events
-                                    if not is_executing:
-                                        # Update existing message if we have one, otherwise create new
-                                        if current_tag_message_id:
-                                            c.update_message_by_id(
-                                                current_tag_message_id, log_msg
-                                            )
-                                        else:
-                                            c.log_interaction(
-                                                role=self.agent_name, message=log_msg
-                                            )
-
-                                    # Also yield for direct notification
-                                    yield {
-                                        "type": tag_name,
-                                        "content": content,
-                                        "complete": True,
-                                    }
-                            current_tag = None
-                            current_tag_content = ""
-                            current_tag_message_id = None  # Reset for next tag
-
-                # If we're in an answer tag, yield the token for SSE streaming
-                # Skip during command execution to avoid UI flickering
+                # Yield answer tokens for streaming
                 if in_answer and not is_executing:
-                    # Only yield tokens that are part of the answer content (after <answer>)
-                    answer_match = re.search(
-                        r"<answer>(.*?)$", full_response, re.DOTALL | re.IGNORECASE
+                    # Get content after <answer> that's at top level
+                    answer_start_match = re.search(
+                        r"<answer>", full_response[last_closed_pos:], re.IGNORECASE
                     )
-                    if answer_match:
-                        new_answer = answer_match.group(1)
-                        # Yield only the new part
+                    if answer_start_match:
+                        answer_start = last_closed_pos + answer_start_match.end()
+                        new_answer = full_response[answer_start:]
                         if len(new_answer) > len(answer_content):
                             delta = new_answer[len(answer_content) :]
-                            # Clean out any tags from the delta
-                            if "<" not in delta:  # Simple case - no tag boundary
+                            if "<" not in delta:
                                 yield {
                                     "type": "answer",
                                     "content": delta,
                                     "complete": False,
                                 }
                             answer_content = new_answer
-
-                # Stream current thinking content progressively
-                # Create message once, then update as content streams in
-                if (
-                    current_tag
-                    and current_tag in ("thinking", "reflection", "execute")
-                    and not is_executing
-                ):
-                    # Extract current partial content
-                    tag_start_pattern = f"<{current_tag}>"
-                    if tag_start_pattern in full_response:
-                        last_start = full_response.rfind(tag_start_pattern)
-                        partial = full_response[last_start + len(tag_start_pattern) :]
-                        # Don't include if we hit another tag
-                        if "<" in partial:
-                            partial = partial.split("<")[0]
-                        if len(partial) > len(current_tag_content):
-                            delta = partial[len(current_tag_content) :]
-                            current_tag_content = partial
-
-                            # Create message format - no parent activity needed
-                            if current_tag == "thinking":
-                                tag_type = "THOUGHT"
-                            elif current_tag == "reflection":
-                                tag_type = "REFLECTION"
-                            elif current_tag == "execute":
-                                tag_type = "EXECUTION"
-                            else:
-                                tag_type = "ACTIVITY"
-
-                            # Skip for execute tags - execution_agent handles those
-                            if current_tag != "execute":
-                                # Just [SUBACTIVITY][TYPE] - frontend will group consecutive ones
-                                updated_msg = (
-                                    f"[SUBACTIVITY][{tag_type}] {current_tag_content}"
-                                )
-
-                                if not current_tag_message_id:
-                                    # Create message once with first content
-                                    current_tag_message_id = c.log_interaction(
-                                        role=self.agent_name, message=updated_msg
-                                    )
-                                else:
-                                    # Update existing message as content grows
-                                    c.update_message_by_id(
-                                        current_tag_message_id, updated_msg
-                                    )
-
-                            # Yield for streaming API response
-                            yield {
-                                "type": f"{current_tag}_stream",
-                                "content": delta,
-                                "complete": False,
-                            }
 
             logging.info(
                 f"[run_stream] Stream complete. Total chunks: {chunk_count}, Response length: {len(full_response)}"
@@ -2019,21 +1893,75 @@ class Interactions:
 
             if has_new_execution:
                 logging.info(
-                    f"[run_stream] Continuation {continuation_count}: Injecting execution output and running fresh inference"
+                    f"[run_stream] Continuation {continuation_count}: Re-formatting prompt with fresh context and running new inference"
                 )
-                # Get the response with command output (execution_agent already injected real output)
-                command_output = self.response.strip()
 
-                # Create continuation prompt with command output injected
-                # Use formatted_prompt (full context) not unformatted_prompt (just template name)
-                # Match the non-streaming pattern exactly
-                continuation_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {command_output}\n\nCommand executed with output. The assistant should continue its thought process based on this command output, evaluating if the output provides the needed information or if additional commands are needed. Do not make up command outputs - they are provided above. Proceed with thinking, responding, or executing more commands before the final response in the <answer> block."
+                # Re-run format_prompt to get FRESH context that includes:
+                # - Command execution results logged to conversation
+                # - Updated conversation history
+                # - Any new memories or context
+                # This mirrors how run() would work if we started a new inference
+                fresh_formatted_prompt, _, _ = await self.format_prompt(
+                    user_input=user_input,
+                    top_results=int(context_results),
+                    conversation_results=conversation_results,
+                    prompt=prompt,
+                    prompt_category=prompt_category,
+                    conversation_name=conversation_name,
+                    websearch=websearch,
+                    vision_response=vision_response,
+                    **kwargs,
+                )
+
+                # Anonymize AGiXT server URL
+                if self.outputs in fresh_formatted_prompt:
+                    fresh_formatted_prompt = fresh_formatted_prompt.replace(
+                        self.outputs,
+                        f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                    )
+
+                # The response now has real command output in <output> tags
+                # CRITICAL: Tell the model this is a NEW inference turn where it should
+                # analyze the actual command output, NOT continue generating from before
+                continuation_prompt = f"""{fresh_formatted_prompt}
+
+## Command Execution Complete
+
+The assistant previously executed commands. The ACTUAL outputs are shown below in <output> tags.
+DO NOT hallucinate or make up what the command output should be - the real output is already provided.
+Analyze the actual output shown and continue with your response.
+
+### Previous Assistant Response (with real command outputs):
+{self.response}
+
+### Instructions:
+1. READ the actual <output> content above - this is the REAL command result
+2. DO NOT repeat or fabricate command outputs - they are already shown
+3. Based on the ACTUAL output, continue thinking and provide your <answer>
+4. If you need to execute more commands, you may do so
+"""
             else:
-                # Incomplete answer - prompt to continue
+                # Incomplete answer - prompt to continue (also get fresh context)
                 logging.info(
                     f"[run_stream] Continuation {continuation_count}: Answer block incomplete, prompting to continue"
                 )
-                continuation_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+                fresh_formatted_prompt, _, _ = await self.format_prompt(
+                    user_input=user_input,
+                    top_results=int(context_results),
+                    conversation_results=conversation_results,
+                    prompt=prompt,
+                    prompt_category=prompt_category,
+                    conversation_name=conversation_name,
+                    websearch=websearch,
+                    vision_response=vision_response,
+                    **kwargs,
+                )
+                if self.outputs in fresh_formatted_prompt:
+                    fresh_formatted_prompt = fresh_formatted_prompt.replace(
+                        self.outputs,
+                        f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                    )
+                continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
 
             try:
                 # Run FRESH inference with stream=True
