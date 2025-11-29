@@ -2916,7 +2916,7 @@ Your response (true or false):"""
             import traceback
 
             logging.error(traceback.format_exc())
-            # Send error chunk
+            # Send generic error chunk (do NOT expose exception details!)
             error_chunk = {
                 "id": chunk_id,
                 "object": "chat.completion.chunk",
@@ -2925,7 +2925,7 @@ Your response (true or false):"""
                 "choices": [
                     {
                         "index": 0,
-                        "delta": {"content": f"Error: {str(e)}"},
+                        "delta": {"content": "Error: An internal error has occurred."},
                         "finish_reason": "stop",
                     }
                 ],
