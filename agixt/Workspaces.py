@@ -48,9 +48,13 @@ class SecurityValidationMixin:
             raise ValueError(f"Invalid {name}: must be string")
         if not value or len(value) > cls.MAX_FILENAME_LENGTH:
             raise ValueError(f"Invalid {name}: invalid length")
-        if ".." in value or "\\" in value:
-            logging.warning(f"Path traversal detected in {name}: {value}")
+        if ".." in value or "\\" in value or "/" in value:
+            logging.warning(f"Path traversal detected in {name}")
             raise ValueError(f"Invalid {name}: path traversal detected")
+        # Additional validation: only allow safe characters for identifiers
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            logging.warning(f"Invalid characters detected in {name}")
+            raise ValueError(f"Invalid {name}: contains invalid characters")
         return value
 
     @classmethod
@@ -61,7 +65,7 @@ class SecurityValidationMixin:
         if not filename or len(filename) > cls.MAX_FILENAME_LENGTH:
             raise ValueError("Invalid filename: invalid length")
         if ".." in filename or "\\" in filename:
-            logging.warning(f"Path traversal detected in filename: {filename}")
+            logging.warning("Path traversal detected in filename")
             raise ValueError("Invalid filename: path traversal detected")
         return filename
 
@@ -69,15 +73,72 @@ class SecurityValidationMixin:
     def ensure_safe_path(
         cls, base_path: Union[str, Path], requested_path: Union[str, Path]
     ) -> Path:
-        """Ensure the requested path is safe and within the base path"""
-        base_path = Path(base_path).resolve()
+        """Ensure the requested path is safe and within the base path.
+
+        This function prevents path traversal attacks by:
+        1. Rejecting paths containing '..' or backslashes
+        2. Validating each path component individually
+        3. Reconstructing the path from validated components only
+        4. Verifying the resolved path is within the base directory
+
+        CodeQL sanitizer: This function breaks the taint chain by reconstructing
+        the path from individually validated components rather than transforming
+        the original input.
+        """
+        # Resolve base path to absolute
+        base_abs = os.path.realpath(str(base_path))
+
         try:
-            requested_abs = Path(base_path, requested_path).resolve()
-            if not str(requested_abs).startswith(str(base_path)):
+            # Convert requested_path to string and validate for traversal attempts
+            requested_str = str(requested_path)
+
+            # Reject any path containing traversal patterns
+            if ".." in requested_str or "\\" in requested_str:
                 raise ValueError("Path traversal detected")
-            return requested_abs
-        except Exception as e:
-            logging.error(f"Path validation error: {e}")
+
+            # Split into components and validate each one individually
+            # This breaks the taint chain by creating new validated strings
+            components = requested_str.replace("\\", "/").split("/")
+            validated_components = []
+            for component in components:
+                component = component.strip()
+                if not component or component == ".":
+                    continue
+                if component == "..":
+                    raise ValueError("Path traversal detected")
+                # Validate each component matches safe pattern
+                if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$", component):
+                    raise ValueError(f"Invalid path component: {component}")
+                # Create a new string to break taint chain
+                validated_components.append(str(component))
+
+            # Reconstruct path from validated components only
+            if validated_components:
+                # Use os.path.join with base and validated components
+                reconstructed = os.path.join(base_abs, *validated_components)
+            else:
+                reconstructed = base_abs
+
+            # Resolve to real path and verify containment
+            full_path = os.path.realpath(reconstructed)
+
+            # Final containment check using commonpath
+            try:
+                common = os.path.commonpath([base_abs, full_path])
+                if common != base_abs:
+                    raise ValueError("Path traversal detected")
+            except ValueError:
+                raise ValueError("Path traversal detected")
+
+            # Verify the path starts with base (additional safety check)
+            if not full_path.startswith(base_abs):
+                raise ValueError("Path traversal detected")
+
+            return Path(full_path)
+        except ValueError:
+            raise
+        except Exception:
+            logging.error("Path validation error")
             raise ValueError("Invalid path")
 
 
@@ -585,12 +646,26 @@ class WorkspaceManager(SecurityValidationMixin):
     def _sync_directory_to_remote(
         self, agent_id: str, conversation_id: str, directory_path: Path
     ) -> None:
+        # Verify directory_path is within workspace before any filesystem operations
+        workspace_base = os.path.realpath(self.workspace_dir)
+        dir_real = os.path.realpath(str(directory_path))
+        if (
+            not dir_real.startswith(workspace_base + os.sep)
+            and dir_real != workspace_base
+        ):
+            logging.error("Path traversal attempt blocked in _sync_directory_to_remote")
+            return
+
         if not directory_path.exists():
             return
 
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
 
         for file_path in directory_path.rglob("*"):
+            # Verify each file is within workspace
+            file_real = os.path.realpath(str(file_path))
+            if not file_real.startswith(workspace_base + os.sep):
+                continue
             if file_path.is_file():
                 relative_path = file_path.relative_to(root_path).as_posix()
                 self._upload_local_path(
@@ -613,9 +688,27 @@ class WorkspaceManager(SecurityValidationMixin):
             if relative_path
             else root_path
         )
+
+        # Inline path verification for CodeQL - verify target is within workspace
+        workspace_base = os.path.realpath(self.workspace_dir)
+        target_real = os.path.realpath(str(target_path))
+        if (
+            not target_real.startswith(workspace_base + os.sep)
+            and target_real != workspace_base
+        ):
+            raise ValueError("Path traversal detected")
+
         os.makedirs(target_path, exist_ok=True)
 
         def serialize_entry(entry: Path) -> Dict[str, Union[str, int, datetime, list]]:
+            # Verify entry is within workspace before accessing
+            entry_real = os.path.realpath(str(entry))
+            if (
+                not entry_real.startswith(workspace_base + os.sep)
+                and entry_real != workspace_base
+            ):
+                return None
+
             stat = entry.stat()
             rel_path = entry.relative_to(root_path).as_posix()
             item = {
@@ -632,18 +725,22 @@ class WorkspaceManager(SecurityValidationMixin):
                 children = [
                     serialize_entry(child)
                     for child in sorted(
-                        entry.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+                        entry.iterdir(),
+                        key=lambda p: (not p.is_dir(), p.name.lower()),
                     )
                 ]
-                item["children"] = children
+                item["children"] = [c for c in children if c is not None]
 
             return item
 
         entries = []
         for entry in sorted(
-            target_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+            target_path.iterdir(),
+            key=lambda p: (not p.is_dir(), p.name.lower()),
         ):
-            entries.append(serialize_entry(entry))
+            serialized = serialize_entry(entry)
+            if serialized is not None:
+                entries.append(serialized)
 
         return {"path": f"/{relative_path}" if relative_path else "/", "items": entries}
 
@@ -659,7 +756,17 @@ class WorkspaceManager(SecurityValidationMixin):
         relative_path = "/".join(filter(None, [base_relative, folder_name]))
 
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
-        folder_path = root_path.joinpath(relative_path)
+        # Use ensure_safe_path to prevent path traversal attacks
+        folder_path = self.ensure_safe_path(root_path, relative_path)
+
+        # Inline path verification for CodeQL - verify folder is within workspace
+        workspace_base = os.path.realpath(self.workspace_dir)
+        folder_real = os.path.realpath(str(folder_path))
+        if (
+            not folder_real.startswith(workspace_base + os.sep)
+            and folder_real != workspace_base
+        ):
+            raise ValueError("Path traversal detected")
 
         if folder_path.exists():
             raise FileExistsError("Folder already exists")
@@ -676,7 +783,17 @@ class WorkspaceManager(SecurityValidationMixin):
             raise ValueError("Cannot delete the root workspace directory")
 
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
-        target_path = root_path.joinpath(relative_path)
+        # Use ensure_safe_path to prevent path traversal attacks
+        target_path = self.ensure_safe_path(root_path, relative_path)
+
+        # Inline path verification for CodeQL - verify target is within workspace
+        workspace_base = os.path.realpath(self.workspace_dir)
+        target_real = os.path.realpath(str(target_path))
+        if (
+            not target_real.startswith(workspace_base + os.sep)
+            and target_real != workspace_base
+        ):
+            raise ValueError("Path traversal detected")
 
         if not target_path.exists():
             raise FileNotFoundError("Item not found")
@@ -702,8 +819,21 @@ class WorkspaceManager(SecurityValidationMixin):
             raise ValueError("Cannot move the root workspace directory")
 
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
-        source_fs_path = root_path.joinpath(source_relative)
-        destination_fs_path = root_path.joinpath(destination_relative)
+        # Use ensure_safe_path to prevent path traversal attacks
+        source_fs_path = self.ensure_safe_path(root_path, source_relative)
+        destination_fs_path = self.ensure_safe_path(root_path, destination_relative)
+
+        # Inline path verification for CodeQL - verify paths are within workspace
+        workspace_base = os.path.realpath(self.workspace_dir)
+        source_real = os.path.realpath(str(source_fs_path))
+        dest_real = os.path.realpath(str(destination_fs_path))
+        if not source_real.startswith(workspace_base + os.sep):
+            raise ValueError("Path traversal detected in source path")
+        if (
+            not dest_real.startswith(workspace_base + os.sep)
+            and dest_real != workspace_base
+        ):
+            raise ValueError("Path traversal detected in destination path")
 
         if not source_fs_path.exists():
             raise FileNotFoundError("Source path does not exist")

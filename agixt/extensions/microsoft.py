@@ -27,6 +27,8 @@ Required scopes for Microsoft OAuth
 - https://graph.microsoft.com/Mail.Send
 - https://graph.microsoft.com/Calendars.ReadWrite.Shared
 - https://graph.microsoft.com/Calendars.ReadWrite
+- https://graph.microsoft.com/Files.ReadWrite.All (OneDrive access)
+- https://graph.microsoft.com/Sites.ReadWrite.All (SharePoint access)
 
 """
 SCOPES = [
@@ -35,6 +37,8 @@ SCOPES = [
     "https://graph.microsoft.com/Mail.Send",
     "https://graph.microsoft.com/Calendars.ReadWrite.Shared",
     "https://graph.microsoft.com/Calendars.ReadWrite",
+    "https://graph.microsoft.com/Files.ReadWrite.All",
+    "https://graph.microsoft.com/Sites.ReadWrite.All",
 ]
 AUTHORIZE = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 PKCE_REQUIRED = False
@@ -53,8 +57,6 @@ class MicrosoftSSO:
         self.user_info = self.get_user_info()
 
     def get_new_token(self):
-        logging.info("Attempting to refresh Microsoft access token...")
-
         response = requests.post(
             "https://login.microsoftonline.com/common/oauth2/v2.0/token",
             data={
@@ -66,20 +68,15 @@ class MicrosoftSSO:
             },
         )
 
-        logging.info(f"Token refresh response status: {response.status_code}")
-
         if response.status_code != 200:
             logging.error(f"Token refresh failed with response: {response.text}")
             raise Exception(f"Microsoft token refresh failed: {response.text}")
 
         token_data = response.json()
-        logging.info(f"Token refresh response keys: {list(token_data.keys())}")
 
         # Update our access token for immediate use
         if "access_token" in token_data:
             new_token = token_data["access_token"]
-            logging.info(f"New token length: {len(new_token)}")
-            logging.info(f"New token parts: {len(new_token.split('.'))}")
             self.access_token = new_token
         else:
             logging.error("No access_token in refresh response")
@@ -89,14 +86,7 @@ class MicrosoftSSO:
     def get_user_info(self):
         uri = "https://graph.microsoft.com/v1.0/me"
 
-        # Debug: log token information (safely)
-        if self.access_token:
-            token_parts = str(self.access_token).split(".")
-            logging.info(f"Token has {len(token_parts)} parts (should be 3 for JWT)")
-            logging.info(f"Token length: {len(self.access_token)}")
-            logging.info(f"Token starts with: {self.access_token[:50]}...")
-            logging.info(f"Token ends with: ...{self.access_token[-50:]}")
-        else:
+        if not self.access_token:
             logging.error("No access token available")
 
         response = requests.get(
@@ -104,12 +94,7 @@ class MicrosoftSSO:
             headers={"Authorization": f"Bearer {self.access_token}"},
         )
 
-        # Log response details
-        logging.info(f"User info request status: {response.status_code}")
-        logging.info(f"User info response headers: {dict(response.headers)}")
-
         if response.status_code == 401:
-            logging.info("Token expired, attempting to refresh...")
             self.access_token = self.get_new_token()
             response = requests.get(
                 uri,
@@ -122,9 +107,6 @@ class MicrosoftSSO:
             last_name = data.get("surname", "") or ""
             email = data.get("mail") or data.get("userPrincipalName", "")
 
-            # Log the response for debugging
-            logging.info(f"Microsoft user info response: {data}")
-
             return {
                 "email": email,
                 "first_name": first_name,
@@ -132,8 +114,6 @@ class MicrosoftSSO:
             }
         except Exception as e:
             logging.error(f"Error parsing Microsoft user info: {str(e)}")
-            logging.error(f"Response status: {response.status_code}")
-            logging.error(f"Response content: {response.text}")
             raise HTTPException(
                 status_code=400,
                 detail="Error getting user info from Microsoft",
@@ -177,10 +157,13 @@ class microsoft(Extensions):
     - Manage emails (read, send, move, search)
     - Handle calendar events
     - Process email attachments
+    - Access and manage OneDrive files (list, read, upload, download, delete, search)
+    - Access and manage SharePoint sites and document libraries
 
     The extension requires the user to be authenticated with Microsoft 365 through OAuth.
     AI agents should use this when they need to interact with a user's Microsoft 365 account
-    for tasks like scheduling meetings, sending emails, or managing tasks.
+    for tasks like scheduling meetings, sending emails, managing files in OneDrive/SharePoint,
+    or managing tasks.
     """
 
     CATEGORY = "Productivity"
@@ -223,6 +206,27 @@ class microsoft(Extensions):
                 "Add Calendar Item to Microsoft Account": self.microsoft_add_calendar_item,
                 "Modify Calendar Item in Microsoft Account": self.microsoft_modify_calendar_item,
                 "Remove Calendar Item from Microsoft Account": self.microsoft_remove_calendar_item,
+                # OneDrive commands
+                "List OneDrive Files": self.onedrive_list_files,
+                "Get OneDrive File Content": self.onedrive_get_file_content,
+                "Upload File to OneDrive": self.onedrive_upload_file,
+                "Download File from OneDrive": self.onedrive_download_file,
+                "Create OneDrive Folder": self.onedrive_create_folder,
+                "Delete OneDrive Item": self.onedrive_delete_item,
+                "Search OneDrive": self.onedrive_search,
+                "Move OneDrive Item": self.onedrive_move_item,
+                "Copy OneDrive Item": self.onedrive_copy_item,
+                # SharePoint commands
+                "List SharePoint Sites": self.sharepoint_list_sites,
+                "Get SharePoint Site": self.sharepoint_get_site,
+                "List SharePoint Document Libraries": self.sharepoint_list_libraries,
+                "List SharePoint Files": self.sharepoint_list_files,
+                "Get SharePoint File Content": self.sharepoint_get_file_content,
+                "Upload File to SharePoint": self.sharepoint_upload_file,
+                "Download File from SharePoint": self.sharepoint_download_file,
+                "Create SharePoint Folder": self.sharepoint_create_folder,
+                "Delete SharePoint Item": self.sharepoint_delete_item,
+                "Search SharePoint": self.sharepoint_search,
             }
 
             if self.api_key:
@@ -465,10 +469,8 @@ class microsoft(Extensions):
         if self.auth:
             self.access_token = self.auth.refresh_oauth_token(provider="microsoft")
 
-        logging.info(f"Verifying user with token: {self.access_token}")
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
-        logging.info(f"User verification response: {response.text}")
         if response.status_code != 200:
             raise Exception(
                 f"User not found or invalid token. Status: {response.status_code}, "
@@ -716,6 +718,10 @@ class microsoft(Extensions):
         """
         try:
             self.verify_user()
+
+            # Convert parameters to appropriate types
+            max_emails = int(max_emails)
+            page_size = int(page_size) if page_size else 10
 
             if max_emails <= 0:
                 logging.info("Requested max_emails <= 0, returning no emails.")
@@ -1055,6 +1061,9 @@ class microsoft(Extensions):
         try:
             self.verify_user()
 
+            # Convert parameters to appropriate types
+            max_items = int(max_items)
+
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
@@ -1098,8 +1107,6 @@ class microsoft(Extensions):
             else:
                 end_str = end_date.isoformat()
 
-            logging.info(f"Fetching calendar items from {start_str} to {end_str}")
-
             # First check if we can access the calendar at all
             try:
                 cal_check = requests.get(
@@ -1108,39 +1115,6 @@ class microsoft(Extensions):
                 if cal_check.status_code != 200:
                     logging.error(f"Calendar access error: {cal_check.text}")
                     return []
-                else:
-                    logging.info("Calendar access verified successfully")
-
-                    # Quick test - can we get ANY events at all?
-                    test_url = "https://graph.microsoft.com/v1.0/me/events?$top=3"
-                    test_response = requests.get(test_url, headers=headers)
-                    logging.info(
-                        f"Quick events test status: {test_response.status_code}"
-                    )
-
-                    if test_response.status_code == 200:
-                        test_data = test_response.json()
-                        total_events = len(test_data.get("value", []))
-                        logging.info(
-                            f"Quick test found {total_events} total events in calendar"
-                        )
-
-                        if total_events > 0:
-                            logging.info("Sample events from quick test:")
-                            for i, event in enumerate(test_data["value"]):
-                                start_time = event.get("start", {}).get(
-                                    "dateTime", "Unknown"
-                                )
-                                subject = event.get("subject", "No subject")
-                                logging.info(
-                                    f"  Event {i+1}: '{subject}' at {start_time}"
-                                )
-                        else:
-                            logging.warning(
-                                "Quick test shows user has NO events in calendar at all"
-                            )
-                    else:
-                        logging.error(f"Quick events test failed: {test_response.text}")
             except Exception as cal_err:
                 logging.error(f"Error checking calendar access: {str(cal_err)}")
                 return []
@@ -1153,156 +1127,45 @@ class microsoft(Extensions):
                 f"$top={max_items}&$orderby=start/dateTime"
             )
 
-            logging.info(f"Making request to: {url}")
             response = requests.get(url, headers=headers)
-            logging.info(f"Response status: {response.status_code}")
-
-            # Log the full response for debugging
-            if response.status_code == 200:
-                response_data = response.json()
-                logging.info(f"Full response: {response_data}")
-            else:
-                logging.error(f"Error response: {response.text}")
 
             if response.status_code != 200:
                 error_response = response.text
                 logging.error(f"Calendar API error: {error_response}")
 
-                # Try multiple alternative approaches
-                logging.info("Trying alternative approaches...")
-
-                # Approach 1: Simple events endpoint without date filters
+                # Try alternative: Simple events endpoint without date filters
                 alt_url1 = (
                     f"https://graph.microsoft.com/v1.0/me/events?$top={max_items}"
                 )
-                logging.info(f"Trying simple events endpoint: {alt_url1}")
                 alt_response1 = requests.get(alt_url1, headers=headers)
-                logging.info(
-                    f"Simple events response status: {alt_response1.status_code}"
-                )
 
                 if alt_response1.status_code == 200:
                     alt_data1 = alt_response1.json()
-                    logging.info(
-                        f"Simple events found {len(alt_data1.get('value', []))} events"
-                    )
                     if alt_data1.get("value"):
                         response = alt_response1
-                        logging.info("Using simple events endpoint results")
-                    else:
-                        logging.info(
-                            "Simple events endpoint returned empty results too"
-                        )
 
-                # Approach 2: Different calendar view format
+                # Try alternative: Different calendar view format
                 if response.status_code != 200:
                     alt_url2 = f"https://graph.microsoft.com/v1.0/me/calendar/calendarView?startDateTime={start_str}&endDateTime={end_str}&$top={max_items}"
-                    logging.info(
-                        f"Trying calendar view with /calendar/ path: {alt_url2}"
-                    )
                     alt_response2 = requests.get(alt_url2, headers=headers)
-                    logging.info(
-                        f"Calendar view alt response status: {alt_response2.status_code}"
-                    )
 
                     if alt_response2.status_code == 200:
                         response = alt_response2
-                        logging.info("Using calendar view alternative")
                     else:
                         logging.error(f"Calendar view alt failed: {alt_response2.text}")
 
                 # If still no success, return empty
                 if response.status_code != 200:
-                    logging.error("All endpoints failed")
                     return []
 
             data = response.json()
-            logging.info(
-                f"Response data keys: {list(data.keys()) if data else 'No data'}"
-            )
 
             if not data.get("value"):
-                logging.warning("No calendar events found in the specified date range")
-                logging.info(f"Full response: {data}")
+                return []
 
-                # Let's do some diagnostics - check if user has ANY events at all
-                logging.info("Running diagnostics to check for any events...")
-
-                # Try to get any events from a much broader range (last 30 days to next 30 days)
-                diag_start = (datetime.now() - timedelta(days=30)).isoformat() + "Z"
-                diag_end = (datetime.now() + timedelta(days=30)).isoformat() + "Z"
-
-                diag_url = f"https://graph.microsoft.com/v1.0/me/events?$top=5"
-                diag_response = requests.get(diag_url, headers=headers)
-
-                if diag_response.status_code == 200:
-                    diag_data = diag_response.json()
-                    logging.info(
-                        f"Diagnostic check found {len(diag_data.get('value', []))} total events"
-                    )
-                    if diag_data.get("value"):
-                        logging.info("Sample events found:")
-                        for i, event in enumerate(diag_data["value"][:3]):
-                            logging.info(
-                                f"  Event {i+1}: {event.get('subject', 'No subject')} - {event.get('start', {}).get('dateTime', 'No start time')}"
-                            )
-                    else:
-                        logging.info(
-                            "No events found in diagnostic check either - user may have empty calendar"
-                        )
-                else:
-                    logging.error(f"Diagnostic check failed: {diag_response.text}")
-
-                # Also try checking all calendars (not just default)
-                logging.info("Checking all user calendars...")
-                calendars_url = "https://graph.microsoft.com/v1.0/me/calendars"
-                cal_response = requests.get(calendars_url, headers=headers)
-
-                if cal_response.status_code == 200:
-                    cal_data = cal_response.json()
-                    logging.info(f"Found {len(cal_data.get('value', []))} calendars")
-                    for i, calendar in enumerate(cal_data.get("value", [])):
-                        cal_name = calendar.get("name", "Unknown")
-                        cal_id = calendar.get("id", "Unknown")
-                        logging.info(f"  Calendar {i+1}: {cal_name} (ID: {cal_id})")
-
-                        # Try to get events from each calendar
-                        cal_events_url = f"https://graph.microsoft.com/v1.0/me/calendars/{cal_id}/calendarView?startDateTime={start_str}&endDateTime={end_str}&$top=5"
-                        cal_events_response = requests.get(
-                            cal_events_url, headers=headers
-                        )
-
-                        if cal_events_response.status_code == 200:
-                            cal_events_data = cal_events_response.json()
-                            event_count = len(cal_events_data.get("value", []))
-                            logging.info(
-                                f"    Found {event_count} events in calendar '{cal_name}' for the specified date range"
-                            )
-                            if event_count > 0:
-                                # If we found events in a specific calendar, let's return them
-                                logging.info(
-                                    f"Found events in calendar '{cal_name}', processing them..."
-                                )
-                                data = cal_events_data
-                                break
-                        else:
-                            logging.error(
-                                f"    Failed to get events from calendar '{cal_name}': {cal_events_response.text}"
-                            )
-                else:
-                    logging.error(f"Failed to get calendars list: {cal_response.text}")
-
-                # If we still don't have data after checking all calendars, return empty
-                if not data.get("value"):
-                    return []
-
-            logging.info(f"Found {len(data['value'])} calendar events")
             events = []
             for i, event in enumerate(data["value"]):
                 try:
-                    logging.info(
-                        f"Processing event {i+1}: {event.get('subject', 'No subject')}"
-                    )
                     # Extract and format the event details
                     event_dict = {
                         "id": event["id"],
@@ -1324,21 +1187,15 @@ class microsoft(Extensions):
                     events.append(event_dict)
                 except KeyError as ke:
                     logging.error(f"Key error processing event {i+1}: {ke}")
-                    logging.error(f"Event data: {event}")
                     continue  # Skip this event but continue with others
                 except Exception as event_err:
                     logging.error(f"Error processing event {i+1}: {str(event_err)}")
-                    logging.error(f"Event data: {event}")
                     continue
 
-            logging.info(f"Successfully processed {len(events)} calendar events")
             return events
 
         except Exception as e:
             logging.error(f"Error retrieving calendar items: {str(e)}")
-            import traceback
-
-            logging.error(f"Traceback: {traceback.format_exc()}")
             return []
 
     async def microsoft_get_available_timeslots(
@@ -1367,11 +1224,14 @@ class microsoft(Extensions):
         try:
             self.verify_user()
 
+            # Convert string parameters to appropriate types
+            num_days = int(num_days)
+            duration_minutes = int(duration_minutes)
+            buffer_minutes = int(buffer_minutes)
+
             # Make sure start_date is a datetime object
             if isinstance(start_date, str):
                 start_date = self._parse_datetime(start_date)
-
-            logging.info(f"Finding available time slots starting from {start_date}")
 
             # Calculate end date
             end_date = start_date + timedelta(days=num_days)
@@ -1382,12 +1242,6 @@ class microsoft(Extensions):
                 end_date=end_date,
                 max_items=100,  # Increased to handle busy calendars
             )
-
-            logging.info(f"Found {len(existing_events)} existing events")
-
-            # If we couldn't get any events, log a warning but continue
-            if not existing_events and isinstance(existing_events, list):
-                logging.warning("No existing events found - assuming empty calendar")
 
             available_slots = []
             current_date = start_date
@@ -1625,6 +1479,9 @@ class microsoft(Extensions):
         try:
             self.verify_user()
 
+            # Convert parameters to appropriate types
+            max_emails = int(max_emails)
+
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
@@ -1661,9 +1518,35 @@ class microsoft(Extensions):
             # Add date range filter if provided
             date_filter = ""
             if date_range:
-                start_date, end_date = date_range
-                date_filter = f" AND receivedDateTime ge {start_date.isoformat()}Z AND receivedDateTime le {end_date.isoformat()}Z"
-                filters.append(date_filter)
+                # Handle date_range passed as string (e.g., "(2025-11-28, 2025-11-30)" or "2025-11-28, 2025-11-30")
+                if isinstance(date_range, str):
+                    # Remove parentheses and split by comma
+                    date_str = date_range.strip().strip("()")
+                    parts = [p.strip() for p in date_str.split(",")]
+                    if len(parts) == 2:
+                        start_date = self._parse_datetime(parts[0])
+                        end_date = self._parse_datetime(parts[1])
+                    else:
+                        logging.warning(
+                            f"Invalid date_range format: {date_range}, expected '(start_date, end_date)'"
+                        )
+                        start_date = None
+                        end_date = None
+                elif isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+                    start_date, end_date = date_range
+                    # Parse strings if needed
+                    if isinstance(start_date, str):
+                        start_date = self._parse_datetime(start_date)
+                    if isinstance(end_date, str):
+                        end_date = self._parse_datetime(end_date)
+                else:
+                    logging.warning(f"Unsupported date_range type: {type(date_range)}")
+                    start_date = None
+                    end_date = None
+
+                if start_date and end_date:
+                    date_filter = f" AND receivedDateTime ge {start_date.isoformat()}Z AND receivedDateTime le {end_date.isoformat()}Z"
+                    filters.append(date_filter)
 
             # Construct the final URL with search and/or filter parameters
             if query:
@@ -1974,3 +1857,1249 @@ class microsoft(Extensions):
         except Exception as e:
             logging.error(f"Error processing attachments: {str(e)}")
             return []
+
+    # ==================== OneDrive Methods ====================
+
+    async def onedrive_list_files(self, folder_path="root", max_items=50):
+        """
+        Lists files and folders in OneDrive.
+
+        Args:
+            folder_path (str): Path to the folder to list (use "root" for root folder, or a path like "Documents/Reports")
+            max_items (int): Maximum number of items to retrieve
+
+        Returns:
+            list: List of file/folder dictionaries with id, name, type, size, and other metadata
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Build the URL based on folder path
+            if folder_path == "root" or not folder_path:
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root/children?$top={max_items}"
+            else:
+                # Encode the path properly
+                encoded_path = folder_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/children?$top={max_items}"
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"OneDrive list files error: {response.text}")
+                return {"error": f"Failed to list files: {response.text}"}
+
+            data = response.json()
+            items = []
+
+            for item in data.get("value", []):
+                item_info = {
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "type": "folder" if "folder" in item else "file",
+                    "size": item.get("size", 0),
+                    "created_time": item.get("createdDateTime"),
+                    "modified_time": item.get("lastModifiedDateTime"),
+                    "web_url": item.get("webUrl"),
+                }
+
+                if "file" in item:
+                    item_info["mime_type"] = item.get("file", {}).get("mimeType")
+
+                if "folder" in item:
+                    item_info["child_count"] = item.get("folder", {}).get(
+                        "childCount", 0
+                    )
+
+                items.append(item_info)
+
+            return items
+
+        except Exception as e:
+            logging.error(f"Error listing OneDrive files: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_get_file_content(self, file_path=None, file_id=None):
+        """
+        Gets the content of a file from OneDrive. Works best with text-based files.
+
+        Args:
+            file_path (str): Path to the file (e.g., "Documents/report.txt")
+            file_id (str): Alternatively, the unique file ID
+
+        Returns:
+            str: File content as text, or base64-encoded content for binary files
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+            }
+
+            # Build URL based on whether we have path or ID
+            if file_id:
+                url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}/content"
+                )
+            elif file_path:
+                encoded_path = file_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
+            else:
+                return {"error": "Either file_path or file_id must be provided"}
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"OneDrive get file error: {response.text}")
+                return {"error": f"Failed to get file content: {response.text}"}
+
+            # Try to decode as text first
+            try:
+                return {"content": response.text, "encoding": "text"}
+            except:
+                # If text decoding fails, return base64
+                return {
+                    "content": base64.b64encode(response.content).decode(),
+                    "encoding": "base64",
+                }
+
+        except Exception as e:
+            logging.error(f"Error getting OneDrive file content: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_upload_file(self, file_path, destination_path, content=None):
+        """
+        Uploads a file to OneDrive.
+
+        Args:
+            file_path (str): Local path to the file to upload, OR if content is provided, this is used as just the filename
+            destination_path (str): Destination path in OneDrive (e.g., "Documents/uploads/myfile.txt")
+            content (str): Optional - direct content to upload instead of reading from file_path
+
+        Returns:
+            dict: Upload result with file ID and web URL
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/octet-stream",
+            }
+
+            # Get file content
+            if content:
+                file_content = content.encode() if isinstance(content, str) else content
+            elif os.path.exists(file_path):
+                with open(file_path, "rb") as f:
+                    file_content = f.read()
+            else:
+                return {"error": f"File not found: {file_path}"}
+
+            # For files <= 4MB, use simple upload
+            if len(file_content) <= 4 * 1024 * 1024:
+                encoded_dest = destination_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_dest}:/content"
+
+                response = requests.put(url, headers=headers, data=file_content)
+
+                if response.status_code in [200, 201]:
+                    result = response.json()
+                    return {
+                        "success": True,
+                        "id": result.get("id"),
+                        "name": result.get("name"),
+                        "web_url": result.get("webUrl"),
+                        "size": result.get("size"),
+                    }
+                else:
+                    logging.error(f"OneDrive upload error: {response.text}")
+                    return {"error": f"Failed to upload file: {response.text}"}
+            else:
+                # For larger files, use upload session
+                return await self._onedrive_upload_large_file(
+                    destination_path, file_content
+                )
+
+        except Exception as e:
+            logging.error(f"Error uploading to OneDrive: {str(e)}")
+            return {"error": str(e)}
+
+    async def _onedrive_upload_large_file(self, destination_path, file_content):
+        """
+        Handles upload of files larger than 4MB using upload session.
+        """
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Create upload session
+            encoded_dest = destination_path.replace(" ", "%20")
+            session_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_dest}:/createUploadSession"
+
+            session_response = requests.post(
+                session_url,
+                headers=headers,
+                json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
+            )
+
+            if session_response.status_code != 200:
+                return {
+                    "error": f"Failed to create upload session: {session_response.text}"
+                }
+
+            upload_url = session_response.json().get("uploadUrl")
+            file_size = len(file_content)
+            chunk_size = 320 * 1024 * 10  # 3.2 MB chunks
+
+            for i in range(0, file_size, chunk_size):
+                chunk = file_content[i : i + chunk_size]
+                chunk_end = min(i + chunk_size, file_size) - 1
+
+                chunk_headers = {
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {i}-{chunk_end}/{file_size}",
+                }
+
+                chunk_response = requests.put(
+                    upload_url, headers=chunk_headers, data=chunk
+                )
+
+                if chunk_response.status_code not in [200, 201, 202]:
+                    return {"error": f"Failed to upload chunk: {chunk_response.text}"}
+
+            # Get final response
+            final_data = chunk_response.json()
+            return {
+                "success": True,
+                "id": final_data.get("id"),
+                "name": final_data.get("name"),
+                "web_url": final_data.get("webUrl"),
+                "size": final_data.get("size"),
+            }
+
+        except Exception as e:
+            logging.error(f"Error in large file upload: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_download_file(self, file_path=None, file_id=None, save_to=None):
+        """
+        Downloads a file from OneDrive.
+
+        Args:
+            file_path (str): Path to the file in OneDrive
+            file_id (str): Alternatively, the unique file ID
+            save_to (str): Local path to save the file. If not provided, saves to attachments directory
+
+        Returns:
+            dict: Download result with local file path
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+            }
+
+            # First get file metadata
+            if file_id:
+                meta_url = f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}"
+            elif file_path:
+                encoded_path = file_path.replace(" ", "%20")
+                meta_url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}"
+                )
+            else:
+                return {"error": "Either file_path or file_id must be provided"}
+
+            meta_response = requests.get(meta_url, headers=headers)
+            if meta_response.status_code != 200:
+                return {"error": f"Failed to get file metadata: {meta_response.text}"}
+
+            file_metadata = meta_response.json()
+            file_name = file_metadata.get("name", "downloaded_file")
+
+            # Get download URL
+            download_url = file_metadata.get("@microsoft.graph.downloadUrl")
+            if not download_url:
+                # Try to get content directly
+                if file_id:
+                    content_url = f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}/content"
+                else:
+                    content_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
+                download_response = requests.get(content_url, headers=headers)
+            else:
+                download_response = requests.get(download_url)
+
+            if download_response.status_code != 200:
+                return {"error": f"Failed to download file: {download_response.text}"}
+
+            # Determine save path
+            if save_to:
+                local_path = save_to
+            else:
+                os.makedirs(self.attachments_dir, exist_ok=True)
+                local_path = os.path.join(self.attachments_dir, file_name)
+
+            # Save file
+            with open(local_path, "wb") as f:
+                f.write(download_response.content)
+
+            return {
+                "success": True,
+                "local_path": local_path,
+                "file_name": file_name,
+                "size": len(download_response.content),
+            }
+
+        except Exception as e:
+            logging.error(f"Error downloading from OneDrive: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_create_folder(self, folder_name, parent_path="root"):
+        """
+        Creates a new folder in OneDrive.
+
+        Args:
+            folder_name (str): Name of the folder to create
+            parent_path (str): Path to the parent folder (use "root" for root)
+
+        Returns:
+            dict: Created folder information
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Build URL based on parent path
+            if parent_path == "root" or not parent_path:
+                url = "https://graph.microsoft.com/v1.0/me/drive/root/children"
+            else:
+                encoded_path = parent_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/children"
+
+            folder_data = {
+                "name": folder_name,
+                "folder": {},
+                "@microsoft.graph.conflictBehavior": "rename",
+            }
+
+            response = requests.post(url, headers=headers, json=folder_data)
+
+            if response.status_code == 201:
+                result = response.json()
+                return {
+                    "success": True,
+                    "id": result.get("id"),
+                    "name": result.get("name"),
+                    "web_url": result.get("webUrl"),
+                }
+            else:
+                logging.error(f"OneDrive create folder error: {response.text}")
+                return {"error": f"Failed to create folder: {response.text}"}
+
+        except Exception as e:
+            logging.error(f"Error creating OneDrive folder: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_delete_item(self, item_path=None, item_id=None):
+        """
+        Deletes a file or folder from OneDrive.
+
+        Args:
+            item_path (str): Path to the item to delete
+            item_id (str): Alternatively, the unique item ID
+
+        Returns:
+            dict: Deletion result
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+            }
+
+            if item_id:
+                url = f"https://graph.microsoft.com/v1.0/me/drive/items/{item_id}"
+            elif item_path:
+                encoded_path = item_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}"
+            else:
+                return {"error": "Either item_path or item_id must be provided"}
+
+            response = requests.delete(url, headers=headers)
+
+            if response.status_code == 204:
+                return {"success": True, "message": "Item deleted successfully"}
+            else:
+                logging.error(f"OneDrive delete error: {response.text}")
+                return {"error": f"Failed to delete item: {response.text}"}
+
+        except Exception as e:
+            logging.error(f"Error deleting OneDrive item: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_search(self, query, max_results=25):
+        """
+        Searches for files and folders in OneDrive.
+
+        Args:
+            query (str): Search query
+            max_results (int): Maximum number of results to return
+
+        Returns:
+            list: List of matching items
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            url = f"https://graph.microsoft.com/v1.0/me/drive/root/search(q='{query}')?$top={max_results}"
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"OneDrive search error: {response.text}")
+                return {"error": f"Search failed: {response.text}"}
+
+            data = response.json()
+            items = []
+
+            for item in data.get("value", []):
+                item_info = {
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "type": "folder" if "folder" in item else "file",
+                    "size": item.get("size", 0),
+                    "path": item.get("parentReference", {}).get("path", ""),
+                    "web_url": item.get("webUrl"),
+                    "modified_time": item.get("lastModifiedDateTime"),
+                }
+                items.append(item_info)
+
+            return items
+
+        except Exception as e:
+            logging.error(f"Error searching OneDrive: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_move_item(
+        self, item_path=None, item_id=None, new_parent_path=None, new_name=None
+    ):
+        """
+        Moves or renames an item in OneDrive.
+
+        Args:
+            item_path (str): Path to the item to move
+            item_id (str): Alternatively, the unique item ID
+            new_parent_path (str): New parent folder path (for moving)
+            new_name (str): New name (for renaming)
+
+        Returns:
+            dict: Move result with new item location
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get item URL
+            if item_id:
+                url = f"https://graph.microsoft.com/v1.0/me/drive/items/{item_id}"
+            elif item_path:
+                encoded_path = item_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}"
+            else:
+                return {"error": "Either item_path or item_id must be provided"}
+
+            update_data = {}
+
+            if new_name:
+                update_data["name"] = new_name
+
+            if new_parent_path:
+                # Get parent folder ID
+                if new_parent_path == "root":
+                    parent_url = "https://graph.microsoft.com/v1.0/me/drive/root"
+                else:
+                    encoded_parent = new_parent_path.replace(" ", "%20")
+                    parent_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_parent}"
+
+                parent_response = requests.get(parent_url, headers=headers)
+                if parent_response.status_code != 200:
+                    return {"error": f"Parent folder not found: {parent_response.text}"}
+
+                parent_id = parent_response.json().get("id")
+                update_data["parentReference"] = {"id": parent_id}
+
+            if not update_data:
+                return {"error": "Either new_parent_path or new_name must be provided"}
+
+            response = requests.patch(url, headers=headers, json=update_data)
+
+            if response.status_code == 200:
+                result = response.json()
+                return {
+                    "success": True,
+                    "id": result.get("id"),
+                    "name": result.get("name"),
+                    "web_url": result.get("webUrl"),
+                }
+            else:
+                logging.error(f"OneDrive move error: {response.text}")
+                return {"error": f"Failed to move item: {response.text}"}
+
+        except Exception as e:
+            logging.error(f"Error moving OneDrive item: {str(e)}")
+            return {"error": str(e)}
+
+    async def onedrive_copy_item(
+        self, item_path=None, item_id=None, destination_path=None, new_name=None
+    ):
+        """
+        Copies an item in OneDrive.
+
+        Args:
+            item_path (str): Path to the item to copy
+            item_id (str): Alternatively, the unique item ID
+            destination_path (str): Destination folder path
+            new_name (str): Optional new name for the copy
+
+        Returns:
+            dict: Copy operation result
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get item URL for copy operation
+            if item_id:
+                url = f"https://graph.microsoft.com/v1.0/me/drive/items/{item_id}/copy"
+            elif item_path:
+                encoded_path = item_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/copy"
+            else:
+                return {"error": "Either item_path or item_id must be provided"}
+
+            # Get destination folder ID
+            if destination_path == "root" or not destination_path:
+                dest_url = "https://graph.microsoft.com/v1.0/me/drive/root"
+            else:
+                encoded_dest = destination_path.replace(" ", "%20")
+                dest_url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_dest}"
+                )
+
+            dest_response = requests.get(dest_url, headers=headers)
+            if dest_response.status_code != 200:
+                return {"error": f"Destination folder not found: {dest_response.text}"}
+
+            dest_id = dest_response.json().get("id")
+
+            copy_data = {"parentReference": {"id": dest_id}}
+
+            if new_name:
+                copy_data["name"] = new_name
+
+            response = requests.post(url, headers=headers, json=copy_data)
+
+            if response.status_code == 202:
+                # Copy is asynchronous, return monitor URL
+                monitor_url = response.headers.get("Location")
+                return {
+                    "success": True,
+                    "status": "copying",
+                    "monitor_url": monitor_url,
+                    "message": "Copy operation started. Use the monitor URL to check progress.",
+                }
+            else:
+                logging.error(f"OneDrive copy error: {response.text}")
+                return {"error": f"Failed to copy item: {response.text}"}
+
+        except Exception as e:
+            logging.error(f"Error copying OneDrive item: {str(e)}")
+            return {"error": str(e)}
+
+    # ==================== SharePoint Methods ====================
+
+    async def sharepoint_list_sites(self, search_query=None, max_sites=25):
+        """
+        Lists SharePoint sites the user has access to.
+
+        Args:
+            search_query (str): Optional search query to filter sites
+            max_sites (int): Maximum number of sites to return
+
+        Returns:
+            list: List of SharePoint sites
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            if search_query:
+                url = f"https://graph.microsoft.com/v1.0/sites?search={search_query}&$top={max_sites}"
+            else:
+                # Get sites the user is following or has access to
+                url = (
+                    f"https://graph.microsoft.com/v1.0/sites?search=*&$top={max_sites}"
+                )
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"SharePoint list sites error: {response.text}")
+                return {"error": f"Failed to list sites: {response.text}"}
+
+            data = response.json()
+            sites = []
+
+            for site in data.get("value", []):
+                sites.append(
+                    {
+                        "id": site.get("id"),
+                        "name": site.get("displayName") or site.get("name"),
+                        "description": site.get("description"),
+                        "web_url": site.get("webUrl"),
+                        "created_time": site.get("createdDateTime"),
+                    }
+                )
+
+            return sites
+
+        except Exception as e:
+            logging.error(f"Error listing SharePoint sites: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_get_site(self, site_id=None, site_url=None):
+        """
+        Gets details of a specific SharePoint site.
+
+        Args:
+            site_id (str): The site ID
+            site_url (str): Alternatively, the site URL (e.g., "contoso.sharepoint.com:/sites/team")
+
+        Returns:
+            dict: Site details
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            if site_id:
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}"
+            elif site_url:
+                # Parse site URL to construct the API path
+                # Format: hostname:/path (e.g., contoso.sharepoint.com:/sites/team)
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_url}"
+            else:
+                return {"error": "Either site_id or site_url must be provided"}
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"SharePoint get site error: {response.text}")
+                return {"error": f"Failed to get site: {response.text}"}
+
+            site = response.json()
+            return {
+                "id": site.get("id"),
+                "name": site.get("displayName") or site.get("name"),
+                "description": site.get("description"),
+                "web_url": site.get("webUrl"),
+                "created_time": site.get("createdDateTime"),
+            }
+
+        except Exception as e:
+            logging.error(f"Error getting SharePoint site: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_list_libraries(self, site_id):
+        """
+        Lists document libraries in a SharePoint site.
+
+        Args:
+            site_id (str): The SharePoint site ID
+
+        Returns:
+            list: List of document libraries
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives"
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"SharePoint list libraries error: {response.text}")
+                return {"error": f"Failed to list libraries: {response.text}"}
+
+            data = response.json()
+            libraries = []
+
+            for drive in data.get("value", []):
+                libraries.append(
+                    {
+                        "id": drive.get("id"),
+                        "name": drive.get("name"),
+                        "description": drive.get("description"),
+                        "web_url": drive.get("webUrl"),
+                        "drive_type": drive.get("driveType"),
+                        "quota_used": drive.get("quota", {}).get("used"),
+                        "quota_total": drive.get("quota", {}).get("total"),
+                    }
+                )
+
+            return libraries
+
+        except Exception as e:
+            logging.error(f"Error listing SharePoint libraries: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_list_files(
+        self, site_id, drive_id=None, folder_path="root", max_items=50
+    ):
+        """
+        Lists files in a SharePoint document library.
+
+        Args:
+            site_id (str): The SharePoint site ID
+            drive_id (str): The document library (drive) ID. If not provided, uses the default library
+            folder_path (str): Path within the library (use "root" for root)
+            max_items (int): Maximum number of items to return
+
+        Returns:
+            list: List of files and folders
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # If no drive_id, get the default document library
+            if not drive_id:
+                drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
+                drive_response = requests.get(drive_url, headers=headers)
+                if drive_response.status_code != 200:
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
+                drive_id = drive_response.json().get("id")
+
+            # Build URL based on folder path
+            if folder_path == "root" or not folder_path:
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root/children?$top={max_items}"
+            else:
+                encoded_path = folder_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root:/{encoded_path}:/children?$top={max_items}"
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"SharePoint list files error: {response.text}")
+                return {"error": f"Failed to list files: {response.text}"}
+
+            data = response.json()
+            items = []
+
+            for item in data.get("value", []):
+                item_info = {
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "type": "folder" if "folder" in item else "file",
+                    "size": item.get("size", 0),
+                    "created_time": item.get("createdDateTime"),
+                    "modified_time": item.get("lastModifiedDateTime"),
+                    "web_url": item.get("webUrl"),
+                    "created_by": item.get("createdBy", {})
+                    .get("user", {})
+                    .get("displayName"),
+                    "modified_by": item.get("lastModifiedBy", {})
+                    .get("user", {})
+                    .get("displayName"),
+                }
+
+                if "file" in item:
+                    item_info["mime_type"] = item.get("file", {}).get("mimeType")
+
+                if "folder" in item:
+                    item_info["child_count"] = item.get("folder", {}).get(
+                        "childCount", 0
+                    )
+
+                items.append(item_info)
+
+            return items
+
+        except Exception as e:
+            logging.error(f"Error listing SharePoint files: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_get_file_content(
+        self, site_id, drive_id=None, file_path=None, file_id=None
+    ):
+        """
+        Gets the content of a file from SharePoint.
+
+        Args:
+            site_id (str): The SharePoint site ID
+            drive_id (str): The document library ID (optional, uses default if not provided)
+            file_path (str): Path to the file
+            file_id (str): Alternatively, the unique file ID
+
+        Returns:
+            dict: File content
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+            }
+
+            # If no drive_id, get the default document library
+            if not drive_id:
+                drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
+                drive_response = requests.get(drive_url, headers=headers)
+                if drive_response.status_code != 200:
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
+                drive_id = drive_response.json().get("id")
+
+            # Build URL
+            if file_id:
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/items/{file_id}/content"
+            elif file_path:
+                encoded_path = file_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root:/{encoded_path}:/content"
+            else:
+                return {"error": "Either file_path or file_id must be provided"}
+
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"SharePoint get file error: {response.text}")
+                return {"error": f"Failed to get file content: {response.text}"}
+
+            try:
+                return {"content": response.text, "encoding": "text"}
+            except:
+                return {
+                    "content": base64.b64encode(response.content).decode(),
+                    "encoding": "base64",
+                }
+
+        except Exception as e:
+            logging.error(f"Error getting SharePoint file content: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_upload_file(
+        self, site_id, destination_path, file_path=None, content=None, drive_id=None
+    ):
+        """
+        Uploads a file to SharePoint.
+
+        Args:
+            site_id (str): The SharePoint site ID
+            destination_path (str): Destination path in the library
+            file_path (str): Local file path or filename if content is provided
+            content (str): Direct content to upload
+            drive_id (str): Document library ID (optional)
+
+        Returns:
+            dict: Upload result
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/octet-stream",
+            }
+
+            # Get file content
+            if content:
+                file_content = content.encode() if isinstance(content, str) else content
+            elif file_path and os.path.exists(file_path):
+                with open(file_path, "rb") as f:
+                    file_content = f.read()
+            else:
+                return {"error": f"File not found: {file_path}"}
+
+            # If no drive_id, get the default document library
+            if not drive_id:
+                get_headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                }
+                drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
+                drive_response = requests.get(drive_url, headers=get_headers)
+                if drive_response.status_code != 200:
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
+                drive_id = drive_response.json().get("id")
+
+            encoded_dest = destination_path.replace(" ", "%20")
+            url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root:/{encoded_dest}:/content"
+
+            response = requests.put(url, headers=headers, data=file_content)
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                return {
+                    "success": True,
+                    "id": result.get("id"),
+                    "name": result.get("name"),
+                    "web_url": result.get("webUrl"),
+                    "size": result.get("size"),
+                }
+            else:
+                logging.error(f"SharePoint upload error: {response.text}")
+                return {"error": f"Failed to upload file: {response.text}"}
+
+        except Exception as e:
+            logging.error(f"Error uploading to SharePoint: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_download_file(
+        self, site_id, drive_id=None, file_path=None, file_id=None, save_to=None
+    ):
+        """
+        Downloads a file from SharePoint.
+
+        Args:
+            site_id (str): The SharePoint site ID
+            drive_id (str): The document library ID (optional)
+            file_path (str): Path to the file in SharePoint
+            file_id (str): Alternatively, the unique file ID
+            save_to (str): Local path to save the file
+
+        Returns:
+            dict: Download result with local file path
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+            }
+
+            # If no drive_id, get the default document library
+            if not drive_id:
+                drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
+                drive_response = requests.get(drive_url, headers=headers)
+                if drive_response.status_code != 200:
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
+                drive_id = drive_response.json().get("id")
+
+            # Get file metadata first
+            if file_id:
+                meta_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/items/{file_id}"
+            elif file_path:
+                encoded_path = file_path.replace(" ", "%20")
+                meta_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root:/{encoded_path}"
+            else:
+                return {"error": "Either file_path or file_id must be provided"}
+
+            meta_response = requests.get(meta_url, headers=headers)
+            if meta_response.status_code != 200:
+                return {"error": f"Failed to get file metadata: {meta_response.text}"}
+
+            file_metadata = meta_response.json()
+            file_name = file_metadata.get("name", "downloaded_file")
+
+            # Get download URL
+            download_url = file_metadata.get("@microsoft.graph.downloadUrl")
+            if not download_url:
+                if file_id:
+                    content_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/items/{file_id}/content"
+                else:
+                    content_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root:/{encoded_path}:/content"
+                download_response = requests.get(content_url, headers=headers)
+            else:
+                download_response = requests.get(download_url)
+
+            if download_response.status_code != 200:
+                return {"error": f"Failed to download file: {download_response.text}"}
+
+            # Determine save path
+            if save_to:
+                local_path = save_to
+            else:
+                os.makedirs(self.attachments_dir, exist_ok=True)
+                local_path = os.path.join(self.attachments_dir, file_name)
+
+            with open(local_path, "wb") as f:
+                f.write(download_response.content)
+
+            return {
+                "success": True,
+                "local_path": local_path,
+                "file_name": file_name,
+                "size": len(download_response.content),
+            }
+
+        except Exception as e:
+            logging.error(f"Error downloading from SharePoint: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_create_folder(
+        self, site_id, folder_name, parent_path="root", drive_id=None
+    ):
+        """
+        Creates a folder in SharePoint.
+
+        Args:
+            site_id (str): The SharePoint site ID
+            folder_name (str): Name of the folder to create
+            parent_path (str): Parent folder path
+            drive_id (str): Document library ID (optional)
+
+        Returns:
+            dict: Created folder information
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # If no drive_id, get the default document library
+            if not drive_id:
+                drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
+                drive_response = requests.get(drive_url, headers=headers)
+                if drive_response.status_code != 200:
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
+                drive_id = drive_response.json().get("id")
+
+            # Build URL
+            if parent_path == "root" or not parent_path:
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root/children"
+            else:
+                encoded_path = parent_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root:/{encoded_path}:/children"
+
+            folder_data = {
+                "name": folder_name,
+                "folder": {},
+                "@microsoft.graph.conflictBehavior": "rename",
+            }
+
+            response = requests.post(url, headers=headers, json=folder_data)
+
+            if response.status_code == 201:
+                result = response.json()
+                return {
+                    "success": True,
+                    "id": result.get("id"),
+                    "name": result.get("name"),
+                    "web_url": result.get("webUrl"),
+                }
+            else:
+                logging.error(f"SharePoint create folder error: {response.text}")
+                return {"error": f"Failed to create folder: {response.text}"}
+
+        except Exception as e:
+            logging.error(f"Error creating SharePoint folder: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_delete_item(
+        self, site_id, drive_id=None, item_path=None, item_id=None
+    ):
+        """
+        Deletes a file or folder from SharePoint.
+
+        Args:
+            site_id (str): The SharePoint site ID
+            drive_id (str): Document library ID (optional)
+            item_path (str): Path to the item
+            item_id (str): Alternatively, the unique item ID
+
+        Returns:
+            dict: Deletion result
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+            }
+
+            # If no drive_id, get the default document library
+            if not drive_id:
+                drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
+                drive_response = requests.get(drive_url, headers=headers)
+                if drive_response.status_code != 200:
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
+                drive_id = drive_response.json().get("id")
+
+            if item_id:
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/items/{item_id}"
+            elif item_path:
+                encoded_path = item_path.replace(" ", "%20")
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root:/{encoded_path}"
+            else:
+                return {"error": "Either item_path or item_id must be provided"}
+
+            response = requests.delete(url, headers=headers)
+
+            if response.status_code == 204:
+                return {"success": True, "message": "Item deleted successfully"}
+            else:
+                logging.error(f"SharePoint delete error: {response.text}")
+                return {"error": f"Failed to delete item: {response.text}"}
+
+        except Exception as e:
+            logging.error(f"Error deleting SharePoint item: {str(e)}")
+            return {"error": str(e)}
+
+    async def sharepoint_search(self, query, site_id=None, max_results=25):
+        """
+        Searches for files across SharePoint. Can search a specific site or all accessible sites.
+
+        Args:
+            query (str): Search query
+            site_id (str): Optional site ID to limit search to a specific site
+            max_results (int): Maximum number of results
+
+        Returns:
+            list: List of matching items
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+            }
+
+            if site_id:
+                # Search within a specific site's default drive
+                drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
+                drive_response = requests.get(drive_url, headers=headers)
+                if drive_response.status_code != 200:
+                    return {"error": f"Failed to get site drive: {drive_response.text}"}
+                drive_id = drive_response.json().get("id")
+
+                url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives/{drive_id}/root/search(q='{query}')?$top={max_results}"
+            else:
+                # Search across all SharePoint using the search API
+                url = "https://graph.microsoft.com/v1.0/search/query"
+                search_body = {
+                    "requests": [
+                        {
+                            "entityTypes": ["driveItem"],
+                            "query": {"queryString": query},
+                            "from": 0,
+                            "size": max_results,
+                        }
+                    ]
+                }
+
+                response = requests.post(url, headers=headers, json=search_body)
+
+                if response.status_code != 200:
+                    logging.error(f"SharePoint search error: {response.text}")
+                    return {"error": f"Search failed: {response.text}"}
+
+                data = response.json()
+                items = []
+
+                for hit_container in data.get("value", []):
+                    for hit in hit_container.get("hitsContainers", []):
+                        for result in hit.get("hits", []):
+                            resource = result.get("resource", {})
+                            items.append(
+                                {
+                                    "id": resource.get("id"),
+                                    "name": resource.get("name"),
+                                    "web_url": resource.get("webUrl"),
+                                    "size": resource.get("size"),
+                                    "modified_time": resource.get(
+                                        "lastModifiedDateTime"
+                                    ),
+                                    "site_name": resource.get(
+                                        "parentReference", {}
+                                    ).get("siteId"),
+                                }
+                            )
+
+                return items
+
+            # For site-specific search, use the drive search endpoint
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logging.error(f"SharePoint search error: {response.text}")
+                return {"error": f"Search failed: {response.text}"}
+
+            data = response.json()
+            items = []
+
+            for item in data.get("value", []):
+                items.append(
+                    {
+                        "id": item.get("id"),
+                        "name": item.get("name"),
+                        "type": "folder" if "folder" in item else "file",
+                        "size": item.get("size", 0),
+                        "path": item.get("parentReference", {}).get("path", ""),
+                        "web_url": item.get("webUrl"),
+                        "modified_time": item.get("lastModifiedDateTime"),
+                    }
+                )
+
+            return items
+
+        except Exception as e:
+            logging.error(f"Error searching SharePoint: {str(e)}")
+            return {"error": str(e)}

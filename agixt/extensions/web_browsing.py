@@ -2785,10 +2785,12 @@ class web_browsing(Extensions):
                             raise Exception(mfa_result)
 
                         op_result = mfa_result
-                        logging.info(f"MFA handling completed: {op_result}")
+                        logging.info("MFA handling completed successfully")
 
                     except Exception as mfa_error:
-                        raise Exception(f"Failed to handle MFA: {mfa_error}")
+                        raise Exception(
+                            f"Failed to handle MFA: {type(mfa_error).__name__}"
+                        )
 
                 elif operation == "get_cookies":
                     # Agent wants to retrieve cookies from the current page
@@ -2945,10 +2947,12 @@ class web_browsing(Extensions):
                     if isinstance(op_result, str)
                     else f"{operation} completed successfully."
                 )
-                logging.info(f"Step successful (Attempt {attempt}): {step_result_msg}")
+                logging.info(
+                    f"Step successful (Attempt {attempt}): {operation} completed"
+                )
 
             except Exception as e:
-                last_error = f"Error during {operation} on '{current_selector}' (Attempt {attempt}/{max_attempts}): {str(e)}"
+                last_error = f"Error during {operation} on selector (Attempt {attempt}/{max_attempts}): {type(e).__name__}"
                 logging.warning(last_error)
                 if attempt >= max_attempts:  # If this was the last attempt
                     break  # Exit loop, failure will be handled below
@@ -3760,7 +3764,7 @@ Previous error: {last_parse_error}
                             if "FORM FIELDS" in line:  # Stop before form fields
                                 break
                     logging.info(
-                        f"Planning context key sections:\n{chr(10).join(important_lines[:30])}"
+                        f"Planning context key sections extracted: {len(important_lines[:30])} lines"
                     )
 
                     logging.debug(
