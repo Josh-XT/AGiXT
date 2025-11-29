@@ -16,7 +16,7 @@ from MagicalAuth import (
 )
 from Extensions import Extensions
 from safeexecute import execute_python_code
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 from Globals import getenv
 from Task import Task
 from DB import (
@@ -213,9 +213,9 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self.ApiClient = (
             kwargs["ApiClient"]
             if "ApiClient" in kwargs
-            else AGiXTSDK(
-                base_uri=getenv("AGIXT_URI"),
+            else InternalClient(
                 api_key=kwargs["api_key"] if "api_key" in kwargs else "",
+                user=kwargs.get("user"),
             )
         )
         self.user = kwargs.get("user", None)
@@ -239,7 +239,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         Notes: This ability will browse the provided URLs and extract relevant information based on the query as well as extract learned information from the website into the assistant's memory.
         """
         response = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
+            agent_id=self.agent_id,
             prompt_name="Think About It",
             prompt_args={
                 "user_input": f"{urls} \n {query}",
@@ -1863,10 +1863,26 @@ print(output)
             # Filter out empty pairs and validate
             valid_todos = []
             for i, (title, description) in enumerate(todo_pairs, 1):
-                if title.strip() and description.strip():
-                    valid_todos.append((title.strip(), description.strip()))
-                elif title.strip() or description.strip():
-                    # One is filled but not the other
+                # Skip if both are None or empty
+                if not title or not description:
+                    if title or description:
+                        # One is filled but not the other
+                        return json.dumps(
+                            {
+                                "success": False,
+                                "error": f"Todo {i}: Both title and description must be provided or both must be empty",
+                            }
+                        )
+                    continue
+
+                # Strip and validate
+                title_stripped = title.strip()
+                description_stripped = description.strip()
+
+                if title_stripped and description_stripped:
+                    valid_todos.append((title_stripped, description_stripped))
+                elif title_stripped or description_stripped:
+                    # One is filled but not the other after stripping
                     return json.dumps(
                         {
                             "success": False,

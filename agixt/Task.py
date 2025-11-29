@@ -1,7 +1,7 @@
 from DB import get_session, TaskCategory, TaskItem, Agent
 from MagicalAuth import convert_time
 from Globals import getenv
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 from MagicalAuth import MagicalAuth
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import joinedload
@@ -16,7 +16,7 @@ class Task:
     def __init__(self, token: str):
         self.auth = MagicalAuth(token=token)
         self.user_id = self.auth.user_id
-        self.ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_URI"), api_key=token)
+        self.ApiClient = InternalClient(api_key=token, user=self.auth.email)
 
     @staticmethod
     def _to_utc_naive(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:

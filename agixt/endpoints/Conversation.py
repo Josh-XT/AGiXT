@@ -189,6 +189,180 @@ async def get_conversation_history(
     return {"conversation_history": conversation_history}
 
 
+@app.post(
+    "/v1/conversation",
+    response_model=NewConversationHistoryResponse,
+    summary="Create New Conversation",
+    description="Creates a new conversation with initial content. Requires agent_id.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def new_conversation_v1(
+    history: ConversationHistoryModel,
+    user=Depends(verify_api_key),
+):
+    c = Conversations(conversation_name=history.conversation_name, user=user)
+    c.new_conversation(conversation_content=history.conversation_content)
+    return {
+        "id": c.get_conversation_id(),
+        "conversation_history": history.conversation_content,
+    }
+
+
+@app.delete(
+    "/v1/conversation/{conversation_id}",
+    response_model=ResponseMessage,
+    summary="Delete Conversation by ID",
+    description="Deletes an entire conversation and all its messages using conversation ID.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_conversation_v1(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name(
+            conversation_name="-", user_id=auth.user_id
+        )
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    Conversations(conversation_name=conversation_name, user=user).delete_conversation()
+    return ResponseMessage(message=f"Conversation `{conversation_name}` deleted.")
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}",
+    response_model=ResponseMessage,
+    summary="Rename Conversation by ID",
+    description="Renames a conversation using conversation ID.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def rename_conversation_v1(
+    conversation_id: str,
+    rename_model: RenameConversationModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name(
+            conversation_name="-", user_id=auth.user_id
+        )
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    Conversations(conversation_name=conversation_name, user=user).rename_conversation(
+        new_name=rename_model.new_conversation_name
+    )
+    return ResponseMessage(
+        message=f"Conversation renamed to `{rename_model.new_conversation_name}`."
+    )
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/message",
+    response_model=MessageIdResponse,
+    summary="Add Message to Conversation",
+    description="Adds a new message to an existing conversation using conversation ID.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def add_message_v1(
+    conversation_id: str,
+    log_interaction: LogInteraction,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name(
+            conversation_name="-", user_id=auth.user_id
+        )
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    interaction_id = Conversations(
+        conversation_name=conversation_name, user=user
+    ).log_interaction(
+        message=log_interaction.message,
+        role=log_interaction.role,
+    )
+    return ResponseMessage(message=str(interaction_id))
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}/message/{message_id}",
+    response_model=ResponseMessage,
+    summary="Update Message by ID",
+    description="Updates a message's content using conversation ID and message ID.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_message_v1(
+    conversation_id: str,
+    message_id: str,
+    update_model: UpdateMessageModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name(
+            conversation_name="-", user_id=auth.user_id
+        )
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    Conversations(conversation_name=conversation_name, user=user).update_message_by_id(
+        message_id=message_id,
+        new_message=update_model.new_message,
+    )
+    return ResponseMessage(message="Message updated.")
+
+
+@app.delete(
+    "/v1/conversation/{conversation_id}/message/{message_id}",
+    response_model=ResponseMessage,
+    summary="Delete Message by ID",
+    description="Deletes a specific message using conversation ID and message ID.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_message_v1(
+    conversation_id: str,
+    message_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    if conversation_id == "-":
+        conversation_id = get_conversation_id_by_name(
+            conversation_name="-", user_id=auth.user_id
+        )
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    Conversations(conversation_name=conversation_name, user=user).delete_message_by_id(
+        message_id=message_id,
+    )
+    return ResponseMessage(message="Message deleted.")
+
+
 @app.get(
     "/api/conversation",
     response_model=ConversationHistoryResponse,
@@ -468,7 +642,7 @@ async def log_interaction(
 
 
 @app.get(
-    "/api/conversation/{conversation_id}/workspace",
+    "/v1/conversation/{conversation_id}/workspace",
     response_model=WorkspaceListResponse,
     summary="List Conversation Workspace Items",
     description="Returns the folder tree for a conversation's workspace, optionally scoped to a sub-path.",
@@ -498,7 +672,7 @@ async def get_conversation_workspace(
 
 
 @app.post(
-    "/api/conversation/{conversation_id}/workspace/upload",
+    "/v1/conversation/{conversation_id}/workspace/upload",
     response_model=WorkspaceListResponse,
     summary="Upload Files to Conversation Workspace",
     description="Uploads one or more files into the conversation workspace at the specified path.",
@@ -558,7 +732,7 @@ async def upload_conversation_workspace_files(
 
 
 @app.post(
-    "/api/conversation/{conversation_id}/workspace/folder",
+    "/v1/conversation/{conversation_id}/workspace/folder",
     response_model=WorkspaceListResponse,
     summary="Create Workspace Folder",
     description="Creates a new folder within the conversation workspace.",
@@ -608,7 +782,7 @@ async def create_conversation_workspace_folder(
 
 
 @app.delete(
-    "/api/conversation/{conversation_id}/workspace/item",
+    "/v1/conversation/{conversation_id}/workspace/item",
     response_model=WorkspaceListResponse,
     summary="Delete Workspace Item",
     description="Deletes a file or folder from the conversation workspace.",
@@ -654,7 +828,7 @@ async def delete_conversation_workspace_item(
 
 
 @app.get(
-    "/api/conversation/{conversation_id}/workspace/download",
+    "/v1/conversation/{conversation_id}/workspace/download",
     summary="Download Workspace File",
     description="Streams a workspace file for download.",
     tags=["Conversation"],
@@ -698,7 +872,7 @@ async def download_conversation_workspace_file(
 
 
 @app.put(
-    "/api/conversation/{conversation_id}/workspace/item",
+    "/v1/conversation/{conversation_id}/workspace/item",
     response_model=WorkspaceListResponse,
     summary="Move or Rename Workspace Item",
     description="Moves or renames a file or folder within the conversation workspace.",
@@ -1255,8 +1429,12 @@ async def conversation_stream(
                     for deleted_id in changes["deleted_ids"]:
                         previous_message_ids.discard(deleted_id)
 
-                # Handle new messages
+                # Handle new messages - only send messages we haven't already sent
                 for message in changes["new_messages"]:
+                    message_id = str(message.get("id")) if message.get("id") else None
+                    # Skip if we've already sent this message
+                    if message_id and message_id in previous_message_ids:
+                        continue
                     serializable_message = make_json_serializable(message)
                     await websocket.send_text(
                         json.dumps(
@@ -1264,8 +1442,8 @@ async def conversation_stream(
                         )
                     )
                     # Track new message ID
-                    if message.get("id"):
-                        previous_message_ids.add(str(message["id"]))
+                    if message_id:
+                        previous_message_ids.add(message_id)
 
                 # Handle updated messages
                 for message in changes["updated_messages"]:

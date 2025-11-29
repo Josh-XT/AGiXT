@@ -51,7 +51,12 @@ class GoogleProvider:
         return ["llm", "tts", "vision"]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         if not self.GOOGLE_API_KEY or self.GOOGLE_API_KEY == "None":
             return "Please set your Google API key in the Agent Management page."
@@ -76,18 +81,29 @@ class GoogleProvider:
                     )
                 new_prompt.append(prompt)
                 prompt = new_prompt
-            response = await asyncio.to_thread(
-                model.generate_content,
-                contents=prompt,
-                generation_config=generation_config,
-            )
-            if response.parts:
-                generated_text = "".join(part.text for part in response.parts)
-            else:
-                generated_text = "".join(
-                    part.text for part in response.candidates[0].content.parts
+
+            if stream:
+                # Use streaming API - return the response directly as it's an iterator
+                response = await asyncio.to_thread(
+                    model.generate_content,
+                    contents=prompt,
+                    generation_config=generation_config,
+                    stream=True,
                 )
-            return generated_text
+                return response
+            else:
+                response = await asyncio.to_thread(
+                    model.generate_content,
+                    contents=prompt,
+                    generation_config=generation_config,
+                )
+                if response.parts:
+                    generated_text = "".join(part.text for part in response.parts)
+                else:
+                    generated_text = "".join(
+                        part.text for part in response.candidates[0].content.parts
+                    )
+                return generated_text
         except Exception as e:
             raise Exception(f"Gemini Error: {e}")
 

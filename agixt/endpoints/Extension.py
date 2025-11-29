@@ -57,6 +57,20 @@ async def get_extension_settings(user=Depends(verify_api_key)):
 
 
 @app.get(
+    "/v1/extensions/settings",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ExtensionSettings,
+    summary="Get Extension Settings",
+    description="Retrieves all extension settings for the authenticated user. This includes settings for all available extensions and chains.",
+)
+async def get_extension_settings_v1(user=Depends(verify_api_key)):
+    ApiClient = get_api_client()
+    ext = Extensions(user=user, ApiClient=ApiClient)
+    return {"extension_settings": ext.get_extension_settings()}
+
+
+@app.get(
     "/api/extensions/{command_name}/args",
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
@@ -65,6 +79,18 @@ async def get_extension_settings(user=Depends(verify_api_key)):
     description="Retrieves the available arguments for a specific command.",
 )
 async def get_command_args(command_name: str, user=Depends(verify_api_key)):
+    return {"command_args": Extensions().get_command_args(command_name=command_name)}
+
+
+@app.get(
+    "/v1/extensions/{command_name}/args",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=CommandArgs,
+    summary="Get Command Arguments",
+    description="Retrieves the available arguments for a specific command.",
+)
+async def get_command_args_v1(command_name: str, user=Depends(verify_api_key)):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 

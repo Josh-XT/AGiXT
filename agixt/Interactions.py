@@ -293,6 +293,9 @@ class Interactions:
                 if len(interactions) > 0:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
+                    logging.info(
+                        f"[format_prompt] Including {len(interactions)} conversation interactions (conversation_results={conversation_results})"
+                    )
                 conversation_history += "\n## The assistant's recent activities:\n"
                 conversation_history += c.get_activities_with_subactivities()
         if conversation_history != "":
@@ -980,6 +983,7 @@ class Interactions:
 
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
+        thinking_id = None  # Initialize to avoid UnboundLocalError
         if "<think>" in self.response:
             self.response.replace("<think>", "<thinking>")
             self.response.replace("</think>", "</thinking>")
@@ -1054,6 +1058,7 @@ class Interactions:
                     await self.execution_agent(
                         conversation_name=conversation_name,
                         conversation_id=conversation_id,
+                        thinking_id=thinking_id,
                     )
                     new_processed_length = len(self.response)
                     if new_processed_length > processed_length:
@@ -1093,6 +1098,7 @@ class Interactions:
                     await self.execution_agent(
                         conversation_name=conversation_name,
                         conversation_id=conversation_id,
+                        thinking_id=thinking_id,
                     )
                     new_processed_length = len(self.response)
 
@@ -1134,6 +1140,7 @@ class Interactions:
                         await self.execution_agent(
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
+                            thinking_id=thinking_id,
                         )
                         new_processed_length = len(self.response)
                         if new_processed_length > processed_length:
@@ -1397,6 +1404,1139 @@ class Interactions:
             )
         return self.response
 
+    async def run_stream(
+        self,
+        user_input: str = "",
+        context_results: int = 100,
+        conversation_name: str = "",
+        conversation_id: str = None,
+        browse_links: bool = False,
+        websearch: bool = False,
+        images: list = [],
+        log_user_input: bool = True,
+        log_output: bool = True,
+        complexity_score=None,
+        use_smartest: bool = False,
+        thinking_id: str = None,
+        searching: bool = False,
+        **kwargs,
+    ):
+        """
+        Streaming version of run() that yields tokens as they come from the LLM.
+        This allows real-time streaming of thinking activities to the frontend.
+
+        Yields:
+            dict with keys:
+                - 'type': 'thinking', 'reflection', 'answer', 'activity'
+                - 'content': the text content
+                - 'complete': whether the tag is fully received
+        """
+        global AGIXT_URI
+
+        # Store conversation_id in kwargs for downstream use
+        if conversation_id:
+            kwargs["conversation_id"] = conversation_id
+        for setting in self.agent.AGENT_CONFIG["settings"]:
+            if setting not in kwargs:
+                kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
+
+        context_results = 5 if not context_results else int(context_results)
+        prompt = "Think About It"
+        prompt_category = "Default"
+        if "prompt_category" in kwargs:
+            prompt_category = kwargs["prompt_category"]
+            del kwargs["prompt_category"]
+        if "prompt_name" in kwargs:
+            prompt = kwargs["prompt_name"]
+            del kwargs["prompt_name"]
+        if "prompt" in kwargs:
+            prompt = kwargs["prompt"]
+            del kwargs["prompt"]
+
+        disable_memory = True
+        if "disable_memory" in kwargs:
+            disable_memory = (
+                False if str(kwargs["disable_memory"]).lower() == "false" else True
+            )
+            del kwargs["disable_memory"]
+
+        # Handle browse_links from kwargs or agent settings
+        browse_links = True if str(browse_links).lower() == "true" else False
+        if "browse_links" in kwargs:
+            browse_links = (
+                True if str(kwargs["browse_links"]).lower() == "true" else False
+            )
+            del kwargs["browse_links"]
+
+        # Handle websearch from kwargs
+        websearch = True if str(websearch).lower() == "true" else False
+        if "websearch" in kwargs:
+            websearch = True if str(kwargs["websearch"]).lower() == "true" else False
+            del kwargs["websearch"]
+
+        # Handle collection_number - reinitialize websearch with specific collection
+        if "collection_number" in kwargs:
+            collection_number = str(kwargs["collection_number"])
+            self.websearch = Websearch(
+                collection_number=collection_number,
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
+            )
+            del kwargs["collection_number"]
+
+        # Get websearch settings from agent config
+        websearch_depth = 3
+        if "websearch" in self.agent.AGENT_CONFIG["settings"]:
+            if not websearch:  # Only override if not explicitly set
+                websearch = (
+                    str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower()
+                    == "true"
+                )
+        if "websearch_depth" in self.agent.AGENT_CONFIG["settings"]:
+            websearch_depth = int(
+                self.agent.AGENT_CONFIG["settings"]["websearch_depth"]
+            )
+        if "browse_links" in self.agent.AGENT_CONFIG["settings"]:
+            if not browse_links:  # Only override if not explicitly set
+                browse_links = (
+                    str(self.agent.AGENT_CONFIG["settings"]["browse_links"]).lower()
+                    == "true"
+                )
+        if "websearch_depth" in kwargs:
+            try:
+                websearch_depth = int(kwargs["websearch_depth"])
+            except:
+                websearch_depth = 3
+            del kwargs["websearch_depth"]
+        if "WEBSEARCH_TIMEOUT" in kwargs:
+            try:
+                websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
+            except:
+                websearch_timeout = 0
+        else:
+            websearch_timeout = 0
+
+        conversation_results = 5
+        if "conversation_results" in kwargs:
+            try:
+                conversation_results = int(kwargs["conversation_results"])
+            except:
+                conversation_results = 5
+            del kwargs["conversation_results"]
+
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
+        if conversation_name == "":
+            conversation_name = "-"
+
+        # Use conversation_id if provided
+        conversation_id = kwargs.get("conversation_id")
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+            conversation_id=conversation_id,
+        )
+
+        # Handle vision if needed
+        vision_response = ""
+        if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
+            if (
+                images != []
+                and self.agent.VISION_PROVIDER != "None"
+                and self.agent.VISION_PROVIDER != ""
+                and self.agent.VISION_PROVIDER != None
+            ):
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Viewing images.",
+                )
+                try:
+                    vision_response = await self.agent.vision_inference(
+                        prompt=user_input, images=images, use_smartest=use_smartest
+                    )
+                except Exception as e:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY][ERROR] Unable to view image.",
+                    )
+                    logging.error(f"Error getting vision response: {e}")
+
+        # Handle browse_links and websearch async tasks
+        async_tasks = []
+        if browse_links != False and websearch == False and searching == False:
+            task = asyncio.create_task(
+                self.websearch.scrape_websites(
+                    user_input=user_input,
+                    summarize_content=False,
+                    conversation_name=conversation_name,
+                )
+            )
+            async_tasks.append(task)
+
+        if websearch and searching == False:
+            if browse_links != False:
+                task = asyncio.create_task(
+                    self.websearch.scrape_websites(
+                        user_input=user_input,
+                        summarize_content=False,
+                        conversation_name=conversation_name,
+                    )
+                )
+                async_tasks.append(task)
+            if user_input == "":
+                if "primary_objective" in kwargs and "task" in kwargs:
+                    user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
+            if user_input != "":
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                searching_activity_id = c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{thinking_id}] Searching for information.",
+                )
+                to_search_or_not_to_search = await self.run(
+                    prompt_name="WebSearch Decision",
+                    prompt_category="Default",
+                    user_input=user_input,
+                    context_results=context_results,
+                    conversation_results=4,
+                    conversation_name=conversation_name,
+                    log_user_input=False,
+                    log_output=False,
+                    browse_links=False,
+                    websearch=False,
+                    tts=False,
+                    searching=True,
+                )
+                to_search = re.search(
+                    r"\byes\b", str(to_search_or_not_to_search).lower()
+                )
+                if to_search:
+                    search_strings = await self.run(
+                        prompt_name="WebSearch",
+                        prompt_category="Default",
+                        user_input=user_input,
+                        context_results=context_results,
+                        conversation_results=10,
+                        conversation_name=conversation_name,
+                        log_user_input=False,
+                        log_output=False,
+                        browse_links=False,
+                        websearch=False,
+                        tts=False,
+                        searching=True,
+                    )
+                    if "```json" in search_strings:
+                        search_strings = (
+                            search_strings.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in search_strings:
+                        search_strings = search_strings.split("```")[1].strip()
+                    try:
+                        search_suggestions = json.loads(search_strings)
+                    except:
+                        keywords = extract_keywords(text=str(search_strings), limit=5)
+                        if keywords:
+                            search_string = " ".join(keywords)
+                            search_string += f" {datetime.now().strftime('%B %Y')}"
+                        search_suggestions = [
+                            {"search_string_suggestion_1": search_string}
+                        ]
+                    search_strings = []
+                    if search_suggestions != []:
+                        for i in range(1, int(websearch_depth) + 1):
+                            if f"search_string_suggestion_{i}" in search_suggestions:
+                                search_string = search_suggestions[
+                                    f"search_string_suggestion_{i}"
+                                ]
+                                search_strings.append(search_string)
+                                search_task = asyncio.create_task(
+                                    self.websearch.websearch_agent(
+                                        user_input=user_input,
+                                        search_string=search_string,
+                                        websearch_depth=websearch_depth,
+                                        websearch_timeout=websearch_timeout,
+                                        conversation_name=conversation_name,
+                                        activity_id=searching_activity_id,
+                                    )
+                                )
+                                async_tasks.append(search_task)
+
+        # Wait for all async tasks to complete before formatting prompt
+        await asyncio.gather(*async_tasks)
+
+        # Format the prompt
+        formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
+            user_input=user_input,
+            top_results=int(context_results),
+            conversation_results=conversation_results,
+            prompt=prompt,
+            prompt_category=prompt_category,
+            conversation_name=conversation_name,
+            websearch=websearch,
+            vision_response=vision_response,
+            **kwargs,
+        )
+
+        # Anonymize AGiXT server URL
+        if self.outputs in formatted_prompt:
+            formatted_prompt = formatted_prompt.replace(
+                self.outputs, f"http://localhost:7437/outputs/{self.agent.agent_id}"
+            )
+
+        # Log user input
+        log_message = user_input if user_input != "" else formatted_prompt
+        if log_user_input:
+            c.log_interaction(role="USER", message=log_message)
+            # Emit webhook event for user message
+            await webhook_emitter.emit_event(
+                event_type="conversation.message.received",
+                data={
+                    "conversation_id": c.get_conversation_id(),
+                    "conversation_name": conversation_name,
+                    "agent_name": self.agent_name,
+                    "user": self.user,
+                    "message": log_message,
+                    "role": "USER",
+                    "timestamp": datetime.now().isoformat(),
+                },
+                user_id=self.user,
+            )
+
+        # Inject planning phase if needed
+        if complexity_score and complexity_score.planning_required:
+            planning_prompt = get_planning_phase_prompt(user_input)
+            formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
+
+        # Get streaming response from the LLM
+        try:
+            logging.info(f"[run_stream] Starting streaming inference...")
+            stream = await self.agent.inference(
+                prompt=formatted_prompt, use_smartest=use_smartest, stream=True
+            )
+            logging.info(
+                f"[run_stream] Got stream object: {type(stream)}, has __aiter__: {hasattr(stream, '__aiter__')}"
+            )
+        except Exception as e:
+            logging.error(f"Error starting streaming inference: {e}")
+            yield {"type": "error", "content": str(e), "complete": True}
+            return
+
+        # Process the stream
+        full_response = ""
+        processed_thinking_ids = set()
+        in_answer = False
+        answer_content = ""
+        is_executing = False  # Flag to pause streaming during command execution
+
+        # Helper to iterate over stream (handles sync iterators from OpenAI library)
+        async def iterate_stream(stream_obj):
+            """Iterate over stream, wrapping sync iteration if needed."""
+            # OpenAI library returns sync iterators, check if it's async or sync
+            if hasattr(stream_obj, "__aiter__"):
+                # Async iterator
+                logging.info("[run_stream] Using async iteration")
+                async for chunk in stream_obj:
+                    yield chunk
+            else:
+                # Sync iterator - use asyncio.to_thread to run iteration without blocking
+                logging.info(
+                    f"[run_stream] Using asyncio.to_thread for sync iteration of {type(stream_obj)}"
+                )
+                import queue
+                import threading
+
+                chunk_queue = queue.Queue()
+                done_event = threading.Event()
+                error_holder = [None]
+
+                def sync_iterator():
+                    """Run the sync iterator in a separate thread."""
+                    try:
+                        logging.info("[run_stream] Thread started, beginning iteration")
+                        chunk_count = 0
+                        # Force iteration to start immediately by calling next() first
+                        iterator = iter(stream_obj)
+                        while True:
+                            try:
+                                chunk = next(iterator)
+                                chunk_count += 1
+                                if chunk_count <= 3:
+                                    logging.info(
+                                        f"[run_stream] Thread got chunk {chunk_count}: {type(chunk)}"
+                                    )
+                                chunk_queue.put(("chunk", chunk))
+                            except StopIteration:
+                                logging.info(
+                                    f"[run_stream] Thread iteration complete, {chunk_count} chunks"
+                                )
+                                break
+                        chunk_queue.put(("done", None))
+                    except Exception as e:
+                        logging.error(f"[run_stream] Thread error: {e}", exc_info=True)
+                        error_holder[0] = e
+                        chunk_queue.put(("error", e))
+                    finally:
+                        done_event.set()
+
+                # Start the sync iteration in a thread
+                thread = threading.Thread(target=sync_iterator, daemon=True)
+                thread.start()
+                logging.info("[run_stream] Thread started, waiting for chunks")
+
+                # Yield chunks as they arrive
+                chunks_yielded = 0
+                while True:
+                    # Non-blocking check with short timeout
+                    try:
+                        msg_type, msg_data = chunk_queue.get(timeout=0.1)
+                        if msg_type == "chunk":
+                            chunks_yielded += 1
+                            if chunks_yielded <= 3:
+                                logging.info(
+                                    f"[run_stream] Yielding chunk {chunks_yielded}"
+                                )
+                            yield msg_data
+                        elif msg_type == "done":
+                            logging.info(
+                                f"[run_stream] Stream complete, yielded {chunks_yielded} chunks"
+                            )
+                            break
+                        elif msg_type == "error":
+                            raise msg_data
+                    except queue.Empty:
+                        # Allow other coroutines to run while waiting
+                        await asyncio.sleep(0.1)
+                        # Check if thread died unexpectedly
+                        if done_event.is_set() and chunk_queue.empty():
+                            if error_holder[0]:
+                                raise error_holder[0]
+                            logging.info(
+                                f"[run_stream] Thread finished, total yielded: {chunks_yielded}"
+                            )
+                            break
+
+        try:
+            chunk_count = 0
+            # Track last processed position for incremental tag detection
+            last_tag_check_pos = 0
+
+            async for chunk in iterate_stream(stream):
+                chunk_count += 1
+                if chunk_count <= 3:
+                    logging.info(
+                        f"[run_stream] Chunk {chunk_count} type: {type(chunk)}, repr: {repr(chunk)[:200]}"
+                    )
+
+                # Extract content from the chunk - handle different formats
+                token = None
+                if isinstance(chunk, str):
+                    # Some providers return raw strings
+                    token = chunk
+                elif hasattr(chunk, "choices") and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, "content") and delta.content:
+                        token = delta.content
+
+                if not token:
+                    if chunk_count <= 3:
+                        logging.info(
+                            f"[run_stream] Chunk {chunk_count} had no token, skipping"
+                        )
+                    continue
+
+                if chunk_count <= 5:
+                    logging.info(
+                        f"[run_stream] Token {chunk_count}: '{token[:50] if len(token) > 50 else token}' ({len(token)} chars)"
+                    )
+
+                full_response += token
+
+                # Simple tag state detection based on COMPLETE response
+                # Count open/close tags to determine current state
+                def get_tag_depth(text, tag_name):
+                    """Count net depth of a tag (opens - closes)"""
+                    opens = len(re.findall(f"<{tag_name}>", text, re.IGNORECASE))
+                    closes = len(re.findall(f"</{tag_name}>", text, re.IGNORECASE))
+                    return opens - closes
+
+                # Determine current tag state from full response
+                thinking_depth = get_tag_depth(full_response, "thinking")
+                reflection_depth = get_tag_depth(full_response, "reflection")
+                in_thinking_or_reflection = thinking_depth > 0 or reflection_depth > 0
+
+                # Check for answer tag - only valid at top level (not inside thinking/reflection)
+                # Find the LAST <answer> tag and check if it's inside thinking/reflection
+                answer_depth = get_tag_depth(full_response, "answer")
+
+                # Properly determine if we're in an answer block at top level
+                # We need to check if <answer> appears AFTER all thinking/reflection blocks close
+                last_thinking_close = max(
+                    [
+                        m.end()
+                        for m in re.finditer(
+                            r"</thinking>", full_response, re.IGNORECASE
+                        )
+                    ]
+                    or [0]
+                )
+                last_reflection_close = max(
+                    [
+                        m.end()
+                        for m in re.finditer(
+                            r"</reflection>", full_response, re.IGNORECASE
+                        )
+                    ]
+                    or [0]
+                )
+                last_closed_pos = max(last_thinking_close, last_reflection_close)
+
+                # Find answer tags that appear after all thinking/reflection closes
+                answer_after_thinking = re.search(
+                    r"<answer>", full_response[last_closed_pos:], re.IGNORECASE
+                )
+                answer_closed_after = re.search(
+                    r"</answer>", full_response[last_closed_pos:], re.IGNORECASE
+                )
+
+                in_answer = (
+                    answer_after_thinking is not None and answer_closed_after is None
+                )
+
+                # Check for execute tag completion - only at top level
+                # Find </execute> that's NOT inside thinking/reflection
+                execute_pattern = r"<execute>.*?</execute>"
+                for match in re.finditer(
+                    execute_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    execute_end = match.end()
+                    # Check if this execute is inside a thinking/reflection block
+                    text_before = full_response[: match.start()]
+                    if (
+                        get_tag_depth(text_before, "thinking") > 0
+                        or get_tag_depth(text_before, "reflection") > 0
+                    ):
+                        continue  # This execute is inside thinking/reflection, skip
+
+                    # This is a top-level execute - check if we've processed it
+                    execute_content = match.group(0)
+                    execute_id = f"execute:{hash(execute_content)}"
+                    if execute_id in processed_thinking_ids:
+                        continue
+
+                    processed_thinking_ids.add(execute_id)
+
+                    # Execute commands and STOP inference
+                    if (
+                        "{COMMANDS}" in unformatted_prompt
+                        and "disable_commands" not in kwargs
+                    ):
+                        is_executing = True
+
+                        # CRITICAL: Truncate at </execute> to discard hallucinated output
+                        truncated_response = full_response[:execute_end]
+                        discarded_content = full_response[execute_end:]
+                        if discarded_content.strip():
+                            logging.info(
+                                f"[run_stream] Discarding hallucinated output after </execute>: {discarded_content[:200]}..."
+                            )
+                        full_response = truncated_response
+                        self.response = full_response
+
+                        # Execute the command
+                        await self.execution_agent(
+                            conversation_name=conversation_name,
+                            conversation_id=conversation_id,
+                            thinking_id=thinking_id,
+                        )
+
+                        full_response = self.response
+                        is_executing = False
+
+                        logging.info(
+                            "[run_stream] Execution complete, stopping inference"
+                        )
+                        break  # Break to continuation loop
+
+                # Process completed thinking/reflection tags for logging
+                for tag_name in ["thinking", "reflection"]:
+                    tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
+                    for match in re.finditer(
+                        tag_pattern, full_response, re.DOTALL | re.IGNORECASE
+                    ):
+                        content = match.group(1).strip()
+                        tag_id = f"{tag_name}:{hash(content)}"
+                        if tag_id in processed_thinking_ids or not content:
+                            continue
+
+                        processed_thinking_ids.add(tag_id)
+
+                        # Clean content - remove any tag mentions
+                        content = re.sub(
+                            r"</?(?:answer|execute|output|step)>", "", content
+                        )
+                        content = re.sub(r"\n\s*\n\s*\n", "\n\n", content).strip()
+
+                        if content:
+                            if tag_name == "thinking":
+                                log_msg = f"[SUBACTIVITY][THOUGHT] {content}"
+                            else:
+                                log_msg = f"[SUBACTIVITY][REFLECTION] {content}"
+
+                            if not is_executing:
+                                c.log_interaction(role=self.agent_name, message=log_msg)
+
+                            yield {
+                                "type": tag_name,
+                                "content": content,
+                                "complete": True,
+                            }
+
+                # Yield answer tokens for streaming
+                if in_answer and not is_executing:
+                    # Get content after <answer> that's at top level
+                    answer_start_match = re.search(
+                        r"<answer>", full_response[last_closed_pos:], re.IGNORECASE
+                    )
+                    if answer_start_match:
+                        answer_start = last_closed_pos + answer_start_match.end()
+                        new_answer = full_response[answer_start:]
+                        if len(new_answer) > len(answer_content):
+                            delta = new_answer[len(answer_content) :]
+                            # Allow tokens with < if they're part of actual answer content
+                            # Only skip if it looks like an opening tag pattern
+                            if not re.match(r"^\s*<[a-zA-Z]", delta):
+                                yield {
+                                    "type": "answer",
+                                    "content": delta,
+                                    "complete": False,
+                                }
+                            answer_content = new_answer
+                else:
+                    # Debug: log when we're not in answer but might expect to be
+                    if chunk_count <= 10:
+                        logging.debug(
+                            f"[run_stream] in_answer={in_answer}, is_executing={is_executing}, has_answer_tag={'<answer>' in full_response.lower()}"
+                        )
+
+            logging.info(
+                f"[run_stream] Stream complete. Total chunks: {chunk_count}, Response length: {len(full_response)}"
+            )
+            logging.info(
+                f"[run_stream] Full response preview: {full_response[:200] if len(full_response) > 200 else full_response}"
+            )
+
+        except Exception as e:
+            logging.error(f"Error during streaming: {e}")
+            import traceback
+
+            logging.error(traceback.format_exc())
+
+        # Store the full response
+        self.response = full_response
+
+        # Continuation logic: Handle execution outputs and incomplete answers
+        # This matches the non-streaming behavior where we inject output and run inference again
+        max_continuation_loops = 10  # Prevent infinite loops
+        continuation_count = 0
+
+        # Track the length of processed content to detect new executions
+        processed_length = len(self.response)
+
+        while (
+            "</answer>" not in self.response
+            and continuation_count < max_continuation_loops
+        ):
+            # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
+            unprocessed_response = (
+                self.response[processed_length:]
+                if continuation_count > 0
+                else self.response
+            )
+            has_new_execution = "</execute>" in unprocessed_response
+            has_incomplete_answer = (
+                "<answer>" in self.response and "</answer>" not in self.response
+            )
+
+            if not has_new_execution and not has_incomplete_answer:
+                # No execution and no incomplete answer - agent didn't finish properly or gave up
+                logging.info(
+                    "[run_stream] No answer, no execution, no incomplete answer - stopping"
+                )
+                break
+
+            continuation_count += 1
+
+            if has_new_execution:
+                logging.info(
+                    f"[run_stream] Continuation {continuation_count}: Re-formatting prompt with fresh context and running new inference"
+                )
+
+                # Re-run format_prompt to get FRESH context that includes:
+                # - Command execution results logged to conversation
+                # - Updated conversation history
+                # - Any new memories or context
+                # This mirrors how run() would work if we started a new inference
+                fresh_formatted_prompt, _, _ = await self.format_prompt(
+                    user_input=user_input,
+                    top_results=int(context_results),
+                    conversation_results=conversation_results,
+                    prompt=prompt,
+                    prompt_category=prompt_category,
+                    conversation_name=conversation_name,
+                    websearch=websearch,
+                    vision_response=vision_response,
+                    **kwargs,
+                )
+
+                # Anonymize AGiXT server URL
+                if self.outputs in fresh_formatted_prompt:
+                    fresh_formatted_prompt = fresh_formatted_prompt.replace(
+                        self.outputs,
+                        f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                    )
+
+                # The response now has real command output in <output> tags
+                # CRITICAL: Tell the model this is a NEW inference turn where it should
+                # analyze the actual command output, NOT continue generating from before
+                continuation_prompt = f"""{fresh_formatted_prompt}
+
+## Command Execution Complete
+
+The assistant previously executed commands. The ACTUAL outputs are shown below in <output> tags.
+DO NOT hallucinate or make up what the command output should be - the real output is already provided.
+Analyze the actual output shown and continue with your response.
+
+### Previous Assistant Response (with real command outputs):
+{self.response}
+
+### Instructions:
+1. READ the actual <output> content above - this is the REAL command result
+2. DO NOT repeat or fabricate command outputs - they are already shown
+3. Based on the ACTUAL output, continue thinking and provide your <answer>
+4. If you need to execute more commands, you may do so
+"""
+            else:
+                # Incomplete answer - prompt to continue (also get fresh context)
+                logging.info(
+                    f"[run_stream] Continuation {continuation_count}: Answer block incomplete, prompting to continue"
+                )
+                fresh_formatted_prompt, _, _ = await self.format_prompt(
+                    user_input=user_input,
+                    top_results=int(context_results),
+                    conversation_results=conversation_results,
+                    prompt=prompt,
+                    prompt_category=prompt_category,
+                    conversation_name=conversation_name,
+                    websearch=websearch,
+                    vision_response=vision_response,
+                    **kwargs,
+                )
+                if self.outputs in fresh_formatted_prompt:
+                    fresh_formatted_prompt = fresh_formatted_prompt.replace(
+                        self.outputs,
+                        f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                    )
+                continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+
+            try:
+                # Run FRESH inference with stream=True
+                continuation_stream = await self.agent.inference(
+                    prompt=continuation_prompt, use_smartest=use_smartest, stream=True
+                )
+
+                # Process the continuation stream with FULL tag processing
+                # This is similar to the main stream processing but for continuation
+                continuation_response = ""
+                continuation_in_answer = False
+                continuation_current_tag = None
+                continuation_current_tag_content = ""
+                continuation_current_tag_message_id = None  # Track message ID
+                continuation_processed_thinking_ids = set()
+                broke_for_execution = False  # Track if we broke early for execution
+
+                async for chunk_data in iterate_stream(continuation_stream):
+                    # Extract token from chunk
+                    token = None
+                    if isinstance(chunk_data, str):
+                        token = chunk_data
+                    elif hasattr(chunk_data, "choices") and len(chunk_data.choices) > 0:
+                        delta = chunk_data.choices[0].delta
+                        if hasattr(delta, "content") and delta.content:
+                            token = delta.content
+
+                    if not token:
+                        continue
+
+                    continuation_response += token
+
+                    # Process tags in continuation (thinking, reflection, execute, answer)
+                    # Check for opening tags
+                    for tag_name in ["thinking", "reflection", "execute", "answer"]:
+                        if (
+                            f"<{tag_name}>" in continuation_response
+                            and continuation_current_tag != tag_name
+                        ):
+                            continuation_current_tag = tag_name
+                            continuation_current_tag_content = ""
+                            if tag_name == "answer":
+                                continuation_in_answer = True
+                            break
+
+                    # Check for closing tags
+                    for tag_name in ["thinking", "reflection", "execute", "answer"]:
+                        if (
+                            f"</{tag_name}>" in continuation_response
+                            and continuation_current_tag == tag_name
+                        ):
+                            # Tag closed - process it
+                            if tag_name == "execute":
+                                # Execute commands and stop the continuation stream
+                                logging.info(
+                                    "[run_stream] Nested execution detected in continuation"
+                                )
+
+                                # CRITICAL: Truncate at </execute> to discard hallucinated output
+                                execute_end_match = re.search(
+                                    r"</execute>", continuation_response, re.IGNORECASE
+                                )
+                                if execute_end_match:
+                                    truncated_continuation = continuation_response[
+                                        : execute_end_match.end()
+                                    ]
+                                    discarded_content = continuation_response[
+                                        execute_end_match.end() :
+                                    ]
+                                    if discarded_content.strip():
+                                        logging.info(
+                                            f"[run_stream] Discarding hallucinated output in continuation after </execute>: {discarded_content[:200]}..."
+                                        )
+                                    continuation_response = truncated_continuation
+
+                                self.response += continuation_response
+                                broke_for_execution = True
+
+                                # Update processed_length before execution so we can detect new executions
+                                processed_length = len(self.response)
+
+                                await self.execution_agent(
+                                    conversation_name=conversation_name,
+                                    conversation_id=conversation_id,
+                                )
+
+                                # Update processed_length again after execution adds output
+                                processed_length = len(self.response)
+
+                                # Break to start new continuation with execution output
+                                break
+                            elif tag_name in ("thinking", "reflection"):
+                                # Extract and log the complete tag content
+                                tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
+                                matches = list(
+                                    re.finditer(
+                                        tag_pattern,
+                                        continuation_response,
+                                        re.DOTALL | re.IGNORECASE,
+                                    )
+                                )
+                                for m in matches:
+                                    content = m.group(1).strip()
+                                    tag_id = f"{tag_name}:{hash(content)}"
+                                    if (
+                                        tag_id
+                                        not in continuation_processed_thinking_ids
+                                        and content
+                                    ):
+                                        continuation_processed_thinking_ids.add(tag_id)
+
+                                        if tag_name == "thinking":
+                                            log_msg = (
+                                                f"[SUBACTIVITY][THOUGHT] {content}"
+                                            )
+                                        else:
+                                            log_msg = (
+                                                f"[SUBACTIVITY][REFLECTION] {content}"
+                                            )
+
+                                        # Update existing or create new message
+                                        if continuation_current_tag_message_id:
+                                            c.update_message_by_id(
+                                                continuation_current_tag_message_id,
+                                                log_msg,
+                                            )
+                                        else:
+                                            c.log_interaction(
+                                                role=self.agent_name, message=log_msg
+                                            )
+
+                                        yield {
+                                            "type": tag_name,
+                                            "content": content,
+                                            "complete": True,
+                                        }
+
+                            continuation_current_tag = None
+                            continuation_current_tag_content = ""
+                            continuation_current_tag_message_id = None  # Reset
+
+                    # Stream progressive content for current tag
+                    if continuation_current_tag and continuation_current_tag in (
+                        "thinking",
+                        "reflection",
+                    ):
+                        tag_start_pattern = f"<{continuation_current_tag}>"
+                        if tag_start_pattern in continuation_response:
+                            last_start = continuation_response.rfind(tag_start_pattern)
+                            partial = continuation_response[
+                                last_start + len(tag_start_pattern) :
+                            ]
+                            if "<" in partial:
+                                partial = partial.split("<")[0]
+                            if len(partial) > len(continuation_current_tag_content):
+                                delta = partial[len(continuation_current_tag_content) :]
+                                continuation_current_tag_content = partial
+
+                                # Create/update message
+                                tag_type = (
+                                    "THOUGHT"
+                                    if continuation_current_tag == "thinking"
+                                    else "REFLECTION"
+                                )
+                                updated_msg = f"[SUBACTIVITY][{tag_type}] {continuation_current_tag_content}"
+
+                                if not continuation_current_tag_message_id:
+                                    # Create message once
+                                    continuation_current_tag_message_id = (
+                                        c.log_interaction(
+                                            role=self.agent_name, message=updated_msg
+                                        )
+                                    )
+                                else:
+                                    # Update existing message
+                                    c.update_message_by_id(
+                                        continuation_current_tag_message_id,
+                                        updated_msg,
+                                    )
+
+                                # Yield for streaming API
+                                yield {
+                                    "type": f"{continuation_current_tag}_stream",
+                                    "content": delta,
+                                    "complete": False,
+                                }
+
+                    # Yield answer tokens
+                    if continuation_in_answer:
+                        answer_match = re.search(
+                            r"<answer>(.*?)$",
+                            continuation_response,
+                            re.DOTALL | re.IGNORECASE,
+                        )
+                        if answer_match:
+                            new_answer = answer_match.group(1)
+                            if "<" not in token:  # Only yield if no tag boundary
+                                yield {
+                                    "type": "answer",
+                                    "content": token,
+                                    "complete": False,
+                                }
+
+                # Append continuation to main response (only if we didn't already do it when breaking for execution)
+                if not broke_for_execution:
+                    self.response += continuation_response
+
+                # Update processed_length to track what we've handled
+                processed_length = len(self.response)
+
+                # If we got an answer tag, we're done
+                if "</answer>" in continuation_response:
+                    logging.info("[run_stream] Continuation completed with answer")
+                    break
+
+                # If we hit an execute tag, continue loop to handle it
+                if "</execute>" in continuation_response:
+                    logging.info(
+                        "[run_stream] Execute tag found in continuation, looping to handle it"
+                    )
+                    continue
+
+            except Exception as e:
+                logging.error(f"Error during continuation: {e}")
+                import traceback
+
+                logging.error(traceback.format_exc())
+                break
+
+        logging.info(
+            f"[run_stream] Continuation loop ended after {continuation_count} iterations"
+        )
+
+        # Extract final answer
+        final_answer = ""
+        if "<answer>" in self.response:
+            answer_match = re.search(
+                r"<answer>(.*?)</answer>", self.response, re.DOTALL | re.IGNORECASE
+            )
+            if answer_match:
+                final_answer = answer_match.group(1).strip()
+            else:
+                # No closing tag, get everything after <answer>
+                final_answer = self.response.split("<answer>")[-1].strip()
+        else:
+            final_answer = self.response
+
+        # Clean final answer
+        final_answer = re.sub(
+            r"<thinking>.*?</thinking>",
+            "",
+            final_answer,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        final_answer = re.sub(
+            r"<reflection>.*?</reflection>",
+            "",
+            final_answer,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        final_answer = re.sub(
+            r"<execute>.*?</execute>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        final_answer = re.sub(
+            r"<output>.*?</output>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        final_answer = final_answer.strip()
+
+        # Deanonymize AGiXT server URL
+        final_answer = final_answer.replace(
+            f"http://localhost:7437/outputs/{self.agent.agent_id}", self.outputs
+        )
+        self.response = self.response.replace(
+            f"http://localhost:7437/outputs/{self.agent.agent_id}", self.outputs
+        )
+
+        # Handle TTS if enabled
+        agent_settings = self.agent.AGENT_CONFIG["settings"]
+        tts = False
+        if "tts" in kwargs:
+            tts = str(kwargs["tts"]).lower() == "true"
+        if "tts_provider" in agent_settings and tts == True:
+            if (
+                agent_settings["tts_provider"] != "None"
+                and agent_settings["tts_provider"] != ""
+                and agent_settings["tts_provider"] != None
+            ):
+                try:
+                    if thinking_id:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating audio response.",
+                        )
+                    tts_response = await self.agent.text_to_speech(text=final_answer)
+                    if str(tts_response).startswith("http"):
+                        tts_response = f'<audio controls><source src="{tts_response}" type="audio/wav"></audio>'
+                    elif not str(tts_response).startswith("<audio"):
+                        file_type = "wav"
+                        file_name = f"{uuid.uuid4().hex}.{file_type}"
+                        audio_path = os.path.join(
+                            self.agent.working_directory, file_name
+                        )
+                        audio_data = base64.b64decode(tts_response)
+                        with open(audio_path, "wb") as f:
+                            f.write(audio_data)
+                        tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{c.get_conversation_id()}/{file_name}" type="audio/wav"></audio>'
+                    final_answer = f"{final_answer}\n\n{tts_response}"
+                except Exception as e:
+                    logging.warning(f"Failed to get TTS response: {e}")
+
+        # Write to memory if enabled
+        if disable_memory != True:
+            try:
+                await self.agent_memory.write_text_to_memory(
+                    user_input=user_input,
+                    text=final_answer,
+                    external_source="user input",
+                )
+            except:
+                pass
+
+        # Handle image generation if enabled
+        if "image_provider" in agent_settings:
+            if (
+                agent_settings["image_provider"] != "None"
+                and agent_settings["image_provider"] != ""
+                and agent_settings["image_provider"] != None
+                and agent_settings["image_provider"] != "default"
+            ):
+                img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like a creative generated image to be generated by AI in their request. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
+                create_img = await self.agent.inference(prompt=img_gen_prompt)
+                create_img = str(create_img).lower()
+                to_create_image = re.search(r"\byes\b", str(create_img).lower())
+                if to_create_image:
+                    if thinking_id:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating image.",
+                        )
+                    img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {final_answer} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
+                    image_generation_prompt = await self.agent.inference(
+                        prompt=img_prompt
+                    )
+                    image_generation_prompt = str(image_generation_prompt)
+                    if "```markdown" in image_generation_prompt:
+                        image_generation_prompt = image_generation_prompt.split(
+                            "```markdown"
+                        )[1]
+                        image_generation_prompt = image_generation_prompt.split("```")[
+                            0
+                        ]
+                    try:
+                        generated_image = await self.agent.generate_image(
+                            prompt=image_generation_prompt
+                        )
+                        final_answer = f"{final_answer}\n![Image generated by {self.agent_name}]({generated_image})"
+                    except:
+                        logging.warning(
+                            f"Failed to generate image for prompt: {image_generation_prompt}"
+                        )
+
+        # Log the final output
+        if log_output and final_answer:
+            c.log_interaction(role=self.agent_name, message=final_answer)
+
+            # Emit webhook event for agent response
+            await webhook_emitter.emit_event(
+                event_type="conversation.message.sent",
+                data={
+                    "conversation_id": c.get_conversation_id(),
+                    "conversation_name": conversation_name,
+                    "agent_name": self.agent_name,
+                    "user": self.user,
+                    "message": final_answer,
+                    "role": self.agent_name,
+                    "timestamp": datetime.now().isoformat(),
+                    "prompt_tokens": tokens if "tokens" in locals() else 0,
+                },
+                user_id=self.user,
+            )
+
+            # Also emit chat completion event
+            await webhook_emitter.emit_event(
+                event_type="chat.completion.completed",
+                data={
+                    "conversation_id": c.get_conversation_id(),
+                    "conversation_name": conversation_name,
+                    "agent_name": self.agent_name,
+                    "user": self.user,
+                    "user_input": user_input,
+                    "response": final_answer,
+                    "timestamp": datetime.now().isoformat(),
+                    "prompt_tokens": tokens if "tokens" in locals() else 0,
+                },
+                user_id=self.user,
+            )
+
+        # Yield the complete answer
+        yield {"type": "answer", "content": final_answer, "complete": True}
+
     def extract_commands_from_response(self, response):
         # Extract all <execute>...</execute> blocks
         command_blocks = re.findall(r"(<execute>.*?</execute>)", response, re.DOTALL)
@@ -1424,7 +2564,9 @@ class Interactions:
                 extracted_commands.append((command_block, command_name, args))
         return extracted_commands
 
-    async def execution_agent(self, conversation_name, conversation_id=None):
+    async def execution_agent(
+        self, conversation_name, conversation_id=None, thinking_id=None
+    ):
         c = Conversations(
             conversation_name=conversation_name,
             user=self.user,
@@ -1436,7 +2578,9 @@ class Interactions:
             if available_command["enabled"] == True
         ]
         logging.info(f"Agent command list: {command_list}")
-        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        # Use provided thinking_id if available, otherwise get a new one
+        if not thinking_id:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
         # Extract commands from the response
         commands_to_execute = self.extract_commands_from_response(self.response)
         logging.debug(f"Commands to execute: {commands_to_execute}")

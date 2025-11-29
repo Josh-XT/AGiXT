@@ -1,6 +1,5 @@
 import logging
 import jwt
-from agixtsdk import AGiXTSDK
 from fastapi import Header, HTTPException
 from Globals import getenv
 from datetime import datetime, timedelta
@@ -38,7 +37,6 @@ def verify_api_key(authorization: str = Header(None)):
         if authorization == AGIXT_API_KEY:
             return DEFAULT_USER
         if authorization != AGIXT_API_KEY:
-            logging.info(f"Invalid API Key: {authorization}")
             raise HTTPException(status_code=401, detail="Invalid API Key")
     if AGIXT_API_KEY:
         if authorization is None:
@@ -60,19 +58,31 @@ def verify_api_key(authorization: str = Header(None)):
                 return token["email"]
             except Exception as e:
                 if authorization != AGIXT_API_KEY:
-                    logging.info(f"Invalid API Key: {authorization}")
                     raise HTTPException(status_code=401, detail="Invalid API Key")
                 return DEFAULT_USER
         if authorization != AGIXT_API_KEY:
-            logging.info(f"Invalid API Key: {authorization}")
             raise HTTPException(status_code=401, detail="Invalid API Key")
     else:
         return DEFAULT_USER
 
 
 def get_api_client(authorization: str = Header(None)):
+    """
+    Get an internal API client for backend-to-backend calls.
+
+    This returns an InternalClient that implements the same interface as AGiXTSDK
+    but calls internal methods directly without HTTP round-trips.
+
+    Args:
+        authorization: The API key/JWT token from the request header
+
+    Returns:
+        InternalClient: A client that can be used like AGiXTSDK but without HTTP overhead
+    """
+    from InternalClient import InternalClient
+
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
-    return AGiXTSDK(base_uri="http://localhost:7437", api_key=authorization)
+    return InternalClient(api_key=authorization)
 
 
 def is_admin(email: str = "USER", api_key: str = None):

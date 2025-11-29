@@ -216,6 +216,7 @@ class Chain:
         chain = ChainDB(name=chain_name, user_id=self.user_id, description=description)
         session.add(chain)
         session.commit()
+        chain_id = str(chain.id)
 
         # Emit webhook event
         asyncio.create_task(
@@ -223,7 +224,7 @@ class Chain:
                 event_type="chain.created",
                 user_id=self.user,
                 data={
-                    "chain_id": str(chain.id),
+                    "chain_id": chain_id,
                     "chain_name": chain_name,
                     "description": description,
                 },
@@ -231,6 +232,7 @@ class Chain:
         )
 
         session.close()
+        return chain_id
 
     def rename_chain(self, chain_name, new_name):
         session = get_session()
@@ -401,9 +403,6 @@ class Chain:
             logging.error(
                 f"Target {prompt[argument_key]} not found. Using default prompt."
             )
-            logging.info(f"Prompt: {prompt}")
-            logging.info(f"Prompt Type: {prompt_type}")
-            logging.info(f"Argument Key: {argument_key}")
         else:
             target_id = target.id
         argument_value = prompt[argument_key]
@@ -688,16 +687,6 @@ class Chain:
                     synchronize_session=False,
                 )
                 session.commit()
-
-                logging.info(
-                    f"Deleted step {deleted_step_number} from chain '{chain_name}' and reordered remaining steps"
-                )
-            else:
-                logging.info(
-                    f"No step found with number {step_number} in chain '{chain_name}'"
-                )
-        else:
-            logging.info(f"No chain found with name '{chain_name}'")
         session.close()
 
     def delete_chain(self, chain_name):
@@ -1266,7 +1255,6 @@ class Chain:
             "helper_agent_name",
         ]
         chain_data = self.get_chain(chain_name=chain_name)
-        logging.info(f"Chain Data: {chain_data}")
         try:
             steps = chain_data["steps"]
         except:
@@ -1525,15 +1513,16 @@ class Chain:
 
         chain_args = []
         for step in steps:
-            # Get step arguments
+            # Get step arguments with joined Argument to get the name
             step_args = (
-                session.query(ChainStepArgument)
+                session.query(ChainStepArgument, Argument)
+                .join(Argument, ChainStepArgument.argument_id == Argument.id)
                 .filter(ChainStepArgument.chain_step_id == step.id)
                 .all()
             )
-            for arg in step_args:
-                if arg.argument_name not in chain_args:
-                    chain_args.append(arg.argument_name)
+            for step_arg, arg in step_args:
+                if arg.name not in chain_args:
+                    chain_args.append(arg.name)
 
         session.close()
         return chain_args

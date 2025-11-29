@@ -9,8 +9,8 @@ from pydantic import BaseModel
 from typing import List, Literal, Union
 from fastapi import HTTPException
 from Extensions import Extensions
-from agixtsdk import AGiXTSDK, get_tokens
-from Globals import getenv
+from InternalClient import InternalClient
+from Globals import getenv, get_tokens
 from dataclasses import dataclass
 import logging
 
@@ -295,8 +295,7 @@ class github(Extensions):
         self.ApiClient = (
             kwargs["ApiClient"]
             if "ApiClient" in kwargs
-            else AGiXTSDK(
-                base_uri=getenv("AGIXT_URI"),
+            else InternalClient(
                 api_key=kwargs["api_key"] if "api_key" in kwargs else "",
             )
         )

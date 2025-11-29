@@ -1,5 +1,5 @@
 from Extensions import Extensions
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 
 
 class google_search(Extensions):
@@ -20,7 +20,9 @@ class google_search(Extensions):
         }
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
-        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else AGiXTSDK()
+        self.ApiClient = (
+            kwargs["ApiClient"] if "ApiClient" in kwargs else InternalClient()
+        )
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
