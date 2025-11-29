@@ -755,8 +755,6 @@ class Extensions:
 
                 # Handle list/tuple conversion (basic JSON-like strings)
                 elif actual_type in (list, tuple):
-                    import json
-
                     try:
                         result = json.loads(value)
                         return (
@@ -772,8 +770,6 @@ class Extensions:
 
                 # Handle dict conversion
                 elif actual_type == dict:
-                    import json
-
                     return json.loads(value)
 
             except (ValueError, TypeError, json.JSONDecodeError) as e:
