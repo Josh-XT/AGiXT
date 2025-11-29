@@ -49,7 +49,12 @@ class AnthropicProvider:
         return ["llm", "vision"]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         if (
             self.ANTHROPIC_API_KEY == ""
@@ -105,12 +110,21 @@ class AnthropicProvider:
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
-            response = c.messages.create(
-                messages=messages,
-                model=self.AI_MODEL,
-                max_tokens=4096,
-            )
-            return response.content[0].text
+            if stream:
+                # Use streaming API - return stream object directly
+                stream_response = c.messages.stream(
+                    messages=messages,
+                    model=self.AI_MODEL,
+                    max_tokens=4096,
+                )
+                return stream_response
+            else:
+                response = c.messages.create(
+                    messages=messages,
+                    model=self.AI_MODEL,
+                    max_tokens=4096,
+                )
+                return response.content[0].text
         except Exception as e:
             logging.info(f"[CLAUDE PROVIDER] Error: {e}")
             self.failures += 1
@@ -122,4 +136,6 @@ class AnthropicProvider:
                 # If we hit an error, it is almost always because we exceeded this by sending 2 or more prompts in a row exceeding 80k.
                 # To get around it, we sleep for 61 seconds.
                 time.sleep(61)
-                return await self.inference(prompt=prompt, tokens=tokens, images=images)
+                return await self.inference(
+                    prompt=prompt, tokens=tokens, images=images, stream=stream
+                )

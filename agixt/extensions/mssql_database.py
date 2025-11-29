@@ -113,7 +113,7 @@ class mssql_database(Extensions):
             logging.error(f"Error executing SQL Query: {str(e)}")
             # Reformat the query if it is invalid
             new_query = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
+                agent_id=self.agent_id,
                 prompt_name="Validate MSSQL",
                 prompt_args={
                     "database_type": "MSSQL",
@@ -228,7 +228,7 @@ class mssql_database(Extensions):
         # Get datetime down to the second
         date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         sql_query = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
+            agent_id=self.agent_id,
             prompt_name="Think About It",
             prompt_args={
                 "user_input": f"""### Task

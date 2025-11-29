@@ -7,7 +7,7 @@ import logging
 import inspect
 from Globals import getenv, DEFAULT_USER
 from MagicalAuth import get_user_id, get_sso_credentials
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 from Prompts import Prompts
 from DB import (
     get_session,
@@ -111,9 +111,7 @@ class Extensions:
         self.conversation_id = conversation_id
         self.agent_id = agent_id
         self.ApiClient = (
-            ApiClient
-            if ApiClient
-            else AGiXTSDK(base_uri=getenv("API_URL"), api_key=api_key)
+            ApiClient if ApiClient else InternalClient(api_key=api_key, user=user)
         )
         self.api_key = api_key
         self.user = user
@@ -757,8 +755,6 @@ class Extensions:
 
                 # Handle list/tuple conversion (basic JSON-like strings)
                 elif actual_type in (list, tuple):
-                    import json
-
                     try:
                         result = json.loads(value)
                         return (
@@ -774,8 +770,6 @@ class Extensions:
 
                 # Handle dict conversion
                 elif actual_type == dict:
-                    import json
-
                     return json.loads(value)
 
             except (ValueError, TypeError, json.JSONDecodeError) as e:

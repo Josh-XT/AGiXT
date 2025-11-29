@@ -387,6 +387,13 @@ class PromptCategoryList(BaseModel):
 class CustomPromptModel(BaseModel):
     prompt_name: str
     prompt: str
+    prompt_category: Optional[str] = "Default"
+
+
+class UpdatePromptModel(BaseModel):
+    prompt_name: Optional[str] = None
+    prompt: str
+    prompt_category: Optional[str] = None
 
 
 class ChainNewName(BaseModel):
@@ -529,6 +536,11 @@ class ResponseMessage(BaseModel):
     message: str
 
 
+class PromptResponse(BaseModel):
+    message: str
+    id: Optional[str] = None
+
+
 class ConversationHistoryMessageModel(BaseModel):
     agent_name: Optional[str] = ""
     conversation_name: str
@@ -577,6 +589,12 @@ class AgentCommands(BaseModel):
     commands: Dict[str, Any]
 
 
+class AgentCommandsV1(BaseModel):
+    """Commands model for v1 endpoints where agent_id is in the URL path."""
+
+    commands: Dict[str, Any]
+
+
 class TaskOutput(BaseModel):
     output: str
     message: Optional[str] = None
@@ -610,6 +628,12 @@ class EmbedderResponse(BaseModel):
 
 class AgentResponse(BaseModel):
     message: str
+    id: Optional[str] = None
+
+
+class ChainResponse(BaseModel):
+    message: str
+    id: Optional[str] = None
 
 
 class AgentListResponse(BaseModel):

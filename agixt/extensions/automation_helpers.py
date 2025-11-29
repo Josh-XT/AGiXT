@@ -8,7 +8,7 @@ from typing import Type
 from pydantic import BaseModel
 from Extensions import Extensions
 import logging
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 from Globals import getenv
 
 
@@ -49,9 +49,9 @@ class automation_helpers(Extensions):
         self.ApiClient = (
             kwargs["ApiClient"]
             if "ApiClient" in kwargs
-            else AGiXTSDK(
-                base_uri=getenv("AGIXT_URI"),
+            else InternalClient(
                 api_key=kwargs["api_key"] if "api_key" in kwargs else "",
+                user=kwargs.get("user"),
             )
         )
         self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
@@ -253,7 +253,7 @@ class automation_helpers(Extensions):
         field_descriptions = [f"{field}: {fields[field]}" for field in fields]
         schema = "\n".join(field_descriptions)
         response = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
+            agent_id=self.agent_id,
             prompt_name="Convert to JSON",
             prompt_args={
                 "user_input": input_string,
@@ -476,7 +476,7 @@ class automation_helpers(Extensions):
 ```
 """
             response = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
+                agent_id=self.agent_id,
                 prompt_name="Think About It",
                 prompt_args={
                     "user_input": f"{rules}\nUsing context from the web search, please provide the base URI of the API for: {extension_name}.",

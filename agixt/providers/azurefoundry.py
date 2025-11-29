@@ -48,7 +48,12 @@ class AzurefoundryProvider:
         return ["llm", "vision"]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         if (
             self.AZUREFOUNDRY_API_KEY == ""
@@ -110,16 +115,30 @@ class AzurefoundryProvider:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
 
         try:
-            response = client.complete(
-                messages=messages,
-                model=self.AI_MODEL,
-                max_tokens=min(int(self.MAX_TOKENS), 4096),
-                temperature=float(self.AI_TEMPERATURE),
-                top_p=float(self.AI_TOP_P),
-                presence_penalty=0.0,
-                frequency_penalty=0.0,
-            )
-            return response.choices[0].message.content
+            if stream:
+                # Use streaming API - return stream directly
+                response = client.complete(
+                    messages=messages,
+                    model=self.AI_MODEL,
+                    max_tokens=min(int(self.MAX_TOKENS), 4096),
+                    temperature=float(self.AI_TEMPERATURE),
+                    top_p=float(self.AI_TOP_P),
+                    presence_penalty=0.0,
+                    frequency_penalty=0.0,
+                    stream=True,
+                )
+                return response
+            else:
+                response = client.complete(
+                    messages=messages,
+                    model=self.AI_MODEL,
+                    max_tokens=min(int(self.MAX_TOKENS), 4096),
+                    temperature=float(self.AI_TEMPERATURE),
+                    top_p=float(self.AI_TOP_P),
+                    presence_penalty=0.0,
+                    frequency_penalty=0.0,
+                )
+                return response.choices[0].message.content
         except Exception as e:
             logging.warning(f"Azure AI Inference API Error: {e}")
             self.failures += 1
@@ -127,5 +146,7 @@ class AzurefoundryProvider:
                 raise Exception(f"Azure AI Inference API Error: Too many failures. {e}")
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
-                return await self.inference(prompt=prompt, tokens=tokens, images=images)
+                return await self.inference(
+                    prompt=prompt, tokens=tokens, images=images, stream=stream
+                )
             return f"Error: {e}"

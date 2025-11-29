@@ -16,7 +16,7 @@ from Memories import Memories
 from datetime import datetime
 from googleapiclient.discovery import build
 from MagicalAuth import MagicalAuth
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -32,7 +32,7 @@ async def search_the_web(
 ):
     auth = MagicalAuth(token=token)
     user = auth.email
-    ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_API"), api_key=token)
+    ApiClient = InternalClient(api_key=token, user=user)
     c = Conversations(conversation_name=conversation_name, user=user)
     conversaton_id = c.get_conversation_id()
     websearch = Websearch(
@@ -123,7 +123,7 @@ class Websearch:
             max_tokens = 8000
         if get_tokens(text=content) < int(max_tokens):
             return self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
+                agent_id=self.agent.agent_id,
                 prompt_name="Web Summary",
                 prompt_args={
                     "user_input": content,
@@ -144,7 +144,7 @@ class Websearch:
         for chunk in chunks:
             new_content.append(
                 self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
+                    agent_id=self.agent.agent_id,
                     prompt_name="Web Summary",
                     prompt_args={
                         "user_input": chunk,
@@ -287,7 +287,7 @@ class Websearch:
                             )
                         try:
                             pick_a_link = self.ApiClient.prompt_agent(
-                                agent_name=self.agent_name,
+                                agent_id=self.agent.agent_id,
                                 prompt_name="Pick-a-Link",
                                 prompt_args={
                                     "url": url,

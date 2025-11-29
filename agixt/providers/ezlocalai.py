@@ -105,9 +105,17 @@ class EzlocalaiProvider:
         if use_smartest:
             self.AI_MODEL = self.EZLOCALAI_CODING_MODEL
         max_tokens = int(self.MAX_TOKENS) if tokens == 0 else tokens
-        openai.base_url = self.API_URI
-        openai.api_key = self.EZLOCALAI_API_KEY
-        openai.api_type = "openai"
+
+        import httpx
+        from openai import OpenAI
+
+        # Use a dummy API key if none is set to avoid "Illegal header value b'Bearer '" error
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        client = OpenAI(
+            base_url=self.API_URI,
+            api_key=api_key,
+            timeout=httpx.Timeout(300.0, read=300.0, write=30.0, connect=10.0),
+        )
         messages = []
         if len(images) > 0:
             messages.append(
@@ -138,7 +146,7 @@ class EzlocalaiProvider:
         else:
             messages.append({"role": "user", "content": prompt})
         try:
-            response = openai.chat.completions.create(
+            response = client.chat.completions.create(
                 model=self.AI_MODEL,
                 messages=messages,
                 max_tokens=int(max_tokens),
@@ -149,7 +157,8 @@ class EzlocalaiProvider:
             )
 
             if stream:
-                # Return the stream object for the caller to handle
+                # Return the raw OpenAI Stream - AGiXT's iterate_stream helper
+                # will wrap it in a thread to consume it safely without blocking
                 return response
             else:
                 if not isinstance(response, str):

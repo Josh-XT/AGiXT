@@ -708,7 +708,7 @@ class Memories:
         for chunk in chunks:
             # Prompt the agent asking to summarize the information in the chunk.
             response = await self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
+                agent_id=self.agent_id,
                 prompt_name="Summarize Content",
                 prompt_args={"user_input": chunk},
             )
