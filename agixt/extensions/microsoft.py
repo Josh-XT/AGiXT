@@ -57,8 +57,6 @@ class MicrosoftSSO:
         self.user_info = self.get_user_info()
 
     def get_new_token(self):
-        logging.info("Attempting to refresh Microsoft access token...")
-
         response = requests.post(
             "https://login.microsoftonline.com/common/oauth2/v2.0/token",
             data={
@@ -70,20 +68,15 @@ class MicrosoftSSO:
             },
         )
 
-        logging.info(f"Token refresh response status: {response.status_code}")
-
         if response.status_code != 200:
             logging.error(f"Token refresh failed with response: {response.text}")
             raise Exception(f"Microsoft token refresh failed: {response.text}")
 
         token_data = response.json()
-        logging.info(f"Token refresh response keys: {list(token_data.keys())}")
 
         # Update our access token for immediate use
         if "access_token" in token_data:
             new_token = token_data["access_token"]
-            logging.info(f"New token length: {len(new_token)}")
-            logging.info(f"New token parts: {len(new_token.split('.'))}")
             self.access_token = new_token
         else:
             logging.error("No access_token in refresh response")
@@ -93,14 +86,7 @@ class MicrosoftSSO:
     def get_user_info(self):
         uri = "https://graph.microsoft.com/v1.0/me"
 
-        # Debug: log token information (safely)
-        if self.access_token:
-            token_parts = str(self.access_token).split(".")
-            logging.info(f"Token has {len(token_parts)} parts (should be 3 for JWT)")
-            logging.info(f"Token length: {len(self.access_token)}")
-            logging.info(f"Token starts with: {self.access_token[:50]}...")
-            logging.info(f"Token ends with: ...{self.access_token[-50:]}")
-        else:
+        if not self.access_token:
             logging.error("No access token available")
 
         response = requests.get(
@@ -108,12 +94,7 @@ class MicrosoftSSO:
             headers={"Authorization": f"Bearer {self.access_token}"},
         )
 
-        # Log response details
-        logging.info(f"User info request status: {response.status_code}")
-        logging.info(f"User info response headers: {dict(response.headers)}")
-
         if response.status_code == 401:
-            logging.info("Token expired, attempting to refresh...")
             self.access_token = self.get_new_token()
             response = requests.get(
                 uri,
@@ -126,9 +107,6 @@ class MicrosoftSSO:
             last_name = data.get("surname", "") or ""
             email = data.get("mail") or data.get("userPrincipalName", "")
 
-            # Log the response for debugging
-            logging.info(f"Microsoft user info response: {data}")
-
             return {
                 "email": email,
                 "first_name": first_name,
@@ -136,8 +114,6 @@ class MicrosoftSSO:
             }
         except Exception as e:
             logging.error(f"Error parsing Microsoft user info: {str(e)}")
-            logging.error(f"Response status: {response.status_code}")
-            logging.error(f"Response content: {response.text}")
             raise HTTPException(
                 status_code=400,
                 detail="Error getting user info from Microsoft",
@@ -493,10 +469,8 @@ class microsoft(Extensions):
         if self.auth:
             self.access_token = self.auth.refresh_oauth_token(provider="microsoft")
 
-        logging.info(f"Verifying user with token: {self.access_token}")
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
-        logging.info(f"User verification response: {response.text}")
         if response.status_code != 200:
             raise Exception(
                 f"User not found or invalid token. Status: {response.status_code}, "
@@ -1133,8 +1107,6 @@ class microsoft(Extensions):
             else:
                 end_str = end_date.isoformat()
 
-            logging.info(f"Fetching calendar items from {start_str} to {end_str}")
-
             # First check if we can access the calendar at all
             try:
                 cal_check = requests.get(
@@ -1143,39 +1115,6 @@ class microsoft(Extensions):
                 if cal_check.status_code != 200:
                     logging.error(f"Calendar access error: {cal_check.text}")
                     return []
-                else:
-                    logging.info("Calendar access verified successfully")
-
-                    # Quick test - can we get ANY events at all?
-                    test_url = "https://graph.microsoft.com/v1.0/me/events?$top=3"
-                    test_response = requests.get(test_url, headers=headers)
-                    logging.info(
-                        f"Quick events test status: {test_response.status_code}"
-                    )
-
-                    if test_response.status_code == 200:
-                        test_data = test_response.json()
-                        total_events = len(test_data.get("value", []))
-                        logging.info(
-                            f"Quick test found {total_events} total events in calendar"
-                        )
-
-                        if total_events > 0:
-                            logging.info("Sample events from quick test:")
-                            for i, event in enumerate(test_data["value"]):
-                                start_time = event.get("start", {}).get(
-                                    "dateTime", "Unknown"
-                                )
-                                subject = event.get("subject", "No subject")
-                                logging.info(
-                                    f"  Event {i+1}: '{subject}' at {start_time}"
-                                )
-                        else:
-                            logging.warning(
-                                "Quick test shows user has NO events in calendar at all"
-                            )
-                    else:
-                        logging.error(f"Quick events test failed: {test_response.text}")
             except Exception as cal_err:
                 logging.error(f"Error checking calendar access: {str(cal_err)}")
                 return []
@@ -1188,156 +1127,45 @@ class microsoft(Extensions):
                 f"$top={max_items}&$orderby=start/dateTime"
             )
 
-            logging.info(f"Making request to: {url}")
             response = requests.get(url, headers=headers)
-            logging.info(f"Response status: {response.status_code}")
-
-            # Log the full response for debugging
-            if response.status_code == 200:
-                response_data = response.json()
-                logging.info(f"Full response: {response_data}")
-            else:
-                logging.error(f"Error response: {response.text}")
 
             if response.status_code != 200:
                 error_response = response.text
                 logging.error(f"Calendar API error: {error_response}")
 
-                # Try multiple alternative approaches
-                logging.info("Trying alternative approaches...")
-
-                # Approach 1: Simple events endpoint without date filters
+                # Try alternative: Simple events endpoint without date filters
                 alt_url1 = (
                     f"https://graph.microsoft.com/v1.0/me/events?$top={max_items}"
                 )
-                logging.info(f"Trying simple events endpoint: {alt_url1}")
                 alt_response1 = requests.get(alt_url1, headers=headers)
-                logging.info(
-                    f"Simple events response status: {alt_response1.status_code}"
-                )
 
                 if alt_response1.status_code == 200:
                     alt_data1 = alt_response1.json()
-                    logging.info(
-                        f"Simple events found {len(alt_data1.get('value', []))} events"
-                    )
                     if alt_data1.get("value"):
                         response = alt_response1
-                        logging.info("Using simple events endpoint results")
-                    else:
-                        logging.info(
-                            "Simple events endpoint returned empty results too"
-                        )
 
-                # Approach 2: Different calendar view format
+                # Try alternative: Different calendar view format
                 if response.status_code != 200:
                     alt_url2 = f"https://graph.microsoft.com/v1.0/me/calendar/calendarView?startDateTime={start_str}&endDateTime={end_str}&$top={max_items}"
-                    logging.info(
-                        f"Trying calendar view with /calendar/ path: {alt_url2}"
-                    )
                     alt_response2 = requests.get(alt_url2, headers=headers)
-                    logging.info(
-                        f"Calendar view alt response status: {alt_response2.status_code}"
-                    )
 
                     if alt_response2.status_code == 200:
                         response = alt_response2
-                        logging.info("Using calendar view alternative")
                     else:
                         logging.error(f"Calendar view alt failed: {alt_response2.text}")
 
                 # If still no success, return empty
                 if response.status_code != 200:
-                    logging.error("All endpoints failed")
                     return []
 
             data = response.json()
-            logging.info(
-                f"Response data keys: {list(data.keys()) if data else 'No data'}"
-            )
 
             if not data.get("value"):
-                logging.warning("No calendar events found in the specified date range")
-                logging.info(f"Full response: {data}")
+                return []
 
-                # Let's do some diagnostics - check if user has ANY events at all
-                logging.info("Running diagnostics to check for any events...")
-
-                # Try to get any events from a much broader range (last 30 days to next 30 days)
-                diag_start = (datetime.now() - timedelta(days=30)).isoformat() + "Z"
-                diag_end = (datetime.now() + timedelta(days=30)).isoformat() + "Z"
-
-                diag_url = f"https://graph.microsoft.com/v1.0/me/events?$top=5"
-                diag_response = requests.get(diag_url, headers=headers)
-
-                if diag_response.status_code == 200:
-                    diag_data = diag_response.json()
-                    logging.info(
-                        f"Diagnostic check found {len(diag_data.get('value', []))} total events"
-                    )
-                    if diag_data.get("value"):
-                        logging.info("Sample events found:")
-                        for i, event in enumerate(diag_data["value"][:3]):
-                            logging.info(
-                                f"  Event {i+1}: {event.get('subject', 'No subject')} - {event.get('start', {}).get('dateTime', 'No start time')}"
-                            )
-                    else:
-                        logging.info(
-                            "No events found in diagnostic check either - user may have empty calendar"
-                        )
-                else:
-                    logging.error(f"Diagnostic check failed: {diag_response.text}")
-
-                # Also try checking all calendars (not just default)
-                logging.info("Checking all user calendars...")
-                calendars_url = "https://graph.microsoft.com/v1.0/me/calendars"
-                cal_response = requests.get(calendars_url, headers=headers)
-
-                if cal_response.status_code == 200:
-                    cal_data = cal_response.json()
-                    logging.info(f"Found {len(cal_data.get('value', []))} calendars")
-                    for i, calendar in enumerate(cal_data.get("value", [])):
-                        cal_name = calendar.get("name", "Unknown")
-                        cal_id = calendar.get("id", "Unknown")
-                        logging.info(f"  Calendar {i+1}: {cal_name} (ID: {cal_id})")
-
-                        # Try to get events from each calendar
-                        cal_events_url = f"https://graph.microsoft.com/v1.0/me/calendars/{cal_id}/calendarView?startDateTime={start_str}&endDateTime={end_str}&$top=5"
-                        cal_events_response = requests.get(
-                            cal_events_url, headers=headers
-                        )
-
-                        if cal_events_response.status_code == 200:
-                            cal_events_data = cal_events_response.json()
-                            event_count = len(cal_events_data.get("value", []))
-                            logging.info(
-                                f"    Found {event_count} events in calendar '{cal_name}' for the specified date range"
-                            )
-                            if event_count > 0:
-                                # If we found events in a specific calendar, let's return them
-                                logging.info(
-                                    f"Found events in calendar '{cal_name}', processing them..."
-                                )
-                                data = cal_events_data
-                                break
-                        else:
-                            logging.error(
-                                f"    Failed to get events from calendar '{cal_name}': {cal_events_response.text}"
-                            )
-                else:
-                    logging.error(f"Failed to get calendars list: {cal_response.text}")
-
-                # If we still don't have data after checking all calendars, return empty
-                if not data.get("value"):
-                    return []
-
-            logging.info(f"Found {len(data['value'])} calendar events")
             events = []
             for i, event in enumerate(data["value"]):
                 try:
-                    logging.info(
-                        f"Processing event {i+1}: {event.get('subject', 'No subject')}"
-                    )
                     # Extract and format the event details
                     event_dict = {
                         "id": event["id"],
@@ -1359,21 +1187,15 @@ class microsoft(Extensions):
                     events.append(event_dict)
                 except KeyError as ke:
                     logging.error(f"Key error processing event {i+1}: {ke}")
-                    logging.error(f"Event data: {event}")
                     continue  # Skip this event but continue with others
                 except Exception as event_err:
                     logging.error(f"Error processing event {i+1}: {str(event_err)}")
-                    logging.error(f"Event data: {event}")
                     continue
 
-            logging.info(f"Successfully processed {len(events)} calendar events")
             return events
 
         except Exception as e:
             logging.error(f"Error retrieving calendar items: {str(e)}")
-            import traceback
-
-            logging.error(f"Traceback: {traceback.format_exc()}")
             return []
 
     async def microsoft_get_available_timeslots(
@@ -1411,8 +1233,6 @@ class microsoft(Extensions):
             if isinstance(start_date, str):
                 start_date = self._parse_datetime(start_date)
 
-            logging.info(f"Finding available time slots starting from {start_date}")
-
             # Calculate end date
             end_date = start_date + timedelta(days=num_days)
 
@@ -1422,12 +1242,6 @@ class microsoft(Extensions):
                 end_date=end_date,
                 max_items=100,  # Increased to handle busy calendars
             )
-
-            logging.info(f"Found {len(existing_events)} existing events")
-
-            # If we couldn't get any events, log a warning but continue
-            if not existing_events and isinstance(existing_events, list):
-                logging.warning("No existing events found - assuming empty calendar")
 
             available_slots = []
             current_date = start_date
