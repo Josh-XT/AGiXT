@@ -1418,6 +1418,7 @@ class Interactions:
         complexity_score=None,
         use_smartest: bool = False,
         thinking_id: str = None,
+        searching: bool = False,
         **kwargs,
     ):
         """
@@ -1459,13 +1460,62 @@ class Interactions:
             )
             del kwargs["disable_memory"]
 
-        # Remove websearch from kwargs if present (we have it as explicit param)
+        # Handle browse_links from kwargs or agent settings
+        browse_links = True if str(browse_links).lower() == "true" else False
+        if "browse_links" in kwargs:
+            browse_links = (
+                True if str(kwargs["browse_links"]).lower() == "true" else False
+            )
+            del kwargs["browse_links"]
+
+        # Handle websearch from kwargs
+        websearch = True if str(websearch).lower() == "true" else False
         if "websearch" in kwargs:
+            websearch = True if str(kwargs["websearch"]).lower() == "true" else False
             del kwargs["websearch"]
 
-        # Remove browse_links from kwargs if present (we have it as explicit param)
-        if "browse_links" in kwargs:
-            del kwargs["browse_links"]
+        # Handle collection_number - reinitialize websearch with specific collection
+        if "collection_number" in kwargs:
+            collection_number = str(kwargs["collection_number"])
+            self.websearch = Websearch(
+                collection_number=collection_number,
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
+            )
+            del kwargs["collection_number"]
+
+        # Get websearch settings from agent config
+        websearch_depth = 3
+        if "websearch" in self.agent.AGENT_CONFIG["settings"]:
+            if not websearch:  # Only override if not explicitly set
+                websearch = (
+                    str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower()
+                    == "true"
+                )
+        if "websearch_depth" in self.agent.AGENT_CONFIG["settings"]:
+            websearch_depth = int(
+                self.agent.AGENT_CONFIG["settings"]["websearch_depth"]
+            )
+        if "browse_links" in self.agent.AGENT_CONFIG["settings"]:
+            if not browse_links:  # Only override if not explicitly set
+                browse_links = (
+                    str(self.agent.AGENT_CONFIG["settings"]["browse_links"]).lower()
+                    == "true"
+                )
+        if "websearch_depth" in kwargs:
+            try:
+                websearch_depth = int(kwargs["websearch_depth"])
+            except:
+                websearch_depth = 3
+            del kwargs["websearch_depth"]
+        if "WEBSEARCH_TIMEOUT" in kwargs:
+            try:
+                websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
+            except:
+                websearch_timeout = 0
+        else:
+            websearch_timeout = 0
 
         conversation_results = 5
         if "conversation_results" in kwargs:
@@ -1512,6 +1562,108 @@ class Interactions:
                     )
                     logging.error(f"Error getting vision response: {e}")
 
+        # Handle browse_links and websearch async tasks
+        async_tasks = []
+        if browse_links != False and websearch == False and searching == False:
+            task = asyncio.create_task(
+                self.websearch.scrape_websites(
+                    user_input=user_input,
+                    summarize_content=False,
+                    conversation_name=conversation_name,
+                )
+            )
+            async_tasks.append(task)
+
+        if websearch and searching == False:
+            if browse_links != False:
+                task = asyncio.create_task(
+                    self.websearch.scrape_websites(
+                        user_input=user_input,
+                        summarize_content=False,
+                        conversation_name=conversation_name,
+                    )
+                )
+                async_tasks.append(task)
+            if user_input == "":
+                if "primary_objective" in kwargs and "task" in kwargs:
+                    user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
+            if user_input != "":
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                searching_activity_id = c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{thinking_id}] Searching for information.",
+                )
+                to_search_or_not_to_search = await self.run(
+                    prompt_name="WebSearch Decision",
+                    prompt_category="Default",
+                    user_input=user_input,
+                    context_results=context_results,
+                    conversation_results=4,
+                    conversation_name=conversation_name,
+                    log_user_input=False,
+                    log_output=False,
+                    browse_links=False,
+                    websearch=False,
+                    tts=False,
+                    searching=True,
+                )
+                to_search = re.search(
+                    r"\byes\b", str(to_search_or_not_to_search).lower()
+                )
+                if to_search:
+                    search_strings = await self.run(
+                        prompt_name="WebSearch",
+                        prompt_category="Default",
+                        user_input=user_input,
+                        context_results=context_results,
+                        conversation_results=10,
+                        conversation_name=conversation_name,
+                        log_user_input=False,
+                        log_output=False,
+                        browse_links=False,
+                        websearch=False,
+                        tts=False,
+                        searching=True,
+                    )
+                    if "```json" in search_strings:
+                        search_strings = (
+                            search_strings.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in search_strings:
+                        search_strings = search_strings.split("```")[1].strip()
+                    try:
+                        search_suggestions = json.loads(search_strings)
+                    except:
+                        keywords = extract_keywords(text=str(search_strings), limit=5)
+                        if keywords:
+                            search_string = " ".join(keywords)
+                            search_string += f" {datetime.now().strftime('%B %Y')}"
+                        search_suggestions = [
+                            {"search_string_suggestion_1": search_string}
+                        ]
+                    search_strings = []
+                    if search_suggestions != []:
+                        for i in range(1, int(websearch_depth) + 1):
+                            if f"search_string_suggestion_{i}" in search_suggestions:
+                                search_string = search_suggestions[
+                                    f"search_string_suggestion_{i}"
+                                ]
+                                search_strings.append(search_string)
+                                search_task = asyncio.create_task(
+                                    self.websearch.websearch_agent(
+                                        user_input=user_input,
+                                        search_string=search_string,
+                                        websearch_depth=websearch_depth,
+                                        websearch_timeout=websearch_timeout,
+                                        conversation_name=conversation_name,
+                                        activity_id=searching_activity_id,
+                                    )
+                                )
+                                async_tasks.append(search_task)
+
+        # Wait for all async tasks to complete before formatting prompt
+        await asyncio.gather(*async_tasks)
+
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -1535,6 +1687,20 @@ class Interactions:
         log_message = user_input if user_input != "" else formatted_prompt
         if log_user_input:
             c.log_interaction(role="USER", message=log_message)
+            # Emit webhook event for user message
+            await webhook_emitter.emit_event(
+                event_type="conversation.message.received",
+                data={
+                    "conversation_id": c.get_conversation_id(),
+                    "conversation_name": conversation_name,
+                    "agent_name": self.agent_name,
+                    "user": self.user,
+                    "message": log_message,
+                    "role": "USER",
+                    "timestamp": datetime.now().isoformat(),
+                },
+                user_id=self.user,
+            )
 
         # Inject planning phase if needed
         if complexity_score and complexity_score.planning_required:
@@ -2239,9 +2405,134 @@ Analyze the actual output shown and continue with your response.
         )
         final_answer = final_answer.strip()
 
+        # Deanonymize AGiXT server URL
+        final_answer = final_answer.replace(
+            f"http://localhost:7437/outputs/{self.agent.agent_id}", self.outputs
+        )
+        self.response = self.response.replace(
+            f"http://localhost:7437/outputs/{self.agent.agent_id}", self.outputs
+        )
+
+        # Handle TTS if enabled
+        agent_settings = self.agent.AGENT_CONFIG["settings"]
+        tts = False
+        if "tts" in kwargs:
+            tts = str(kwargs["tts"]).lower() == "true"
+        if "tts_provider" in agent_settings and tts == True:
+            if (
+                agent_settings["tts_provider"] != "None"
+                and agent_settings["tts_provider"] != ""
+                and agent_settings["tts_provider"] != None
+            ):
+                try:
+                    if thinking_id:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating audio response.",
+                        )
+                    tts_response = await self.agent.text_to_speech(text=final_answer)
+                    if str(tts_response).startswith("http"):
+                        tts_response = f'<audio controls><source src="{tts_response}" type="audio/wav"></audio>'
+                    elif not str(tts_response).startswith("<audio"):
+                        file_type = "wav"
+                        file_name = f"{uuid.uuid4().hex}.{file_type}"
+                        audio_path = os.path.join(
+                            self.agent.working_directory, file_name
+                        )
+                        audio_data = base64.b64decode(tts_response)
+                        with open(audio_path, "wb") as f:
+                            f.write(audio_data)
+                        tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{c.get_conversation_id()}/{file_name}" type="audio/wav"></audio>'
+                    final_answer = f"{final_answer}\n\n{tts_response}"
+                except Exception as e:
+                    logging.warning(f"Failed to get TTS response: {e}")
+
+        # Write to memory if enabled
+        if disable_memory != True:
+            try:
+                await self.agent_memory.write_text_to_memory(
+                    user_input=user_input,
+                    text=final_answer,
+                    external_source="user input",
+                )
+            except:
+                pass
+
+        # Handle image generation if enabled
+        if "image_provider" in agent_settings:
+            if (
+                agent_settings["image_provider"] != "None"
+                and agent_settings["image_provider"] != ""
+                and agent_settings["image_provider"] != None
+                and agent_settings["image_provider"] != "default"
+            ):
+                img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like a creative generated image to be generated by AI in their request. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
+                create_img = await self.agent.inference(prompt=img_gen_prompt)
+                create_img = str(create_img).lower()
+                to_create_image = re.search(r"\byes\b", str(create_img).lower())
+                if to_create_image:
+                    if thinking_id:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating image.",
+                        )
+                    img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {final_answer} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
+                    image_generation_prompt = await self.agent.inference(
+                        prompt=img_prompt
+                    )
+                    image_generation_prompt = str(image_generation_prompt)
+                    if "```markdown" in image_generation_prompt:
+                        image_generation_prompt = image_generation_prompt.split(
+                            "```markdown"
+                        )[1]
+                        image_generation_prompt = image_generation_prompt.split("```")[
+                            0
+                        ]
+                    try:
+                        generated_image = await self.agent.generate_image(
+                            prompt=image_generation_prompt
+                        )
+                        final_answer = f"{final_answer}\n![Image generated by {self.agent_name}]({generated_image})"
+                    except:
+                        logging.warning(
+                            f"Failed to generate image for prompt: {image_generation_prompt}"
+                        )
+
         # Log the final output
         if log_output and final_answer:
             c.log_interaction(role=self.agent_name, message=final_answer)
+
+            # Emit webhook event for agent response
+            await webhook_emitter.emit_event(
+                event_type="conversation.message.sent",
+                data={
+                    "conversation_id": c.get_conversation_id(),
+                    "conversation_name": conversation_name,
+                    "agent_name": self.agent_name,
+                    "user": self.user,
+                    "message": final_answer,
+                    "role": self.agent_name,
+                    "timestamp": datetime.now().isoformat(),
+                    "prompt_tokens": tokens if "tokens" in locals() else 0,
+                },
+                user_id=self.user,
+            )
+
+            # Also emit chat completion event
+            await webhook_emitter.emit_event(
+                event_type="chat.completion.completed",
+                data={
+                    "conversation_id": c.get_conversation_id(),
+                    "conversation_name": conversation_name,
+                    "agent_name": self.agent_name,
+                    "user": self.user,
+                    "user_input": user_input,
+                    "response": final_answer,
+                    "timestamp": datetime.now().isoformat(),
+                    "prompt_tokens": tokens if "tokens" in locals() else 0,
+                },
+                user_id=self.user,
+            )
 
         # Yield the complete answer
         yield {"type": "answer", "content": final_answer, "complete": True}
