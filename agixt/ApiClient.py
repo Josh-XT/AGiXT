@@ -37,7 +37,6 @@ def verify_api_key(authorization: str = Header(None)):
         if authorization == AGIXT_API_KEY:
             return DEFAULT_USER
         if authorization != AGIXT_API_KEY:
-            logging.info(f"Invalid API Key: {authorization}")
             raise HTTPException(status_code=401, detail="Invalid API Key")
     if AGIXT_API_KEY:
         if authorization is None:
@@ -59,11 +58,9 @@ def verify_api_key(authorization: str = Header(None)):
                 return token["email"]
             except Exception as e:
                 if authorization != AGIXT_API_KEY:
-                    logging.info(f"Invalid API Key: {authorization}")
                     raise HTTPException(status_code=401, detail="Invalid API Key")
                 return DEFAULT_USER
         if authorization != AGIXT_API_KEY:
-            logging.info(f"Invalid API Key: {authorization}")
             raise HTTPException(status_code=401, detail="Invalid API Key")
     else:
         return DEFAULT_USER
