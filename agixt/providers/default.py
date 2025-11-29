@@ -88,11 +88,16 @@ class DefaultProvider:
         ]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         return await Gpt4freeProvider(
             **self.agent_settings,
-        ).inference(prompt=prompt, tokens=tokens, images=images)
+        ).inference(prompt=prompt, tokens=tokens, images=images, stream=stream)
 
     async def text_to_speech(self, text: str):
         return await GoogleProvider().text_to_speech(text=text)

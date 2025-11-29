@@ -56,7 +56,12 @@ class XaiProvider:
         ]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         openai.base_url = self.API_URI if self.API_URI else "https://api.x.ai/v1/"
         openai.api_key = f"Bearer {self.XAI_API_KEY}"
@@ -101,9 +106,14 @@ class XaiProvider:
                 max_tokens=4096,
                 top_p=float(self.AI_TOP_P),
                 n=1,
-                stream=False,
+                stream=stream,
             )
-            return response.choices[0].message.content
+
+            if stream:
+                # Return the stream object for the caller to handle
+                return response
+            else:
+                return response.choices[0].message.content
         except Exception as e:
             logging.info(f"xAI API Error: {e}")
             self.failures += 1
@@ -111,5 +121,5 @@ class XaiProvider:
                 raise Exception(f"xAI API Error: Too many failures. {e}")
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
-                return await self.inference(prompt=prompt, tokens=tokens)
+                return await self.inference(prompt=prompt, tokens=tokens, stream=stream)
             return str(response)

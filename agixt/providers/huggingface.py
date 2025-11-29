@@ -54,7 +54,12 @@ class HuggingfaceProvider:
         return ["llm", "image"]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         payload = {
             "inputs": prompt,
@@ -65,6 +70,7 @@ class HuggingfaceProvider:
                 "stop": self.stop,
                 **self.parameters,
             },
+            "stream": stream,
         }
         headers = {}
         if self.HUGGINGFACE_API_KEY:
@@ -74,25 +80,52 @@ class HuggingfaceProvider:
             tries += 1
             if int(tries) > int(self.MAX_RETRIES):
                 raise ValueError(f"Reached max retries: {self.MAX_RETRIES}")
-            response = requests.post(
-                self.HUGGINGFACE_API_URL,
-                json=payload,
-                headers=headers,
-            )
-            if response.status_code == 429:
-                logging.info(
-                    f"Server Error {response.status_code}: Getting rate-limited / wait for {tries} seconds."
+
+            if stream:
+                # Streaming response
+                response = requests.post(
+                    self.HUGGINGFACE_API_URL,
+                    json=payload,
+                    headers=headers,
+                    stream=True,
                 )
-                time.sleep(tries)
-            elif response.status_code >= 500:
-                logging.info(
-                    f"Server Error {response.status_code}: {response.json()['error']} / wait for {tries} seconds"
-                )
-                time.sleep(tries)
-            elif response.status_code != 200:
-                raise ValueError(f"Error {response.status_code}: {response.text}")
+                if response.status_code == 429:
+                    logging.info(
+                        f"Server Error {response.status_code}: Getting rate-limited / wait for {tries} seconds."
+                    )
+                    time.sleep(tries)
+                    continue
+                elif response.status_code >= 500:
+                    logging.info(
+                        f"Server Error {response.status_code}: Server error / wait for {tries} seconds"
+                    )
+                    time.sleep(tries)
+                    continue
+                elif response.status_code != 200:
+                    raise ValueError(f"Error {response.status_code}: {response.text}")
+
+                # Return the response directly for the caller to iterate
+                return response
             else:
-                break
+                response = requests.post(
+                    self.HUGGINGFACE_API_URL,
+                    json=payload,
+                    headers=headers,
+                )
+                if response.status_code == 429:
+                    logging.info(
+                        f"Server Error {response.status_code}: Getting rate-limited / wait for {tries} seconds."
+                    )
+                    time.sleep(tries)
+                elif response.status_code >= 500:
+                    logging.info(
+                        f"Server Error {response.status_code}: {response.json()['error']} / wait for {tries} seconds"
+                    )
+                    time.sleep(tries)
+                elif response.status_code != 200:
+                    raise ValueError(f"Error {response.status_code}: {response.text}")
+                else:
+                    break
         content_type = response.headers["Content-Type"]
         if content_type == "application/json":
             response = response.json()

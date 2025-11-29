@@ -60,7 +60,12 @@ class Gpt4freeProvider:
         return ["llm"]
 
     async def inference(
-        self, prompt, tokens: int = 0, images: list = [], use_smartest: bool = False
+        self,
+        prompt,
+        tokens: int = 0,
+        images: list = [],
+        stream: bool = False,
+        use_smartest: bool = False,
     ):
         agent_settings = {
             k: v for k, v in self.agent_settings.items() if v is not None and v != ""
@@ -76,7 +81,7 @@ class Gpt4freeProvider:
             from providers.rotation import RotationProvider
 
             return await RotationProvider(**self.agent_settings).inference(
-                prompt=prompt, tokens=tokens, images=images
+                prompt=prompt, tokens=tokens, images=images, stream=stream
             )
         logging.info(
             f"[Gpt4Free] Using provider: {self.provider_name} with model: {self.AI_MODEL}"
