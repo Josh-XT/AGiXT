@@ -219,7 +219,7 @@ async def serve_file(
                 )
                 if not conversation:
                     logging.warning(
-                        f"User {user_email} attempted to access non-existent conversation {conversation_id}"
+                        "User attempted to access non-existent conversation"
                     )
                     raise HTTPException(
                         status_code=404, detail="Conversation not found"
@@ -228,7 +228,7 @@ async def serve_file(
                 # Verify the conversation belongs to the authenticated user
                 if str(conversation.user_id) != str(auth.user_id):
                     logging.warning(
-                        f"User {user_email} (ID: {auth.user_id}) attempted to access conversation {conversation_id} owned by user {conversation.user_id}"
+                        "User attempted to access conversation owned by another user"
                     )
                     raise HTTPException(
                         status_code=403,
