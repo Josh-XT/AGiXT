@@ -1527,15 +1527,16 @@ class Chain:
 
         chain_args = []
         for step in steps:
-            # Get step arguments
+            # Get step arguments with joined Argument to get the name
             step_args = (
-                session.query(ChainStepArgument)
+                session.query(ChainStepArgument, Argument)
+                .join(Argument, ChainStepArgument.argument_id == Argument.id)
                 .filter(ChainStepArgument.chain_step_id == step.id)
                 .all()
             )
-            for arg in step_args:
-                if arg.argument_name not in chain_args:
-                    chain_args.append(arg.argument_name)
+            for step_arg, arg in step_args:
+                if arg.name not in chain_args:
+                    chain_args.append(arg.name)
 
         session.close()
         return chain_args
