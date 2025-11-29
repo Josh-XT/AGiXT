@@ -1,5 +1,6 @@
 import time
 import uuid
+import logging
 from fastapi import APIRouter, Depends, Header
 from fastapi.responses import StreamingResponse
 from Globals import get_tokens
@@ -28,6 +29,28 @@ import json
 import asyncio
 
 app = APIRouter()
+
+
+async def safe_stream_wrapper(stream_generator):
+    """Wrap a streaming generator to prevent exception information exposure."""
+    try:
+        async for chunk in stream_generator:
+            yield chunk
+    except asyncio.CancelledError:
+        # Re-raise cancellation to allow proper cleanup
+        raise
+    except Exception:
+        # Log the error internally but don't expose details to client
+        logging.error("Error during streaming response")
+        # Yield a generic error message in SSE format
+        error_response = {
+            "error": {
+                "message": "An error occurred during streaming",
+                "type": "server_error",
+            }
+        }
+        yield f"data: {json.dumps(error_response)}\n\n"
+        yield "data: [DONE]\n\n"
 
 
 # Chat Completions endpoint
@@ -77,7 +100,7 @@ async def chat_completion(
     # Check if streaming is requested
     if prompt.stream:
         return StreamingResponse(
-            agixt.chat_completions_stream(prompt=prompt),
+            safe_stream_wrapper(agixt.chat_completions_stream(prompt=prompt)),
             media_type="text/plain; charset=utf-8",
             headers={
                 "Cache-Control": "no-cache",
@@ -137,7 +160,7 @@ async def chat_completion(
     # Check if streaming is requested
     if prompt.stream:
         return StreamingResponse(
-            agixt.chat_completions_stream(prompt=prompt),
+            safe_stream_wrapper(agixt.chat_completions_stream(prompt=prompt)),
             media_type="text/plain; charset=utf-8",
             headers={
                 "Cache-Control": "no-cache",

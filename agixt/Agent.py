@@ -1552,20 +1552,35 @@ class Agent:
 
                 # Create final secure location in workspace using validated paths only
                 workspace_base = os.path.realpath("WORKSPACE")
-                workspace_outputs = os.path.join(
+
+                # Use a safe path construction helper to isolate tainted data
+                def safe_workspace_path(base: str, *components: str) -> str:
+                    """Construct a safe path within workspace, preventing traversal."""
+                    # Build path from sanitized components only
+                    constructed = os.path.join(base, *components)
+                    resolved = os.path.realpath(constructed)
+                    # Verify resolved path stays within base
+                    if not resolved.startswith(
+                        os.path.realpath(base) + os.sep
+                    ) and resolved != os.path.realpath(base):
+                        raise ValueError("Path traversal attempt blocked")
+                    return resolved
+
+                # Construct paths using only sanitized components
+                workspace_outputs = safe_workspace_path(
                     workspace_base, safe_agent_id, safe_conversation_id
                 )
-                # Verify path is within workspace to prevent any traversal
-                if not os.path.realpath(workspace_outputs).startswith(workspace_base):
-                    raise ValueError("Invalid path: directory traversal detected")
-                os.makedirs(workspace_outputs, exist_ok=True)
+                os.makedirs(
+                    workspace_outputs, exist_ok=True
+                )  # nosec B108 - path validated by safe_workspace_path
 
-                # Move to final location with system-generated filename
-                final_audio_path = os.path.join(workspace_outputs, secure_filename)
-                # Verify final path is still within workspace
-                if not os.path.realpath(final_audio_path).startswith(workspace_base):
-                    raise ValueError("Invalid path: directory traversal detected")
-                shutil.move(temp_audio_path, final_audio_path)
+                # Construct final path using only validated components
+                final_audio_path = safe_workspace_path(
+                    workspace_base, safe_agent_id, safe_conversation_id, secure_filename
+                )
+                shutil.move(
+                    temp_audio_path, final_audio_path
+                )  # nosec B108 - path validated by safe_workspace_path
                 agixt_uri = getenv("AGIXT_URI")
                 output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
                 return output_url

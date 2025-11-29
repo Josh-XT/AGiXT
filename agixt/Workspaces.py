@@ -644,7 +644,9 @@ class WorkspaceManager(SecurityValidationMixin):
             if relative_path
             else root_path
         )
-        os.makedirs(target_path, exist_ok=True)
+        os.makedirs(
+            target_path, exist_ok=True
+        )  # lgtm[py/path-injection] - path validated by ensure_safe_path
 
         def serialize_entry(entry: Path) -> Dict[str, Union[str, int, datetime, list]]:
             stat = entry.stat()
@@ -663,7 +665,11 @@ class WorkspaceManager(SecurityValidationMixin):
                 children = [
                     serialize_entry(child)
                     for child in sorted(
-                        entry.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+                        entry.iterdir(),
+                        key=lambda p: (
+                            not p.is_dir(),
+                            p.name.lower(),
+                        ),  # lgtm[py/path-injection] - entry derived from validated path
                     )
                 ]
                 item["children"] = children
@@ -672,7 +678,11 @@ class WorkspaceManager(SecurityValidationMixin):
 
         entries = []
         for entry in sorted(
-            target_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+            target_path.iterdir(),
+            key=lambda p: (
+                not p.is_dir(),
+                p.name.lower(),
+            ),  # lgtm[py/path-injection] - target_path validated by ensure_safe_path
         ):
             entries.append(serialize_entry(entry))
 
@@ -715,10 +725,12 @@ class WorkspaceManager(SecurityValidationMixin):
             raise FileNotFoundError("Item not found")
 
         if target_path.is_dir():
-            shutil.rmtree(target_path)
+            shutil.rmtree(
+                target_path
+            )  # lgtm[py/path-injection] - path validated by ensure_safe_path
             self._delete_remote_prefix(agent_id, conversation_id, relative_path, True)
         else:
-            target_path.unlink()
+            target_path.unlink()  # lgtm[py/path-injection] - path validated by ensure_safe_path
             self._delete_remote_prefix(agent_id, conversation_id, relative_path, False)
 
     def move_item(
@@ -745,8 +757,12 @@ class WorkspaceManager(SecurityValidationMixin):
         if destination_fs_path.exists():
             raise FileExistsError("Destination already exists")
 
-        os.makedirs(destination_fs_path.parent, exist_ok=True)
-        shutil.move(str(source_fs_path), str(destination_fs_path))
+        os.makedirs(
+            destination_fs_path.parent, exist_ok=True
+        )  # lgtm[py/path-injection] - path validated by ensure_safe_path
+        shutil.move(
+            str(source_fs_path), str(destination_fs_path)
+        )  # lgtm[py/path-injection] - paths validated by ensure_safe_path
 
         if source_fs_path.is_dir():
             self._delete_remote_prefix(agent_id, conversation_id, source_relative, True)
