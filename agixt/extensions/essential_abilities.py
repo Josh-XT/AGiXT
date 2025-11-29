@@ -239,7 +239,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         Notes: This ability will browse the provided URLs and extract relevant information based on the query as well as extract learned information from the website into the assistant's memory.
         """
         response = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
+            agent_id=self.agent_id,
             prompt_name="Think About It",
             prompt_args={
                 "user_input": f"{urls} \n {query}",

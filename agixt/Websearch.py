@@ -123,7 +123,7 @@ class Websearch:
             max_tokens = 8000
         if get_tokens(text=content) < int(max_tokens):
             return self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
+                agent_id=self.agent.agent_id,
                 prompt_name="Web Summary",
                 prompt_args={
                     "user_input": content,
@@ -144,7 +144,7 @@ class Websearch:
         for chunk in chunks:
             new_content.append(
                 self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
+                    agent_id=self.agent.agent_id,
                     prompt_name="Web Summary",
                     prompt_args={
                         "user_input": chunk,
@@ -287,7 +287,7 @@ class Websearch:
                             )
                         try:
                             pick_a_link = self.ApiClient.prompt_agent(
-                                agent_name=self.agent_name,
+                                agent_id=self.agent.agent_id,
                                 prompt_name="Pick-a-Link",
                                 prompt_args={
                                     "url": url,
