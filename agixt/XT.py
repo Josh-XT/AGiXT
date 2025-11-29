@@ -2,6 +2,7 @@ from Interactions import Interactions
 from ApiClient import get_api_client, Conversations, Prompts, Chain
 from Memories import Memories
 from Extensions import Extensions
+from Agent import get_agent_id_by_name
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName, TranslationRequest
@@ -754,8 +755,12 @@ Your response (true or false):"""
                         role=self.agent_name,
                         message=f"[SUBACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(prompt_args, indent=2)}```",
                     )
+                    # Get agent_id from agent_name for the API call
+                    step_agent_id = get_agent_id_by_name(
+                        agent_name=agent_name, user=self.user_email
+                    )
                     result = self.ApiClient.prompt_agent(
-                        agent_name=agent_name,
+                        agent_id=step_agent_id,
                         prompt_name=prompt_name,
                         prompt_args=prompt_args,
                     )
