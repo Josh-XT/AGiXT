@@ -352,6 +352,16 @@ class notes(Extensions, ExtensionDatabaseMixin):
         """
         session = get_session()
         try:
+            # Validate note_id - handle 'None' string or None value
+            if note_id is None or str(note_id).lower() == "none":
+                return json.dumps({"success": False, "error": "Note ID is required"})
+            try:
+                note_id = int(note_id)
+            except (ValueError, TypeError):
+                return json.dumps(
+                    {"success": False, "error": f"Invalid note ID: {note_id}"}
+                )
+
             note = (
                 session.query(Note).filter_by(user_id=self.user_id, id=note_id).first()
             )
@@ -422,6 +432,16 @@ class notes(Extensions, ExtensionDatabaseMixin):
         """
         session = get_session()
         try:
+            # Validate note_id - handle 'None' string or None value
+            if note_id is None or str(note_id).lower() == "none":
+                return json.dumps({"success": False, "error": "Note ID is required"})
+            try:
+                note_id = int(note_id)
+            except (ValueError, TypeError):
+                return json.dumps(
+                    {"success": False, "error": f"Invalid note ID: {note_id}"}
+                )
+
             note = (
                 session.query(Note).filter_by(user_id=self.user_id, id=note_id).first()
             )
@@ -517,6 +537,16 @@ class notes(Extensions, ExtensionDatabaseMixin):
         """
         session = get_session()
         try:
+            # Validate note_id - handle 'None' string or None value
+            if note_id is None or str(note_id).lower() == "none":
+                return json.dumps({"success": False, "error": "Note ID is required"})
+            try:
+                note_id = int(note_id)
+            except (ValueError, TypeError):
+                return json.dumps(
+                    {"success": False, "error": f"Invalid note ID: {note_id}"}
+                )
+
             note = (
                 session.query(Note).filter_by(user_id=self.user_id, id=note_id).first()
             )
@@ -588,6 +618,32 @@ class notes(Extensions, ExtensionDatabaseMixin):
         """
         session = get_session()
         try:
+            # Handle 'None' string or None value for limit
+            if limit is None or str(limit).lower() == "none":
+                limit = 10  # Use default value
+            else:
+                try:
+                    limit = int(limit)
+                    # Ensure limit is within reasonable bounds
+                    if limit < 1:
+                        limit = 1
+                    elif limit > 100:
+                        limit = 100
+                except (ValueError, TypeError):
+                    limit = 10  # Use default if conversion fails
+
+            # Handle 'None' string or None value for offset
+            if offset is None or str(offset).lower() == "none":
+                offset = 0  # Use default value
+            else:
+                try:
+                    offset = int(offset)
+                    # Ensure offset is non-negative
+                    if offset < 0:
+                        offset = 0
+                except (ValueError, TypeError):
+                    offset = 0  # Use default if conversion fails
+
             notes = (
                 session.query(Note)
                 .filter_by(user_id=self.user_id)
