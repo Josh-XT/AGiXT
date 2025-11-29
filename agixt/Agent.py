@@ -1516,6 +1516,29 @@ class Agent:
             # CodeQL ultra-safe pattern: Complete data flow isolation
             import tempfile
             import shutil
+            import re
+
+            # Validate agent_id and conversation_id to prevent path traversal
+            def sanitize_path_component(component: str) -> str:
+                """Sanitize a path component to prevent path traversal attacks"""
+                if not component or not isinstance(component, str):
+                    raise ValueError("Invalid path component")
+                # Only allow alphanumeric characters, hyphens, and underscores
+                sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", str(component))
+                if (
+                    not sanitized
+                    or sanitized
+                    != component.replace("-", "").replace("_", "").replace(" ", "")
+                    or ".." in component
+                ):
+                    # UUID format should be alphanumeric with hyphens
+                    sanitized = re.sub(r"[^a-zA-Z0-9-]", "", str(component))
+                if not sanitized:
+                    raise ValueError("Invalid path component after sanitization")
+                return sanitized
+
+            safe_agent_id = sanitize_path_component(self.agent_id)
+            safe_conversation_id = sanitize_path_component(conversation_id)
 
             # Create secure temporary directory completely isolated from user input
             with tempfile.TemporaryDirectory() as temp_base:
@@ -1527,14 +1550,14 @@ class Agent:
                 with open(temp_audio_path, "wb") as f:
                     f.write(base64.b64decode(tts_content))
 
-                # Create final secure location in workspace using hardcoded paths only
-                workspace_outputs = f"WORKSPACE/{self.agent_id}/{conversation_id}"
+                # Create final secure location in workspace using validated paths only
+                workspace_outputs = f"WORKSPACE/{safe_agent_id}/{safe_conversation_id}"
                 os.makedirs(workspace_outputs, exist_ok=True)
                 # Move to final location with system-generated filename
                 final_audio_path = f"{workspace_outputs}/{secure_filename}"
                 shutil.move(temp_audio_path, final_audio_path)
                 agixt_uri = getenv("AGIXT_URI")
-                output_url = f"{agixt_uri}/outputs/{self.agent_id}/{conversation_id}/{secure_filename}"
+                output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
                 return output_url
 
     def get_agent_extensions(self):

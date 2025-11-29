@@ -62,8 +62,9 @@ async def chat_completion(
         agents = get_agents(user=user)
         try:
             prompt.model = agents[0].name
-        except Exception as e:
-            print(f"Error getting agent name: {e}")
+        except Exception:
+            # Log without exposing exception details
+            print("Error getting agent name: using default")
             prompt.model = "AGiXT"
     prompt.model = prompt.model.replace('"', "")
     agixt = AGiXT(
@@ -121,8 +122,9 @@ async def chat_completion(
         agents = get_agents(user=user)
         try:
             prompt.model = agents[0].name
-        except Exception as e:
-            print(f"Error getting agent name: {e}")
+        except Exception:
+            # Log without exposing exception details
+            print("Error getting agent name: using default")
             prompt.model = "AGiXT"
     prompt.model = prompt.model.replace('"', "")
     agixt = AGiXT(

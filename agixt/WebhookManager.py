@@ -36,6 +36,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _mask_sensitive_id(identifier: str) -> str:
+    """Mask sensitive identifiers for safe logging, showing only first 8 chars"""
+    if not identifier:
+        return "<empty>"
+    identifier_str = str(identifier)
+    if len(identifier_str) <= 8:
+        return identifier_str[:2] + "***"
+    return identifier_str[:8] + "***"
+
+
 def safe_json_loads(json_str, default=None):
     """Safely load JSON string, returning default value on error"""
     if not json_str:
@@ -120,18 +130,14 @@ class WebhookEventEmitter:
         if agent_id and not company_id:
             agent_company_id = self._get_agent_company_id(agent_id)
             if agent_company_id:
-                logger.debug(
-                    f"Resolved company_id {agent_company_id} from agent {agent_id} settings"
-                )
+                logger.debug(f"Resolved company_id from agent settings")
                 company_id = agent_company_id
 
         # If agent_name is provided but agent_id is not, try to resolve company from agent name
         if agent_name and not company_id:
             agent_company_id = self._get_agent_company_id_by_name(agent_name, user_id)
             if agent_company_id:
-                logger.debug(
-                    f"Resolved company_id {agent_company_id} from agent name '{agent_name}'"
-                )
+                logger.debug(f"Resolved company_id from agent name")
                 company_id = agent_company_id
 
         # Also check for agent_name in the data payload if not provided as a parameter
@@ -141,24 +147,20 @@ class WebhookEventEmitter:
             if data_agent_id and not company_id:
                 agent_company_id = self._get_agent_company_id(data_agent_id)
                 if agent_company_id:
-                    logger.debug(
-                        f"Resolved company_id {agent_company_id} from data.agent_id {data_agent_id}"
-                    )
+                    logger.debug(f"Resolved company_id from data.agent_id")
                     company_id = agent_company_id
             if data_agent_name and not company_id:
                 agent_company_id = self._get_agent_company_id_by_name(
                     data_agent_name, user_id
                 )
                 if agent_company_id:
-                    logger.debug(
-                        f"Resolved company_id {agent_company_id} from data.agent_name '{data_agent_name}'"
-                    )
+                    logger.debug(f"Resolved company_id from data.agent_name")
                     company_id = agent_company_id
 
         # Ensure company_id is a string if provided (handle case where UUID object is passed)
         if company_id:
             logger.debug(
-                f"Converting initial company_id {company_id} (type: {type(company_id)}) to string"
+                f"Converting initial company_id (type: {type(company_id).__name__}) to string"
             )
             company_id = str(company_id)
 
@@ -166,12 +168,12 @@ class WebhookEventEmitter:
         if not company_id:
             company_id = self._get_user_company_id(user_id)
             if company_id:
-                logger.debug(f"Resolved company_id {company_id} for user {user_id}")
+                logger.debug(f"Resolved company_id for user")
 
         # Ensure company_id is a string (convert UUID objects to string)
         if company_id:
             logger.debug(
-                f"Converting company_id {company_id} (type: {type(company_id)}) to string"
+                f"Converting company_id (type: {type(company_id).__name__}) to string"
             )
             company_id = str(company_id)
 
@@ -224,7 +226,9 @@ class WebhookEventEmitter:
 
             return None
         except Exception as exc:
-            logger.warning(f"Could not resolve company_id for agent {agent_id}: {exc}")
+            logger.warning(
+                f"Could not resolve company_id for agent: {type(exc).__name__}"
+            )
             return None
         finally:
             if session:
@@ -246,8 +250,8 @@ class WebhookEventEmitter:
 
             if not agent:
                 logger.debug(
-                    f"No agent found with name '{agent_name}'"
-                    + (f" for user {user_id}" if user_id else "")
+                    "No agent found with specified name"
+                    + (" for user" if user_id else "")
                 )
                 return None
 
@@ -261,24 +265,20 @@ class WebhookEventEmitter:
                 .first()
             )
             if setting and setting.value:
-                logger.debug(
-                    f"Found company_id {setting.value} in settings for agent '{agent_name}'"
-                )
+                logger.debug("Found company_id in settings for agent")
                 return str(setting.value)
 
             # Fall back to inferring from the agent's user
             if agent.user_id:
                 inferred_company = self._get_user_company_id(agent.user_id)
                 if inferred_company:
-                    logger.debug(
-                        f"Inferred company_id {inferred_company} from agent '{agent_name}' owner"
-                    )
+                    logger.debug("Inferred company_id from agent owner")
                     return inferred_company
 
             return None
         except Exception as exc:
             logger.warning(
-                f"Could not resolve company_id for agent name '{agent_name}': {exc}"
+                f"Could not resolve company_id for agent name: {type(exc).__name__}"
             )
             return None
         finally:
@@ -298,9 +298,7 @@ class WebhookEventEmitter:
                 uuid_lib.UUID(user_id_str)
             except ValueError:
                 # user_id is not a valid UUID (e.g., email address), skip company lookup
-                logger.debug(
-                    f"User ID {user_id_str} is not a valid UUID, skipping company lookup"
-                )
+                logger.debug("User ID is not a valid UUID, skipping company lookup")
                 return None
 
             session = get_session()

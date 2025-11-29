@@ -48,9 +48,13 @@ class SecurityValidationMixin:
             raise ValueError(f"Invalid {name}: must be string")
         if not value or len(value) > cls.MAX_FILENAME_LENGTH:
             raise ValueError(f"Invalid {name}: invalid length")
-        if ".." in value or "\\" in value:
-            logging.warning(f"Path traversal detected in {name}: {value}")
+        if ".." in value or "\\" in value or "/" in value:
+            logging.warning(f"Path traversal detected in {name}")
             raise ValueError(f"Invalid {name}: path traversal detected")
+        # Additional validation: only allow safe characters for identifiers
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            logging.warning(f"Invalid characters detected in {name}")
+            raise ValueError(f"Invalid {name}: contains invalid characters")
         return value
 
     @classmethod
@@ -61,7 +65,7 @@ class SecurityValidationMixin:
         if not filename or len(filename) > cls.MAX_FILENAME_LENGTH:
             raise ValueError("Invalid filename: invalid length")
         if ".." in filename or "\\" in filename:
-            logging.warning(f"Path traversal detected in filename: {filename}")
+            logging.warning("Path traversal detected in filename")
             raise ValueError("Invalid filename: path traversal detected")
         return filename
 
@@ -72,12 +76,19 @@ class SecurityValidationMixin:
         """Ensure the requested path is safe and within the base path"""
         base_path = Path(base_path).resolve()
         try:
+            # Convert requested_path to string and validate for traversal attempts
+            requested_str = str(requested_path)
+            if ".." in requested_str or "\\" in requested_str:
+                raise ValueError("Path traversal detected")
+
             requested_abs = Path(base_path, requested_path).resolve()
             if not str(requested_abs).startswith(str(base_path)):
                 raise ValueError("Path traversal detected")
             return requested_abs
-        except Exception as e:
-            logging.error(f"Path validation error: {e}")
+        except ValueError:
+            raise
+        except Exception:
+            logging.error("Path validation error")
             raise ValueError("Invalid path")
 
 
@@ -659,7 +670,8 @@ class WorkspaceManager(SecurityValidationMixin):
         relative_path = "/".join(filter(None, [base_relative, folder_name]))
 
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
-        folder_path = root_path.joinpath(relative_path)
+        # Use ensure_safe_path to prevent path traversal attacks
+        folder_path = self.ensure_safe_path(root_path, relative_path)
 
         if folder_path.exists():
             raise FileExistsError("Folder already exists")
@@ -676,7 +688,8 @@ class WorkspaceManager(SecurityValidationMixin):
             raise ValueError("Cannot delete the root workspace directory")
 
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
-        target_path = root_path.joinpath(relative_path)
+        # Use ensure_safe_path to prevent path traversal attacks
+        target_path = self.ensure_safe_path(root_path, relative_path)
 
         if not target_path.exists():
             raise FileNotFoundError("Item not found")
@@ -702,8 +715,9 @@ class WorkspaceManager(SecurityValidationMixin):
             raise ValueError("Cannot move the root workspace directory")
 
         root_path = self._get_conversation_root_path(agent_id, conversation_id)
-        source_fs_path = root_path.joinpath(source_relative)
-        destination_fs_path = root_path.joinpath(destination_relative)
+        # Use ensure_safe_path to prevent path traversal attacks
+        source_fs_path = self.ensure_safe_path(root_path, source_relative)
+        destination_fs_path = self.ensure_safe_path(root_path, destination_relative)
 
         if not source_fs_path.exists():
             raise FileNotFoundError("Source path does not exist")
