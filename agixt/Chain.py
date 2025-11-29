@@ -216,6 +216,7 @@ class Chain:
         chain = ChainDB(name=chain_name, user_id=self.user_id, description=description)
         session.add(chain)
         session.commit()
+        chain_id = str(chain.id)
 
         # Emit webhook event
         asyncio.create_task(
@@ -223,7 +224,7 @@ class Chain:
                 event_type="chain.created",
                 user_id=self.user,
                 data={
-                    "chain_id": str(chain.id),
+                    "chain_id": chain_id,
                     "chain_name": chain_name,
                     "description": description,
                 },
@@ -231,6 +232,7 @@ class Chain:
         )
 
         session.close()
+        return chain_id
 
     def rename_chain(self, chain_name, new_name):
         session = get_session()

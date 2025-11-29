@@ -354,8 +354,9 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     session.add(agent_command)
 
     session.commit()
+    agent_id = str(agent.id)
     session.close()
-    return {"message": f"Agent {agent_name} created."}
+    return {"message": f"Agent {agent_name} created.", "id": agent_id}
 
 
 def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
@@ -543,6 +544,52 @@ def rename_agent(agent_name, new_name, user=DEFAULT_USER, company_id=None):
 
     session.close()
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
+
+
+def get_agent_name_by_id(agent_id: str, user: str = DEFAULT_USER) -> str:
+    """
+    Standalone function to look up an agent name by ID.
+    Checks user's agents first, then falls back to global agents.
+
+    Args:
+        agent_id: The UUID of the agent
+        user: The user email to check for agent ownership
+
+    Returns:
+        The agent name if found
+
+    Raises:
+        ValueError if agent is not found
+    """
+    session = get_session()
+    try:
+        user_data = session.query(User).filter(User.email == user).first()
+        if not user_data:
+            raise ValueError(f"User {user} not found")
+
+        # First check user's own agents
+        agent = (
+            session.query(AgentModel)
+            .filter(AgentModel.id == agent_id, AgentModel.user_id == user_data.id)
+            .first()
+        )
+        if not agent:
+            # Try to find in global agents (DEFAULT_USER)
+            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+            if global_user:
+                agent = (
+                    session.query(AgentModel)
+                    .filter(
+                        AgentModel.id == agent_id,
+                        AgentModel.user_id == global_user.id,
+                    )
+                    .first()
+                )
+        if not agent:
+            raise ValueError(f"Agent with ID {agent_id} not found for user {user}")
+        return agent.name
+    finally:
+        session.close()
 
 
 def get_agents(user=DEFAULT_USER, company=None):

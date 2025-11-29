@@ -48,8 +48,9 @@ class Prompts:
             )
             session.add(argument)
         session.commit()
+        prompt_id = str(prompt_obj.id)
         session.close()
-        return str(prompt_obj.id)
+        return prompt_id
 
     def get_prompt(self, prompt_name: str, prompt_category: str = "Default"):
         session = get_session()
@@ -232,19 +233,20 @@ class Prompts:
             )
             .all()
         )
-        prompts = []
+        # Use a dict to deduplicate by name, user prompts override global prompts
+        prompts_dict = {}
         for prompt in global_prompts:
             if include_ids:
-                prompts.append({"id": str(prompt.id), "name": prompt.name})
+                prompts_dict[prompt.name] = {"id": str(prompt.id), "name": prompt.name}
             else:
-                prompts.append(prompt.name)
+                prompts_dict[prompt.name] = prompt.name
         for prompt in user_prompts:
             if include_ids:
-                prompts.append({"id": str(prompt.id), "name": prompt.name})
+                prompts_dict[prompt.name] = {"id": str(prompt.id), "name": prompt.name}
             else:
-                prompts.append(prompt.name)
+                prompts_dict[prompt.name] = prompt.name
         session.close()
-        return prompts
+        return list(prompts_dict.values())
 
     def get_prompts_by_category_id(self, category_id: str):
         """Get prompts by category ID with full details including ID"""
@@ -266,11 +268,13 @@ class Prompts:
             )
             .all()
         )
-        prompts = []
+        # Use dict to deduplicate by name, user prompts override global prompts
+        seen_names = {}
         for prompt in global_prompts:
-            prompts.append({"id": str(prompt.id), "name": prompt.name})
+            seen_names[prompt.name] = {"id": str(prompt.id), "name": prompt.name}
         for prompt in user_prompts:
-            prompts.append({"id": str(prompt.id), "name": prompt.name})
+            seen_names[prompt.name] = {"id": str(prompt.id), "name": prompt.name}
+        prompts = list(seen_names.values())
         session.close()
         return prompts
 
@@ -447,7 +451,9 @@ class Prompts:
             return None
         return prompt.content
 
-    def update_prompt_by_id(self, prompt_id: str, prompt_name: str, prompt: str):
+    def update_prompt_by_id(
+        self, prompt_id: str, prompt_name: str = None, prompt: str = None
+    ):
         """Update a prompt by its ID"""
         session = get_session()
         prompt_obj = (
@@ -461,21 +467,23 @@ class Prompts:
         if not prompt_obj:
             session.close()
             raise Exception("Prompt not found")
-        prompt_obj.name = prompt_name
-        prompt_obj.content = prompt
+        if prompt_name is not None:
+            prompt_obj.name = prompt_name
+        if prompt is not None:
+            prompt_obj.content = prompt
 
-        # Update prompt arguments
-        # Delete existing arguments
-        session.query(Argument).filter(Argument.prompt_id == prompt_id).delete()
+            # Update prompt arguments
+            # Delete existing arguments
+            session.query(Argument).filter(Argument.prompt_id == prompt_id).delete()
 
-        # Add new arguments
-        prompt_args = self.get_prompt_args(prompt)
-        for arg in prompt_args:
-            argument = Argument(
-                prompt_id=prompt_id,
-                name=arg,
-            )
-            session.add(argument)
+            # Add new arguments
+            prompt_args = self.get_prompt_args(prompt)
+            for arg in prompt_args:
+                argument = Argument(
+                    prompt_id=prompt_id,
+                    name=arg,
+                )
+                session.add(argument)
 
         session.commit()
         session.close()

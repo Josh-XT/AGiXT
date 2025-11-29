@@ -5,7 +5,9 @@ from Models import (
     PromptList,
     PromptCategoryList,
     ResponseMessage,
+    PromptResponse,
     CustomPromptModel,
+    UpdatePromptModel,
     PromptArgsResponse,
 )
 from Globals import getenv
@@ -86,7 +88,7 @@ async def create_prompt_v1(
     prompt: CustomPromptModel,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
-) -> ResponseMessage:
+) -> PromptResponse:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     prompt_id = Prompts(user=user).add_prompt(
@@ -94,8 +96,9 @@ async def create_prompt_v1(
         prompt=prompt.prompt,
         prompt_category=prompt.prompt_category,
     )
-    return ResponseMessage(
-        message=f"Prompt '{prompt.prompt_name}' created with ID: {prompt_id}"
+    return PromptResponse(
+        message=f"Prompt '{prompt.prompt_name}' created with ID: {prompt_id}",
+        id=prompt_id,
     )
 
 
@@ -163,7 +166,7 @@ async def delete_prompt_by_id_v1(
 )
 async def update_prompt_by_id_v1(
     prompt_id: str,
-    prompt: CustomPromptModel,
+    prompt: UpdatePromptModel,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
@@ -175,7 +178,7 @@ async def update_prompt_by_id_v1(
             prompt_name=prompt.prompt_name,
             prompt=prompt.prompt,
         )
-        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
+        return ResponseMessage(message=f"Prompt updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 

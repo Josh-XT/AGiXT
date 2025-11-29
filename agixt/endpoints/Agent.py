@@ -21,6 +21,7 @@ from Models import (
     ToggleCommandPayload,
     ToggleExtensionCommandsPayload,
     AgentCommands,
+    AgentCommandsV1,
     AgentSettings,
     AgentConfig,
     AgentResponse,
@@ -468,7 +469,7 @@ async def update_persona_company_v1(
 )
 async def update_agent_commands_v1(
     agent_id: str,
-    commands: AgentCommands,
+    commands: AgentCommandsV1,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
