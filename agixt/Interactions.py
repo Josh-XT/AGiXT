@@ -975,7 +975,6 @@ class Interactions:
                             new_url = f"{self.outputs}/{conversation_id}/{replacement}"
                             self.response = self.response.replace(orig_url, new_url)
 
-
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         thinking_id = None  # Initialize to avoid UnboundLocalError
