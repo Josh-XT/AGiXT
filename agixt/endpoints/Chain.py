@@ -203,11 +203,8 @@ async def update_chain_by_id_v1(
 async def get_chain_args_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
     if chain_id == "":
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
-    try:
-        chain_args = Chain(user=user).get_chain_args_by_id(chain_id=chain_id)
-        return chain_args
-    except Exception as e:
-        raise HTTPException(status_code=404, detail="Chain not found")
+    chain_args = Chain(user=user).get_chain_args_by_id(chain_id=chain_id)
+    return chain_args
 
 
 # V1 Step Management Endpoints using chain_id and agent_id

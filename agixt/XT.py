@@ -2525,11 +2525,193 @@ Your response (true or false):"""
                         role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
+                    # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
                     if isinstance(msg, dict):
                         for key, value in msg.items():
                             if "_url" in key:
                                 url = str(value["url"] if "url" in value else value)
-                                urls.append(url)
+                                if url.startswith("https://github.com/"):
+                                    do_not_pull_repo = [
+                                        "/pull/",
+                                        "/issues",
+                                        "/discussions",
+                                        "/actions/",
+                                        "/projects",
+                                        "/security",
+                                        "/releases",
+                                        "/commits",
+                                        "/branches",
+                                        "/tags",
+                                        "/stargazers",
+                                        "/watchers",
+                                        "/network",
+                                        "/settings",
+                                        "/compare",
+                                        "/archive",
+                                    ]
+                                    if any(x in url for x in do_not_pull_repo):
+                                        # If the URL is not a repository, don't pull it
+                                        urls.append(url)
+                                    else:
+                                        # Download the zip for the repo
+                                        github_user = (
+                                            self.agent_settings["GITHUB_USERNAME"]
+                                            if "GITHUB_USERNAME" in self.agent_settings
+                                            else None
+                                        )
+                                        github_token = (
+                                            self.agent_settings["GITHUB_TOKEN"]
+                                            if "GITHUB_TOKEN" in self.agent_settings
+                                            else None
+                                        )
+                                        github_repo = url.replace(
+                                            "https://github.com/", ""
+                                        )
+                                        github_repo = github_repo.replace(
+                                            "https://www.github.com/", ""
+                                        )
+                                        github_branch = "main"
+                                        user = github_repo.split("/")[0]
+                                        repo = github_repo.split("/")[1]
+                                        if " " in repo:
+                                            repo = repo.split(" ")[0]
+                                        if "\n" in repo:
+                                            repo = repo.split("\n")[0]
+                                        # Remove any symbols that would not be in the user, repo, or branch
+                                        for symbol in [
+                                            " ",
+                                            "\n",
+                                            "\t",
+                                            "\r",
+                                            "\\",
+                                            "/",
+                                            ":",
+                                            "*",
+                                            "?",
+                                            '"',
+                                            "<",
+                                            ">",
+                                        ]:
+                                            repo = repo.replace(symbol, "")
+                                            user = user.replace(symbol, "")
+                                            github_branch = github_branch.replace(
+                                                symbol, ""
+                                            )
+                                        repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
+                                        try:
+                                            if github_user and github_token:
+                                                response = requests.get(
+                                                    repo_url,
+                                                    auth=(github_user, github_token),
+                                                )
+                                            else:
+                                                response = requests.get(repo_url)
+                                        except:
+                                            github_branch = "master"
+                                            repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
+                                            try:
+                                                if github_user and github_token:
+                                                    response = requests.get(
+                                                        repo_url,
+                                                        auth=(
+                                                            github_user,
+                                                            github_token,
+                                                        ),
+                                                    )
+                                                else:
+                                                    response = requests.get(repo_url)
+                                            except:
+                                                pass
+                                        if response.status_code == 200:
+                                            file_name = (
+                                                f"{user}_{repo}_{github_branch}.zip"
+                                            )
+                                            file_data = response.content
+                                            file_path = os.path.normpath(
+                                                os.path.join(
+                                                    self.agent_workspace,
+                                                    conversation_id,
+                                                    file_name,
+                                                )
+                                            )
+                                            if file_path.startswith(
+                                                self.agent_workspace
+                                            ):
+                                                with open(file_path, "wb") as f:
+                                                    f.write(file_data)
+                                                files.append(
+                                                    {
+                                                        "file_name": file_name,
+                                                        "file_url": f"{self.outputs}/{conversation_id}/{file_name}",
+                                                    }
+                                                )
+                                        else:
+                                            urls.append(url)
+                                else:
+                                    # Not a GitHub URL, check if it's a file or audio
+                                    if "file_name" in msg:
+                                        file_name = str(msg["file_name"])
+                                    else:
+                                        file_name = ""
+                                    if key != "audio_url":
+                                        downloaded_file = (
+                                            await self.download_file_to_workspace(
+                                                url=url,
+                                                file_name=file_name,
+                                                download_headers=download_headers,
+                                            )
+                                        )
+                                        if downloaded_file != {}:
+                                            files.append(downloaded_file)
+                                        else:
+                                            urls.append(url)
+                                    else:
+                                        # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
+                                        audio_file_info = (
+                                            await self.download_file_to_workspace(
+                                                url=url
+                                            )
+                                        )
+                                        if audio_file_info != {}:
+                                            full_path = os.path.normpath(
+                                                os.path.join(
+                                                    self.agent_workspace,
+                                                    conversation_id,
+                                                    audio_file_info["file_name"],
+                                                )
+                                            )
+                                            if full_path.startswith(
+                                                self.agent_workspace
+                                            ):
+                                                audio_file_path = os.path.join(
+                                                    self.agent_workspace,
+                                                    conversation_id,
+                                                    audio_file_info["file_name"],
+                                                )
+                                                if os.path.normpath(
+                                                    audio_file_path
+                                                ).startswith(self.agent_workspace):
+                                                    wav_file = os.path.join(
+                                                        self.agent_workspace,
+                                                        conversation_id,
+                                                        f"{uuid.uuid4().hex}.wav",
+                                                    )
+                                                    AudioSegment.from_file(
+                                                        audio_file_path
+                                                    ).set_frame_rate(16000).export(
+                                                        wav_file, format="wav"
+                                                    )
+                                                    transcribed_audio = (
+                                                        await self.audio_to_text(
+                                                            audio_path=wav_file,
+                                                        )
+                                                    )
+                                                    if transcribed_audio:
+                                                        new_prompt += transcribed_audio
+
+        # Add user input to conversation
+        for file in files:
+            new_prompt += f"\nUploaded file: `{file['file_name']}`."
 
         # Log user input
         if log_user_input:
@@ -2537,6 +2719,70 @@ Your response (true or false):"""
 
         # Get thinking_id for activity logging
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        # Process uploaded files before streaming
+        file_contents = []
+        current_input_tokens = get_tokens(new_prompt)
+        for file in files:
+            content = await self.learn_from_file(
+                file_url=file["file_url"],
+                file_name=file["file_name"],
+                user_input=new_prompt,
+                collection_id=self.conversation_id,
+                thinking_id=thinking_id,
+            )
+            file_contents.append(content)
+        if file_contents:
+            file_content = "\n".join(file_contents)
+            file_tokens = get_tokens(file_content)
+            current_input_tokens = file_tokens + current_input_tokens
+        else:
+            file_content = ""
+            current_input_tokens = self.input_tokens
+
+        # Learn from any URLs that weren't downloaded as files
+        await self.learn_from_websites(
+            urls=urls,
+            summarize_content=False,
+        )
+
+        # Handle prompt_args cleanup like non-streaming version
+        if "user_input" in prompt_args:
+            del prompt_args["user_input"]
+        if "prompt_name" in prompt_args:
+            prompt_name = prompt_args["prompt_name"]
+            del prompt_args["prompt_name"]
+        if "prompt_category" in prompt_args:
+            prompt_category = prompt_args["prompt_category"]
+            del prompt_args["prompt_category"]
+        if "websearch" in prompt_args:
+            websearch = prompt_args["websearch"]
+            del prompt_args["websearch"]
+        if "browse_links" in prompt_args:
+            browse_links = prompt_args["browse_links"]
+            del prompt_args["browse_links"]
+        if "tts" in prompt_args:
+            tts = prompt_args["voice_response"]
+            del prompt_args["tts"]
+        if "context_results" in prompt_args:
+            context_results = prompt_args["context_results"]
+            del prompt_args["context_results"]
+        if "conversation_results" in prompt_args:
+            conversation_results = prompt_args["conversation_results"]
+            del prompt_args["conversation_results"]
+        if "analyze_user_input" in prompt_args:
+            analyze_user_input = prompt_args["analyze_user_input"]
+            del prompt_args["analyze_user_input"]
+        if "voice_response" in prompt_args:
+            tts = prompt_args["voice_response"]
+            del prompt_args["voice_response"]
+        if "injected_memories" in prompt_args:
+            context_results = prompt_args["injected_memories"]
+            del prompt_args["injected_memories"]
+        if "shots" in prompt_args:
+            del prompt_args["shots"]
+        if "data_analysis" in prompt_args:
+            del prompt_args["data_analysis"]
 
         # Send initial streaming chunk
         initial_chunk = {
@@ -2569,6 +2815,15 @@ Your response (true or false):"""
                 prompt_args["disable_commands"] = True
             if running_command:
                 prompt_args["running_command"] = running_command
+
+            # Inject file content into prompt args if within token limits
+            if current_input_tokens < self.agent.max_input_tokens:
+                if file_content:
+                    prompt_args["uploaded_file_data"] = file_content
+
+            # Add additional context if provided
+            if additional_context:
+                prompt_args["context"] = additional_context
 
             # Use the streaming inference pipeline to stream tokens in real-time
             # This properly handles thinking/reflection tags and streams answer content

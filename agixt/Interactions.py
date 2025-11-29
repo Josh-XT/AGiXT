@@ -1836,13 +1836,21 @@ class Interactions:
                         new_answer = full_response[answer_start:]
                         if len(new_answer) > len(answer_content):
                             delta = new_answer[len(answer_content) :]
-                            if "<" not in delta:
+                            # Allow tokens with < if they're part of actual answer content
+                            # Only skip if it looks like an opening tag pattern
+                            if not re.match(r"^\s*<[a-zA-Z]", delta):
                                 yield {
                                     "type": "answer",
                                     "content": delta,
                                     "complete": False,
                                 }
                             answer_content = new_answer
+                else:
+                    # Debug: log when we're not in answer but might expect to be
+                    if chunk_count <= 10:
+                        logging.debug(
+                            f"[run_stream] in_answer={in_answer}, is_executing={is_executing}, has_answer_tag={'<answer>' in full_response.lower()}"
+                        )
 
             logging.info(
                 f"[run_stream] Stream complete. Total chunks: {chunk_count}, Response length: {len(full_response)}"
