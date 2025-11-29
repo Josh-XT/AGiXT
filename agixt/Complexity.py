@@ -255,6 +255,7 @@ def calculate_complexity_score(
         or complexity_enabled == 1
         or str(complexity_enabled).lower() in ("true", "1")
     )
+    is_enabled = False
     if not is_enabled:
         return ComplexityScore(
             total_score=0,
