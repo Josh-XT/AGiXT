@@ -125,6 +125,36 @@ class WebhookEventEmitter:
                 )
                 company_id = agent_company_id
 
+        # If agent_name is provided but agent_id is not, try to resolve company from agent name
+        if agent_name and not company_id:
+            agent_company_id = self._get_agent_company_id_by_name(agent_name, user_id)
+            if agent_company_id:
+                logger.debug(
+                    f"Resolved company_id {agent_company_id} from agent name '{agent_name}'"
+                )
+                company_id = agent_company_id
+
+        # Also check for agent_name in the data payload if not provided as a parameter
+        if not company_id and data and isinstance(data, dict):
+            data_agent_name = data.get("agent_name")
+            data_agent_id = data.get("agent_id")
+            if data_agent_id and not company_id:
+                agent_company_id = self._get_agent_company_id(data_agent_id)
+                if agent_company_id:
+                    logger.debug(
+                        f"Resolved company_id {agent_company_id} from data.agent_id {data_agent_id}"
+                    )
+                    company_id = agent_company_id
+            if data_agent_name and not company_id:
+                agent_company_id = self._get_agent_company_id_by_name(
+                    data_agent_name, user_id
+                )
+                if agent_company_id:
+                    logger.debug(
+                        f"Resolved company_id {agent_company_id} from data.agent_name '{data_agent_name}'"
+                    )
+                    company_id = agent_company_id
+
         # Ensure company_id is a string if provided (handle case where UUID object is passed)
         if company_id:
             logger.debug(
@@ -195,6 +225,61 @@ class WebhookEventEmitter:
             return None
         except Exception as exc:
             logger.warning(f"Could not resolve company_id for agent {agent_id}: {exc}")
+            return None
+        finally:
+            if session:
+                session.close()
+
+    def _get_agent_company_id_by_name(
+        self, agent_name: str, user_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Attempt to resolve the company associated with an agent by its name."""
+        session: Optional[Session] = None
+        try:
+            session = get_session()
+
+            # Query for agents with this name, optionally filtered by user_id
+            query = session.query(Agent).filter(Agent.name == agent_name)
+            if user_id:
+                query = query.filter(Agent.user_id == str(user_id))
+            agent = query.first()
+
+            if not agent:
+                logger.debug(
+                    f"No agent found with name '{agent_name}'"
+                    + (f" for user {user_id}" if user_id else "")
+                )
+                return None
+
+            # Look for company_id in the agent's settings
+            setting = (
+                session.query(AgentSetting)
+                .filter(
+                    AgentSetting.agent_id == str(agent.id),
+                    AgentSetting.name == "company_id",
+                )
+                .first()
+            )
+            if setting and setting.value:
+                logger.debug(
+                    f"Found company_id {setting.value} in settings for agent '{agent_name}'"
+                )
+                return str(setting.value)
+
+            # Fall back to inferring from the agent's user
+            if agent.user_id:
+                inferred_company = self._get_user_company_id(agent.user_id)
+                if inferred_company:
+                    logger.debug(
+                        f"Inferred company_id {inferred_company} from agent '{agent_name}' owner"
+                    )
+                    return inferred_company
+
+            return None
+        except Exception as exc:
+            logger.warning(
+                f"Could not resolve company_id for agent name '{agent_name}': {exc}"
+            )
             return None
         finally:
             if session:
