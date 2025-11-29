@@ -31,7 +31,6 @@ async def initialize_database(is_restart=False):
         DB.migrate_extension_table()
         DB.migrate_webhook_outgoing_table()
         DB.migrate_user_table()
-        DB.migrate_machine_approval_table()
 
         # Initialize extension tables
         DB.initialize_extension_tables()
