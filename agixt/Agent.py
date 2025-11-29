@@ -1551,10 +1551,20 @@ class Agent:
                     f.write(base64.b64decode(tts_content))
 
                 # Create final secure location in workspace using validated paths only
-                workspace_outputs = f"WORKSPACE/{safe_agent_id}/{safe_conversation_id}"
+                workspace_base = os.path.realpath("WORKSPACE")
+                workspace_outputs = os.path.join(
+                    workspace_base, safe_agent_id, safe_conversation_id
+                )
+                # Verify path is within workspace to prevent any traversal
+                if not os.path.realpath(workspace_outputs).startswith(workspace_base):
+                    raise ValueError("Invalid path: directory traversal detected")
                 os.makedirs(workspace_outputs, exist_ok=True)
+
                 # Move to final location with system-generated filename
-                final_audio_path = f"{workspace_outputs}/{secure_filename}"
+                final_audio_path = os.path.join(workspace_outputs, secure_filename)
+                # Verify final path is still within workspace
+                if not os.path.realpath(final_audio_path).startswith(workspace_base):
+                    raise ValueError("Invalid path: directory traversal detected")
                 shutil.move(temp_audio_path, final_audio_path)
                 agixt_uri = getenv("AGIXT_URI")
                 output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"

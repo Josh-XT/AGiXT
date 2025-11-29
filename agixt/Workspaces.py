@@ -73,18 +73,38 @@ class SecurityValidationMixin:
     def ensure_safe_path(
         cls, base_path: Union[str, Path], requested_path: Union[str, Path]
     ) -> Path:
-        """Ensure the requested path is safe and within the base path"""
-        base_path = Path(base_path).resolve()
+        """Ensure the requested path is safe and within the base path.
+
+        This function prevents path traversal attacks by:
+        1. Rejecting paths containing '..' or backslashes
+        2. Resolving the full absolute path
+        3. Verifying the resolved path is within the base directory
+        """
+        # Resolve base path to absolute
+        base_abs = os.path.realpath(str(base_path))
+
         try:
             # Convert requested_path to string and validate for traversal attempts
             requested_str = str(requested_path)
+
+            # Reject any path containing traversal patterns
             if ".." in requested_str or "\\" in requested_str:
                 raise ValueError("Path traversal detected")
 
-            requested_abs = Path(base_path, requested_path).resolve()
-            if not str(requested_abs).startswith(str(base_path)):
+            # Construct and resolve the full path
+            full_path = os.path.realpath(os.path.join(base_abs, requested_str))
+
+            # Verify the resolved path is within the base directory
+            # Using os.path.commonpath for robust containment check
+            try:
+                common = os.path.commonpath([base_abs, full_path])
+                if common != base_abs:
+                    raise ValueError("Path traversal detected")
+            except ValueError:
+                # commonpath raises ValueError if paths are on different drives (Windows)
                 raise ValueError("Path traversal detected")
-            return requested_abs
+
+            return Path(full_path)
         except ValueError:
             raise
         except Exception:
