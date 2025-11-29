@@ -27,7 +27,7 @@ from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
 from Conversations import get_conversation_id_by_name
-from agixtsdk import AGiXTSDK
+from typing import Any, Union
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
 import logging
@@ -867,7 +867,7 @@ class Agent:
         agent_name=None,
         agent_id=None,
         user=DEFAULT_USER,
-        ApiClient: AGiXTSDK = None,
+        ApiClient: Any = None,
     ):
         # Validate that either agent_name or agent_id is provided, but not both
         if agent_name is not None and agent_id is not None:

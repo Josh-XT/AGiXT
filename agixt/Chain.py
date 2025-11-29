@@ -403,9 +403,6 @@ class Chain:
             logging.error(
                 f"Target {prompt[argument_key]} not found. Using default prompt."
             )
-            logging.info(f"Prompt: {prompt}")
-            logging.info(f"Prompt Type: {prompt_type}")
-            logging.info(f"Argument Key: {argument_key}")
         else:
             target_id = target.id
         argument_value = prompt[argument_key]
@@ -690,16 +687,6 @@ class Chain:
                     synchronize_session=False,
                 )
                 session.commit()
-
-                logging.info(
-                    f"Deleted step {deleted_step_number} from chain '{chain_name}' and reordered remaining steps"
-                )
-            else:
-                logging.info(
-                    f"No step found with number {step_number} in chain '{chain_name}'"
-                )
-        else:
-            logging.info(f"No chain found with name '{chain_name}'")
         session.close()
 
     def delete_chain(self, chain_name):
@@ -1268,7 +1255,6 @@ class Chain:
             "helper_agent_name",
         ]
         chain_data = self.get_chain(chain_name=chain_name)
-        logging.info(f"Chain Data: {chain_data}")
         try:
             steps = chain_data["steps"]
         except:

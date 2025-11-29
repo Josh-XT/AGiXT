@@ -16,7 +16,7 @@ from MagicalAuth import (
 )
 from Extensions import Extensions
 from safeexecute import execute_python_code
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 from Globals import getenv
 from Task import Task
 from DB import (
@@ -213,9 +213,9 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self.ApiClient = (
             kwargs["ApiClient"]
             if "ApiClient" in kwargs
-            else AGiXTSDK(
-                base_uri=getenv("AGIXT_URI"),
+            else InternalClient(
                 api_key=kwargs["api_key"] if "api_key" in kwargs else "",
+                user=kwargs.get("user"),
             )
         )
         self.user = kwargs.get("user", None)

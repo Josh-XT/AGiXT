@@ -16,7 +16,7 @@ from Memories import Memories
 from datetime import datetime
 from googleapiclient.discovery import build
 from MagicalAuth import MagicalAuth
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -32,7 +32,7 @@ async def search_the_web(
 ):
     auth = MagicalAuth(token=token)
     user = auth.email
-    ApiClient = AGiXTSDK(base_uri=getenv("AGIXT_API"), api_key=token)
+    ApiClient = InternalClient(api_key=token, user=user)
     c = Conversations(conversation_name=conversation_name, user=user)
     conversaton_id = c.get_conversation_id()
     websearch = Websearch(

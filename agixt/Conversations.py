@@ -882,9 +882,6 @@ class Conversations:
                     message="[ACTIVITY] Completed activities.",
                     timestamp=completed_activity_timestamp,
                 )
-                logging.info(
-                    f"Created completed activities with ID {completed_activity_id} and timestamp {completed_activity_timestamp}"
-                )
 
             # Process regular messages
             for interaction in conversation_content:
@@ -958,10 +955,6 @@ class Conversations:
 
     def get_thinking_id(self, agent_name):
         import traceback
-
-        logging.info(
-            f"[get_thinking_id] Called from:\n{''.join(traceback.format_stack()[-4:-1])}"
-        )
 
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()

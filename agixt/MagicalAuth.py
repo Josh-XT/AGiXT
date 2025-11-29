@@ -34,7 +34,7 @@ from Globals import getenv, get_default_agent
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from datetime import datetime, timedelta
 from fastapi import HTTPException
-from agixtsdk import AGiXTSDK
+from InternalClient import InternalClient
 import importlib
 import pyotp
 import logging
@@ -1391,7 +1391,7 @@ class MagicalAuth:
                 )
                 session.add(user_company)
                 session.commit()
-                agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+                agixt = InternalClient()
                 agixt.login(email=new_user.email, otp=pyotp.TOTP(mfa_token).now())
                 default_agent = get_default_agent()
                 if company_id is not None:
@@ -2719,7 +2719,7 @@ class MagicalAuth:
                     company_name = company.name if company else "our platform"
                     company_id = company.id if company else None
                     default_agent = get_default_agent()
-                    agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+                    agixt = InternalClient()
                     agixt.login(
                         email=invitation.email, otp=pyotp.TOTP(user.mfa_token).now()
                     )
@@ -3279,7 +3279,7 @@ class MagicalAuth:
                 )
                 db.add(user_company)
                 db.commit()
-                agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+                agixt = InternalClient()
                 company_email = f"{str(new_company.id)}@{str(new_company.id)}.xt"
                 auth = MagicalAuth()
                 auth.register(
@@ -3481,20 +3481,20 @@ class MagicalAuth:
             logging.error(f"Error getting user by ID {user_id}: {str(e)}")
             return None
 
-    def get_user_agent_session(self) -> AGiXTSDK:
+    def get_user_agent_session(self) -> InternalClient:
         session = get_session()
         user_details = session.query(User).filter(User.id == self.user_id).first()
         if not user_details:
             session.close()
             raise HTTPException(status_code=401, detail="Invalid user login")
-        agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+        agixt = InternalClient()
         agixt.login(
             email=user_details.email, otp=pyotp.TOTP(user_details.mfa_token).now()
         )
         session.close()
         return agixt
 
-    def get_company_agent_session(self, company_id: str = None) -> AGiXTSDK:
+    def get_company_agent_session(self, company_id: str = None) -> InternalClient:
         # Handle None, "None" string, or empty string
         if not company_id or str(company_id).lower() in ["none", "null", ""]:
             company_id = self.company_id
@@ -3510,7 +3510,7 @@ class MagicalAuth:
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
             )
-        agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+        agixt = InternalClient()
         totp = pyotp.TOTP(str(company["token"]))
         agixt.login(email=f"{company_id}@{company_id}.xt", otp=totp.now())
         return agixt
