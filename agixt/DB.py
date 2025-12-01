@@ -1827,6 +1827,91 @@ def migrate_user_table():
         logging.error(f"Error migrating user table: {e}")
 
 
+def migrate_cleanup_duplicate_wallet_settings():
+    """
+    Migration function to clean up duplicate Solana wallet settings per agent.
+    Keeps only one setting per agent per wallet setting type, preferring ones with values.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            wallet_setting_names = [
+                "SOLANA_WALLET_ADDRESS",
+                "SOLANA_WALLET_API_KEY",
+                "SOLANA_WALLET_PASSPHRASE_API_KEY",
+            ]
+
+            total_deleted = 0
+
+            for setting_name in wallet_setting_names:
+                # Find all agent_ids that have duplicates for this setting
+                if DATABASE_TYPE == "sqlite":
+                    duplicates_query = text(
+                        """
+                        SELECT agent_id, COUNT(*) as cnt
+                        FROM agent_setting 
+                        WHERE name = :setting_name
+                        GROUP BY agent_id
+                        HAVING COUNT(*) > 1
+                    """
+                    )
+                else:
+                    duplicates_query = text(
+                        """
+                        SELECT agent_id, COUNT(*) as cnt
+                        FROM agent_setting 
+                        WHERE name = :setting_name
+                        GROUP BY agent_id
+                        HAVING COUNT(*) > 1
+                    """
+                    )
+
+                result = session.execute(
+                    duplicates_query, {"setting_name": setting_name}
+                )
+                agents_with_duplicates = [row[0] for row in result.fetchall()]
+
+                for agent_id in agents_with_duplicates:
+                    # Get all settings for this agent and setting name, ordered to prefer ones with values
+                    settings = (
+                        session.query(AgentSetting)
+                        .filter(
+                            AgentSetting.agent_id == agent_id,
+                            AgentSetting.name == setting_name,
+                        )
+                        .all()
+                    )
+
+                    if len(settings) <= 1:
+                        continue
+
+                    # Find the keeper - prefer one with a non-empty value
+                    keeper = None
+                    for setting in settings:
+                        if setting.value:
+                            keeper = setting
+                            break
+
+                    # If no setting has a value, keep the first one
+                    if keeper is None:
+                        keeper = settings[0]
+
+                    # Delete all duplicates except the keeper
+                    for setting in settings:
+                        if setting.id != keeper.id:
+                            session.delete(setting)
+                            total_deleted += 1
+
+            session.commit()
+            if total_deleted > 0:
+                logging.info(f"Cleaned up {total_deleted} duplicate wallet settings")
+
+    except Exception as e:
+        logging.error(f"Error cleaning up duplicate wallet settings: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -1858,6 +1943,7 @@ if __name__ == "__main__":
     migrate_extension_table()
     migrate_webhook_outgoing_table()
     migrate_user_table()
+    migrate_cleanup_duplicate_wallet_settings()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
     setup_default_roles()

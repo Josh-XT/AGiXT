@@ -206,15 +206,10 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         .first()
     )
     if agent:
-        i = 1
-        while not agent:
-            agent_name = f"{agent_name} {i}"
-            agent = (
-                session.query(AgentModel)
-                .filter(AgentModel.name == agent_name, AgentModel.user.has(email=user))
-                .first()
-            )
-            i += 1
+        # Agent already exists, return its info instead of creating a duplicate
+        agent_id = str(agent.id)
+        session.close()
+        return {"message": f"Agent {agent_name} already exists.", "id": agent_id}
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
 
@@ -1167,6 +1162,9 @@ class Agent:
                 if not agent:
                     # Create an agent.
                     add_agent(agent_name=self.agent_name, user=self.user)
+                    # Close the current session and get a new one to see the newly committed agent
+                    session.close()
+                    session = get_session()
                     # Get the agent
                     agent = (
                         session.query(AgentModel)
@@ -1181,33 +1179,67 @@ class Agent:
 
         # Wallet Creation Logic - Runs only if agent exists
         if agent:
-            # Check for existing wallet settings
-            existing_wallet_address = (
+            # Get ALL wallet settings for this agent (to handle duplicates)
+            all_wallet_addresses = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
                 )
-                .first()
+                .all()
             )
 
-            existing_private_key = (
+            all_private_keys = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
                 )
-                .first()
+                .all()
             )
 
-            existing_passphrase = (
+            all_passphrases = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
                 )
-                .first()
+                .all()
             )
+
+            # Clean up duplicates - keep only the first one with a value, or first one if none have values
+            def cleanup_duplicates(settings_list):
+                if len(settings_list) <= 1:
+                    return settings_list[0] if settings_list else None
+
+                # Find the first setting with a non-empty value
+                keeper = None
+                for setting in settings_list:
+                    if setting.value:
+                        keeper = setting
+                        break
+
+                # If no setting has a value, keep the first one
+                if keeper is None:
+                    keeper = settings_list[0]
+
+                # Delete all duplicates except the keeper
+                for setting in settings_list:
+                    if setting.id != keeper.id:
+                        session.delete(setting)
+
+                return keeper
+
+            existing_wallet_address = cleanup_duplicates(all_wallet_addresses)
+            existing_private_key = cleanup_duplicates(all_private_keys)
+            existing_passphrase = cleanup_duplicates(all_passphrases)
+
+            # Commit duplicate cleanup before checking if wallet needs creation
+            try:
+                session.commit()
+            except Exception as e:
+                logging.warning(f"Error cleaning up duplicate wallet settings: {e}")
+                session.rollback()
 
             # Check if wallet doesn't exist or any of the critical settings are empty
             wallet_needs_creation = (
@@ -2384,33 +2416,67 @@ class Agent:
                         detail=f"Agent '{self.agent_name}' not found for this user.",
                     )
 
-            # Retrieve wallet settings using the agent_id
-            private_key_setting = (
+            # Get ALL wallet settings for this agent (to handle duplicates)
+            all_private_keys = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
                 )
-                .first()
+                .all()
             )
 
-            passphrase_setting = (
+            all_passphrases = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
                 )
-                .first()
+                .all()
             )
 
-            address_setting = (
+            all_addresses = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
                 )
-                .first()
+                .all()
             )
+
+            # Clean up duplicates - keep only the first one with a value, or first one if none have values
+            def cleanup_duplicates(settings_list):
+                if len(settings_list) <= 1:
+                    return settings_list[0] if settings_list else None
+
+                # Find the first setting with a non-empty value
+                keeper = None
+                for setting in settings_list:
+                    if setting.value:
+                        keeper = setting
+                        break
+
+                # If no setting has a value, keep the first one
+                if keeper is None:
+                    keeper = settings_list[0]
+
+                # Delete all duplicates except the keeper
+                for setting in settings_list:
+                    if setting.id != keeper.id:
+                        session.delete(setting)
+
+                return keeper
+
+            private_key_setting = cleanup_duplicates(all_private_keys)
+            passphrase_setting = cleanup_duplicates(all_passphrases)
+            address_setting = cleanup_duplicates(all_addresses)
+
+            # Commit duplicate cleanup
+            try:
+                session.commit()
+            except Exception as e:
+                logging.warning(f"Error cleaning up duplicate wallet settings: {e}")
+                session.rollback()
 
             # Check if wallet settings are missing or empty
             wallet_incomplete = (
