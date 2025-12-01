@@ -1223,12 +1223,24 @@ async def get_cunique_external_sources(
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
     auth = MagicalAuth(token=authorization)
-    agixt = auth.get_company_agent_session(company_id=company_id)
-    response = agixt.get_memories_external_sources(
-        agent_name="AGiXT",
+    # Verify user has access to this company
+    if str(company_id) not in auth.get_user_companies():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Insufficient permissions.",
+        )
+    # Use company email as user context for memory scoping
+    company_user = f"{company_id}@{company_id}.xt"
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    external_sources = await Memories(
+        agent_name=agent.agent_name,
+        agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
-    )
-    return {"external_sources": response}
+        ApiClient=ApiClient,
+        user=company_user,
+    ).get_external_data_sources()
+    return {"external_sources": external_sources}
 
 
 # RLHF endpoint
