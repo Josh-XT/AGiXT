@@ -48,6 +48,7 @@ data/
 agents/
 memories/
 text-generation-webui/
+AGENTS.md
 # testing
 **/.ipynb_checkpoints/
 test.ipynb
