@@ -2281,6 +2281,8 @@ class Agent:
             for available_command in self.available_commands
             if available_command["enabled"] == True
         ]
+        # Debug log the enabled commands
+        logging.info(f"[get_commands_prompt] Enabled commands: {command_list}")
         if self.company_id and self.company_agent:
             company_command_list = [
                 available_command["friendly_name"]

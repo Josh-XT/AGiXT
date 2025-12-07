@@ -201,6 +201,30 @@ class WorkspaceMoveModel(BaseModel):
     destination_path: str
 
 
+# Remote Command Models (for CLI remote execution)
+class RemoteCommandResult(BaseModel):
+    """Result of a remote command execution from CLI"""
+
+    request_id: str
+    terminal_id: str
+    exit_code: int
+    stdout: str
+    stderr: str
+    working_directory: Optional[str] = None
+    execution_time_seconds: Optional[float] = None
+
+
+class RemoteCommandRequest(BaseModel):
+    """Request for remote command execution (sent to CLI)"""
+
+    request_id: str
+    terminal_id: str
+    command: str
+    working_directory: Optional[str] = None
+    is_background: bool = False
+    timeout_seconds: int = 300
+
+
 # Agent Configuration Models
 class AgentSettings(BaseModel):
     agent_name: str

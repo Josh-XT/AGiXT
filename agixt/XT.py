@@ -2849,6 +2849,7 @@ Your response (true or false):"""
                 complexity_score=complexity_score,
                 use_smartest=use_smartest,
                 thinking_id=thinking_id,  # Pass the thinking_id to avoid creating a duplicate
+                command_overrides=command_overrides,  # Pass command overrides to enable specific commands
                 **prompt_args,
             ):
                 event_type = event.get("type", "")
@@ -2895,6 +2896,33 @@ Your response (true or false):"""
                         "complete": is_complete,
                     }
                     yield f"data: {json.dumps(activity_chunk)}\n\n"
+
+                # Handle remote command requests - need client-side execution
+                elif event_type == "remote_command_request":
+                    remote_cmd = content  # content is the remote command dict
+                    remote_request_chunk = {
+                        "id": chunk_id,
+                        "object": "remote_command.request",
+                        "created": created_time,
+                        "model": self.agent_name,
+                        "command": remote_cmd.get("command", ""),
+                        "working_directory": remote_cmd.get("working_directory"),
+                        "terminal_id": remote_cmd.get("terminal_id"),
+                        "request_id": remote_cmd.get("request_id"),
+                        "conversation_id": self.conversation_id,
+                    }
+                    yield f"data: {json.dumps(remote_request_chunk)}\n\n"
+
+                # Handle remote command pending - stream is ending, waiting for CLI
+                elif event_type == "remote_command_pending":
+                    pending_chunk = {
+                        "id": chunk_id,
+                        "object": "remote_command.pending",
+                        "created": created_time,
+                        "model": self.agent_name,
+                        "conversation_id": self.conversation_id,
+                    }
+                    yield f"data: {json.dumps(pending_chunk)}\n\n"
 
                 elif event_type == "error":
                     error_chunk = {

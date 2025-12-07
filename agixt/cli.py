@@ -24,6 +24,7 @@ import time
 import threading
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Optional
 import platform
@@ -517,22 +518,80 @@ def is_url(path: str) -> bool:
 
 
 class ActivityTracker:
-    """Thread-safe activity tracker for WebSocket streaming."""
+    """Thread-safe activity tracker for WebSocket streaming.
+
+    Handles two types of activities:
+    1. Streaming activities (thinking, reflection) - accumulated until complete
+    2. Status activities (info, error, activity, subactivity) - shown immediately
+    """
 
     def __init__(self):
-        self._activities = {}
+        self._activities = {}  # Current activities for display
+        self._streaming_buffer = (
+            {}
+        )  # Buffer for streaming content (thinking, reflection)
         self._lock = threading.Lock()
         self._last_activity_line_count = 0
+        self._completed_activities = (
+            []
+        )  # List of (type, content) for completed activities
 
     def update(self, activity_type: str, content: str, complete: bool = False):
-        """Update an activity's content."""
+        """Update an activity's content.
+
+        For streaming activities (thinking, reflection):
+        - Accumulate content until complete=True
+        - Only add to completed list when done
+
+        For status activities:
+        - Show immediately (replace previous of same type)
+        """
         with self._lock:
-            if complete:
-                if activity_type in self._activities:
-                    del self._activities[activity_type]
+            # Streaming activities that accumulate (thinking/reflection)
+            if activity_type in ("thinking", "reflection"):
+                if activity_type not in self._streaming_buffer:
+                    self._streaming_buffer[activity_type] = ""
+
+                # Append new content
+                self._streaming_buffer[activity_type] += content
+
+                if complete:
+                    # Move completed streaming activity to completed list
+                    full_content = self._streaming_buffer[activity_type].strip()
+                    if full_content:
+                        self._completed_activities.append((activity_type, full_content))
+                    # Clear the buffer
+                    del self._streaming_buffer[activity_type]
+                    if activity_type in self._activities:
+                        del self._activities[activity_type]
+                else:
+                    # Update current display with accumulated content
+                    self._activities[activity_type] = self._streaming_buffer[
+                        activity_type
+                    ]
             else:
-                # Replace content for this activity type (show latest)
-                self._activities[activity_type] = content
+                # Non-streaming activities - show immediately or remove
+                if complete:
+                    if activity_type in self._activities:
+                        del self._activities[activity_type]
+                else:
+                    self._activities[activity_type] = content
+
+    def get_completed(self) -> list:
+        """Get and clear the list of completed activities."""
+        with self._lock:
+            completed = self._completed_activities.copy()
+            self._completed_activities.clear()
+            return completed
+
+    def get_current_streaming(self) -> dict:
+        """Get current streaming activities (in-progress thinking/reflection)."""
+        with self._lock:
+            return {
+                k: v
+                for k, v in self._activities.items()
+                if k in ("thinking", "reflection")
+            }
 
     def get_display(self) -> str:
         """Get formatted display string for all activities."""
@@ -566,6 +625,294 @@ class ActivityTracker:
         """Clear all activities."""
         with self._lock:
             self._activities.clear()
+            self._streaming_buffer.clear()
+            self._completed_activities.clear()
+
+
+class TerminalSession:
+    """Manages a single terminal session for remote command execution."""
+
+    def __init__(self, session_id: str, working_directory: Optional[str] = None):
+        self.session_id = session_id
+        self.working_directory = working_directory or os.getcwd()
+        self.env = os.environ.copy()
+        self.history = []
+
+    def execute(
+        self, command: str, timeout: int = 300, is_background: bool = False
+    ) -> dict:
+        """
+        Execute a command in this terminal session.
+
+        Args:
+            command: The shell command to execute
+            timeout: Maximum seconds to wait (ignored for background)
+            is_background: If True, run command in background and return immediately
+
+        Returns:
+            dict with keys: exit_code, stdout, stderr, working_directory, execution_time_seconds
+        """
+        start_time = time.time()
+
+        # Handle cd commands specially to update working directory
+        if command.strip().startswith("cd "):
+            new_dir = command.strip()[3:].strip()
+            if new_dir.startswith("~"):
+                new_dir = os.path.expanduser(new_dir)
+            if not os.path.isabs(new_dir):
+                new_dir = os.path.normpath(
+                    os.path.join(self.working_directory, new_dir)
+                )
+
+            if os.path.isdir(new_dir):
+                self.working_directory = new_dir
+                return {
+                    "exit_code": 0,
+                    "stdout": f"Changed directory to {self.working_directory}",
+                    "stderr": "",
+                    "working_directory": self.working_directory,
+                    "execution_time_seconds": time.time() - start_time,
+                }
+            else:
+                return {
+                    "exit_code": 1,
+                    "stdout": "",
+                    "stderr": f"cd: no such file or directory: {new_dir}",
+                    "working_directory": self.working_directory,
+                    "execution_time_seconds": time.time() - start_time,
+                }
+
+        try:
+            # Determine shell based on platform
+            if platform.system() == "Windows":
+                shell_cmd = ["cmd", "/c", command]
+            else:
+                shell_cmd = ["/bin/bash", "-c", command]
+
+            if is_background:
+                # Start background process
+                process = subprocess.Popen(
+                    shell_cmd,
+                    cwd=self.working_directory,
+                    env=self.env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                )
+                return {
+                    "exit_code": 0,
+                    "stdout": f"Background process started with PID {process.pid}",
+                    "stderr": "",
+                    "working_directory": self.working_directory,
+                    "execution_time_seconds": time.time() - start_time,
+                    "pid": process.pid,
+                }
+            else:
+                # Execute synchronously
+                result = subprocess.run(
+                    shell_cmd,
+                    cwd=self.working_directory,
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+
+                # Record in history
+                self.history.append(
+                    {
+                        "command": command,
+                        "exit_code": result.returncode,
+                        "timestamp": time.time(),
+                    }
+                )
+
+                return {
+                    "exit_code": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "working_directory": self.working_directory,
+                    "execution_time_seconds": time.time() - start_time,
+                }
+        except subprocess.TimeoutExpired:
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": f"Command timed out after {timeout} seconds",
+                "working_directory": self.working_directory,
+                "execution_time_seconds": timeout,
+            }
+        except Exception as e:
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": str(e),
+                "working_directory": self.working_directory,
+                "execution_time_seconds": time.time() - start_time,
+            }
+
+
+class TerminalSessionManager:
+    """Manages multiple terminal sessions for remote command execution."""
+
+    def __init__(self):
+        self._sessions = {}
+        self._lock = threading.Lock()
+
+    def get_or_create_session(
+        self, session_id: str, working_directory: Optional[str] = None
+    ) -> TerminalSession:
+        """Get an existing session or create a new one."""
+        with self._lock:
+            if session_id not in self._sessions:
+                self._sessions[session_id] = TerminalSession(
+                    session_id, working_directory
+                )
+            elif working_directory:
+                # Update working directory if specified
+                self._sessions[session_id].working_directory = working_directory
+            return self._sessions[session_id]
+
+    def execute_command(
+        self,
+        command: str,
+        terminal_id: str,
+        working_directory: Optional[str] = None,
+        is_background: bool = False,
+        timeout: int = 300,
+    ) -> dict:
+        """
+        Execute a command in a terminal session.
+
+        Args:
+            command: The shell command to execute
+            terminal_id: ID of the terminal session (created if doesn't exist)
+            working_directory: Optional directory to run in
+            is_background: If True, run in background
+            timeout: Maximum seconds to wait
+
+        Returns:
+            dict with execution results
+        """
+        session = self.get_or_create_session(terminal_id, working_directory)
+        return session.execute(command, timeout, is_background)
+
+    def list_sessions(self) -> list:
+        """List all active terminal sessions."""
+        with self._lock:
+            return [
+                {
+                    "session_id": sid,
+                    "working_directory": session.working_directory,
+                    "command_count": len(session.history),
+                }
+                for sid, session in self._sessions.items()
+            ]
+
+
+# Global terminal session manager for CLI
+_terminal_manager = TerminalSessionManager()
+
+
+def execute_remote_command(remote_request: dict) -> dict:
+    """
+    Execute a remote command request locally.
+
+    Args:
+        remote_request: The remote command request from the server containing:
+            - command: The shell command to execute
+            - terminal_id: ID for the terminal session
+            - working_directory: Optional working directory
+            - is_background: Whether to run in background
+            - timeout_seconds: Command timeout
+
+    Returns:
+        dict with execution results
+    """
+    command = remote_request.get("command", "")
+    terminal_id = remote_request.get("terminal_id", str(uuid.uuid4()))
+    working_directory = remote_request.get("working_directory")
+    is_background = remote_request.get("is_background", False)
+    timeout = remote_request.get("timeout_seconds", 300)
+    request_id = remote_request.get("request_id", str(uuid.uuid4()))
+
+    print(f"\n🖥️  Remote command: {command}")
+    if working_directory:
+        print(f"   📂 Directory: {working_directory}")
+
+    # Execute the command
+    result = _terminal_manager.execute_command(
+        command=command,
+        terminal_id=terminal_id,
+        working_directory=working_directory,
+        is_background=is_background,
+        timeout=timeout,
+    )
+
+    # Add request tracking info
+    result["request_id"] = request_id
+    result["terminal_id"] = terminal_id
+
+    # Display result
+    exit_code = result.get("exit_code", -1)
+    if exit_code == 0:
+        print(f"   ✅ Exit code: {exit_code}")
+    else:
+        print(f"   ❌ Exit code: {exit_code}")
+
+    if result.get("stdout"):
+        stdout_preview = result["stdout"][:500]
+        if len(result["stdout"]) > 500:
+            stdout_preview += f"\n... ({len(result['stdout'])} chars total)"
+        print(f"   📤 Output:\n{stdout_preview}")
+
+    if result.get("stderr"):
+        stderr_preview = result["stderr"][:300]
+        if len(result["stderr"]) > 300:
+            stderr_preview += f"\n... ({len(result['stderr'])} chars total)"
+        print(f"   ⚠️  Stderr:\n{stderr_preview}")
+
+    return result
+
+
+def submit_remote_command_result(
+    server_url: str,
+    token: str,
+    conversation_id: str,
+    result: dict,
+) -> bool:
+    """
+    Submit the result of a remote command execution to the server.
+
+    Args:
+        server_url: The AGiXT server URL
+        token: Authentication token
+        conversation_id: The conversation ID
+        result: The execution result dict
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        url = f"{server_url}/v1/conversation/{conversation_id}/remote-command-result"
+        data = json.dumps(result).encode("utf-8")
+
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": token,
+            },
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            response.read()
+            return True
+    except Exception as e:
+        print(f"   ⚠️  Failed to submit result: {e}")
+        return False
 
 
 def connect_conversation_websocket(
@@ -689,6 +1036,51 @@ def connect_conversation_websocket(
         pass
 
 
+def stop_conversation_api(server_url: str, token: str, conversation_id: str = None):
+    """
+    Call the AGiXT API to stop an active conversation.
+
+    This ensures the server stops processing even when the CLI is interrupted.
+
+    Args:
+        server_url: The AGiXT server URL
+        token: The authentication token
+        conversation_id: Optional specific conversation ID to stop (stops all if not provided)
+    """
+    try:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": token,
+        }
+
+        # Try to stop specific conversation if ID provided
+        if conversation_id and conversation_id != "-":
+            try:
+                url = f"{server_url}/v1/conversation/{conversation_id}/stop"
+                req = urllib.request.Request(
+                    url, data=b"{}", headers=headers, method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    response.read()
+            except Exception:
+                pass  # Silently ignore specific stop failures
+
+        # Also try to stop all conversations for this user as backup
+        try:
+            url = f"{server_url}/v1/conversations/stop"
+            req = urllib.request.Request(
+                url, data=b"{}", headers=headers, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                response.read()
+        except Exception:
+            pass  # Silently ignore stop failures
+
+    except Exception:
+        # Don't let stop failures interfere with CLI exit
+        pass
+
+
 def _prompt(
     prompt_text: str,
     agent: Optional[str] = None,
@@ -755,11 +1147,20 @@ def _prompt(
     messages = [{"role": "user", "content": content}]
 
     # Build the request payload
+    # Include the remote terminal tool so the agent can execute commands on user's machine
+    # Use exclusive: true to ensure the agent ONLY has this command available,
+    # forcing it to use the remote terminal for any command execution
     payload = {
         "messages": messages,
         "model": agent,
         "user": conversation,
         "stream": True,
+        "tools": [
+            {
+                "type": "Execute Terminal Command",
+                "exclusive": True,
+            },  # Enable remote terminal execution only
+        ],
     }
 
     # Set up activity tracking
@@ -791,6 +1192,9 @@ def _prompt(
     # Make the streaming request
     url = f"{server_url}/v1/chat/completions"
 
+    # Track conversation ID outside try block so it's accessible in KeyboardInterrupt handler
+    new_conversation_id = None
+
     try:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
@@ -803,61 +1207,108 @@ def _prompt(
         prompt_tokens = 0
         actual_model = agent
         full_content = ""
-        new_conversation_id = None
 
         with urllib.request.urlopen(req, timeout=300) as response:
             # Process Server-Sent Events (SSE) stream
             buffer = ""
-            last_activity_content = {}  # Track last content for each activity type
             response_started = False
-            shown_activities = (
-                set()
-            )  # Track activities we've already shown as full lines
+            shown_completed = set()  # Track completed activities we've already shown
+            current_streaming_type = (
+                None  # Track if we're showing a streaming status line
+            )
 
             def update_activity_display(force_clear=False):
-                """Update the activity display from the tracker (both SSE and WebSocket)."""
-                nonlocal last_activity_content, response_started, shown_activities
+                """Update the activity display from the tracker (both SSE and WebSocket).
+
+                Strategy:
+                - Print completed activities (thinking, reflection) as permanent lines with full content
+                - Show a simple status for in-progress streaming (not every token)
+                - Show other activity types (info, error, etc.) immediately
+                """
+                nonlocal response_started, shown_completed, current_streaming_type
 
                 if force_clear or response_started:
                     # Don't show activities once response content has started
-                    # This prevents interrupting the streaming output
                     return
 
-                # Get current activities from tracker
-                with activity_tracker._lock:
-                    current_activities = dict(activity_tracker._activities)
+                # Get icon for activity type
+                icon_map = {
+                    "thinking": "🤔",
+                    "reflection": "🔄",
+                    "activity": "⚙️",
+                    "subactivity": "└─",
+                    "info": "ℹ️",
+                    "error": "❌",
+                }
 
-                # Check for new or updated activities
-                for activity_type, content in current_activities.items():
-                    # Create a unique key for this activity
+                # First, print any completed activities
+                completed = activity_tracker.get_completed()
+                for activity_type, content in completed:
+                    # Create a unique key for this completed activity
                     activity_key = f"{activity_type}:{hash(content)}"
-
-                    # Only show if we haven't shown this exact activity before
-                    if activity_key not in shown_activities:
-                        shown_activities.add(activity_key)
-
-                        # Get icon for activity type
-                        icon_map = {
-                            "thinking": "🤔",
-                            "reflection": "🔄",
-                            "activity": "⚙️",
-                            "subactivity": "└─",
-                            "info": "ℹ️",
-                            "error": "❌",
-                        }
+                    if activity_key not in shown_completed:
+                        shown_completed.add(activity_key)
                         icon = icon_map.get(activity_type, "⚙️")
 
-                        # Truncate long content
+                        # For completed thinking/reflection, show a summary
+                        # Truncate for display but show it's complete
                         display_content = content
-                        if len(display_content) > 100:
-                            display_content = display_content[:97] + "..."
+                        if len(display_content) > 150:
+                            # Show first 100 chars, then ellipsis
+                            display_content = display_content[:147] + "..."
 
-                        # Print activity on its own line (will stay in terminal history)
+                        # Clear any streaming status line before printing
+                        if current_streaming_type:
+                            print("\r" + " " * 80 + "\r", end="", flush=True)
+                            current_streaming_type = None
+
                         print(f"\033[90m{icon} {display_content}\033[0m", flush=True)
 
-                last_activity_content = current_activities
+                # Show status for in-progress streaming activities (but don't spam)
+                streaming = activity_tracker.get_current_streaming()
+                for activity_type, content in streaming.items():
+                    icon = icon_map.get(activity_type, "⚙️")
+                    # Just show that we're thinking, not the full content
+                    content_preview = (
+                        content[:50] + "..." if len(content) > 50 else content
+                    )
+                    content_preview = content_preview.replace("\n", " ")
+                    status = f"\033[90m{icon} {activity_type.title()}...\033[0m"
+                    # Overwrite the same line for streaming status
+                    print(f"\r{status}" + " " * 30, end="", flush=True)
+                    current_streaming_type = activity_type
+                    break  # Only show one streaming status
 
-            for chunk in iter(lambda: response.read(1024).decode("utf-8"), ""):
+                # Show non-streaming activities (info, error, activity, subactivity)
+                with activity_tracker._lock:
+                    for activity_type, content in activity_tracker._activities.items():
+                        if activity_type in ("thinking", "reflection"):
+                            continue  # Handled above as streaming
+
+                        activity_key = f"{activity_type}:{hash(content)}"
+                        if activity_key not in shown_completed:
+                            shown_completed.add(activity_key)
+                            icon = icon_map.get(activity_type, "⚙️")
+
+                            display_content = content
+                            if len(display_content) > 100:
+                                display_content = display_content[:97] + "..."
+
+                            # Clear any streaming status line before printing
+                            if current_streaming_type:
+                                print("\r" + " " * 80 + "\r", end="", flush=True)
+                                current_streaming_type = None
+
+                            print(
+                                f"\033[90m{icon} {display_content}\033[0m", flush=True
+                            )
+
+            should_exit_stream = False  # Flag for breaking out of nested loops
+            while not should_exit_stream:
+                try:
+                    chunk = response.read(1024).decode("utf-8")
+                except Exception:
+                    break
                 if not chunk:
                     break
                 buffer += chunk
@@ -867,6 +1318,8 @@ def _prompt(
 
                 # Process complete SSE messages
                 while "\n\n" in buffer or "\r\n\r\n" in buffer:
+                    if should_exit_stream:
+                        break  # Exit the while loop
                     if "\r\n\r\n" in buffer:
                         message, buffer = buffer.split("\r\n\r\n", 1)
                     else:
@@ -878,7 +1331,8 @@ def _prompt(
                             json_data = line[6:]
 
                             if json_data == "[DONE]":
-                                continue
+                                should_exit_stream = True
+                                break  # Exit the for line loop
 
                             try:
                                 chunk_data = json.loads(json_data)
@@ -890,6 +1344,96 @@ def _prompt(
                                 # Get model from chunk
                                 if chunk_data.get("model"):
                                     actual_model = chunk_data["model"]
+
+                                # Handle remote command request from SSE
+                                if chunk_data.get("object") == "remote_command.request":
+                                    # Agent is requesting to execute a command on user's terminal
+                                    command = chunk_data.get("command", "")
+                                    working_directory = chunk_data.get(
+                                        "working_directory"
+                                    )
+                                    terminal_id = chunk_data.get(
+                                        "terminal_id", str(uuid.uuid4())
+                                    )
+                                    request_id = chunk_data.get(
+                                        "request_id", str(uuid.uuid4())
+                                    )
+
+                                    if command:
+                                        print(
+                                            f"\n\033[93m🖥️  Agent requesting terminal command:\033[0m"
+                                        )
+                                        print(f"\033[90m   $ {command}\033[0m")
+                                        if working_directory:
+                                            print(
+                                                f"\033[90m   in: {working_directory}\033[0m"
+                                            )
+
+                                        # Execute the command locally using the remote command handler
+                                        remote_request = {
+                                            "command": command,
+                                            "working_directory": working_directory,
+                                            "terminal_id": terminal_id,
+                                            "request_id": request_id,
+                                            "is_background": False,
+                                            "timeout_seconds": 300,
+                                        }
+                                        result = execute_remote_command(remote_request)
+
+                                        # Get the output - use stdout primarily, fall back to stderr
+                                        output = result.get("stdout", "") or result.get(
+                                            "stderr", ""
+                                        )
+                                        exit_code = result.get("exit_code", -1)
+
+                                        if exit_code == 0:
+                                            print(
+                                                f"\033[92m✓ Command completed (exit code: {exit_code})\033[0m"
+                                            )
+                                        else:
+                                            print(
+                                                f"\033[91m✗ Command failed (exit code: {exit_code})\033[0m"
+                                            )
+
+                                        if output:
+                                            # Print output with indentation
+                                            output_lines = output.split("\n")
+                                            for line in output_lines[
+                                                :20
+                                            ]:  # Limit output display
+                                                print(f"   {line}")
+                                            if len(output_lines) > 20:
+                                                print(
+                                                    f"   ... ({len(output_lines) - 20} more lines)"
+                                                )
+
+                                        # Submit result back to server
+                                        submit_remote_command_result(
+                                            server_url=server_url,
+                                            token=token,
+                                            conversation_id=new_conversation_id
+                                            or conversation,
+                                            result={
+                                                "command": command,
+                                                "terminal_id": terminal_id,
+                                                "output": output,
+                                                "exit_code": exit_code,
+                                                "request_id": request_id,
+                                                "working_directory": result.get(
+                                                    "working_directory"
+                                                ),
+                                            },
+                                        )
+                                        print()  # Add spacing
+                                    continue
+
+                                # Handle remote command pending (stream ending after remote command)
+                                if chunk_data.get("object") == "remote_command.pending":
+                                    # The stream is ending because a remote command was requested
+                                    # The result was already submitted - now we're done
+                                    print("\n")  # Clean ending
+                                    should_exit_stream = True
+                                    break  # Exit the while loop (message processing)
 
                                 # Handle activity streaming from SSE
                                 if chunk_data.get("object") == "activity.stream":
@@ -912,10 +1456,17 @@ def _prompt(
                                     delta = choices[0].get("delta", {})
                                     content_chunk = delta.get("content", "")
                                     if content_chunk:
-                                        # Mark response as started (just for tracking)
+                                        # Mark response as started
                                         if not response_started:
-                                            # Print a newline before the response content
-                                            # to separate from any activities
+                                            # Clear any streaming status line
+                                            if current_streaming_type:
+                                                print(
+                                                    "\r" + " " * 80 + "\r",
+                                                    end="",
+                                                    flush=True,
+                                                )
+                                                current_streaming_type = None
+                                            # Print a newline to separate from activities
                                             print()
                                             response_started = True
 
@@ -946,7 +1497,8 @@ def _prompt(
         # Stop WebSocket thread
         stop_event.set()
 
-        if not full_content:
+        if not full_content and not should_exit_stream:
+            # Only show warning if we didn't handle a remote command
             print("⚠️  Empty response received")
 
         # Update stored conversation ID if it changed
@@ -1024,7 +1576,10 @@ def _prompt(
         return 1
     except KeyboardInterrupt:
         stop_event.set()
-        print("\n⚠️  Interrupted")
+        print("\n⚠️  Interrupted - stopping server-side processing...")
+        # Call the stop API to halt any ongoing processing
+        stop_conversation_api(server_url, token, new_conversation_id or conversation)
+        print("✓ Stop signal sent")
         return 130
 
 

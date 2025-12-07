@@ -84,6 +84,16 @@ class Interactions:
         self.cp = Prompts(user=user)
         self._processed_commands = set()
 
+    def _check_cancelled(self):
+        """
+        Check if the current asyncio task has been cancelled.
+        Raises asyncio.CancelledError if the task was cancelled.
+        This allows graceful stopping of long-running operations.
+        """
+        task = asyncio.current_task()
+        if task and task.cancelled():
+            raise asyncio.CancelledError("Task was cancelled by user")
+
     def custom_format(self, string, **kwargs):
         if "fp" in kwargs:
             return kwargs["user_input"]
@@ -655,14 +665,6 @@ class Interactions:
         websearch_depth = 3
         conversation_results = 5
         kwargs["42"] = self.agent_name[-3:].lower() == "pt"
-        if command_overrides:
-            for tool in command_overrides:
-                tool_type = tool.get("type")
-                # Find the command in available_commands list and toggle its enabled status
-                for available_command in self.agent.available_commands:
-                    if available_command["friendly_name"] == tool_type:
-                        available_command["enabled"] = not available_command["enabled"]
-                        break
 
         if "conversation_results" in kwargs:
             try:
@@ -835,6 +837,36 @@ class Interactions:
                                 )
                                 async_tasks.append(search_task)
         await asyncio.gather(*async_tasks)
+
+        # Process command_overrides BEFORE format_prompt so enabled state is correct
+        if command_overrides:
+            # Check if any tool requests exclusive mode (disable all other commands)
+            exclusive_mode = any(
+                tool.get("exclusive", False) for tool in command_overrides
+            )
+
+            if exclusive_mode:
+                # Disable ALL commands first, then enable only the requested ones
+                for cmd in self.agent.available_commands:
+                    cmd["enabled"] = False
+
+            for tool in command_overrides:
+                tool_type = tool.get("type")
+                # Find the command in available_commands list and enable it
+                # This allows CLI/API to enable specific commands for this request
+                for available_command in self.agent.available_commands:
+                    if available_command["friendly_name"] == tool_type:
+                        # Always enable when specified in tools (not toggle)
+                        available_command["enabled"] = True
+                        # If enabling Execute Terminal Command, disable Execute Shell
+                        # to ensure the agent uses the remote terminal instead
+                        if tool_type == "Execute Terminal Command":
+                            for cmd in self.agent.available_commands:
+                                if cmd["friendly_name"] == "Execute Shell":
+                                    cmd["enabled"] = False
+                                    break
+                        break
+
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -876,6 +908,9 @@ class Interactions:
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
         # Inject planning phase prompt for multi-step tasks before initial inference
@@ -1332,6 +1367,9 @@ class Interactions:
                         "prompt_tokens": tokens if "tokens" in locals() else 0,
                     },
                     user_id=self.user,
+                    agent_id=self.agent.agent_id,
+                    agent_name=self.agent_name,
+                    company_id=self.agent.company_id,
                 )
 
                 # Also emit chat completion event
@@ -1348,6 +1386,9 @@ class Interactions:
                         "prompt_tokens": tokens if "tokens" in locals() else 0,
                     },
                     user_id=self.user,
+                    agent_id=self.agent.agent_id,
+                    agent_name=self.agent_name,
+                    company_id=self.agent.company_id,
                 )
         if shots > 1:
             responses = [self.response]
@@ -1410,6 +1451,7 @@ class Interactions:
         use_smartest: bool = False,
         thinking_id: str = None,
         searching: bool = False,
+        command_overrides: list = None,
         **kwargs,
     ):
         """
@@ -1655,6 +1697,48 @@ class Interactions:
         # Wait for all async tasks to complete before formatting prompt
         await asyncio.gather(*async_tasks)
 
+        # Process command_overrides BEFORE format_prompt so enabled state is correct
+        if command_overrides:
+            logging.info(
+                f"[run_stream] Processing command_overrides: {command_overrides}"
+            )
+
+            # Check if any tool requests exclusive mode (disable all other commands)
+            exclusive_mode = any(
+                tool.get("exclusive", False) for tool in command_overrides
+            )
+            requested_tools = [tool.get("type") for tool in command_overrides]
+
+            if exclusive_mode:
+                # Disable ALL commands first, then enable only the requested ones
+                logging.info(
+                    "[run_stream] Exclusive mode enabled - disabling all commands first"
+                )
+                for cmd in self.agent.available_commands:
+                    cmd["enabled"] = False
+
+            for tool in command_overrides:
+                tool_type = tool.get("type")
+                logging.info(f"[run_stream] Looking for command: {tool_type}")
+                # Find the command in available_commands list and enable it
+                # This allows CLI/API to enable specific commands for this request
+                for available_command in self.agent.available_commands:
+                    if available_command["friendly_name"] == tool_type:
+                        # Always enable when specified in tools (not toggle)
+                        available_command["enabled"] = True
+                        logging.info(f"[run_stream] Enabled command: {tool_type}")
+                        # If enabling Execute Terminal Command, disable Execute Shell
+                        # to ensure the agent uses the remote terminal instead
+                        if tool_type == "Execute Terminal Command":
+                            for cmd in self.agent.available_commands:
+                                if cmd["friendly_name"] == "Execute Shell":
+                                    cmd["enabled"] = False
+                                    logging.info(
+                                        "[run_stream] Disabled Execute Shell in favor of Execute Terminal Command"
+                                    )
+                                    break
+                        break
+
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -1667,6 +1751,41 @@ class Interactions:
             vision_response=vision_response,
             **kwargs,
         )
+
+        # Inject special CLI instructions if Execute Terminal Command was requested
+        if command_overrides:
+            has_terminal_command = any(
+                tool.get("type") == "Execute Terminal Command"
+                for tool in command_overrides
+            )
+            if has_terminal_command:
+                cli_instructions = """
+## IMPORTANT: CLI Mode Instructions
+You are interacting with a user through a command-line interface (CLI). The user is on their local machine.
+
+**You MUST use the `Execute Terminal Command` command for ANY of these requests:**
+- Listing files or directories (e.g., "list files", "show me what's here", "what files do I have")
+- Creating, moving, copying, or deleting files/folders
+- Checking system information (pwd, whoami, uname, etc.)
+- Running build commands (npm, cargo, make, pip, etc.)
+- Executing scripts or programs
+- Git operations (status, log, diff, etc.)
+- Package installation
+- ANY terminal or shell operation
+
+**Do NOT use workspace file commands like "Search Files" or "Read File" - those only work on the server, not the user's machine.**
+**The `Execute Terminal Command` is the ONLY way to interact with the user's local filesystem.**
+
+Example: If user says "list my files", use:
+<execute>
+<name>Execute Terminal Command</name>
+<command>ls -la</command>
+</execute>
+"""
+                formatted_prompt = f"{formatted_prompt}\n{cli_instructions}"
+                logging.info(
+                    "[run_stream] Injected CLI mode instructions for Execute Terminal Command"
+                )
 
         # Anonymize AGiXT server URL
         if self.outputs in formatted_prompt:
@@ -1691,6 +1810,9 @@ class Interactions:
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
         # Inject planning phase if needed
@@ -1714,6 +1836,9 @@ class Interactions:
         in_answer = False
         answer_content = ""
         is_executing = False  # Flag to pause streaming during command execution
+        remote_command_yielded = (
+            False  # Flag to track if remote command was yielded (skip continuation)
+        )
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -1782,6 +1907,10 @@ class Interactions:
             last_tag_check_pos = 0
 
             async for chunk in iterate_stream(stream):
+                # Check for cancellation periodically during streaming
+                if chunk_count % 10 == 0:  # Check every 10 chunks to avoid overhead
+                    self._check_cancelled()
+
                 chunk_count += 1
 
                 # Extract content from the chunk - handle different formats
@@ -1885,12 +2014,35 @@ class Interactions:
                         full_response = truncated_response
                         self.response = full_response
 
-                        # Execute the command
+                        # Create a queue to receive remote command requests
+                        remote_command_queue = asyncio.Queue()
+
+                        async def remote_command_callback(remote_cmd):
+                            """Callback that yields remote command request to SSE stream."""
+                            # Put the remote command request in the queue
+                            await remote_command_queue.put(remote_cmd)
+                            # Return a placeholder - the actual result will come from CLI
+                            return f"[REMOTE COMMAND QUEUED] Waiting for client-side execution.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
+
+                        # Execute the command with callback
                         await self.execution_agent(
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
                             thinking_id=thinking_id,
+                            remote_command_callback=remote_command_callback,
                         )
+
+                        # Yield any remote command requests that were queued
+                        while not remote_command_queue.empty():
+                            remote_cmd = await remote_command_queue.get()
+                            remote_command_yielded = (
+                                True  # Mark that we yielded a remote command
+                            )
+                            yield {
+                                "type": "remote_command_request",
+                                "content": remote_cmd,
+                                "complete": True,
+                            }
 
                         full_response = self.response
                         is_executing = False
@@ -1977,6 +2129,21 @@ class Interactions:
 
         # Store the full response
         self.response = full_response
+
+        # Skip continuation logic if a remote command was yielded
+        # The CLI will handle the command execution and submit the result
+        # The next user interaction will pick up from there
+        if remote_command_yielded:
+            logging.info(
+                "[run_stream] Remote command yielded - skipping continuation loop"
+            )
+            # Yield a final completion indicator
+            yield {
+                "type": "remote_command_pending",
+                "content": "Waiting for remote command execution...",
+                "complete": True,
+            }
+            return
 
         # Continuation logic: Handle execution outputs and incomplete answers
         # This matches the non-streaming behavior where we inject output and run inference again
@@ -2142,10 +2309,27 @@ Analyze the actual output shown and continue with your response.
                                 # Update processed_length before execution so we can detect new executions
                                 processed_length = len(self.response)
 
+                                # Create queue for remote command requests in continuation
+                                cont_remote_queue = asyncio.Queue()
+
+                                async def cont_remote_callback(remote_cmd):
+                                    await cont_remote_queue.put(remote_cmd)
+                                    return f"[REMOTE COMMAND QUEUED] Waiting for client-side execution.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
+
                                 await self.execution_agent(
                                     conversation_name=conversation_name,
                                     conversation_id=conversation_id,
+                                    remote_command_callback=cont_remote_callback,
                                 )
+
+                                # Yield any remote command requests
+                                while not cont_remote_queue.empty():
+                                    remote_cmd = await cont_remote_queue.get()
+                                    yield {
+                                        "type": "remote_command_request",
+                                        "content": remote_cmd,
+                                        "complete": True,
+                                    }
 
                                 # Update processed_length again after execution adds output
                                 processed_length = len(self.response)
@@ -2432,6 +2616,9 @@ Analyze the actual output shown and continue with your response.
                     "prompt_tokens": tokens if "tokens" in locals() else 0,
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
             # Also emit chat completion event
@@ -2448,6 +2635,9 @@ Analyze the actual output shown and continue with your response.
                     "prompt_tokens": tokens if "tokens" in locals() else 0,
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
         # Yield the complete answer
@@ -2480,9 +2670,46 @@ Analyze the actual output shown and continue with your response.
                 extracted_commands.append((command_block, command_name, args))
         return extracted_commands
 
+    def _is_remote_command(self, command_output: str) -> dict:
+        """
+        Check if a command output is a remote command request.
+
+        Remote commands are executed on the client side (e.g., CLI) instead of the server.
+        They return a JSON object with __remote_command__: true
+
+        Returns:
+            dict with remote command details if it's a remote command, None otherwise
+        """
+        if not command_output:
+            return None
+        try:
+            # Try to parse as JSON
+            parsed = json.loads(command_output)
+            if isinstance(parsed, dict) and parsed.get("__remote_command__") == True:
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return None
+
     async def execution_agent(
-        self, conversation_name, conversation_id=None, thinking_id=None
+        self,
+        conversation_name,
+        conversation_id=None,
+        thinking_id=None,
+        remote_command_callback=None,
     ):
+        """
+        Execute commands found in the agent's response.
+
+        Args:
+            conversation_name: Name of the conversation
+            conversation_id: ID of the conversation
+            thinking_id: ID for tracking thinking activities
+            remote_command_callback: Optional async callback for handling remote commands.
+                                   If provided and a remote command is detected, this callback
+                                   will be called with the remote command request dict.
+                                   The callback should return the command output string.
+        """
         c = Conversations(
             conversation_name=conversation_name,
             user=self.user,
@@ -2496,11 +2723,18 @@ Analyze the actual output shown and continue with your response.
         # Use provided thinking_id if available, otherwise get a new one
         if not thinking_id:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        # Check for cancellation before starting command execution
+        self._check_cancelled()
+
         # Extract commands from the response
         commands_to_execute = self.extract_commands_from_response(self.response)
         reformatted_response = self.response
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:
+                # Check for cancellation before each command
+                self._check_cancelled()
+
                 position = self.response.index(command_block)
                 command_id = f"{position}:{command_name}:{json.dumps(command_args, sort_keys=True)}"
                 # Skip if we've already processed this exact command
@@ -2538,6 +2772,54 @@ Analyze the actual output shown and continue with your response.
                             command_name=command_name,
                             command_args=command_args,
                         )
+
+                        # Check if this is a remote command that needs client-side execution
+                        remote_cmd = self._is_remote_command(command_output)
+                        if remote_cmd:
+                            # This is a remote command - needs to be executed on the client
+                            if remote_command_callback:
+                                # Use callback to handle remote execution
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Requesting remote execution of terminal command...",
+                                )
+                                try:
+                                    # Call the callback with the remote command request
+                                    command_output = await remote_command_callback(
+                                        remote_cmd
+                                    )
+                                    c.log_interaction(
+                                        role=self.agent_name,
+                                        message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Remote execution completed.\n```\n{command_output}\n```",
+                                    )
+                                except Exception as e:
+                                    command_output = (
+                                        f"Remote command execution failed: {str(e)}"
+                                    )
+                                    c.log_interaction(
+                                        role=self.agent_name,
+                                        message=f"[SUBACTIVITY][{thinking_id}][ERROR] Remote execution failed: {str(e)}",
+                                    )
+                            else:
+                                # No callback - emit webhook for external handling
+                                await webhook_emitter.emit_event(
+                                    event_type="command.remote.request",
+                                    data={
+                                        "conversation_id": c.get_conversation_id(),
+                                        "conversation_name": conversation_name,
+                                        "agent_name": self.agent_name,
+                                        "user": self.user,
+                                        "command_name": command_name,
+                                        "remote_request": remote_cmd,
+                                        "timestamp": datetime.now().isoformat(),
+                                    },
+                                    user_id=self.user,
+                                    agent_id=self.agent.agent_id,
+                                    agent_name=self.agent_name,
+                                    company_id=self.agent.company_id,
+                                )
+                                # Format as pending remote execution for the response
+                                command_output = f"[REMOTE COMMAND PENDING] This command requires execution on the client.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}\nCommand: {remote_cmd.get('command', 'unknown')}"
                         # Handle different types of command output
                         if isinstance(command_output, (dict, list)):
                             # Already a structured object, serialize directly to JSON
@@ -2586,6 +2868,9 @@ Analyze the actual output shown and continue with your response.
                                 "timestamp": datetime.now().isoformat(),
                             },
                             user_id=self.user,
+                            agent_id=self.agent.agent_id,
+                            agent_name=self.agent_name,
+                            company_id=self.agent.company_id,
                         )
                     except Exception as e:
                         error_message = f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
@@ -2610,6 +2895,9 @@ Analyze the actual output shown and continue with your response.
                                 "timestamp": datetime.now().isoformat(),
                             },
                             user_id=self.user,
+                            agent_id=self.agent.agent_id,
+                            agent_name=self.agent_name,
+                            company_id=self.agent.company_id,
                         )
                 # Format the command execution and output
                 formatted_execution = (
