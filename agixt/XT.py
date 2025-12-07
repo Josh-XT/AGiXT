@@ -2878,7 +2878,12 @@ Your response (true or false):"""
                         yield f"data: {json.dumps(chunk)}\n\n"
 
                 # Stream progressive thinking/reflection content
-                elif event_type in ("thinking_stream", "reflection_stream"):
+                elif event_type in (
+                    "thinking_stream",
+                    "reflection_stream",
+                    "thinking",
+                    "reflection",
+                ):
                     # Send as a custom SSE event for progressive activity streaming
                     activity_type = event_type.replace("_stream", "")
                     activity_chunk = {

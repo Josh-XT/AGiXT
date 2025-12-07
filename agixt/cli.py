@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-"""Command line helper for common AGiXT workflows."""
+"""Command line helper for common AGiXT workflows.
+
+This CLI supports two modes:
+1. Server management (start/stop/restart/logs) - Requires full dependencies when using --local
+2. Client mode (login/prompt) - Lightweight, only requires requests package
+
+When using `agixt login` and `agixt prompt`, no heavy dependencies are needed.
+These commands communicate with a remote AGiXT server via HTTP/WebSocket.
+"""
 
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import os
 import re
 import shutil
@@ -11,6 +21,9 @@ import signal
 import subprocess
 import sys
 import time
+import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 import platform
@@ -31,6 +44,7 @@ STATE_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_PID_FILE = STATE_DIR / "agixt-local.pid"
 LOCAL_LOG_FILE = STATE_DIR / f"agixt-local-{int(time.time())}.log"
 WEB_PID_FILE = STATE_DIR / "agixt-web.pid"
+CREDENTIALS_FILE = STATE_DIR / "credentials.json"
 
 
 class CLIError(RuntimeError):
@@ -48,6 +62,970 @@ def get_local_ip():
         return ip
     except Exception as e:
         return "localhost"
+
+
+# ========== Credential Management ==========
+
+
+def load_credentials() -> dict:
+    """Load saved credentials from ~/.agixt/credentials.json"""
+    if CREDENTIALS_FILE.exists():
+        try:
+            return json.loads(CREDENTIALS_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def save_credentials(credentials: dict) -> None:
+    """Save credentials to ~/.agixt/credentials.json"""
+    CREDENTIALS_FILE.write_text(json.dumps(credentials, indent=2), encoding="utf-8")
+    # Restrict permissions to owner only
+    try:
+        CREDENTIALS_FILE.chmod(0o600)
+    except OSError:
+        pass
+
+
+def get_server_url() -> str:
+    """Get the AGiXT server URL from credentials or default."""
+    creds = load_credentials()
+    return creds.get("server", "http://localhost:7437")
+
+
+def get_auth_token() -> Optional[str]:
+    """Get the JWT token from credentials."""
+    creds = load_credentials()
+    return creds.get("token")
+
+
+def get_default_agent() -> str:
+    """Get the default agent name from credentials or default."""
+    creds = load_credentials()
+    return creds.get("agent", "XT")
+
+
+def get_default_conversation() -> str:
+    """Get the default conversation ID from credentials or default."""
+    creds = load_credentials()
+    return creds.get("conversation", "-")
+
+
+# ========== Login Command ==========
+
+
+def _login(server: str, email: str, otp: str) -> int:
+    """
+    Login to an AGiXT server with email and OTP.
+
+    This uses the AGiXT login endpoint to authenticate and stores
+    the JWT token for future use.
+    """
+    # Normalize server URL
+    if not server.startswith(("http://", "https://")):
+        server = f"http://{server}"
+    server = server.rstrip("/")
+
+    print(f"🔐 Logging in to {server}...")
+
+    try:
+        # Make login request
+        login_data = json.dumps({"email": email, "token": otp}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{server}/v1/login",
+            data=login_data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+
+        # Extract token from response
+        if "detail" in response_data:
+            detail = response_data["detail"]
+            if "?token=" in detail:
+                token = detail.split("token=")[1]
+
+                # Save credentials
+                creds = load_credentials()
+                creds["server"] = server
+                creds["token"] = token
+                creds["email"] = email
+                save_credentials(creds)
+
+                print(f"✅ Successfully logged in as {email}")
+                print(f"   Server: {server}")
+                print(f"   Credentials saved to: {CREDENTIALS_FILE}")
+                return 0
+            else:
+                print(f"ℹ️  Server response: {detail}")
+                return 1
+        else:
+            print(f"❌ Unexpected response: {response_data}")
+            return 1
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        print(f"❌ HTTP Error {e.code}: {e.reason}")
+        if error_body:
+            try:
+                error_json = json.loads(error_body)
+                print(f"   {error_json.get('detail', error_body)}")
+            except json.JSONDecodeError:
+                print(f"   {error_body}")
+        return 1
+    except urllib.error.URLError as e:
+        print(f"❌ Connection error: {e.reason}")
+        print(f"   Could not connect to {server}")
+        return 1
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return 1
+
+
+# ========== Register Command ==========
+
+
+def _register(server: str, email: str, first_name: str, last_name: str) -> int:
+    """
+    Register a new user on an AGiXT server.
+
+    This creates a new user account and automatically logs in using the
+    generated TOTP secret. The magic link URL is also printed for web login.
+    """
+    # Normalize server URL
+    if not server.startswith(("http://", "https://")):
+        server = f"http://{server}"
+    server = server.rstrip("/")
+
+    print(f"📝 Registering new user on {server}...")
+
+    try:
+        # Make registration request
+        register_data = json.dumps(
+            {
+                "email": email,
+                "first_name": first_name,
+                "last_name": last_name,
+            }
+        ).encode("utf-8")
+
+        req = urllib.request.Request(
+            f"{server}/v1/user",
+            data=register_data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+
+        # Check for otp_uri in response (successful registration)
+        if "otp_uri" in response_data:
+            otp_uri = response_data["otp_uri"]
+
+            # Extract the TOTP secret from the otp_uri
+            # Format: otpauth://totp/AGiXT:email?secret=XXXXX&issuer=AGiXT
+            if "secret=" in otp_uri:
+                mfa_secret = otp_uri.split("secret=")[1].split("&")[0]
+
+                print(f"✅ User registered successfully!")
+                print(f"   Email: {email}")
+                print(f"   Name: {first_name} {last_name}")
+                print()
+
+                # Generate OTP and login
+                try:
+                    import pyotp
+
+                    totp = pyotp.TOTP(mfa_secret)
+                    otp = totp.now()
+
+                    print("🔐 Logging in with generated OTP...")
+                    return _login(server, email, otp)
+
+                except ImportError:
+                    # pyotp not available, provide manual instructions
+                    print("⚠️  pyotp not installed - cannot auto-login")
+                    print()
+                    print("📱 To set up 2FA, scan this QR code or add manually:")
+                    print(f"   {otp_uri}")
+                    print()
+                    print("Then login with:")
+                    print(
+                        f"   agixt login --server {server} --email {email} --otp <YOUR_OTP>"
+                    )
+
+                    # Save server to credentials for convenience
+                    creds = load_credentials()
+                    creds["server"] = server
+                    creds["email"] = email
+                    save_credentials(creds)
+
+                    return 0
+            else:
+                print(f"⚠️  Unexpected otp_uri format: {otp_uri}")
+                return 1
+
+        # Check for magic link response (alternative registration flow)
+        elif "detail" in response_data:
+            detail = response_data["detail"]
+            print(f"✅ Registration initiated!")
+            print(f"   {detail}")
+
+            # If there's a magic link, extract and show it
+            if "?token=" in detail:
+                print()
+                print("🔗 Magic link for web login:")
+                print(f"   {detail}")
+
+            return 0
+        else:
+            print(f"❌ Unexpected response: {response_data}")
+            return 1
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        print(f"❌ HTTP Error {e.code}: {e.reason}")
+        if error_body:
+            try:
+                error_json = json.loads(error_body)
+                detail = error_json.get("detail", error_body)
+                print(f"   {detail}")
+
+                # If user already exists, suggest login instead
+                if "already" in str(detail).lower() or "exists" in str(detail).lower():
+                    print()
+                    print("💡 User may already exist. Try logging in:")
+                    print(
+                        f"   agixt login --server {server} --email {email} --otp <YOUR_OTP>"
+                    )
+            except json.JSONDecodeError:
+                print(f"   {error_body}")
+        return 1
+    except urllib.error.URLError as e:
+        print(f"❌ Connection error: {e.reason}")
+        print(f"   Could not connect to {server}")
+        return 1
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return 1
+
+
+# ========== Conversations Command ==========
+
+
+def _conversations() -> int:
+    """
+    List and select conversations interactively.
+
+    Fetches conversations from the server and allows the user to select one
+    to use as the default for future prompts.
+    """
+    server_url = get_server_url()
+    token = get_auth_token()
+
+    if not token:
+        print("❌ Not logged in. Run 'agixt login' first.")
+        return 1
+
+    print(f"📋 Fetching conversations from {server_url}...")
+
+    try:
+        # Make request to get conversations
+        req = urllib.request.Request(
+            f"{server_url}/v1/conversations",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": token,
+            },
+            method="GET",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+
+        conversations = response_data.get("conversations", {})
+
+        if not conversations:
+            print("\n📭 No conversations found.")
+            print('   Start a new conversation with: agixt prompt "Hello!"')
+            return 0
+
+        # Get current conversation from credentials
+        creds = load_credentials()
+        current_conv = creds.get("conversation", "-")
+
+        # Build list of conversations sorted by updated_at (most recent first)
+        conv_list = []
+        for conv_id, conv_data in conversations.items():
+            conv_list.append(
+                {
+                    "id": conv_id,
+                    "name": conv_data.get("name", "Unnamed"),
+                    "created_at": conv_data.get("created_at", ""),
+                    "updated_at": conv_data.get("updated_at", ""),
+                }
+            )
+
+        # Sort by updated_at descending (most recent first)
+        conv_list.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+
+        # Display conversations
+        print()
+        print("=" * 60)
+        print("  Select a conversation (or Ctrl+C to cancel)")
+        print("=" * 60)
+        print()
+
+        # Option 0 is always "New conversation"
+        new_marker = "→" if (not current_conv or current_conv == "-") else " "
+        print(f"  [0]{new_marker} ✨ New conversation")
+        print(f"       Start fresh with a new conversation")
+        print()
+
+        # Show up to 20 conversations
+        max_display = 20
+        for i, conv in enumerate(conv_list[:max_display], 1):
+            name = conv["name"]
+            conv_id = conv["id"]
+            updated = conv.get("updated_at", "")[:10]  # Just the date part
+
+            # Truncate long names
+            if len(name) > 40:
+                name = name[:37] + "..."
+
+            # Mark if this is the current conversation
+            is_current = conv_id == current_conv
+            marker = "→" if is_current else " "
+            current_label = " 📌" if is_current else ""
+
+            print(f"  [{i}]{marker} {name}{current_label}")
+            print(f"       ID: {conv_id[:8]}...  Updated: {updated}")
+
+        if len(conv_list) > max_display:
+            print(f"\n  ... and {len(conv_list) - max_display} more conversations")
+
+        print()
+        print("-" * 60)
+
+        # Get user selection
+        try:
+            selection = input("Enter number (or Ctrl+C to cancel): ").strip()
+
+            if not selection:
+                print("❌ No selection made.")
+                return 1
+
+            try:
+                sel_num = int(selection)
+            except ValueError:
+                print(f"❌ Invalid selection: {selection}")
+                return 1
+
+            if sel_num == 0:
+                # Set to new conversation
+                creds["conversation"] = "-"
+                save_credentials(creds)
+                print("✅ Set to start new conversations.")
+                return 0
+
+            if sel_num < 1 or sel_num > min(len(conv_list), max_display):
+                print(f"❌ Invalid selection: {sel_num}")
+                return 1
+
+            # Select the conversation
+            selected = conv_list[sel_num - 1]
+            creds["conversation"] = selected["id"]
+            save_credentials(creds)
+
+            print(f"✅ Selected conversation: {selected['name']}")
+            print(f"   ID: {selected['id']}")
+            return 0
+
+        except KeyboardInterrupt:
+            print("\n⚠️  Cancelled.")
+            return 0
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        print(f"❌ HTTP Error {e.code}: {e.reason}")
+        if error_body:
+            try:
+                error_json = json.loads(error_body)
+                print(f"   {error_json.get('detail', error_body)}")
+            except json.JSONDecodeError:
+                print(f"   {error_body}")
+        return 1
+    except urllib.error.URLError as e:
+        print(f"❌ Connection error: {e.reason}")
+        return 1
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return 1
+
+
+def _conversation_set(conversation_id: str) -> int:
+    """
+    Set the current conversation by ID.
+
+    Use "-" to start a new conversation.
+    """
+    creds = load_credentials()
+
+    if conversation_id == "-":
+        creds["conversation"] = "-"
+        save_credentials(creds)
+        print("✅ Set to start new conversations.")
+        return 0
+
+    # Validate the conversation exists (optional - just set it)
+    creds["conversation"] = conversation_id
+    save_credentials(creds)
+
+    print(f"✅ Conversation set to: {conversation_id}")
+    return 0
+
+
+# ========== Prompt Command ==========
+
+
+def encode_image_to_base64(image_path: str) -> str:
+    """Encode a local image file to base64."""
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+
+def get_image_mime_type(image_path: str) -> str:
+    """Get the MIME type based on file extension."""
+    ext = Path(image_path).suffix.lower()
+    mime_types = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+    }
+    return mime_types.get(ext, "image/jpeg")
+
+
+def is_url(path: str) -> bool:
+    """Check if the path is a URL."""
+    return path.startswith("http://") or path.startswith("https://")
+
+
+class ActivityTracker:
+    """Thread-safe activity tracker for WebSocket streaming."""
+
+    def __init__(self):
+        self._activities = {}
+        self._lock = threading.Lock()
+        self._last_activity_line_count = 0
+
+    def update(self, activity_type: str, content: str, complete: bool = False):
+        """Update an activity's content."""
+        with self._lock:
+            if complete:
+                if activity_type in self._activities:
+                    del self._activities[activity_type]
+            else:
+                # Replace content for this activity type (show latest)
+                self._activities[activity_type] = content
+
+    def get_display(self) -> str:
+        """Get formatted display string for all activities."""
+        with self._lock:
+            if not self._activities:
+                return ""
+            lines = []
+
+            # Activity type icons and labels
+            icon_map = {
+                "thinking": "🤔",
+                "reflection": "🔄",
+                "activity": "⚙️",
+                "subactivity": "└─",
+                "info": "ℹ️",
+                "error": "❌",
+            }
+
+            for activity_type, content in self._activities.items():
+                # Format activity type nicely
+                icon = icon_map.get(activity_type, "⚙️")
+                label = activity_type.replace("_", " ").title()
+                # Truncate long content for display
+                display_content = content
+                if len(display_content) > 80:
+                    display_content = display_content[:77] + "..."
+                lines.append(f"{icon} {label}: {display_content}")
+            return "\n".join(lines)
+
+    def clear(self):
+        """Clear all activities."""
+        with self._lock:
+            self._activities.clear()
+
+
+def connect_conversation_websocket(
+    server_url: str,
+    token: str,
+    conversation_id: str,
+    activity_tracker: ActivityTracker,
+    stop_event: threading.Event,
+):
+    """
+    Connect to the conversation WebSocket to receive real-time updates.
+
+    This runs in a separate thread and updates the activity tracker
+    with any streaming activities received from the server.
+
+    Activity message formats:
+    - [ACTIVITY][INFO] message
+    - [ACTIVITY][ERROR] message
+    - [SUBACTIVITY][{activity_id}] message
+    - [SUBACTIVITY][THOUGHT] message
+    - [SUBACTIVITY][REFLECTION] message
+    """
+    try:
+        import websocket
+
+        has_websocket = True
+    except ImportError:
+        # websocket-client not available, skip activity streaming
+        return
+
+    # Construct WebSocket URL
+    protocol = "wss" if server_url.startswith("https") else "ws"
+    base_url = server_url.replace("http://", "").replace("https://", "")
+    ws_url = f"{protocol}://{base_url}/v1/conversation/{conversation_id}/stream?authorization={urllib.parse.quote(token)}"
+
+    def on_message(ws, message):
+        try:
+            data = json.loads(message)
+            msg_type = data.get("type", "")
+
+            # Handle message_added events - these contain activities
+            if msg_type == "message_added":
+                msg_data = data.get("data", {})
+                content = msg_data.get("message", "")
+                role = msg_data.get("role", "")
+
+                # Skip user messages
+                if role == "user":
+                    return
+
+                # Parse activity messages
+                if content.startswith("[ACTIVITY]"):
+                    # Format: [ACTIVITY][INFO|ERROR] message
+                    # Remove [ACTIVITY] prefix
+                    remaining = content[10:].strip()  # len("[ACTIVITY]") = 10
+
+                    # Check for activity type tag
+                    if remaining.startswith("[INFO]"):
+                        activity_content = remaining[6:].strip()
+                        activity_tracker.update("info", activity_content)
+                    elif remaining.startswith("[ERROR]"):
+                        activity_content = remaining[7:].strip()
+                        activity_tracker.update("error", activity_content)
+                    else:
+                        # Remove any other bracket tag
+                        if remaining.startswith("[") and "]" in remaining:
+                            activity_content = remaining.split("]", 1)[1].strip()
+                        else:
+                            activity_content = remaining
+                        activity_tracker.update("activity", activity_content)
+
+                elif content.startswith("[SUBACTIVITY]"):
+                    # Format: [SUBACTIVITY][type|id] message
+                    remaining = content[13:].strip()  # len("[SUBACTIVITY]") = 13
+
+                    # Extract subactivity type/id and content
+                    if remaining.startswith("[") and "]" in remaining:
+                        tag_end = remaining.index("]")
+                        tag = remaining[1:tag_end]
+                        subactivity_content = remaining[tag_end + 1 :].strip()
+
+                        # Map tag to activity type
+                        if tag == "THOUGHT":
+                            activity_tracker.update("thinking", subactivity_content)
+                        elif tag == "REFLECTION":
+                            activity_tracker.update("reflection", subactivity_content)
+                        else:
+                            # It's an activity ID - still show as subactivity
+                            activity_tracker.update("subactivity", subactivity_content)
+                    else:
+                        activity_tracker.update("subactivity", remaining)
+
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    def on_error(ws, error):
+        # Silently handle errors - we don't want to interrupt the main prompt
+        pass
+
+    def on_close(ws, close_status_code, close_msg):
+        pass
+
+    def on_open(ws):
+        pass
+
+    try:
+        ws = websocket.WebSocketApp(
+            ws_url,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+            on_open=on_open,
+        )
+
+        # Run in a loop until stop_event is set
+        while not stop_event.is_set():
+            ws.run_forever(ping_interval=30, ping_timeout=10)
+            if not stop_event.is_set():
+                time.sleep(1)  # Brief pause before reconnecting
+    except Exception:
+        pass
+
+
+def _prompt(
+    prompt_text: str,
+    agent: Optional[str] = None,
+    conversation: Optional[str] = None,
+    image_path: Optional[str] = None,
+    show_stats: bool = False,
+    show_activities: bool = True,
+) -> int:
+    """
+    Send a prompt to the AGiXT server and stream the response.
+
+    This connects to the AGiXT chat completions endpoint with streaming
+    and optionally connects to the WebSocket to show activities.
+    """
+    # Get credentials
+    server_url = get_server_url()
+    token = get_auth_token()
+
+    if not token:
+        print("❌ Not logged in. Run 'agixt login' first.")
+        print(
+            f"   Example: agixt login --server {server_url} --email your@email.com --otp 123456"
+        )
+        return 1
+
+    # Use defaults if not specified
+    if not agent:
+        agent = get_default_agent()
+    if not conversation:
+        conversation = get_default_conversation()
+
+    print(f"💬 Sending to {agent}...")
+
+    # Build the messages array
+    content = []
+
+    # Handle image if provided
+    if image_path:
+        if is_url(image_path):
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_path},
+                }
+            )
+        else:
+            image_file = Path(image_path)
+            if not image_file.exists():
+                print(f"❌ Image file not found: {image_path}")
+                return 1
+
+            mime_type = get_image_mime_type(image_path)
+            base64_image = encode_image_to_base64(image_path)
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
+                }
+            )
+
+    # Add the text prompt
+    content.append({"type": "text", "text": prompt_text})
+
+    messages = [{"role": "user", "content": content}]
+
+    # Build the request payload
+    payload = {
+        "messages": messages,
+        "model": agent,
+        "user": conversation,
+        "stream": True,
+    }
+
+    # Set up activity tracking
+    activity_tracker = ActivityTracker()
+    stop_event = threading.Event()
+    ws_thread = None
+
+    # Start WebSocket connection for activities if enabled
+    if show_activities:
+        try:
+            import websocket  # noqa: F401
+
+            ws_thread = threading.Thread(
+                target=connect_conversation_websocket,
+                args=(server_url, token, conversation, activity_tracker, stop_event),
+                daemon=True,
+            )
+            ws_thread.start()
+        except ImportError:
+            # websocket-client not available
+            pass
+
+    # Build headers
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": token,
+    }
+
+    # Make the streaming request
+    url = f"{server_url}/v1/chat/completions"
+
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+
+        start_time = time.time()
+        print()  # Start on a new line for streaming output
+
+        # Track streaming statistics
+        completion_tokens = 0
+        prompt_tokens = 0
+        actual_model = agent
+        full_content = ""
+        new_conversation_id = None
+
+        with urllib.request.urlopen(req, timeout=300) as response:
+            # Process Server-Sent Events (SSE) stream
+            buffer = ""
+            last_activity_content = {}  # Track last content for each activity type
+            response_started = False
+            shown_activities = (
+                set()
+            )  # Track activities we've already shown as full lines
+
+            def update_activity_display(force_clear=False):
+                """Update the activity display from the tracker (both SSE and WebSocket)."""
+                nonlocal last_activity_content, response_started, shown_activities
+
+                if force_clear or response_started:
+                    # Don't show activities once response content has started
+                    # This prevents interrupting the streaming output
+                    return
+
+                # Get current activities from tracker
+                with activity_tracker._lock:
+                    current_activities = dict(activity_tracker._activities)
+
+                # Check for new or updated activities
+                for activity_type, content in current_activities.items():
+                    # Create a unique key for this activity
+                    activity_key = f"{activity_type}:{hash(content)}"
+
+                    # Only show if we haven't shown this exact activity before
+                    if activity_key not in shown_activities:
+                        shown_activities.add(activity_key)
+
+                        # Get icon for activity type
+                        icon_map = {
+                            "thinking": "🤔",
+                            "reflection": "🔄",
+                            "activity": "⚙️",
+                            "subactivity": "└─",
+                            "info": "ℹ️",
+                            "error": "❌",
+                        }
+                        icon = icon_map.get(activity_type, "⚙️")
+
+                        # Truncate long content
+                        display_content = content
+                        if len(display_content) > 100:
+                            display_content = display_content[:97] + "..."
+
+                        # Print activity on its own line (will stay in terminal history)
+                        print(f"\033[90m{icon} {display_content}\033[0m", flush=True)
+
+                last_activity_content = current_activities
+
+            for chunk in iter(lambda: response.read(1024).decode("utf-8"), ""):
+                if not chunk:
+                    break
+                buffer += chunk
+
+                # Check for activity updates from WebSocket
+                update_activity_display()
+
+                # Process complete SSE messages
+                while "\n\n" in buffer or "\r\n\r\n" in buffer:
+                    if "\r\n\r\n" in buffer:
+                        message, buffer = buffer.split("\r\n\r\n", 1)
+                    else:
+                        message, buffer = buffer.split("\n\n", 1)
+
+                    for line in message.split("\n"):
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            json_data = line[6:]
+
+                            if json_data == "[DONE]":
+                                continue
+
+                            try:
+                                chunk_data = json.loads(json_data)
+
+                                # Get conversation ID from first chunk
+                                if chunk_data.get("id") and not new_conversation_id:
+                                    new_conversation_id = chunk_data["id"]
+
+                                # Get model from chunk
+                                if chunk_data.get("model"):
+                                    actual_model = chunk_data["model"]
+
+                                # Handle activity streaming from SSE
+                                if chunk_data.get("object") == "activity.stream":
+                                    activity_type = chunk_data.get("type", "activity")
+                                    activity_content = chunk_data.get("content", "")
+                                    is_complete = chunk_data.get("complete", False)
+
+                                    if activity_content:
+                                        activity_tracker.update(
+                                            activity_type, activity_content, is_complete
+                                        )
+
+                                    # Update display
+                                    update_activity_display()
+                                    continue
+
+                                # Extract content from delta
+                                choices = chunk_data.get("choices", [])
+                                if choices:
+                                    delta = choices[0].get("delta", {})
+                                    content_chunk = delta.get("content", "")
+                                    if content_chunk:
+                                        # Mark response as started (just for tracking)
+                                        if not response_started:
+                                            # Print a newline before the response content
+                                            # to separate from any activities
+                                            print()
+                                            response_started = True
+
+                                        print(content_chunk, end="", flush=True)
+                                        full_content += content_chunk
+                                        completion_tokens += 1
+
+                                    # Check for finish reason
+                                    if choices[0].get("finish_reason") == "stop":
+                                        # Clear any remaining activities
+                                        activity_tracker.clear()
+
+                                # Get usage from final chunk if available
+                                usage = chunk_data.get("usage")
+                                if usage:
+                                    prompt_tokens = usage.get("prompt_tokens", 0)
+                                    completion_tokens = usage.get(
+                                        "completion_tokens", completion_tokens
+                                    )
+
+                            except json.JSONDecodeError:
+                                pass
+
+        elapsed = time.time() - start_time
+        print()  # End with newline
+        print()  # Extra line for spacing
+
+        # Stop WebSocket thread
+        stop_event.set()
+
+        if not full_content:
+            print("⚠️  Empty response received")
+
+        # Update stored conversation ID if it changed
+        if new_conversation_id and new_conversation_id != "-":
+            creds = load_credentials()
+            creds["conversation"] = new_conversation_id
+            save_credentials(creds)
+            conversation = new_conversation_id  # Update for potential follow-up
+
+        # Show stats if requested
+        if show_stats:
+            total_tokens = prompt_tokens + completion_tokens
+
+            print(f"{'─' * 50}")
+            print(f"📊 Statistics")
+            print(f"{'─' * 50}")
+            print(f"   Agent: {actual_model}")
+            print(f"   Conversation: {new_conversation_id or conversation}")
+            print(f"   Prompt tokens: {prompt_tokens:,}")
+            print(f"   Completion tokens: {completion_tokens:,}")
+            print(f"   Total tokens: {total_tokens:,}")
+            print(f"   Total time: {elapsed:.1f}s")
+
+            if completion_tokens > 0:
+                overall_speed = completion_tokens / elapsed
+                print(f"   Speed: {overall_speed:.1f} tok/s")
+            print()
+
+        # Interactive chat loop - prompt for follow-up
+        try:
+            while True:
+                try:
+                    follow_up = input("You: ").strip()
+                    if not follow_up:
+                        continue
+
+                    # Recursively call _prompt with the follow-up
+                    # Use the same conversation to continue the chat
+                    return _prompt(
+                        prompt_text=follow_up,
+                        agent=agent,
+                        conversation=conversation,
+                        image_path=None,  # No image for follow-ups
+                        show_stats=show_stats,
+                        show_activities=show_activities,
+                    )
+                except EOFError:
+                    # End of input (e.g., piped input)
+                    break
+        except KeyboardInterrupt:
+            print("\n👋 Goodbye!")
+            return 0
+
+        return 0
+
+    except urllib.error.HTTPError as e:
+        stop_event.set()
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        print(f"❌ HTTP Error {e.code}: {e.reason}")
+        if error_body:
+            try:
+                error_json = json.loads(error_body)
+                print(f"   {error_json.get('detail', error_body)}")
+            except json.JSONDecodeError:
+                print(f"   {error_body}")
+        return 1
+    except urllib.error.URLError as e:
+        stop_event.set()
+        print(f"❌ Connection error: {e.reason}")
+        print(f"   Is the AGiXT server running at {server_url}?")
+        return 1
+    except TimeoutError:
+        stop_event.set()
+        print("❌ Request timed out after 300 seconds")
+        return 1
+    except KeyboardInterrupt:
+        stop_event.set()
+        print("\n⚠️  Interrupted")
+        return 130
 
 
 def get_default_env_vars():
@@ -1342,47 +2320,272 @@ def _show_env_help() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="AGiXT helper commands")
-    parser.add_argument(
-        "action",
-        choices=["start", "stop", "restart", "logs", "env"],
-        help="Action to perform",
+    parser = argparse.ArgumentParser(
+        description="AGiXT - AI Agent Orchestration Platform",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Server management (requires full dependencies for --local)
+  agixt start                              Start AGiXT via Docker
+  agixt start --local                      Start AGiXT locally (Python)
+  agixt stop                               Stop AGiXT
+  agixt logs -f                            Follow AGiXT logs
+
+  # Client mode (lightweight - works with remote server)
+  agixt register --email user@example.com --firstname John --lastname Doe
+  agixt login --email user@example.com --otp 123456
+  agixt conversations                      List and select a conversation
+  agixt conversations -                    Start a new conversation
+  agixt prompt "Hello, how are you?"
+  agixt prompt "Describe this image" --image ./photo.jpg
+
+  # Environment management
+  agixt env OPENAI_API_KEY="sk-xxxxx"
+  agixt env help
+
+Configuration:
+  Server credentials are stored in ~/.agixt/credentials.json
+  Environment variables are stored in AGiXT/.env
+""",
     )
-    parser.add_argument(
-        "env_vars",
-        nargs="*",
-        help="For env command: KEY=VALUE pairs or 'help' to list all variables",
-    )
-    parser.add_argument(
+
+    subparsers = parser.add_subparsers(dest="action", help="Commands")
+
+    # ===== Server Management Commands =====
+
+    # Start command
+    start_parser = subparsers.add_parser("start", help="Start AGiXT server")
+    start_parser.add_argument(
         "--local",
         action="store_true",
-        help="Operate on the local Python process (saved to AGIXT_RUN_TYPE for future commands)",
+        help="Run locally (Python) instead of Docker",
     )
-    parser.add_argument(
+    start_parser.add_argument(
         "--docker",
         action="store_true",
-        help="Operate on the Docker stack (saved to AGIXT_RUN_TYPE for future commands; default when no mode is specified)",
+        help="Run via Docker (default)",
     )
-    parser.add_argument(
+    start_parser.add_argument(
         "--ezlocalai",
         action="store_true",
-        help="Operate on ezLocalai only (start/stop/restart)",
+        help="Start ezLocalai only",
     )
-    parser.add_argument(
+    start_parser.add_argument(
         "--web",
         action="store_true",
-        help="Operate on web interface only (start/stop/restart)",
+        help="Start web interface only",
     )
-    parser.add_argument(
+    start_parser.add_argument(
         "--all",
         action="store_true",
-        help="Operate on all services (AGiXT + ezLocalai + web)",
+        help="Start all services (AGiXT + ezLocalai + web)",
     )
-    parser.add_argument(
+
+    # Stop command
+    stop_parser = subparsers.add_parser("stop", help="Stop AGiXT server")
+    stop_parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Stop local Python process",
+    )
+    stop_parser.add_argument(
+        "--docker",
+        action="store_true",
+        help="Stop Docker containers",
+    )
+    stop_parser.add_argument(
+        "--ezlocalai",
+        action="store_true",
+        help="Stop ezLocalai only",
+    )
+    stop_parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Stop web interface only",
+    )
+    stop_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Stop all services",
+    )
+
+    # Restart command
+    restart_parser = subparsers.add_parser("restart", help="Restart AGiXT server")
+    restart_parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Restart local Python process",
+    )
+    restart_parser.add_argument(
+        "--docker",
+        action="store_true",
+        help="Restart Docker containers",
+    )
+    restart_parser.add_argument(
+        "--ezlocalai",
+        action="store_true",
+        help="Restart ezLocalai only",
+    )
+    restart_parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Restart web interface only",
+    )
+    restart_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Restart all services",
+    )
+
+    # Logs command
+    logs_parser = subparsers.add_parser("logs", help="View AGiXT logs")
+    logs_parser.add_argument(
         "-f",
         "--follow",
         action="store_true",
-        help="Follow log output (tail -f for local, docker compose logs -f for docker)",
+        help="Follow log output",
+    )
+    logs_parser.add_argument(
+        "--local",
+        action="store_true",
+        help="View local logs",
+    )
+    logs_parser.add_argument(
+        "--docker",
+        action="store_true",
+        help="View Docker logs",
+    )
+    logs_parser.add_argument(
+        "--ezlocalai",
+        action="store_true",
+        help="View ezLocalai logs",
+    )
+    logs_parser.add_argument(
+        "--web",
+        action="store_true",
+        help="View web interface logs",
+    )
+
+    # Env command
+    env_parser = subparsers.add_parser("env", help="Manage environment variables")
+    env_parser.add_argument(
+        "env_vars",
+        nargs="*",
+        help="KEY=VALUE pairs to set, or 'help' to list all variables",
+    )
+
+    # ===== Client Commands (Lightweight) =====
+
+    # Register command
+    register_parser = subparsers.add_parser(
+        "register",
+        help="Register a new user on an AGiXT server",
+        description="Create a new user account on an AGiXT server. "
+        "After registration, automatically logs in using the generated TOTP.",
+    )
+    register_parser.add_argument(
+        "--server",
+        "-s",
+        default="http://localhost:7437",
+        help="AGiXT server URL (default: http://localhost:7437)",
+    )
+    register_parser.add_argument(
+        "--email",
+        "-e",
+        required=True,
+        help="Email address for the new account",
+    )
+    register_parser.add_argument(
+        "--firstname",
+        "-f",
+        required=True,
+        help="First name",
+    )
+    register_parser.add_argument(
+        "--lastname",
+        "-l",
+        required=True,
+        help="Last name",
+    )
+
+    # Login command
+    login_parser = subparsers.add_parser(
+        "login",
+        help="Login to an AGiXT server",
+        description="Authenticate with an AGiXT server using email and OTP. "
+        "Credentials are saved for future use with 'agixt prompt'.",
+    )
+    login_parser.add_argument(
+        "--server",
+        "-s",
+        default=None,
+        help="AGiXT server URL (default: http://localhost:7437 or saved server)",
+    )
+    login_parser.add_argument(
+        "--email",
+        "-e",
+        required=True,
+        help="Your email address",
+    )
+    login_parser.add_argument(
+        "--otp",
+        "-o",
+        required=True,
+        help="One-time password from your authenticator app",
+    )
+
+    # Prompt command
+    prompt_parser = subparsers.add_parser(
+        "prompt",
+        help="Send a prompt to an AGiXT agent",
+        description="Send a prompt to an AGiXT agent and stream the response. "
+        "Requires prior login with 'agixt login'.",
+    )
+    prompt_parser.add_argument(
+        "text",
+        help="The prompt text to send",
+    )
+    prompt_parser.add_argument(
+        "-a",
+        "--agent",
+        help="Agent to use (default: from config or 'XT')",
+        default=None,
+    )
+    prompt_parser.add_argument(
+        "-c",
+        "--conversation",
+        help="Conversation ID to continue (default: '-' for new)",
+        default=None,
+    )
+    prompt_parser.add_argument(
+        "-i",
+        "--image",
+        help="Path to an image file or URL to include with the prompt",
+        default=None,
+    )
+    prompt_parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="Show statistics (tokens, timing) after the response",
+    )
+    prompt_parser.add_argument(
+        "--no-activities",
+        action="store_true",
+        help="Don't show streaming activities (thinking, etc.)",
+    )
+
+    # Conversations command
+    conversations_parser = subparsers.add_parser(
+        "conversations",
+        help="List and select conversations",
+        description="List your conversations and interactively select one to use for future prompts. "
+        "The selected conversation will be used by default with 'agixt prompt'.",
+    )
+    conversations_parser.add_argument(
+        "conversation_id",
+        nargs="?",
+        default=None,
+        help="Directly set conversation ID (use '-' for new conversation)",
     )
 
     return parser
@@ -1392,16 +2595,71 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # Show help if no command provided
+    if not args.action:
+        parser.print_help()
+        return 0
+
     try:
+        # ===== Client Commands (Lightweight - no heavy deps needed) =====
+
+        # Handle register command
+        if args.action == "register":
+            return _register(
+                server=args.server,
+                email=args.email,
+                first_name=args.firstname,
+                last_name=args.lastname,
+            )
+
+        # Handle login command
+        if args.action == "login":
+            # Use saved server, or default to localhost if not provided
+            server = args.server
+            if not server:
+                creds = load_credentials()
+                server = creds.get("server", "http://localhost:7437")
+            return _login(
+                server=server,
+                email=args.email,
+                otp=args.otp,
+            )
+
+        # Handle prompt command
+        if args.action == "prompt":
+            return _prompt(
+                prompt_text=args.text,
+                agent=args.agent,
+                conversation=args.conversation,
+                image_path=args.image,
+                show_stats=args.stats,
+                show_activities=not args.no_activities,
+            )
+
+        # Handle conversations command
+        if args.action == "conversations":
+            if args.conversation_id is not None:
+                # Direct set mode
+                return _conversation_set(args.conversation_id)
+            else:
+                # Interactive selection mode
+                return _conversations()
+
+        # ===== Server Management Commands =====
+
         # Handle env command separately
         if args.action == "env":
             # Check if help was requested
-            if args.env_vars and args.env_vars[0].lower() == "help":
+            if (
+                hasattr(args, "env_vars")
+                and args.env_vars
+                and args.env_vars[0].lower() == "help"
+            ):
                 _show_env_help()
                 return 0
 
             # Parse KEY=VALUE pairs
-            if not args.env_vars:
+            if not hasattr(args, "env_vars") or not args.env_vars:
                 print("No environment variables specified.")
                 print("Usage: agixt env KEY=VALUE [KEY2=VALUE2 ...]")
                 print("       agixt env help  (to show all available variables)")
@@ -1464,20 +2722,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                     print(f"  {key}={value}")
             return 0
 
-        # Handle mode conflicts
-        if args.local and args.docker:
+        # Handle mode conflicts for server management commands
+        has_local = hasattr(args, "local") and args.local
+        has_docker = hasattr(args, "docker") and args.docker
+        has_ezlocalai = hasattr(args, "ezlocalai") and args.ezlocalai
+        has_web = hasattr(args, "web") and args.web
+        has_all = hasattr(args, "all") and args.all
+        has_follow = hasattr(args, "follow") and args.follow
+
+        if has_local and has_docker:
             parser.error("Choose either --local or --docker, not both.")
 
         # Determine run type (local or docker)
         run_local = False
         env_updates = {}
 
-        if args.local:
-            # --local flag explicitly set
+        if has_local:
             run_local = True
             env_updates["AGIXT_RUN_TYPE"] = "local"
-        elif args.docker:
-            # --docker flag explicitly set
+        elif has_docker:
             run_local = False
             env_updates["AGIXT_RUN_TYPE"] = "docker"
         else:
@@ -1487,18 +2750,18 @@ def main(argv: Optional[list[str]] = None) -> int:
             run_local = run_type == "local"
 
         # Count service flags
-        service_flags = sum([args.ezlocalai, args.web, args.all])
+        service_flags = sum([has_ezlocalai, has_web, has_all])
         if service_flags > 1:
             parser.error("Choose only one of --ezlocalai, --web, or --all.")
 
         # Logs command restrictions
-        if args.all and args.action == "logs":
+        if has_all and args.action == "logs":
             parser.error(
                 "Logs command not supported for --all flag. Use individual flags: --ezlocalai or --web"
             )
 
         # Handle ezlocalai-only operations
-        if args.ezlocalai:
+        if has_ezlocalai:
             if args.action == "start":
                 start_ezlocalai()
             elif args.action == "stop":
@@ -1506,11 +2769,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             elif args.action == "restart":
                 restart_ezlocalai()
             elif args.action == "logs":
-                _logs_ezlocalai(follow=args.follow)
+                _logs_ezlocalai(follow=has_follow)
             return 0
 
         # Handle web-only operations
-        if args.web:
+        if has_web:
             if run_local:
                 if args.action == "start":
                     _start_web_local()
@@ -1519,7 +2782,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 elif args.action == "restart":
                     _restart_web_local()
                 elif args.action == "logs":
-                    _logs_web_local(follow=args.follow)
+                    _logs_web_local(follow=has_follow)
             else:
                 if args.action == "start":
                     _start_web_docker()
@@ -1528,11 +2791,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                 elif args.action == "restart":
                     _restart_web_docker()
                 elif args.action == "logs":
-                    _logs_web_docker(follow=args.follow)
+                    _logs_web_docker(follow=has_follow)
             return 0
 
         # Handle --all flag (all services)
-        if args.all:
+        if has_all:
             if args.action == "start":
                 _start_all(
                     local=run_local, env_updates=env_updates if env_updates else None
@@ -1594,7 +2857,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             elif args.action == "restart":
                 _restart_local(env_updates=env_updates if env_updates else None)
             elif args.action == "logs":
-                _logs_local(follow=args.follow)
+                _logs_local(follow=has_follow)
         else:
             if args.action == "start":
                 _start_docker(env_updates=env_updates if env_updates else None)
@@ -1603,7 +2866,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             elif args.action == "restart":
                 _restart_docker(env_updates=env_updates if env_updates else None)
             elif args.action == "logs":
-                _logs_docker(follow=args.follow)
+                _logs_docker(follow=has_follow)
     except CLIError as exc:
         parser.error(str(exc))
     except subprocess.CalledProcessError as exc:
