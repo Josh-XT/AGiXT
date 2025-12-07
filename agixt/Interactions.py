@@ -1939,17 +1939,24 @@ class Interactions:
                     if answer_start_match:
                         answer_start = last_closed_pos + answer_start_match.end()
                         new_answer = full_response[answer_start:]
-                        
+
                         # Check if </answer> appears - if so, truncate before it
-                        close_tag_match = re.search(r'</answer>', new_answer, re.IGNORECASE)
+                        close_tag_match = re.search(
+                            r"</answer>", new_answer, re.IGNORECASE
+                        )
                         if close_tag_match:
-                            new_answer = new_answer[:close_tag_match.start()]
+                            new_answer = new_answer[: close_tag_match.start()]
                         else:
                             # Also check for partial closing tags at the end (e.g., "</", "</ans", etc.)
-                            partial_close_match = re.search(r'</?a?n?s?w?e?r?>?$', new_answer, re.IGNORECASE)
-                            if partial_close_match and partial_close_match.group().startswith('<'):
-                                new_answer = new_answer[:partial_close_match.start()]
-                        
+                            partial_close_match = re.search(
+                                r"</?a?n?s?w?e?r?>?$", new_answer, re.IGNORECASE
+                            )
+                            if (
+                                partial_close_match
+                                and partial_close_match.group().startswith("<")
+                            ):
+                                new_answer = new_answer[: partial_close_match.start()]
+
                         if len(new_answer) > len(answer_content):
                             delta = new_answer[len(answer_content) :]
                             # Skip if it looks like an opening tag pattern (thinking, reflection, etc.)
