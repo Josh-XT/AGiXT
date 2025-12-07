@@ -632,27 +632,50 @@ class ActivityTracker:
 class TerminalSession:
     """Manages a single terminal session for remote command execution."""
 
+    # Default timeout before returning partial output (30 seconds)
+    DEFAULT_PARTIAL_TIMEOUT = 30
+
     def __init__(self, session_id: str, working_directory: Optional[str] = None):
         self.session_id = session_id
         self.working_directory = working_directory or os.getcwd()
         self.env = os.environ.copy()
         self.history = []
+        # Track running processes by command for get_output later
+        self._running_processes: dict = (
+            {}
+        )  # {command_id: (process, output_buffer, start_time)}
 
     def execute(
-        self, command: str, timeout: int = 300, is_background: bool = False
+        self,
+        command: str,
+        timeout: int = 300,
+        is_background: bool = False,
+        partial_timeout: int = None,
     ) -> dict:
         """
         Execute a command in this terminal session.
 
         Args:
             command: The shell command to execute
-            timeout: Maximum seconds to wait (ignored for background)
+            timeout: Maximum seconds to wait before killing process (default: 300)
             is_background: If True, run command in background and return immediately
+            partial_timeout: Seconds to wait before returning partial output (default: 30).
+                           If the command is still running after this time, return what
+                           output we have so far. The process continues in background.
+                           Set to 0 to disable partial timeout.
 
         Returns:
             dict with keys: exit_code, stdout, stderr, working_directory, execution_time_seconds
+            If partial timeout triggered, also includes:
+                - timed_out: True
+                - still_running: True if process is still running
+                - terminal_id: ID to use with get_output() to check later
         """
         start_time = time.time()
+
+        # Use default partial timeout if not specified
+        if partial_timeout is None:
+            partial_timeout = self.DEFAULT_PARTIAL_TIMEOUT
 
         # Handle cd commands specially to update working directory
         if command.strip().startswith("cd "):
@@ -699,6 +722,15 @@ class TerminalSession:
                     stderr=subprocess.PIPE,
                     start_new_session=True,
                 )
+                # Track for later retrieval
+                command_id = str(uuid.uuid4())[:8]
+                self._running_processes[command_id] = {
+                    "process": process,
+                    "command": command,
+                    "start_time": start_time,
+                    "stdout_buffer": [],
+                    "stderr_buffer": [],
+                }
                 return {
                     "exit_code": 0,
                     "stdout": f"Background process started with PID {process.pid}",
@@ -706,42 +738,158 @@ class TerminalSession:
                     "working_directory": self.working_directory,
                     "execution_time_seconds": time.time() - start_time,
                     "pid": process.pid,
+                    "terminal_id": self.session_id,
+                    "command_id": command_id,
                 }
             else:
-                # Execute synchronously
-                result = subprocess.run(
+                # Start process with non-blocking I/O so we can collect partial output
+                process = subprocess.Popen(
                     shell_cmd,
                     cwd=self.working_directory,
                     env=self.env,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
-                    timeout=timeout,
                 )
 
-                # Record in history
-                self.history.append(
-                    {
-                        "command": command,
-                        "exit_code": result.returncode,
-                        "timestamp": time.time(),
+                stdout_chunks = []
+                stderr_chunks = []
+
+                # Use select for non-blocking reads (or threads on Windows)
+                import select
+
+                def read_output_with_timeout(
+                    proc, partial_timeout_secs, hard_timeout_secs
+                ):
+                    """Read output with partial timeout - return what we have after partial_timeout."""
+                    nonlocal stdout_chunks, stderr_chunks
+
+                    partial_deadline = (
+                        time.time() + partial_timeout_secs
+                        if partial_timeout_secs > 0
+                        else None
+                    )
+                    hard_deadline = time.time() + hard_timeout_secs
+
+                    while True:
+                        # Check if process has finished
+                        exit_code = proc.poll()
+                        if exit_code is not None:
+                            # Process finished - read any remaining output
+                            remaining_stdout = proc.stdout.read()
+                            remaining_stderr = proc.stderr.read()
+                            if remaining_stdout:
+                                stdout_chunks.append(remaining_stdout)
+                            if remaining_stderr:
+                                stderr_chunks.append(remaining_stderr)
+                            return {
+                                "completed": True,
+                                "exit_code": exit_code,
+                                "timed_out": False,
+                            }
+
+                        # Check timeouts
+                        now = time.time()
+                        if now >= hard_deadline:
+                            # Hard timeout - kill process
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                            return {
+                                "completed": False,
+                                "exit_code": -1,
+                                "timed_out": True,
+                                "killed": True,
+                            }
+
+                        if partial_deadline and now >= partial_deadline:
+                            # Partial timeout - return what we have, process continues
+                            return {
+                                "completed": False,
+                                "exit_code": None,
+                                "timed_out": True,
+                                "still_running": True,
+                            }
+
+                        # Try to read available output (non-blocking)
+                        try:
+                            # Use select on Unix for non-blocking reads
+                            if hasattr(select, "select"):
+                                readable, _, _ = select.select(
+                                    [proc.stdout, proc.stderr], [], [], 0.1
+                                )
+                                for stream in readable:
+                                    chunk = stream.read(4096)
+                                    if chunk:
+                                        if stream == proc.stdout:
+                                            stdout_chunks.append(chunk)
+                                        else:
+                                            stderr_chunks.append(chunk)
+                            else:
+                                # Windows fallback - just wait briefly
+                                time.sleep(0.1)
+                        except Exception:
+                            time.sleep(0.1)
+
+                result = read_output_with_timeout(process, partial_timeout, timeout)
+
+                stdout_text = "".join(stdout_chunks)
+                stderr_text = "".join(stderr_chunks)
+
+                if result["completed"]:
+                    # Process finished normally
+                    self.history.append(
+                        {
+                            "command": command,
+                            "exit_code": result["exit_code"],
+                            "timestamp": time.time(),
+                        }
+                    )
+                    return {
+                        "exit_code": result["exit_code"],
+                        "stdout": stdout_text,
+                        "stderr": stderr_text,
+                        "working_directory": self.working_directory,
+                        "execution_time_seconds": time.time() - start_time,
                     }
-                )
+                elif result.get("still_running"):
+                    # Partial timeout - process still running
+                    # Track for later retrieval
+                    command_id = str(uuid.uuid4())[:8]
+                    self._running_processes[command_id] = {
+                        "process": process,
+                        "command": command,
+                        "start_time": start_time,
+                        "stdout_buffer": stdout_chunks,
+                        "stderr_buffer": stderr_chunks,
+                    }
+                    return {
+                        "exit_code": None,
+                        "stdout": stdout_text
+                        + f"\n\n[Command still running after {partial_timeout}s - use get_terminal_output with terminal_id='{self.session_id}' and command_id='{command_id}' to check progress]",
+                        "stderr": stderr_text,
+                        "working_directory": self.working_directory,
+                        "execution_time_seconds": time.time() - start_time,
+                        "timed_out": True,
+                        "still_running": True,
+                        "terminal_id": self.session_id,
+                        "command_id": command_id,
+                        "pid": process.pid,
+                    }
+                else:
+                    # Hard timeout - process was killed
+                    return {
+                        "exit_code": -1,
+                        "stdout": stdout_text,
+                        "stderr": stderr_text
+                        + f"\n\nProcess killed after {timeout}s hard timeout",
+                        "working_directory": self.working_directory,
+                        "execution_time_seconds": timeout,
+                        "timed_out": True,
+                        "killed": True,
+                    }
 
-                return {
-                    "exit_code": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "working_directory": self.working_directory,
-                    "execution_time_seconds": time.time() - start_time,
-                }
-        except subprocess.TimeoutExpired:
-            return {
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": f"Command timed out after {timeout} seconds",
-                "working_directory": self.working_directory,
-                "execution_time_seconds": timeout,
-            }
         except Exception as e:
             return {
                 "exit_code": -1,
@@ -750,6 +898,116 @@ class TerminalSession:
                 "working_directory": self.working_directory,
                 "execution_time_seconds": time.time() - start_time,
             }
+
+    def get_output(self, command_id: str) -> dict:
+        """
+        Get output from a running or completed background process.
+
+        Args:
+            command_id: The command_id returned from execute() when process is still running
+
+        Returns:
+            dict with current output, whether process is still running, etc.
+        """
+        if command_id not in self._running_processes:
+            return {
+                "error": f"No tracked process with command_id '{command_id}'",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "",
+            }
+
+        proc_info = self._running_processes[command_id]
+        process = proc_info["process"]
+        command = proc_info["command"]
+        start_time = proc_info["start_time"]
+        stdout_buffer = proc_info["stdout_buffer"]
+        stderr_buffer = proc_info["stderr_buffer"]
+
+        # Check if process has finished
+        exit_code = process.poll()
+
+        # Try to read any new output
+        import select
+
+        try:
+            if hasattr(select, "select"):
+                readable, _, _ = select.select(
+                    [process.stdout, process.stderr], [], [], 0
+                )
+                for stream in readable:
+                    chunk = stream.read(4096)
+                    if chunk:
+                        if stream == process.stdout:
+                            stdout_buffer.append(chunk)
+                        else:
+                            stderr_buffer.append(chunk)
+        except Exception:
+            pass
+
+        # If finished, read any remaining output
+        if exit_code is not None:
+            try:
+                remaining_stdout = process.stdout.read()
+                remaining_stderr = process.stderr.read()
+                if remaining_stdout:
+                    stdout_buffer.append(remaining_stdout)
+                if remaining_stderr:
+                    stderr_buffer.append(remaining_stderr)
+            except Exception:
+                pass
+
+            # Record in history and clean up
+            self.history.append(
+                {
+                    "command": command,
+                    "exit_code": exit_code,
+                    "timestamp": time.time(),
+                }
+            )
+            del self._running_processes[command_id]
+
+            return {
+                "exit_code": exit_code,
+                "stdout": "".join(stdout_buffer),
+                "stderr": "".join(stderr_buffer),
+                "still_running": False,
+                "execution_time_seconds": time.time() - start_time,
+                "working_directory": self.working_directory,
+            }
+        else:
+            # Still running
+            return {
+                "exit_code": None,
+                "stdout": "".join(stdout_buffer),
+                "stderr": "".join(stderr_buffer),
+                "still_running": True,
+                "pid": process.pid,
+                "execution_time_seconds": time.time() - start_time,
+                "working_directory": self.working_directory,
+                "terminal_id": self.session_id,
+                "command_id": command_id,
+            }
+
+    def list_running_processes(self) -> list:
+        """List all tracked running processes in this session."""
+        result = []
+        for cmd_id, info in list(self._running_processes.items()):
+            proc = info["process"]
+            exit_code = proc.poll()
+            if exit_code is not None:
+                # Process finished - clean up
+                del self._running_processes[cmd_id]
+            else:
+                result.append(
+                    {
+                        "command_id": cmd_id,
+                        "command": info["command"],
+                        "pid": proc.pid,
+                        "runtime_seconds": time.time() - info["start_time"],
+                    }
+                )
+        return result
 
 
 class TerminalSessionManager:
@@ -780,6 +1038,7 @@ class TerminalSessionManager:
         working_directory: Optional[str] = None,
         is_background: bool = False,
         timeout: int = 300,
+        partial_timeout: int = 30,
     ) -> dict:
         """
         Execute a command in a terminal session.
@@ -789,13 +1048,64 @@ class TerminalSessionManager:
             terminal_id: ID of the terminal session (created if doesn't exist)
             working_directory: Optional directory to run in
             is_background: If True, run in background
-            timeout: Maximum seconds to wait
+            timeout: Maximum seconds before killing process (hard timeout)
+            partial_timeout: Seconds before returning partial output (default 30)
+                           Process continues in background if not finished.
 
         Returns:
             dict with execution results
         """
         session = self.get_or_create_session(terminal_id, working_directory)
-        return session.execute(command, timeout, is_background)
+        return session.execute(command, timeout, is_background, partial_timeout)
+
+    def get_output(
+        self,
+        terminal_id: str,
+        command_id: str,
+    ) -> dict:
+        """
+        Get output from a running or recently completed command.
+
+        Args:
+            terminal_id: ID of the terminal session
+            command_id: ID of the specific command (returned from execute when still_running=True)
+
+        Returns:
+            dict with current output, exit_code, still_running status
+        """
+        with self._lock:
+            if terminal_id not in self._sessions:
+                return {
+                    "error": f"No terminal session with ID '{terminal_id}'",
+                    "exit_code": None,
+                    "stdout": "",
+                    "stderr": "",
+                }
+            session = self._sessions[terminal_id]
+        return session.get_output(command_id)
+
+    def list_running_processes(self, terminal_id: str = None) -> list:
+        """
+        List running processes, optionally filtered by terminal ID.
+
+        Args:
+            terminal_id: Optional terminal ID to filter by
+
+        Returns:
+            list of running process info dicts
+        """
+        with self._lock:
+            if terminal_id:
+                if terminal_id not in self._sessions:
+                    return []
+                return self._sessions[terminal_id].list_running_processes()
+            else:
+                all_processes = []
+                for sid, session in self._sessions.items():
+                    for proc in session.list_running_processes():
+                        proc["terminal_id"] = sid
+                        all_processes.append(proc)
+                return all_processes
 
     def list_sessions(self) -> list:
         """List all active terminal sessions."""
@@ -805,6 +1115,7 @@ class TerminalSessionManager:
                     "session_id": sid,
                     "working_directory": session.working_directory,
                     "command_count": len(session.history),
+                    "running_processes": len(session._running_processes),
                 }
                 for sid, session in self._sessions.items()
             ]
@@ -824,7 +1135,8 @@ def execute_remote_command(remote_request: dict) -> dict:
             - terminal_id: ID for the terminal session
             - working_directory: Optional working directory
             - is_background: Whether to run in background
-            - timeout_seconds: Command timeout
+            - timeout_seconds: Hard timeout (kills process)
+            - partial_timeout_seconds: Soft timeout (returns partial output, default 30)
 
     Returns:
         dict with execution results
@@ -834,19 +1146,21 @@ def execute_remote_command(remote_request: dict) -> dict:
     working_directory = remote_request.get("working_directory")
     is_background = remote_request.get("is_background", False)
     timeout = remote_request.get("timeout_seconds", 300)
+    partial_timeout = remote_request.get("partial_timeout_seconds", 30)
     request_id = remote_request.get("request_id", str(uuid.uuid4()))
 
     print(f"\n🖥️  Remote command: {command}")
     if working_directory:
         print(f"   📂 Directory: {working_directory}")
 
-    # Execute the command
+    # Execute the command with partial timeout
     result = _terminal_manager.execute_command(
         command=command,
         terminal_id=terminal_id,
         working_directory=working_directory,
         is_background=is_background,
         timeout=timeout,
+        partial_timeout=partial_timeout,
     )
 
     # Add request tracking info
@@ -854,10 +1168,21 @@ def execute_remote_command(remote_request: dict) -> dict:
     result["terminal_id"] = terminal_id
 
     # Display result
-    exit_code = result.get("exit_code", -1)
-    if exit_code == 0:
+    exit_code = result.get("exit_code")
+    still_running = result.get("still_running", False)
+
+    if still_running:
+        print(
+            f"   ⏳ Command still running after {partial_timeout}s (partial output returned)"
+        )
+        print(f"      Terminal ID: {terminal_id}")
+        if result.get("command_id"):
+            print(f"      Command ID: {result['command_id']}")
+        if result.get("pid"):
+            print(f"      PID: {result['pid']}")
+    elif exit_code == 0:
         print(f"   ✅ Exit code: {exit_code}")
-    else:
+    elif exit_code is not None:
         print(f"   ❌ Exit code: {exit_code}")
 
     if result.get("stdout"):
@@ -871,6 +1196,65 @@ def execute_remote_command(remote_request: dict) -> dict:
         if len(result["stderr"]) > 300:
             stderr_preview += f"\n... ({len(result['stderr'])} chars total)"
         print(f"   ⚠️  Stderr:\n{stderr_preview}")
+
+    return result
+
+
+def get_terminal_output(request: dict) -> dict:
+    """
+    Get output from a running or completed terminal command.
+
+    Args:
+        request: Dict containing:
+            - terminal_id: ID of the terminal session
+            - command_id: ID of the command to check (optional for listing all)
+
+    Returns:
+        dict with current output and status
+    """
+    terminal_id = request.get("terminal_id")
+    command_id = request.get("command_id")
+
+    if not terminal_id:
+        # List all sessions and their running processes
+        sessions = _terminal_manager.list_sessions()
+        running = _terminal_manager.list_running_processes()
+        return {
+            "sessions": sessions,
+            "running_processes": running,
+        }
+
+    if not command_id:
+        # List running processes in this terminal
+        running = _terminal_manager.list_running_processes(terminal_id)
+        return {
+            "terminal_id": terminal_id,
+            "running_processes": running,
+        }
+
+    # Get output for specific command
+    result = _terminal_manager.get_output(terminal_id, command_id)
+
+    # Display status
+    if result.get("error"):
+        print(f"\n❌ {result['error']}")
+    elif result.get("still_running"):
+        print(f"\n⏳ Command still running (PID: {result.get('pid')})")
+        print(f"   Runtime: {result.get('execution_time_seconds', 0):.1f}s")
+    else:
+        exit_code = result.get("exit_code")
+        if exit_code == 0:
+            print(f"\n✅ Command completed (exit code: {exit_code})")
+        else:
+            print(f"\n❌ Command completed (exit code: {exit_code})")
+
+    if result.get("stdout"):
+        stdout_preview = result["stdout"][-500:]  # Show last 500 chars for get_output
+        if len(result["stdout"]) > 500:
+            stdout_preview = (
+                f"... ({len(result['stdout'])} chars total)\n" + stdout_preview
+            )
+        print(f"   📤 Output:\n{stdout_preview}")
 
     return result
 
@@ -1146,21 +1530,100 @@ def _prompt(
 
     messages = [{"role": "user", "content": content}]
 
+    # Define CLI tools using OpenAI-compatible tool format
+    # These tools are executed locally by the CLI, not on the server
+    cli_tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "execute_terminal_command",
+                "description": """Execute a terminal/shell command on the USER'S LOCAL MACHINE.
+
+This is the PRIMARY command for interacting with the user's computer.
+Use this command whenever the user asks you to:
+- List files or directories (ls, dir, find, tree)
+- Create, move, copy, or delete files/folders (mkdir, mv, cp, rm, touch)
+- Check system information (pwd, whoami, uname, hostname, df, du)
+- Run build commands (npm, yarn, cargo, make, pip, poetry)
+- Execute scripts or programs on their machine
+- Manage processes (ps, kill, top)
+- Work with git (git status, git log, git diff, git branch)
+- Navigate the filesystem (cd, followed by other commands)
+- Install packages or dependencies
+- ANY terminal or shell operation on the user's system
+
+This command runs on the user's local machine through the CLI client,
+NOT on the server. You have access to the user's full filesystem and
+any tools they have installed.
+
+IMPORTANT: Commands have a 30-second timeout that returns partial output
+if the command is still running. For long-running commands, you can
+use get_terminal_output to check progress later.""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The shell command to execute. Can be any valid shell command. For multiple commands, chain with && or ;. Examples: 'ls -la', 'git status', 'npm install && npm run build'",
+                        },
+                        "terminal_id": {
+                            "type": "string",
+                            "description": "Optional. Reuse an existing terminal session to preserve state like environment variables and working directory. If not specified, a default session is used.",
+                        },
+                        "working_directory": {
+                            "type": "string",
+                            "description": "Optional. Directory to run the command in. If not specified, uses the current working directory of the terminal session.",
+                        },
+                        "is_background": {
+                            "type": "boolean",
+                            "description": "If true, run the command in background and return immediately. Use get_terminal_output later to check progress. Default: false",
+                        },
+                    },
+                    "required": ["command"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_terminal_output",
+                "description": """Get output from a running or completed terminal command.
+
+Use this to:
+- Check the progress/output of a long-running command
+- Get final output after a command finishes
+- Check if a background process is still running
+- List all running processes in a terminal session
+
+When a command times out (after 30 seconds), you receive partial output
+and can use this tool to get more output later.""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "terminal_id": {
+                            "type": "string",
+                            "description": "ID of the terminal session to check. If not provided, lists all sessions.",
+                        },
+                        "command_id": {
+                            "type": "string",
+                            "description": "ID of the specific command to check (returned when a command times out or runs in background). If not provided with terminal_id, lists running processes in that session.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+    ]
+
     # Build the request payload
-    # Include the remote terminal tool so the agent can execute commands on user's machine
-    # Use exclusive: true to ensure the agent ONLY has this command available,
-    # forcing it to use the remote terminal for any command execution
+    # Include CLI-defined tools so the agent can execute commands on user's machine
     payload = {
         "messages": messages,
         "model": agent,
         "user": conversation,
         "stream": True,
-        "tools": [
-            {
-                "type": "Execute Terminal Command",
-                "exclusive": True,
-            },  # Enable remote terminal execution only
-        ],
+        "tools": cli_tools,
+        "tool_choice": "auto",  # Let the model decide when to use tools
     }
 
     # Set up activity tracking
@@ -1347,64 +1810,195 @@ def _prompt(
 
                                 # Handle remote command request from SSE
                                 if chunk_data.get("object") == "remote_command.request":
-                                    # Agent is requesting to execute a command on user's terminal
-                                    command = chunk_data.get("command", "")
-                                    working_directory = chunk_data.get(
-                                        "working_directory"
-                                    )
-                                    terminal_id = chunk_data.get(
-                                        "terminal_id", str(uuid.uuid4())
-                                    )
+                                    # Agent is requesting to execute a command/tool on user's machine
+                                    tool_name = chunk_data.get("tool_name")
+                                    tool_args = chunk_data.get("tool_args", {})
                                     request_id = chunk_data.get(
                                         "request_id", str(uuid.uuid4())
                                     )
 
-                                    if command:
-                                        print(
-                                            f"\n\033[93m🖥️  Agent requesting terminal command:\033[0m"
-                                        )
-                                        print(f"\033[90m   $ {command}\033[0m")
-                                        if working_directory:
-                                            print(
-                                                f"\033[90m   in: {working_directory}\033[0m"
+                                    # Handle different tool types
+                                    if (
+                                        tool_name == "execute_terminal_command"
+                                        or chunk_data.get("command")
+                                    ):
+                                        # Terminal command execution
+                                        if tool_name == "execute_terminal_command":
+                                            command = tool_args.get(
+                                                "command", chunk_data.get("command", "")
                                             )
-
-                                        # Execute the command locally using the remote command handler
-                                        remote_request = {
-                                            "command": command,
-                                            "working_directory": working_directory,
-                                            "terminal_id": terminal_id,
-                                            "request_id": request_id,
-                                            "is_background": False,
-                                            "timeout_seconds": 300,
-                                        }
-                                        result = execute_remote_command(remote_request)
-
-                                        # Get the output - use stdout primarily, fall back to stderr
-                                        output = result.get("stdout", "") or result.get(
-                                            "stderr", ""
-                                        )
-                                        exit_code = result.get("exit_code", -1)
-
-                                        if exit_code == 0:
-                                            print(
-                                                f"\033[92m✓ Command completed (exit code: {exit_code})\033[0m"
+                                            working_directory = tool_args.get(
+                                                "working_directory",
+                                                chunk_data.get("working_directory"),
+                                            )
+                                            terminal_id = tool_args.get(
+                                                "terminal_id",
+                                                chunk_data.get(
+                                                    "terminal_id", str(uuid.uuid4())
+                                                ),
+                                            )
+                                            is_background = tool_args.get(
+                                                "is_background", False
                                             )
                                         else:
+                                            # Legacy format
+                                            command = chunk_data.get("command", "")
+                                            working_directory = chunk_data.get(
+                                                "working_directory"
+                                            )
+                                            terminal_id = chunk_data.get(
+                                                "terminal_id", str(uuid.uuid4())
+                                            )
+                                            is_background = False
+
+                                        if command:
                                             print(
-                                                f"\033[91m✗ Command failed (exit code: {exit_code})\033[0m"
+                                                f"\n\033[93m🖥️  Agent requesting terminal command:\033[0m"
+                                            )
+                                            print(f"\033[90m   $ {command}\033[0m")
+                                            if working_directory:
+                                                print(
+                                                    f"\033[90m   in: {working_directory}\033[0m"
+                                                )
+
+                                            # Execute the command locally using the remote command handler
+                                            remote_request = {
+                                                "command": command,
+                                                "working_directory": working_directory,
+                                                "terminal_id": terminal_id,
+                                                "request_id": request_id,
+                                                "is_background": is_background,
+                                                "timeout_seconds": 300,
+                                            }
+                                            result = execute_remote_command(
+                                                remote_request
                                             )
 
-                                        if output:
-                                            # Print output with indentation
-                                            output_lines = output.split("\n")
-                                            for line in output_lines[
-                                                :20
-                                            ]:  # Limit output display
-                                                print(f"   {line}")
-                                            if len(output_lines) > 20:
+                                            # Get the output - use stdout primarily, fall back to stderr
+                                            output = result.get(
+                                                "stdout", ""
+                                            ) or result.get("stderr", "")
+                                            exit_code = result.get("exit_code", -1)
+                                            still_running = result.get(
+                                                "still_running", False
+                                            )
+
+                                            if still_running:
                                                 print(
-                                                    f"   ... ({len(output_lines) - 20} more lines)"
+                                                    f"\033[93m⏳ Command still running (partial output returned after 30s)\033[0m"
+                                                )
+                                                print(f"   Terminal ID: {terminal_id}")
+                                                if result.get("command_id"):
+                                                    print(
+                                                        f"   Command ID: {result['command_id']}"
+                                                    )
+                                            elif exit_code == 0:
+                                                print(
+                                                    f"\033[92m✓ Command completed (exit code: {exit_code})\033[0m"
+                                                )
+                                            else:
+                                                print(
+                                                    f"\033[91m✗ Command failed (exit code: {exit_code})\033[0m"
+                                                )
+
+                                            if output:
+                                                # Print output with indentation
+                                                output_lines = output.split("\n")
+                                                for line in output_lines[
+                                                    :20
+                                                ]:  # Limit output display
+                                                    print(f"   {line}")
+                                                if len(output_lines) > 20:
+                                                    print(
+                                                        f"   ... ({len(output_lines) - 20} more lines)"
+                                                    )
+
+                                            # Submit result back to server
+                                            submit_remote_command_result(
+                                                server_url=server_url,
+                                                token=token,
+                                                conversation_id=new_conversation_id
+                                                or conversation,
+                                                result={
+                                                    "command": command,
+                                                    "terminal_id": terminal_id,
+                                                    "output": output,
+                                                    "exit_code": exit_code,
+                                                    "request_id": request_id,
+                                                    "working_directory": result.get(
+                                                        "working_directory"
+                                                    ),
+                                                    "still_running": still_running,
+                                                    "command_id": result.get(
+                                                        "command_id"
+                                                    ),
+                                                },
+                                            )
+                                            print()  # Add spacing
+
+                                    elif tool_name == "get_terminal_output":
+                                        # Get output from a running or completed command
+                                        terminal_id = tool_args.get("terminal_id")
+                                        command_id = tool_args.get("command_id")
+
+                                        print(
+                                            f"\n\033[93m📋 Agent checking terminal output:\033[0m"
+                                        )
+                                        if terminal_id:
+                                            print(
+                                                f"\033[90m   Terminal ID: {terminal_id}\033[0m"
+                                            )
+                                        if command_id:
+                                            print(
+                                                f"\033[90m   Command ID: {command_id}\033[0m"
+                                            )
+
+                                        result = get_terminal_output(
+                                            {
+                                                "terminal_id": terminal_id,
+                                                "command_id": command_id,
+                                            }
+                                        )
+
+                                        # Format output for server
+                                        output = ""
+                                        if result.get("stdout"):
+                                            output = result["stdout"]
+                                        elif result.get("running_processes"):
+                                            output = json.dumps(
+                                                result["running_processes"], indent=2
+                                            )
+                                        elif result.get("sessions"):
+                                            output = json.dumps(
+                                                result["sessions"], indent=2
+                                            )
+                                        elif result.get("error"):
+                                            output = f"Error: {result['error']}"
+
+                                        still_running = result.get(
+                                            "still_running", False
+                                        )
+                                        exit_code = result.get(
+                                            "exit_code",
+                                            0 if not still_running else None,
+                                        )
+
+                                        if still_running:
+                                            print(
+                                                f"\033[93m⏳ Command still running\033[0m"
+                                            )
+                                        elif result.get("error"):
+                                            print(f"\033[91m✗ {result['error']}\033[0m")
+                                        else:
+                                            print(f"\033[92m✓ Output retrieved\033[0m")
+
+                                        if output:
+                                            output_lines = output.split("\n")
+                                            for line in output_lines[:15]:
+                                                print(f"   {line}")
+                                            if len(output_lines) > 15:
+                                                print(
+                                                    f"   ... ({len(output_lines) - 15} more lines)"
                                                 )
 
                                         # Submit result back to server
@@ -1414,17 +2008,35 @@ def _prompt(
                                             conversation_id=new_conversation_id
                                             or conversation,
                                             result={
-                                                "command": command,
+                                                "tool_name": "get_terminal_output",
                                                 "terminal_id": terminal_id,
+                                                "command_id": command_id,
                                                 "output": output,
                                                 "exit_code": exit_code,
                                                 "request_id": request_id,
-                                                "working_directory": result.get(
-                                                    "working_directory"
-                                                ),
+                                                "still_running": still_running,
                                             },
                                         )
                                         print()  # Add spacing
+
+                                    else:
+                                        # Unknown client tool - log warning
+                                        print(
+                                            f"\n\033[91m⚠️  Unknown client tool requested: {tool_name}\033[0m"
+                                        )
+                                        submit_remote_command_result(
+                                            server_url=server_url,
+                                            token=token,
+                                            conversation_id=new_conversation_id
+                                            or conversation,
+                                            result={
+                                                "tool_name": tool_name,
+                                                "output": f"Error: Unknown client tool '{tool_name}'",
+                                                "exit_code": 1,
+                                                "request_id": request_id,
+                                            },
+                                        )
+
                                     continue
 
                                 # Handle remote command pending (stream ending after remote command)

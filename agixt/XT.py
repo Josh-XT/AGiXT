@@ -2900,17 +2900,44 @@ Your response (true or false):"""
                 # Handle remote command requests - need client-side execution
                 elif event_type == "remote_command_request":
                     remote_cmd = content  # content is the remote command dict
+
+                    # Build the SSE chunk - support both legacy format and new client tool format
                     remote_request_chunk = {
                         "id": chunk_id,
                         "object": "remote_command.request",
                         "created": created_time,
                         "model": self.agent_name,
-                        "command": remote_cmd.get("command", ""),
-                        "working_directory": remote_cmd.get("working_directory"),
-                        "terminal_id": remote_cmd.get("terminal_id"),
-                        "request_id": remote_cmd.get("request_id"),
                         "conversation_id": self.conversation_id,
+                        "request_id": remote_cmd.get("request_id"),
                     }
+
+                    # Check if this is a client-defined tool call
+                    if remote_cmd.get("tool_name"):
+                        remote_request_chunk["tool_name"] = remote_cmd.get("tool_name")
+                        remote_request_chunk["tool_args"] = remote_cmd.get(
+                            "tool_args", {}
+                        )
+                        # For execute_terminal_command, also include the mapped fields
+                        if remote_cmd.get("tool_name") == "execute_terminal_command":
+                            remote_request_chunk["command"] = remote_cmd.get(
+                                "command", ""
+                            )
+                            remote_request_chunk["working_directory"] = remote_cmd.get(
+                                "working_directory"
+                            )
+                            remote_request_chunk["terminal_id"] = remote_cmd.get(
+                                "terminal_id"
+                            )
+                    else:
+                        # Legacy format
+                        remote_request_chunk["command"] = remote_cmd.get("command", "")
+                        remote_request_chunk["working_directory"] = remote_cmd.get(
+                            "working_directory"
+                        )
+                        remote_request_chunk["terminal_id"] = remote_cmd.get(
+                            "terminal_id"
+                        )
+
                     yield f"data: {json.dumps(remote_request_chunk)}\n\n"
 
                 # Handle remote command pending - stream is ending, waiting for CLI

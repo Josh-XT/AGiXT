@@ -839,6 +839,9 @@ class Interactions:
         await asyncio.gather(*async_tasks)
 
         # Process command_overrides BEFORE format_prompt so enabled state is correct
+        # Initialize client_tools to store OpenAI-format function definitions for client-side execution
+        self._client_tools = {}
+
         if command_overrides:
             # Check if any tool requests exclusive mode (disable all other commands)
             exclusive_mode = any(
@@ -851,6 +854,35 @@ class Interactions:
                     cmd["enabled"] = False
 
             for tool in command_overrides:
+                # Handle OpenAI-format tools (type: "function" with function object)
+                if tool.get("type") == "function" and "function" in tool:
+                    func_def = tool["function"]
+                    func_name = func_def.get("name", "")
+                    if func_name:
+                        self._client_tools[func_name] = func_def
+                        description = func_def.get(
+                            "description", f"Client-defined tool: {func_name}"
+                        )
+                        parameters = func_def.get("parameters", {})
+                        args = {}
+                        for param_name, param_def in parameters.get(
+                            "properties", {}
+                        ).items():
+                            args[param_name] = param_def.get(
+                                "description", f"Parameter: {param_name}"
+                            )
+                        client_command = {
+                            "friendly_name": func_name,
+                            "name": func_name,
+                            "description": description,
+                            "enabled": True,
+                            "args": args,
+                            "extension_name": "__client__",
+                        }
+                        self.agent.available_commands.append(client_command)
+                    continue
+
+                # Handle legacy format
                 tool_type = tool.get("type")
                 # Find the command in available_commands list and enable it
                 # This allows CLI/API to enable specific commands for this request
@@ -1698,6 +1730,9 @@ class Interactions:
         await asyncio.gather(*async_tasks)
 
         # Process command_overrides BEFORE format_prompt so enabled state is correct
+        # Initialize client_tools to store OpenAI-format function definitions for client-side execution
+        self._client_tools = {}
+
         if command_overrides:
             logging.info(
                 f"[run_stream] Processing command_overrides: {command_overrides}"
@@ -1718,6 +1753,49 @@ class Interactions:
                     cmd["enabled"] = False
 
             for tool in command_overrides:
+                # Handle OpenAI-format tools (type: "function" with function object)
+                # These are client-defined tools that should be routed back to the client for execution
+                if tool.get("type") == "function" and "function" in tool:
+                    func_def = tool["function"]
+                    func_name = func_def.get("name", "")
+                    if func_name:
+                        # Store the full function definition for later use in execution_agent
+                        self._client_tools[func_name] = func_def
+                        logging.info(
+                            f"[run_stream] Registered client-defined tool: {func_name}"
+                        )
+
+                        # Add a pseudo-command to available_commands so the agent knows about it
+                        # This allows the command to appear in the prompt and be called
+                        description = func_def.get(
+                            "description", f"Client-defined tool: {func_name}"
+                        )
+                        parameters = func_def.get("parameters", {})
+
+                        # Build args list from parameters
+                        args = {}
+                        props = parameters.get("properties", {})
+                        for param_name, param_def in props.items():
+                            args[param_name] = param_def.get(
+                                "description", f"Parameter: {param_name}"
+                            )
+
+                        # Create a pseudo-command entry
+                        client_command = {
+                            "friendly_name": func_name,
+                            "name": func_name,
+                            "description": description,
+                            "enabled": True,
+                            "args": args,
+                            "extension_name": "__client__",  # Special marker for client-defined tools
+                        }
+                        self.agent.available_commands.append(client_command)
+                        logging.info(
+                            f"[run_stream] Added client command to available_commands: {func_name}"
+                        )
+                    continue
+
+                # Handle legacy format (type is the command name)
                 tool_type = tool.get("type")
                 logging.info(f"[run_stream] Looking for command: {tool_type}")
                 # Find the command in available_commands list and enable it
@@ -1752,18 +1830,30 @@ class Interactions:
             **kwargs,
         )
 
-        # Inject special CLI instructions if Execute Terminal Command was requested
+        # Inject special CLI instructions if terminal command tools were requested
         if command_overrides:
+            # Check for both legacy "Execute Terminal Command" and new "execute_terminal_command"
             has_terminal_command = any(
                 tool.get("type") == "Execute Terminal Command"
+                or (
+                    tool.get("type") == "function"
+                    and tool.get("function", {}).get("name")
+                    == "execute_terminal_command"
+                )
                 for tool in command_overrides
             )
             if has_terminal_command:
-                cli_instructions = """
+                # Get the correct command name based on what's available
+                terminal_cmd_name = (
+                    "execute_terminal_command"
+                    if "execute_terminal_command" in self._client_tools
+                    else "Execute Terminal Command"
+                )
+                cli_instructions = f"""
 ## IMPORTANT: CLI Mode Instructions
 You are interacting with a user through a command-line interface (CLI). The user is on their local machine.
 
-**You MUST use the `Execute Terminal Command` command for ANY of these requests:**
+**You MUST use the `{terminal_cmd_name}` command for ANY of these requests:**
 - Listing files or directories (e.g., "list files", "show me what's here", "what files do I have")
 - Creating, moving, copying, or deleting files/folders
 - Checking system information (pwd, whoami, uname, etc.)
@@ -1774,11 +1864,11 @@ You are interacting with a user through a command-line interface (CLI). The user
 - ANY terminal or shell operation
 
 **Do NOT use workspace file commands like "Search Files" or "Read File" - those only work on the server, not the user's machine.**
-**The `Execute Terminal Command` is the ONLY way to interact with the user's local filesystem.**
+**The `{terminal_cmd_name}` is the ONLY way to interact with the user's local filesystem.**
 
 Example: If user says "list my files", use:
 <execute>
-<name>Execute Terminal Command</name>
+<name>{terminal_cmd_name}</name>
 <command>ls -la</command>
 </execute>
 """
@@ -2730,6 +2820,10 @@ Analyze the actual output shown and continue with your response.
         # Extract commands from the response
         commands_to_execute = self.extract_commands_from_response(self.response)
         reformatted_response = self.response
+
+        # Get client-defined tools if available
+        client_tools = getattr(self, "_client_tools", {})
+
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:
                 # Check for cancellation before each command
@@ -2745,7 +2839,78 @@ Analyze the actual output shown and continue with your response.
                 self._processed_commands.add(command_id)
 
                 command_output = ""
-                if command_name.strip().lower() not in [
+
+                # Check if this is a client-defined tool
+                if command_name in client_tools:
+                    # This is a client-defined tool - create a remote command request
+                    logging.info(
+                        f"[execution_agent] Client-defined tool called: {command_name}"
+                    )
+                    json_args = json.dumps(command_args, indent=2)
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{thinking_id}][CLIENT_TOOL] Calling client tool `{command_name}`.\n```json\n{json_args}```",
+                    )
+
+                    # Create a remote command request for the client
+                    remote_cmd = {
+                        "__remote_command__": True,
+                        "tool_name": command_name,
+                        "tool_args": command_args,
+                        "request_id": str(uuid.uuid4()),
+                    }
+
+                    # For execute_terminal_command, map the args to the expected format
+                    if command_name == "execute_terminal_command":
+                        remote_cmd["command"] = command_args.get("command", "")
+                        remote_cmd["terminal_id"] = command_args.get(
+                            "terminal_id", str(uuid.uuid4())
+                        )
+                        remote_cmd["working_directory"] = command_args.get(
+                            "working_directory"
+                        )
+                        remote_cmd["is_background"] = command_args.get(
+                            "is_background", False
+                        )
+
+                    if remote_command_callback:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Requesting remote execution of client tool...",
+                        )
+                        try:
+                            command_output = await remote_command_callback(remote_cmd)
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Remote execution completed.\n```\n{command_output}\n```",
+                            )
+                        except Exception as e:
+                            command_output = f"Client tool execution failed: {str(e)}"
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{thinking_id}][ERROR] Client tool execution failed: {str(e)}",
+                            )
+                    else:
+                        # No callback - emit webhook for external handling
+                        await webhook_emitter.emit_event(
+                            event_type="command.remote.request",
+                            data={
+                                "conversation_id": c.get_conversation_id(),
+                                "conversation_name": conversation_name,
+                                "agent_name": self.agent_name,
+                                "user": self.user,
+                                "command_name": command_name,
+                                "remote_request": remote_cmd,
+                                "timestamp": datetime.now().isoformat(),
+                            },
+                            user_id=self.user,
+                            agent_id=self.agent.agent_id,
+                            agent_name=self.agent_name,
+                            company_id=self.agent.company_id,
+                        )
+                        command_output = f"[CLIENT TOOL PENDING] This tool requires client-side execution.\nTool: {command_name}\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
+
+                elif command_name.strip().lower() not in [
                     cmd.lower() for cmd in command_list
                 ]:
                     command_output = f"Unknown command: {command_name}"
