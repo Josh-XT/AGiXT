@@ -1100,9 +1100,13 @@ Your response (true or false):"""
                         if hasattr(shape, "text") and shape.text.strip():
                             slide_text.append(shape.text.strip())
                     if slide_text:
-                        pptx_content.append(f"Slide {slide_num}:\n" + "\n".join(slide_text))
+                        pptx_content.append(
+                            f"Slide {slide_num}:\n" + "\n".join(slide_text)
+                        )
                 content = "\n\n".join(pptx_content)
-                pptx_content_str = f"Content from PowerPoint uploaded named `{file_name}`:\n{content}"
+                pptx_content_str = (
+                    f"Content from PowerPoint uploaded named `{file_name}`:\n{content}"
+                )
                 file_content += pptx_content_str
                 self.input_tokens += get_tokens(content)
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
