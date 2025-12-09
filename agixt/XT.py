@@ -25,6 +25,7 @@ from MagicalAuth import MagicalAuth
 from WorkerRegistry import worker_registry
 from enum import Enum
 from pydantic import BaseModel
+from pptx import Presentation
 import pdfplumber
 import docx2txt
 import zipfile
@@ -1085,41 +1086,46 @@ Your response (true or false):"""
                 message=f"[SUBACTIVITY][{thinking_id}] Reading [{file_name}]({file_url}) into memory.",
             )
         if file_type in ["ppt", "pptx"]:
-            # Convert it to a PDF
-            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
-            file_name = str(file_name).replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            # Extract text directly from PowerPoint using python-pptx
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
+                message=f"[SUBACTIVITY][{thinking_id}] Reading PowerPoint file [{file_name}]({file_url}) into memory.",
             )
             try:
-                result = subprocess.run(
-                    [
-                        "libreoffice",
-                        "--headless",
-                        "--convert-to",
-                        "pdf",
-                        "--outdir",
-                        os.path.dirname(file_path),
-                        file_path,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=30,
+                prs = Presentation(file_path)
+                pptx_content = []
+                for slide_num, slide in enumerate(prs.slides, 1):
+                    slide_text = []
+                    for shape in slide.shapes:
+                        if hasattr(shape, "text") and shape.text.strip():
+                            slide_text.append(shape.text.strip())
+                    if slide_text:
+                        pptx_content.append(
+                            f"Slide {slide_num}:\n" + "\n".join(slide_text)
+                        )
+                content = "\n\n".join(pptx_content)
+                pptx_content_str = (
+                    f"Content from PowerPoint uploaded named `{file_name}`:\n{content}"
                 )
-                if result.returncode != 0:
-                    raise Exception(
-                        f"Conversion failed: {result.stderr.decode('utf-8', errors='ignore')}"
-                    )
+                file_content += pptx_content_str
+                self.input_tokens += get_tokens(content)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=f"Content from PowerPoint uploaded at {timestamp} named `{file_name}`:\n{content}",
+                    external_source=f"file {file_path}",
+                )
+                response = f"Read [{file_name}]({file_url}) into memory."
             except Exception as e:
-                logging.error(f"Error converting PowerPoint to PDF: {e}")
-                return f"Failed to convert PowerPoint file [{file_name}]({file_url}) to PDF. Error: {str(e)}"
-            file_path = pdf_file_path
-            file_type = "pdf"
+                logging.error(f"Error reading PowerPoint file: {e}")
+                return f"Failed to read PowerPoint file [{file_name}]({file_url}). Error: {str(e)}"
         if user_input == "":
             user_input = "Describe each stage of this image."
         disallowed_types = ["exe", "bin", "rar"]
-        if file_type in disallowed_types:
+        if file_type in ["ppt", "pptx"]:
+            # Already handled above, response is set
+            pass
+        elif file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
             file_content += f"Content from PDF uploaded named `{file_name}`:\n"
@@ -2849,6 +2855,7 @@ Your response (true or false):"""
                 complexity_score=complexity_score,
                 use_smartest=use_smartest,
                 thinking_id=thinking_id,  # Pass the thinking_id to avoid creating a duplicate
+                command_overrides=command_overrides,  # Pass command overrides to enable specific commands
                 **prompt_args,
             ):
                 event_type = event.get("type", "")
@@ -2878,7 +2885,12 @@ Your response (true or false):"""
                         yield f"data: {json.dumps(chunk)}\n\n"
 
                 # Stream progressive thinking/reflection content
-                elif event_type in ("thinking_stream", "reflection_stream"):
+                elif event_type in (
+                    "thinking_stream",
+                    "reflection_stream",
+                    "thinking",
+                    "reflection",
+                ):
                     # Send as a custom SSE event for progressive activity streaming
                     activity_type = event_type.replace("_stream", "")
                     activity_chunk = {
@@ -2890,6 +2902,60 @@ Your response (true or false):"""
                         "complete": is_complete,
                     }
                     yield f"data: {json.dumps(activity_chunk)}\n\n"
+
+                # Handle remote command requests - need client-side execution
+                elif event_type == "remote_command_request":
+                    remote_cmd = content  # content is the remote command dict
+
+                    # Build the SSE chunk - support both legacy format and new client tool format
+                    remote_request_chunk = {
+                        "id": chunk_id,
+                        "object": "remote_command.request",
+                        "created": created_time,
+                        "model": self.agent_name,
+                        "conversation_id": self.conversation_id,
+                        "request_id": remote_cmd.get("request_id"),
+                    }
+
+                    # Check if this is a client-defined tool call
+                    if remote_cmd.get("tool_name"):
+                        remote_request_chunk["tool_name"] = remote_cmd.get("tool_name")
+                        remote_request_chunk["tool_args"] = remote_cmd.get(
+                            "tool_args", {}
+                        )
+                        # For execute_terminal_command, also include the mapped fields
+                        if remote_cmd.get("tool_name") == "execute_terminal_command":
+                            remote_request_chunk["command"] = remote_cmd.get(
+                                "command", ""
+                            )
+                            remote_request_chunk["working_directory"] = remote_cmd.get(
+                                "working_directory"
+                            )
+                            remote_request_chunk["terminal_id"] = remote_cmd.get(
+                                "terminal_id"
+                            )
+                    else:
+                        # Legacy format
+                        remote_request_chunk["command"] = remote_cmd.get("command", "")
+                        remote_request_chunk["working_directory"] = remote_cmd.get(
+                            "working_directory"
+                        )
+                        remote_request_chunk["terminal_id"] = remote_cmd.get(
+                            "terminal_id"
+                        )
+
+                    yield f"data: {json.dumps(remote_request_chunk)}\n\n"
+
+                # Handle remote command pending - stream is ending, waiting for CLI
+                elif event_type == "remote_command_pending":
+                    pending_chunk = {
+                        "id": chunk_id,
+                        "object": "remote_command.pending",
+                        "created": created_time,
+                        "model": self.agent_name,
+                        "conversation_id": self.conversation_id,
+                    }
+                    yield f"data: {json.dumps(pending_chunk)}\n\n"
 
                 elif event_type == "error":
                     error_chunk = {
