@@ -25,6 +25,7 @@ from MagicalAuth import MagicalAuth
 from WorkerRegistry import worker_registry
 from enum import Enum
 from pydantic import BaseModel
+from pptx import Presentation
 import pdfplumber
 import docx2txt
 import zipfile
@@ -1085,41 +1086,42 @@ Your response (true or false):"""
                 message=f"[SUBACTIVITY][{thinking_id}] Reading [{file_name}]({file_url}) into memory.",
             )
         if file_type in ["ppt", "pptx"]:
-            # Convert it to a PDF
-            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
-            file_name = str(file_name).replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            # Extract text directly from PowerPoint using python-pptx
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
+                message=f"[SUBACTIVITY][{thinking_id}] Reading PowerPoint file [{file_name}]({file_url}) into memory.",
             )
             try:
-                result = subprocess.run(
-                    [
-                        "libreoffice",
-                        "--headless",
-                        "--convert-to",
-                        "pdf",
-                        "--outdir",
-                        os.path.dirname(file_path),
-                        file_path,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=30,
+                prs = Presentation(file_path)
+                pptx_content = []
+                for slide_num, slide in enumerate(prs.slides, 1):
+                    slide_text = []
+                    for shape in slide.shapes:
+                        if hasattr(shape, "text") and shape.text.strip():
+                            slide_text.append(shape.text.strip())
+                    if slide_text:
+                        pptx_content.append(f"Slide {slide_num}:\n" + "\n".join(slide_text))
+                content = "\n\n".join(pptx_content)
+                pptx_content_str = f"Content from PowerPoint uploaded named `{file_name}`:\n{content}"
+                file_content += pptx_content_str
+                self.input_tokens += get_tokens(content)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=f"Content from PowerPoint uploaded at {timestamp} named `{file_name}`:\n{content}",
+                    external_source=f"file {file_path}",
                 )
-                if result.returncode != 0:
-                    raise Exception(
-                        f"Conversion failed: {result.stderr.decode('utf-8', errors='ignore')}"
-                    )
+                response = f"Read [{file_name}]({file_url}) into memory."
             except Exception as e:
-                logging.error(f"Error converting PowerPoint to PDF: {e}")
-                return f"Failed to convert PowerPoint file [{file_name}]({file_url}) to PDF. Error: {str(e)}"
-            file_path = pdf_file_path
-            file_type = "pdf"
+                logging.error(f"Error reading PowerPoint file: {e}")
+                return f"Failed to read PowerPoint file [{file_name}]({file_url}). Error: {str(e)}"
         if user_input == "":
             user_input = "Describe each stage of this image."
         disallowed_types = ["exe", "bin", "rar"]
-        if file_type in disallowed_types:
+        if file_type in ["ppt", "pptx"]:
+            # Already handled above, response is set
+            pass
+        elif file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
             file_content += f"Content from PDF uploaded named `{file_name}`:\n"

@@ -1,3 +1,1 @@
 twilio
-safeexecute==0.0.10
-agixtsdk==0.0.80
