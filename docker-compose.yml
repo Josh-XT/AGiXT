@@ -26,7 +26,6 @@ services:
       APP_URI: ${APP_URI:-http://localhost:3437}
       DISABLED_EXTENSIONS: ${DISABLED_EXTENSIONS}
       DISABLED_PROVIDERS: ${DISABLED_PROVIDERS}
-      WORKING_DIRECTORY: ${HOST_WORKSPACE_PATH:-./WORKSPACE}
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
       TOKENIZERS_PARALLELISM: "false"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -104,15 +103,13 @@ services:
       EXTENSIONS_HUB_TOKEN: ${EXTENSIONS_HUB_TOKEN:-}
       SMARTEST_PROVIDER: ${SMARTEST_PROVIDER}
       TZ: ${TZ:-America/New_York}
-      # SafeExecute Docker-in-Docker configuration
-      DOCKER_CONTAINER: "true"
-      # Container path where workspace is mounted
-      CONTAINER_WORKING_DIRECTORY: /agixt/WORKSPACE
+      # Host path to workspace for SafeExecute Docker volume mounting
+      WORKING_DIRECTORY: ${WORKING_DIRECTORY}
     ports:
       - "${AGIXT_PORT:-7437}:7437"
     volumes:
       - ./models:/agixt/models
-      # Shared workspace volume for SafeExecute Docker-in-Docker access
+      # Shared workspace volume - WORKING_DIRECTORY must be set to absolute host path
       - ${WORKING_DIRECTORY:-./WORKSPACE}:/agixt/WORKSPACE
       # Docker socket for SafeExecute to spawn containers
       - /var/run/docker.sock:/var/run/docker.sock

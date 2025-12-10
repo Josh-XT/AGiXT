@@ -374,30 +374,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
     def we_are_running_in_a_docker_container() -> bool:
         return os.path.exists("/.dockerenv")
 
-    def get_host_working_directory(self) -> str:
-        """
-        Get the working directory path suitable for Docker volume mounting.
-        When running inside a Docker container, translates the container path
-        to the host path using WORKING_DIRECTORY and CONTAINER_WORKING_DIRECTORY env vars.
-        """
-        if not self.we_are_running_in_a_docker_container():
-            return self.WORKING_DIRECTORY
-
-        host_workspace = getenv("WORKING_DIRECTORY")
-        container_workspace = getenv("CONTAINER_WORKING_DIRECTORY")
-
-        if not host_workspace or not container_workspace:
-            return self.WORKING_DIRECTORY
-
-        if self.WORKING_DIRECTORY.startswith(container_workspace):
-            # Translate container path to host path
-            relative_path = self.WORKING_DIRECTORY[len(container_workspace) :].lstrip(
-                "/"
-            )
-            return os.path.join(host_workspace, relative_path)
-
-        return self.WORKING_DIRECTORY
-
     async def view_image(
         self, image_path: str, query: str = "What is in this image?"
     ) -> str:
@@ -920,7 +896,6 @@ print(output)
         execution_response = execute_python_code(
             code=code,
             working_directory=self.WORKING_DIRECTORY,
-            docker_host_directory=self.get_host_working_directory(),
         )
         return execution_response
 
