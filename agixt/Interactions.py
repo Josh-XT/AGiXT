@@ -45,86 +45,92 @@ webhook_emitter = WebhookEventEmitter()
 def has_complete_answer(response: str) -> bool:
     """
     Check if the response contains a complete <answer>...</answer> block at the top level.
-    
+
     A complete answer means:
     1. There is an <answer> tag
     2. There is a matching </answer> tag
     3. The </answer> is NOT inside a <thinking> or <reflection> block
-    
+
     This handles edge cases like:
     - <answer>Some text <thinking>thoughts</thinking> more text</answer> - COMPLETE (thinking is inside answer)
     - <answer>Some text</answer> - COMPLETE
     - <answer>Some text <thinking>thoughts</thinking> - INCOMPLETE (no closing answer after thinking)
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
-    
+
     Returns:
         bool: True if there's a complete top-level answer block
     """
     # First, quick check - if no </answer> at all, definitely incomplete
     if "</answer>" not in response.lower():
         return False
-    
+
     # If no <answer> at all, definitely incomplete
     if "<answer>" not in response.lower():
         return False
-    
+
     # Find all answer open/close positions
-    answer_opens = [m.start() for m in re.finditer(r"<answer>", response, re.IGNORECASE)]
-    answer_closes = [m.start() for m in re.finditer(r"</answer>", response, re.IGNORECASE)]
-    
+    answer_opens = [
+        m.start() for m in re.finditer(r"<answer>", response, re.IGNORECASE)
+    ]
+    answer_closes = [
+        m.start() for m in re.finditer(r"</answer>", response, re.IGNORECASE)
+    ]
+
     if not answer_opens or not answer_closes:
         return False
-    
+
     # For each answer open, check if it has a valid close
     # A valid close is one that:
     # 1. Comes after the open
     # 2. Is at the top level (not inside a thinking/reflection that started after the answer open)
-    
+
     for answer_open_pos in answer_opens:
         # Get text before this answer tag to check if it's inside thinking/reflection
         text_before = response[:answer_open_pos]
-        
+
         # Count open/close tags before this position
-        thinking_depth = len(re.findall(r"<thinking>", text_before, re.IGNORECASE)) - \
-                        len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
-        reflection_depth = len(re.findall(r"<reflection>", text_before, re.IGNORECASE)) - \
-                          len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
-        
+        thinking_depth = len(
+            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+        reflection_depth = len(
+            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+
         # If this answer open is inside thinking/reflection, skip it
         if thinking_depth > 0 or reflection_depth > 0:
             continue
-        
+
         # This is a top-level answer open - now find its matching close
         # The close should be at the same nesting level
         # We need to track answer nesting within the answer block
-        text_after_open = response[answer_open_pos + len("<answer>"):]
-        
+        text_after_open = response[answer_open_pos + len("<answer>") :]
+
         # Track nesting - we start inside the answer (depth 1)
         answer_depth = 1
         pos = 0
-        
+
         while pos < len(text_after_open):
             # Look for next tag
             next_open = text_after_open.find("<answer>", pos)
             next_close = text_after_open.find("</answer>", pos)
-            
+
             # Case insensitive search
             next_open_lower = text_after_open.lower().find("<answer>", pos)
             next_close_lower = text_after_open.lower().find("</answer>", pos)
-            
+
             if next_open_lower == -1:
-                next_open = float('inf')
+                next_open = float("inf")
             else:
                 next_open = next_open_lower
             if next_close_lower == -1:
-                next_close = float('inf')
+                next_close = float("inf")
             else:
                 next_close = next_close_lower
-                
-            if next_open == float('inf') and next_close == float('inf'):
+
+            if next_open == float("inf") and next_close == float("inf"):
                 # No more answer tags found
                 break
-            
+
             if next_open < next_close:
                 # Found nested answer open
                 answer_depth += 1
@@ -136,67 +142,69 @@ def has_complete_answer(response: str) -> bool:
                     # This is the matching close for our top-level answer
                     return True
                 pos = next_close + len("</answer>")
-    
+
     return False
 
 
 def is_inside_top_level_answer(response: str, position: int = None) -> bool:
     """
     Check if the current position (or end of string) is inside a top-level <answer> block.
-    
+
     This handles cases where <thinking> appears inside <answer>:
     - <answer>Text <thinking>thought</thinking> more</answer> - position after <thinking> IS inside answer
     - <thinking>thoughts</thinking><answer>text - position at end IS inside answer
     - <thinking><answer>text</answer></thinking> - the answer is NOT top-level
-    
+
     Args:
         response: The full response text
         position: The position to check (default: end of string)
-        
+
     Returns:
         bool: True if the position is inside a top-level answer block
     """
     if position is None:
         position = len(response)
-    
+
     text_to_check = response[:position]
-    
+
     # Find all top-level answer opens before this position
     answer_open_positions = []
     for match in re.finditer(r"<answer>", text_to_check, re.IGNORECASE):
         open_pos = match.start()
         # Check if this answer open is at top level (not inside thinking/reflection)
         text_before = text_to_check[:open_pos]
-        thinking_depth = len(re.findall(r"<thinking>", text_before, re.IGNORECASE)) - \
-                        len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
-        reflection_depth = len(re.findall(r"<reflection>", text_before, re.IGNORECASE)) - \
-                          len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+        thinking_depth = len(
+            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+        reflection_depth = len(
+            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
         if thinking_depth == 0 and reflection_depth == 0:
             answer_open_positions.append(open_pos)
-    
+
     if not answer_open_positions:
         return False
-    
+
     # For each top-level answer open, check if it's been closed before our position
     for answer_open_pos in answer_open_positions:
         # Look for the matching close after this open but before our position
-        text_after_open = text_to_check[answer_open_pos + len("<answer>"):]
-        
+        text_after_open = text_to_check[answer_open_pos + len("<answer>") :]
+
         # Count answer opens and closes to find the matching close
         answer_depth = 1
         pos = 0
         found_close = False
-        
+
         while pos < len(text_after_open):
             next_open_lower = text_after_open.lower().find("<answer>", pos)
             next_close_lower = text_after_open.lower().find("</answer>", pos)
-            
-            next_open = float('inf') if next_open_lower == -1 else next_open_lower
-            next_close = float('inf') if next_close_lower == -1 else next_close_lower
-            
-            if next_open == float('inf') and next_close == float('inf'):
+
+            next_open = float("inf") if next_open_lower == -1 else next_open_lower
+            next_close = float("inf") if next_close_lower == -1 else next_close_lower
+
+            if next_open == float("inf") and next_close == float("inf"):
                 break
-            
+
             if next_open < next_close:
                 answer_depth += 1
                 pos = next_open + len("<answer>")
@@ -206,11 +214,11 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
                     found_close = True
                     break
                 pos = next_close + len("</answer>")
-        
+
         if not found_close:
             # This top-level answer hasn't been closed yet - we're inside it
             return True
-    
+
     return False
 
 
@@ -2320,14 +2328,18 @@ Example: If user says "list my files", use:
                     for match in re.finditer(r"<answer>", full_response, re.IGNORECASE):
                         open_pos = match.start()
                         text_before = full_response[:open_pos]
-                        thinking_depth = len(re.findall(r"<thinking>", text_before, re.IGNORECASE)) - \
-                                        len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
-                        reflection_depth = len(re.findall(r"<reflection>", text_before, re.IGNORECASE)) - \
-                                          len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+                        thinking_depth = len(
+                            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+                        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+                        reflection_depth = len(
+                            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+                        ) - len(
+                            re.findall(r"</reflection>", text_before, re.IGNORECASE)
+                        )
                         if thinking_depth == 0 and reflection_depth == 0:
                             answer_start = match.end()
                             break  # Use the first top-level answer
-                    
+
                     if answer_start is not None:
                         new_answer = full_response[answer_start:]
 
@@ -2407,7 +2419,8 @@ Example: If user says "list my files", use:
             has_new_execution = "</execute>" in unprocessed_response
             # Use has_complete_answer for proper detection instead of simple string check
             has_incomplete_answer = (
-                "<answer>" in self.response.lower() and not has_complete_answer(self.response)
+                "<answer>" in self.response.lower()
+                and not has_complete_answer(self.response)
             )
 
             if not has_new_execution and not has_incomplete_answer:
