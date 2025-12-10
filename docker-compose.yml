@@ -106,8 +106,6 @@ services:
       TZ: ${TZ:-America/New_York}
       # SafeExecute Docker-in-Docker configuration
       DOCKER_CONTAINER: "true"
-      # Host path for shared workspace volume (used by SafeExecute for volume mounts)
-      WORKING_DIRECTORY: ${WORKING_DIRECTORY:-./WORKSPACE}
       # Container path where workspace is mounted
       CONTAINER_WORKING_DIRECTORY: /agixt/WORKSPACE
     ports:

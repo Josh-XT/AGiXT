@@ -918,7 +918,9 @@ print(output)
                 f.write(text)
 
         execution_response = execute_python_code(
-            code=code, working_directory=self.get_host_working_directory()
+            code=code,
+            working_directory=self.WORKING_DIRECTORY,
+            docker_host_directory=self.get_host_working_directory(),
         )
         return execution_response
 
