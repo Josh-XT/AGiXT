@@ -191,6 +191,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "View Image": self.view_image,
             "Get Web UI Tips": self.get_webui_tips,
             "Create AGiXT Agent": self.create_new_agixt_agent,
+            "Optimize Command Selection": self.optimize_command_selection,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -3374,3 +3375,23 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 return f"{general_information}\n\n{automation_page}"
             case _:
                 return f"# AGiXT Web UI Quick Tips\n\n{general_information}\n\n{chat_page}\n\n{billing_page}\n\n{team_page}\n\n{automation_page}"
+
+    async def optimize_command_selection(self, task_description: str) -> str:
+        """
+        Re-optimize the available commands for the current conversation based on a new task or changed requirements.
+        Use this when you realize you need different abilities than what was initially selected, or when starting a significantly different task.
+
+        Args:
+            task_description (str): Description of what you're trying to accomplish that requires different commands
+
+        Returns:
+            str: Confirmation that command selection has been optimized with the list of newly selected commands
+
+        Notes:
+            This command triggers a re-selection of available abilities based on the new task description.
+            After execution, the assistant will have access to a different set of optimized commands for the remainder of the conversation.
+            Use this when the current task requires abilities that weren't initially selected.
+        """
+        # This is a signal command - the actual optimization is handled by the Interactions class
+        # when it sees this command was executed. We return a message indicating optimization is requested.
+        return f"OPTIMIZE_COMMANDS:{task_description}"

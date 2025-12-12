@@ -1035,6 +1035,112 @@ Your response (true or false):"""
                 f"line ranges from the file."
             )
 
+    def _get_file_access_instructions(
+        self,
+        file_name: str,
+        file_url: str,
+        file_path: str,
+        file_size_bytes: int,
+        file_tokens: int,
+        converted_file_name: str = None,
+        file_type: str = None,
+    ) -> str:
+        """
+        Generate instructions for the LLM to access an uploaded file using commands.
+        This is used instead of including file content directly in context.
+
+        Args:
+            file_name: Original uploaded file name
+            file_url: URL where the file can be accessed
+            file_path: Path to the file in workspace
+            file_size_bytes: Size of the file in bytes
+            file_tokens: Number of tokens the file content would take
+            converted_file_name: Name of converted file if applicable (e.g., CSV from Excel)
+            file_type: Type of file for specific instructions
+
+        Returns:
+            str: Metadata and instructions for accessing the file
+        """
+        file_size_kb = round(file_size_bytes / 1024, 1)
+
+        # Get the relative path from the conversation directory for use in commands
+        # The file_path is an absolute path like: agent_workspace/conversation_id/filename
+        # Commands run with WORKING_DIRECTORY = agent_workspace/conversation_id
+        # So we need just the filename, not the conversation_id prefix
+        conversation_dir = os.path.join(self.agent_workspace, self.conversation_id)
+        if file_path.startswith(conversation_dir):
+            # File is in the conversation directory - use path relative to it
+            relative_path = file_path[len(conversation_dir) :].lstrip("/\\")
+        elif file_path.startswith(self.agent_workspace):
+            # File is in agent workspace but not conversation dir - use path relative to agent workspace
+            relative_path = file_path[len(self.agent_workspace) :].lstrip("/\\")
+        else:
+            # Fallback to just the filename
+            relative_path = file_name
+
+        # Use converted file name if available, but with correct path
+        if converted_file_name and converted_file_name != file_name:
+            # Replace the filename in the relative path with the converted filename
+            dir_path = os.path.dirname(relative_path)
+            actual_path = (
+                os.path.join(dir_path, converted_file_name)
+                if dir_path
+                else converted_file_name
+            )
+        else:
+            actual_path = relative_path
+
+        # If actual_path is empty, fall back to filename
+        if not actual_path:
+            actual_path = converted_file_name if converted_file_name else file_name
+
+        # Base info about the file
+        info = f"## Uploaded File: `{file_name}`\n"
+        info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
+        info += f"- **Path for commands:** `{actual_path}`\n"
+        info += f"- **URL:** [{file_name}]({file_url})\n"
+
+        if converted_file_name and converted_file_name != file_name:
+            info += f"- **Converted to:** `{converted_file_name}` (CSV format)\n"
+
+        info += "\n"
+
+        # Type-specific instructions
+        if file_type and file_type.lower() in ["csv", "xlsx", "xls"]:
+            info += "### How to Access This Data:\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}` to see the full content\n"
+            info += "2. **Analyze with Python** using `Execute Python Code` to load with pandas and perform analysis:\n"
+            info += f"   ```python\n   import pandas as pd\n   df = pd.read_csv('{actual_path}')\n   print(df.head())\n   print(df.describe())\n   ```\n"
+            info += "3. **Search for specific data** using `Search File Content` to find particular values\n"
+        elif file_type and file_type.lower() in [
+            "py",
+            "js",
+            "ts",
+            "json",
+            "yaml",
+            "yml",
+            "md",
+            "txt",
+            "html",
+            "css",
+        ]:
+            info += "### How to Access This File:\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}`\n"
+            info += "2. **Search for patterns** using `Search File Content` to find specific code or text\n"
+            if file_type.lower() == "py":
+                info += f"3. **Execute the code** using `Execute Python File` with path `{actual_path}`\n"
+        elif file_type and file_type.lower() == "pdf":
+            info += "### How to Access This PDF:\n"
+            info += "The PDF content has been indexed into memory and can be queried.\n"
+            info += "1. **Search memories** for specific content from the PDF\n"
+            info += f"2. **Read raw text** using `Read File` with filename `{actual_path}` if text extraction is available\n"
+        else:
+            info += "### How to Access This File:\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}`\n"
+            info += "2. **Search for content** using `Search File Content`\n"
+
+        return info
+
     async def learn_spreadsheet(self, user_input, file_path, thinking_id):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
@@ -1119,6 +1225,9 @@ Your response (true or false):"""
         Returns:
             str: Response from the agent
         """
+        logging.info(
+            f"learn_from_file called: file_url={file_url}, file_name={file_name}"
+        )
         file_content = ""
         if file_name == "":
             file_name = file_url.split("/")[-1]
@@ -1401,22 +1510,23 @@ Your response (true or false):"""
             ),
         )
 
-        # Check if file content exceeds 10k tokens - if so, provide instructions instead
-        MAX_FILE_TOKENS = 10000
+        # NEVER return full file content - instead return metadata and instructions
+        # This keeps context manageable and the agent can use commands to access files
         if file_content:
             file_tokens = get_tokens(file_content)
-            if file_tokens > MAX_FILE_TOKENS:
-                # Get file size for the instruction message
-                try:
-                    file_size = os.path.getsize(file_path)
-                except:
-                    file_size = len(file_content.encode("utf-8"))
+            logging.info(f"learn_from_file: file={file_name}, tokens={file_tokens}")
 
-                # Determine the converted file name for spreadsheets
-                converted_file = None
-                if file_type in ["xlsx", "xls"]:
-                    # For Excel files, find the CSV file(s) in the workspace
-                    base_name = file_name.rsplit(".", 1)[0]
+            # Get file size
+            try:
+                file_size = os.path.getsize(file_path)
+            except:
+                file_size = len(file_content.encode("utf-8"))
+
+            # Determine the converted file name for spreadsheets
+            converted_file = None
+            if file_type in ["xlsx", "xls"]:
+                base_name = file_name.rsplit(".", 1)[0]
+                try:
                     csv_files = [
                         f
                         for f in os.listdir(os.path.dirname(file_path))
@@ -1428,19 +1538,54 @@ Your response (true or false):"""
                             if len(csv_files) == 1
                             else f"{base_name}_*.csv (multiple sheets)"
                         )
+                except:
+                    pass
 
-                file_content = self._get_large_file_instructions(
-                    file_name=file_name,
-                    file_path=file_path,
-                    file_size_bytes=file_size,
-                    converted_file_name=converted_file,
-                    file_type=file_type,
-                )
-                logging.info(
-                    f"File {file_name} exceeds {MAX_FILE_TOKENS} tokens ({file_tokens}), providing instructions instead of full content"
-                )
+            # Return only metadata and instructions - not the actual content
+            instructions = self._get_file_access_instructions(
+                file_name=file_name,
+                file_url=file_url,
+                file_path=file_path,
+                file_size_bytes=file_size,
+                file_tokens=file_tokens,
+                converted_file_name=converted_file,
+                file_type=file_type,
+            )
+
+            logging.info(
+                f"File {file_name} - returning metadata only ({file_tokens} tokens content not included in context)"
+            )
+            return instructions
 
         return file_content
+
+    async def _process_file_type_message(self, msg: dict, files: list) -> None:
+        """
+        Process a message content item with type "file" and nested file object.
+
+        Handles the OpenAI-style file upload format:
+        {"type": "file", "file": {"filename": "...", "file_data": "data:..."}}
+
+        Args:
+            msg: Message content item dictionary
+            files: List to append downloaded file info to
+        """
+        if not (isinstance(msg, dict) and msg.get("type") == "file" and "file" in msg):
+            return
+
+        file_info = msg["file"]
+        file_name = file_info.get("filename", f"{uuid.uuid4().hex}.txt")
+        file_data_str = file_info.get("file_data", "")
+
+        if file_data_str:
+            # Download the file to workspace and add to files list
+            downloaded_file = await self.download_file_to_workspace(
+                url=file_data_str,
+                file_name=file_name,
+            )
+            if downloaded_file != {}:
+                files.append(downloaded_file)
+                logging.info(f"Processed file upload: {file_name}")
 
     async def download_file_to_workspace(
         self, url: str, file_name: str = "", download_headers={}
@@ -1939,6 +2084,8 @@ Your response (true or false):"""
                         role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
+                    # Process file type messages (non-streaming)
+                    await self._process_file_type_message(msg, files)
                     # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
                     if isinstance(msg, dict):
                         for key, value in msg.items():
@@ -2276,6 +2423,7 @@ Your response (true or false):"""
                 voice_response=tts,
                 log_user_input=False,
                 log_output=False,
+                enable_command_selection=True,  # Enable intelligent command selection for main user interactions
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
@@ -2653,6 +2801,8 @@ Your response (true or false):"""
                         role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
+                    # Process file type messages (streaming)
+                    await self._process_file_type_message(msg, files)
                     # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
                     if isinstance(msg, dict):
                         for key, value in msg.items():

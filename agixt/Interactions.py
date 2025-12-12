@@ -299,6 +299,8 @@ class Interactions:
         prompt="",
         conversation_name="",
         vision_response: str = "",
+        selected_commands: list = None,
+        max_context_tokens: int = 16000,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -650,7 +652,50 @@ class Interactions:
             agent_commands = self.agent.get_commands_prompt(
                 conversation_id=conversation_id,
                 running_command=kwargs.get("running_command", None),
+                selected_commands=selected_commands,
             )
+
+        # Check if context needs reduction before building final prompt
+        # Estimate tokens from variable-size context components
+        context_str = "\n".join(context) if isinstance(context, list) else str(context)
+        estimated_context_tokens = get_tokens(
+            f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
+        )
+
+        if estimated_context_tokens > max_context_tokens:
+            logging.info(
+                f"[format_prompt] Context exceeds max_context_tokens ({estimated_context_tokens} > {max_context_tokens}), reducing context..."
+            )
+            # Build context sections dict for reduce_context
+            context_sections = {
+                "memories": context_str,  # Already retrieved memories as string
+                "conversation_history": conversation_history,
+                "file_contents": file_contents,
+            }
+
+            # Reduce context using intelligent selection
+            reduced = await self.reduce_context(
+                user_input=user_input,
+                context_sections=context_sections,
+                target_tokens=max_context_tokens,
+                conversation_name=conversation_name,
+            )
+
+            # Apply reduced context
+            if "memories" in reduced:
+                context = [reduced["memories"]] if reduced["memories"] else []
+            if "conversation_history" in reduced:
+                conversation_history = reduced["conversation_history"]
+            if "file_contents" in reduced:
+                file_contents = reduced["file_contents"]
+
+            new_tokens = get_tokens(
+                f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
+            )
+            logging.info(
+                f"[format_prompt] Context reduced. New estimated tokens: {new_tokens}"
+            )
+
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -880,6 +925,360 @@ class Interactions:
                 self._processed_tags.add(tag_identifier)
 
         return response
+
+    async def reduce_context(
+        self,
+        user_input: str,
+        context_sections: dict,
+        target_tokens: int = 16000,
+        conversation_name: str = "",
+    ) -> dict:
+        """
+        Intelligently reduce context by having the LLM select which sections are needed.
+        This runs multiple lightweight inferences to prune unnecessary context.
+
+        Args:
+            user_input: The user's current request
+            context_sections: Dict of context sections with their content:
+                - "memories": List of memory items
+                - "activities": List of recent activities
+                - "conversation": List of conversation messages
+                - "files": List of file metadata
+                - "persona": Persona string
+                - "tasks": Current tasks
+            target_tokens: Target token count to reduce to
+            conversation_name: Name of conversation for logging
+
+        Returns:
+            dict: Reduced context sections
+        """
+        # Calculate current token counts per section
+        section_tokens = {}
+        total_tokens = 0
+        for section_name, content in context_sections.items():
+            if isinstance(content, list):
+                section_text = "\n".join(str(item) for item in content)
+            else:
+                section_text = str(content) if content else ""
+            tokens = get_tokens(section_text)
+            section_tokens[section_name] = tokens
+            total_tokens += tokens
+
+        logging.info(
+            f"[reduce_context] Total context tokens: {total_tokens}, target: {target_tokens}"
+        )
+
+        # If already under target, no reduction needed
+        if total_tokens <= target_tokens:
+            logging.info(
+                f"[reduce_context] Context already under target, no reduction needed"
+            )
+            return context_sections
+
+        # Build a summary of sections for the selector
+        section_summaries = []
+        for section_name, content in context_sections.items():
+            tokens = section_tokens[section_name]
+            if tokens == 0:
+                continue
+
+            # Create a brief summary/preview of each section
+            if isinstance(content, list) and len(content) > 0:
+                preview = (
+                    str(content[0])[:200] + "..."
+                    if len(str(content[0])) > 200
+                    else str(content[0])
+                )
+                item_count = len(content)
+                section_summaries.append(
+                    f"**{section_name}** ({tokens} tokens, {item_count} items)\nPreview: {preview}"
+                )
+            elif content:
+                preview = (
+                    str(content)[:200] + "..."
+                    if len(str(content)) > 200
+                    else str(content)
+                )
+                section_summaries.append(
+                    f"**{section_name}** ({tokens} tokens)\nPreview: {preview}"
+                )
+
+        # Step 1: Ask which sections are needed
+        section_selection_prompt = f"""You are helping optimize context for an AI assistant. The user's request is:
+
+"{user_input}"
+
+The following context sections are available. Select which ones are ESSENTIAL for answering this request.
+Total tokens: {total_tokens}, Target: {target_tokens} tokens.
+
+## Available Sections:
+{chr(10).join(section_summaries)}
+
+## Instructions:
+- Select ONLY sections that are directly relevant to the user's request
+- The user's input is always included (not optional)
+- Persona is usually needed for consistent responses
+- Activities/conversation history may not be needed for simple questions
+- Memories are useful for context but can be pruned for simple requests
+
+Respond with ONLY a comma-separated list of section names to KEEP, or "all" if all are needed.
+Example: memories, persona, files"""
+
+        try:
+            selection_response = await self.agent.inference(
+                prompt=section_selection_prompt
+            )
+
+            if selection_response.strip().lower() == "all":
+                # Need all sections, but may need to prune within sections
+                sections_to_keep = list(context_sections.keys())
+            else:
+                sections_to_keep = [
+                    s.strip().lower() for s in selection_response.split(",")
+                ]
+
+            logging.info(f"[reduce_context] Sections to keep: {sections_to_keep}")
+
+        except Exception as e:
+            logging.error(f"[reduce_context] Error in section selection: {e}")
+            sections_to_keep = list(context_sections.keys())
+
+        # Step 2: Build reduced context, pruning unneeded sections
+        reduced_context = {}
+        reduced_tokens = 0
+
+        for section_name, content in context_sections.items():
+            if (
+                section_name.lower() in sections_to_keep
+                or section_name.lower() == "persona"
+            ):
+                reduced_context[section_name] = content
+                reduced_tokens += section_tokens[section_name]
+            else:
+                reduced_context[section_name] = [] if isinstance(content, list) else ""
+
+        logging.info(f"[reduce_context] After section pruning: {reduced_tokens} tokens")
+
+        # Step 3: If still over target, prune within large sections
+        if reduced_tokens > target_tokens:
+            # Find the largest list-based sections and prune them
+            for section_name in ["memories", "activities", "conversation"]:
+                if section_name in reduced_context and isinstance(
+                    reduced_context[section_name], list
+                ):
+                    items = reduced_context[section_name]
+                    if len(items) > 3:
+                        # Keep only the most recent/relevant items
+                        # For activities and conversation, keep most recent
+                        if section_name in ["activities", "conversation"]:
+                            reduced_context[section_name] = items[-5:]  # Keep last 5
+                        else:
+                            # For memories, keep first few (most relevant by score)
+                            reduced_context[section_name] = items[:5]
+
+                        new_tokens = get_tokens(
+                            "\n".join(
+                                str(item) for item in reduced_context[section_name]
+                            )
+                        )
+                        reduced_tokens -= section_tokens[section_name] - new_tokens
+                        logging.info(
+                            f"[reduce_context] Pruned {section_name} from {len(items)} to {len(reduced_context[section_name])} items"
+                        )
+
+        logging.info(
+            f"[reduce_context] Final context: {reduced_tokens} tokens (target: {target_tokens})"
+        )
+        return reduced_context
+
+    async def select_commands_for_task(
+        self,
+        user_input: str,
+        conversation_name: str,
+        file_context: str = "",
+        has_uploaded_files: bool = False,
+        log_output: bool = True,
+        thinking_id: str = "",
+    ) -> list:
+        """
+        Intelligently select which commands should be available for this task.
+        This is called at the start of inference to optimize the command set.
+        Splits commands into two batches to reduce token count per selection call.
+
+        Args:
+            user_input: The user's input/request
+            conversation_name: Name of the conversation
+            file_context: Description of files in workspace (not content, just names/types)
+            has_uploaded_files: Whether the user uploaded files with this request
+            log_output: Whether to log the selection as a subactivity
+            thinking_id: Optional thinking_id for logging subactivities
+
+        Returns:
+            list: List of command friendly names that should be enabled
+        """
+        # Get all available commands with descriptions
+        commands_prompt, all_command_names = self.agent.get_commands_for_selection()
+
+        if not all_command_names:
+            return []
+
+        # Build context about files
+        context_parts = []
+        if file_context:
+            context_parts.append(f"Files in workspace: {file_context}")
+        if has_uploaded_files:
+            context_parts.append("The user has uploaded file(s) with this request.")
+
+        context = "\n".join(context_parts) if context_parts else "No files in context."
+
+        # File-related commands that should always be included if files are involved
+        file_commands = [
+            "Read File",
+            "Write to File",
+            "Search Files",
+            "Search File Content",
+            "Modify File",
+            "Delete File",
+            "Execute Python File",
+            "Run Data Analysis",
+        ]
+
+        # Commands that should always be available
+        always_include = ["Get Datetime"]
+
+        # Split commands into two batches to reduce token count per call
+        # Parse the commands_prompt into individual command entries
+        command_lines = commands_prompt.strip().split("\n")
+        mid_point = len(command_lines) // 2
+        batch1_lines = command_lines[:mid_point]
+        batch2_lines = command_lines[mid_point:]
+
+        batch1_prompt = "\n".join(batch1_lines)
+        batch2_prompt = "\n".join(batch2_lines)
+
+        # Get conversation for logging
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+        )
+
+        if not thinking_id and log_output:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        if log_output and thinking_id:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{thinking_id}] Analyzing request to select relevant abilities...",
+            )
+
+        valid_commands = []
+
+        # Process both batches in parallel for speed using DIRECT inference (not run())
+        # This avoids pulling in all memories/context which bloats token count
+        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
+            try:
+                # Build a lightweight prompt directly without format_prompt overhead
+                selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
+
+## User's Request
+{user_input}
+
+## Context
+{context}
+
+{batch_prompt}
+
+## Your Task
+Based on the user's request and context above, select which commands would be most helpful for the assistant to have available when responding to this request.
+
+**Important Guidelines:**
+- Select commands that are directly relevant to what the user is asking for
+- Include commands that might be needed for related tasks (e.g., if reading a file, include file writing commands too in case modifications are needed)
+- **Include commands whose descriptions contain useful context** - some commands have descriptions that provide helpful information about available integrations, services, or capabilities that would help the assistant answer questions even if the command itself isn't executed
+- Be inclusive rather than exclusive - it's better to include a potentially useful command than to miss one that's needed
+- If the user uploaded files or there are files in context, always include file-related commands (Read File, Write to File, Search Files, etc.)
+- If no commands seem relevant for a simple greeting or conversational message, respond with "None"
+
+## Response Format
+Respond with ONLY a comma-separated list of the exact command names that should be available, or "None" if no commands are needed.
+Do not include any other text, explanation, or formatting.
+
+Example response format:
+Web Search, Read File, Write to File, Execute Python Code"""
+
+                # Direct inference call - bypasses format_prompt and all its context loading
+                selection_response = await self.agent.inference(
+                    prompt=selection_prompt,
+                )
+
+                # Handle "None" or empty responses
+                if (
+                    not selection_response
+                    or selection_response.strip().lower() == "none"
+                ):
+                    return []
+
+                # Parse the response - should be comma-separated command names
+                selected = [
+                    cmd.strip()
+                    for cmd in selection_response.split(",")
+                    if cmd.strip() and cmd.strip().lower() != "none"
+                ]
+
+                # Validate against actual command names
+                return [cmd for cmd in selected if cmd in all_command_names]
+
+            except Exception as e:
+                logging.error(
+                    f"[select_commands_for_task] Error in batch {batch_num}: {e}"
+                )
+                return []
+
+        # Run both batches in parallel
+        try:
+            batch1_results, batch2_results = await asyncio.gather(
+                select_from_batch(batch1_prompt, 1),
+                select_from_batch(batch2_prompt, 2),
+            )
+            valid_commands = batch1_results + batch2_results
+        except Exception as e:
+            logging.error(
+                f"[select_commands_for_task] Error in parallel selection: {e}"
+            )
+            # Fallback to all commands on error
+            return all_command_names
+
+        # Always add file commands if files are involved
+        if has_uploaded_files or file_context:
+            for fc in file_commands:
+                if fc in all_command_names and fc not in valid_commands:
+                    valid_commands.append(fc)
+
+        # Always include certain commands
+        for cmd in always_include:
+            if cmd in all_command_names and cmd not in valid_commands:
+                valid_commands.append(cmd)
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_commands = []
+        for cmd in valid_commands:
+            if cmd not in seen:
+                seen.add(cmd)
+                unique_commands.append(cmd)
+        valid_commands = unique_commands
+
+        # Log the selection
+        if log_output and thinking_id and valid_commands:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{thinking_id}] Selected {len(valid_commands)} abilities: {', '.join(valid_commands)}",
+            )
+
+        logging.info(
+            f"[select_commands_for_task] Selected {len(valid_commands)} commands: {valid_commands}"
+        )
+        return valid_commands
 
     async def run(
         self,
@@ -1200,6 +1599,66 @@ class Interactions:
                                     break
                         break
 
+        # Intelligent command selection - only if commands are enabled and this is not a nested call
+        selected_commands = None
+        effective_prompt_category = (
+            kwargs.get("prompt_category", prompt_category)
+            if "prompt_category" in kwargs
+            else prompt_category
+        )
+        prompt_content = self.cp.get_prompt(
+            prompt_name=prompt, prompt_category=effective_prompt_category
+        )
+        has_commands_placeholder = (
+            "{COMMANDS}" in prompt_content if prompt_content else False
+        )
+
+        # Check if command selection is enabled (can be explicitly set, or inferred from log_output for backward compatibility)
+        enable_command_selection = kwargs.get("enable_command_selection", log_output)
+
+        logging.info(
+            f"[run] Command selection check: disable_commands={'disable_commands' in kwargs}, searching={searching}, enable_command_selection={enable_command_selection}, has_commands_placeholder={has_commands_placeholder}, prompt={prompt}"
+        )
+
+        if (
+            "disable_commands" not in kwargs
+            and not searching  # Don't do selection during websearch
+            and enable_command_selection  # Must be explicitly or implicitly enabled
+            and has_commands_placeholder
+        ):
+            # Build file context for selection
+            file_context = ""
+            has_uploaded_files = False
+            if "uploaded_file_data" in kwargs:
+                has_uploaded_files = True
+                # Extract just file names from uploaded_file_data if possible
+                uploaded_data = kwargs.get("uploaded_file_data", "")
+                if (
+                    "file uploaded named" in uploaded_data.lower()
+                    or "Content from" in uploaded_data
+                ):
+                    # Try to extract file names
+                    file_matches = re.findall(r"`([^`]+\.[a-zA-Z0-9]+)`", uploaded_data)
+                    if file_matches:
+                        file_context = f"Uploaded files: {', '.join(file_matches)}"
+
+            # Do intelligent command selection
+            try:
+                selected_commands = await self.select_commands_for_task(
+                    user_input=user_input,
+                    conversation_name=conversation_name,
+                    file_context=file_context,
+                    has_uploaded_files=has_uploaded_files,
+                    log_output=log_output,
+                    thinking_id=kwargs.get("thinking_id", ""),
+                )
+            except Exception as e:
+                logging.error(f"[run] Error in command selection: {e}")
+                selected_commands = None  # Fall back to all commands
+
+        # Remove selected_commands from kwargs if present to avoid duplicate parameter
+        kwargs.pop("selected_commands", None)
+
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -1210,6 +1669,7 @@ class Interactions:
             websearch=websearch,
             searching=searching,
             vision_response=vision_response,
+            selected_commands=selected_commands,
             **kwargs,
         )
         if self.outputs in formatted_prompt:
@@ -1371,9 +1831,25 @@ class Interactions:
             no_changes = 0
             intervention_count = 0  # Track interventions to prevent infinite loops
             max_interventions = 3  # Maximum number of thinking budget interventions
+            continuation_count = 0  # Track continuation attempts
+            max_continuations = (
+                10  # Maximum continuation loops to prevent infinite loops
+            )
 
             # Then enter the main processing loop
             while True:
+                continuation_count += 1
+                if continuation_count > max_continuations:
+                    logging.warning(
+                        f"[run_stream] Max continuations ({max_continuations}) reached, forcing answer closure"
+                    )
+                    # Force close the answer
+                    if "<answer>" not in self.response:
+                        self.response = f"{self.response}\n<answer>"
+                    if "</answer>" not in self.response:
+                        self.response = f"{self.response}</answer>"
+                    break
+
                 if "<think>" in self.response:
                     self.response.replace("<think>", "<thinking>")
                     self.response.replace("</think>", "</thinking>")
@@ -2141,6 +2617,62 @@ class Interactions:
                                     break
                         break
 
+        # Intelligent command selection - select relevant commands before building prompt
+        selected_commands = None
+        prompt_content = self.cp.get_prompt(
+            prompt_name=prompt, prompt_category=prompt_category
+        )
+        has_commands_placeholder = (
+            "{COMMANDS}" in prompt_content if prompt_content else False
+        )
+
+        # Enable command selection if commands are available and this is the main user interaction
+        enable_command_selection = kwargs.get("enable_command_selection", log_output)
+
+        logging.info(
+            f"[run_stream] Command selection check: disable_commands={'disable_commands' in kwargs}, searching={searching}, enable_command_selection={enable_command_selection}, has_commands_placeholder={has_commands_placeholder}"
+        )
+
+        if (
+            "disable_commands" not in kwargs
+            and not searching
+            and enable_command_selection
+            and has_commands_placeholder
+        ):
+            # Build file context for selection
+            file_context = ""
+            has_uploaded_files = False
+            if "uploaded_file_data" in kwargs:
+                has_uploaded_files = True
+                uploaded_data = kwargs.get("uploaded_file_data", "")
+                if (
+                    "file uploaded named" in uploaded_data.lower()
+                    or "Content from" in uploaded_data
+                ):
+                    file_matches = re.findall(r"`([^`]+\.[a-zA-Z0-9]+)`", uploaded_data)
+                    if file_matches:
+                        file_context = f"Uploaded files: {', '.join(file_matches)}"
+
+            # Do intelligent command selection
+            try:
+                selected_commands = await self.select_commands_for_task(
+                    user_input=user_input,
+                    conversation_name=conversation_name,
+                    file_context=file_context,
+                    has_uploaded_files=has_uploaded_files,
+                    log_output=log_output,
+                    thinking_id=thinking_id,
+                )
+            except Exception as e:
+                logging.error(f"[run_stream] Error in command selection: {e}")
+                selected_commands = None
+
+        # Store selected_commands as instance variable to persist across continuation loops
+        self._selected_commands = selected_commands
+
+        # Remove selected_commands from kwargs if present to avoid duplicate parameter
+        kwargs.pop("selected_commands", None)
+
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -2151,6 +2683,7 @@ class Interactions:
             conversation_name=conversation_name,
             websearch=websearch,
             vision_response=vision_response,
+            selected_commands=selected_commands,
             **kwargs,
         )
 
@@ -2680,6 +3213,7 @@ Example: If user says "list my files", use:
                 # - Updated conversation history
                 # - Any new memories or context
                 # This mirrors how run() would work if we started a new inference
+                # IMPORTANT: Pass selected_commands to maintain the filtered command set
                 fresh_formatted_prompt, _, _ = await self.format_prompt(
                     user_input=user_input,
                     top_results=int(context_results),
@@ -2689,6 +3223,7 @@ Example: If user says "list my files", use:
                     conversation_name=conversation_name,
                     websearch=websearch,
                     vision_response=vision_response,
+                    selected_commands=self._selected_commands,
                     **kwargs,
                 )
 
@@ -2721,6 +3256,7 @@ Analyze the actual output shown and continue with your response.
 """
             else:
                 # Incomplete answer - prompt to continue (also get fresh context)
+                # IMPORTANT: Pass selected_commands to maintain the filtered command set
                 fresh_formatted_prompt, _, _ = await self.format_prompt(
                     user_input=user_input,
                     top_results=int(context_results),
@@ -2730,6 +3266,7 @@ Analyze the actual output shown and continue with your response.
                     conversation_name=conversation_name,
                     websearch=websearch,
                     vision_response=vision_response,
+                    selected_commands=self._selected_commands,
                     **kwargs,
                 )
                 if self.outputs in fresh_formatted_prompt:
