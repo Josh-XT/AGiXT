@@ -485,6 +485,17 @@ class WorkspaceManager(SecurityValidationMixin):
         else:
             raise ValueError(f"Unsupported storage backend: {backend}")
 
+    def _get_agent_folder_name(self, agent_id: str) -> str:
+        """Get the agent folder name using the same hash pattern as Agent.py.
+
+        This ensures that workspace paths used by WorkspaceManager match
+        the paths used by Agent.working_directory and XT.conversation_workspace.
+        """
+        if not agent_id:
+            return "default_agent"
+        agent_hash = hashlib.sha256(str(agent_id).encode()).hexdigest()[:16]
+        return f"agent_{agent_hash}"
+
     def _get_local_cache_path(
         self, agent_id: str, conversation_id: str, filename: str
     ) -> Path:
@@ -500,10 +511,12 @@ class WorkspaceManager(SecurityValidationMixin):
                 raise ValueError(f"{component_type} too long")
             return component
 
-        # Validate and sanitize all components before path construction
-        agent_id = sanitize_path_component(
+        # Validate agent_id and get the hashed folder name (matches Agent.py pattern)
+        validated_agent_id = sanitize_path_component(
             self.validate_identifier(agent_id, "agent_id"), "agent_id"
         )
+        agent_folder = self._get_agent_folder_name(validated_agent_id)
+
         filename = sanitize_path_component(self.validate_filename(filename), "filename")
         conversation_id = (
             sanitize_path_component(
@@ -518,8 +531,8 @@ class WorkspaceManager(SecurityValidationMixin):
         base_path = Path(self.workspace_dir).resolve()
 
         try:
-            # Construct components list with sanitized values
-            path_components = [agent_id]
+            # Construct components list with hashed agent folder name
+            path_components = [agent_folder]
             if conversation_id:
                 path_components.append(conversation_id)
             path_components.append(filename)
@@ -537,14 +550,15 @@ class WorkspaceManager(SecurityValidationMixin):
     ) -> str:
         """Get the object path in the storage backend with validation"""
         agent_id = self.validate_identifier(agent_id, "agent_id")
+        agent_folder = self._get_agent_folder_name(agent_id)
         filename = self.validate_filename(filename)
 
         if conversation_id:
             conversation_id = self.validate_identifier(
                 conversation_id, "conversation_id"
             )
-            return f"{agent_id}/{conversation_id}/{filename}"
-        return f"{agent_id}/{filename}"
+            return f"{agent_folder}/{conversation_id}/{filename}"
+        return f"{agent_folder}/{filename}"
 
     def _normalize_relative_path(self, path: Optional[Union[str, Path]]) -> str:
         """Normalize a user-supplied relative path within a conversation workspace"""
@@ -582,8 +596,15 @@ class WorkspaceManager(SecurityValidationMixin):
         return safe_path
 
     def _get_conversation_root_path(self, agent_id: str, conversation_id: str) -> Path:
-        """Return the root path for an agent's conversation workspace"""
-        components = [self.validate_identifier(agent_id, "agent_id")]
+        """Return the root path for an agent's conversation workspace.
+
+        Uses the same hashed agent folder pattern as Agent.py to ensure
+        files uploaded via the web UI are accessible to the agent during inference.
+        """
+        validated_agent_id = self.validate_identifier(agent_id, "agent_id")
+        agent_folder = self._get_agent_folder_name(validated_agent_id)
+
+        components = [agent_folder]
         if conversation_id:
             components.append(
                 self.validate_identifier(conversation_id, "conversation_id")
@@ -1038,17 +1059,18 @@ class WorkspaceManager(SecurityValidationMixin):
     def delete_workspace(self, agent_id: str):
         """Delete an agent's entire workspace"""
         agent_id = self.validate_identifier(agent_id, "agent_id")
+        agent_folder = self._get_agent_folder_name(agent_id)
 
-        # List and delete all objects with the agent_id prefix
+        # List and delete all objects with the agent folder prefix
         try:
-            for obj in self.container.list_objects(prefix=f"{agent_id}/"):
+            for obj in self.container.list_objects(prefix=f"{agent_folder}/"):
                 try:
                     obj.delete()
                 except Exception as e:
                     logging.error(f"Error deleting remote file {obj.name}: {e}")
 
             # Delete local cache
-            local_path = Path(self.workspace_dir, agent_id)
+            local_path = Path(self.workspace_dir, agent_folder)
             if local_path.exists():
                 if self.ensure_safe_path(self.workspace_dir, local_path):
                     shutil.rmtree(local_path)
@@ -1074,12 +1096,17 @@ class WorkspaceManager(SecurityValidationMixin):
     ) -> List[str]:
         """List all files in an agent's workspace or conversation"""
         agent_id = self.validate_identifier(agent_id, "agent_id")
+        agent_folder = self._get_agent_folder_name(agent_id)
         if conversation_id:
             conversation_id = self.validate_identifier(
                 conversation_id, "conversation_id"
             )
 
-        prefix = f"{agent_id}/{conversation_id}/" if conversation_id else f"{agent_id}/"
+        prefix = (
+            f"{agent_folder}/{conversation_id}/"
+            if conversation_id
+            else f"{agent_folder}/"
+        )
         return [obj.name for obj in self.container.list_objects(prefix=prefix)]
 
     def _validate_storage_backend(self) -> None:

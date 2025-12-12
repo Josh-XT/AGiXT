@@ -786,6 +786,7 @@ print(output)
                 "tts": False,
                 "conversation_name": self.conversation_name,
             },
+            parent_activity_id=self.activity_id,
         )
 
     async def ask_for_help(self, query: str):

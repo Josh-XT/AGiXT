@@ -896,12 +896,16 @@ class Interactions:
         log_user_input: bool = True,
         log_output: bool = True,
         command_overrides: list = None,
+        parent_activity_id: str = None,
         **kwargs,
     ):
         global AGIXT_URI
         # Store conversation_id in kwargs for downstream use
         if conversation_id:
             kwargs["conversation_id"] = conversation_id
+        # Store parent_activity_id in kwargs for downstream use (e.g., nested prompt_agent calls)
+        if parent_activity_id:
+            kwargs["parent_activity_id"] = parent_activity_id
         for setting in self.agent.AGENT_CONFIG["settings"]:
             if setting not in kwargs:
                 kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
@@ -1341,12 +1345,14 @@ class Interactions:
 
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
-        thinking_id = None  # Initialize to avoid UnboundLocalError
+        # Use parent_activity_id if provided (from nested prompt_agent calls) to keep subactivities together
+        thinking_id = parent_activity_id if parent_activity_id else None
         if "<think>" in self.response:
             self.response.replace("<think>", "<thinking>")
             self.response.replace("</think>", "</thinking>")
         if "<thinking>" in self.response:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+            if not thinking_id:
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
             # Iterate over each thinking tag to the end of the </thinking> or next <thinking> or <answer> tag or <reflection> tag
             # There may or may not be a closing tag.
             # We want to do a log interaction per <thinking> and <reflection> tag until the next `<` in this format:
@@ -1372,7 +1378,8 @@ class Interactions:
                     self.response.replace("<think>", "<thinking>")
                     self.response.replace("</think>", "</thinking>")
                 if "<thinking>" in self.response:
-                    thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                    if not thinking_id:
+                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                     self.response = self.process_thinking_tags(
                         response=self.response, thinking_id=thinking_id, c=c
                     )
@@ -1436,7 +1443,8 @@ class Interactions:
                     self.response.replace("<think>", "<thinking>")
                     self.response.replace("</think>", "</thinking>")
                 if "<thinking>" in self.response:
-                    thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                    if not thinking_id:
+                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                     self.response = self.process_thinking_tags(
                         response=self.response, thinking_id=thinking_id, c=c
                     )
@@ -1449,7 +1457,8 @@ class Interactions:
                         self.response.replace("<think>", "<thinking>")
                         self.response.replace("</think>", "</thinking>")
                     if "<thinking>" in self.response:
-                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                        if not thinking_id:
+                            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                         self.response = self.process_thinking_tags(
                             response=self.response, thinking_id=thinking_id, c=c
                         )
@@ -1473,7 +1482,10 @@ class Interactions:
                             self.response.replace("<think>", "<thinking>")
                             self.response.replace("</think>", "</thinking>")
                         if "<thinking>" in self.response:
-                            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                            if not thinking_id:
+                                thinking_id = c.get_thinking_id(
+                                    agent_name=self.agent_name
+                                )
                             self.response = self.process_thinking_tags(
                                 response=self.response, thinking_id=thinking_id, c=c
                             )
@@ -1583,7 +1595,8 @@ class Interactions:
             self.response.replace("<think>", "<thinking>")
             self.response.replace("</think>", "</thinking>")
         if "<thinking>" in self.response:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+            if not thinking_id:
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
             self.response = self.process_thinking_tags(
                 response=self.response, thinking_id=thinking_id, c=c
             )
@@ -1686,7 +1699,8 @@ class Interactions:
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
             if "<thinking>" in self.response:
-                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                if not thinking_id:
+                    thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                 self.response = self.process_thinking_tags(
                     response=self.response, thinking_id=thinking_id, c=c
                 )

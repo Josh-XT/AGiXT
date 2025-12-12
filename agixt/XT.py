@@ -968,6 +968,73 @@ Your response (true or false):"""
         )
         return "I have read the information from the websites into my memory."
 
+    def _get_large_file_instructions(
+        self,
+        file_name: str,
+        file_path: str,
+        file_size_bytes: int,
+        converted_file_name: str = None,
+        file_type: str = None,
+    ) -> str:
+        """
+        Generate instructions for the LLM to read a large file that exceeds the token limit.
+
+        Args:
+            file_name: Original uploaded file name
+            file_path: Path to the file in workspace
+            file_size_bytes: Size of the file in bytes
+            converted_file_name: Name of converted file if applicable (e.g., CSV from Excel)
+            file_type: Type of file for specific instructions
+
+        Returns:
+            str: Instructions for the LLM on how to work with the file
+        """
+        file_size_mb = round(file_size_bytes / (1024 * 1024), 2)
+        actual_file = converted_file_name if converted_file_name else file_name
+
+        # Build the instruction based on file type
+        if file_type and file_type.lower() in ["csv", "xlsx", "xls"]:
+            return (
+                f"The user uploaded a file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"The file has been converted to CSV format and saved as `{actual_file}` in the workspace. "
+                f"Since this file is too large to include in context, use the **Search Files** command "
+                f"to search for specific data patterns or column names, or use the **Read File Lines** command "
+                f"to read specific line ranges from `{actual_file}`. Start by reading the first 50 lines "
+                f"to understand the file structure and column headers."
+            )
+        elif file_type and file_type.lower() in [
+            "md",
+            "txt",
+            "json",
+            "py",
+            "js",
+            "ts",
+            "html",
+            "css",
+            "yaml",
+            "yml",
+        ]:
+            return (
+                f"The user uploaded a file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"Since this file is too large to include in context, use the **Search Files** command "
+                f"to search for specific content, or use the **Read File Lines** command to read specific "
+                f"line ranges from `{actual_file}`. The file is a text-based file that can be read directly."
+            )
+        elif file_type and file_type.lower() == "pdf":
+            return (
+                f"The user uploaded a PDF file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"The PDF content has been extracted to memory. Since the full content is too large to include "
+                f"in context, use the **Search Files** command to search for specific content, or query the "
+                f"agent's memory about the PDF content."
+            )
+        else:
+            return (
+                f"The user uploaded a file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"Since this file is too large to include in context, use the **Search Files** command "
+                f"to search for specific content, or use the **Read File Lines** command to read specific "
+                f"line ranges from the file."
+            )
+
     async def learn_spreadsheet(self, user_input, file_path, thinking_id):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
@@ -1333,6 +1400,46 @@ Your response (true or false):"""
                 else f"[ACTIVITY]{response}"
             ),
         )
+
+        # Check if file content exceeds 10k tokens - if so, provide instructions instead
+        MAX_FILE_TOKENS = 10000
+        if file_content:
+            file_tokens = get_tokens(file_content)
+            if file_tokens > MAX_FILE_TOKENS:
+                # Get file size for the instruction message
+                try:
+                    file_size = os.path.getsize(file_path)
+                except:
+                    file_size = len(file_content.encode("utf-8"))
+
+                # Determine the converted file name for spreadsheets
+                converted_file = None
+                if file_type in ["xlsx", "xls"]:
+                    # For Excel files, find the CSV file(s) in the workspace
+                    base_name = file_name.rsplit(".", 1)[0]
+                    csv_files = [
+                        f
+                        for f in os.listdir(os.path.dirname(file_path))
+                        if f.startswith(base_name) and f.endswith(".csv")
+                    ]
+                    if csv_files:
+                        converted_file = (
+                            csv_files[0]
+                            if len(csv_files) == 1
+                            else f"{base_name}_*.csv (multiple sheets)"
+                        )
+
+                file_content = self._get_large_file_instructions(
+                    file_name=file_name,
+                    file_path=file_path,
+                    file_size_bytes=file_size,
+                    converted_file_name=converted_file,
+                    file_type=file_type,
+                )
+                logging.info(
+                    f"File {file_name} exceeds {MAX_FILE_TOKENS} tokens ({file_tokens}), providing instructions instead of full content"
+                )
+
         return file_content
 
     async def download_file_to_workspace(
@@ -1747,6 +1854,7 @@ Your response (true or false):"""
         disable_commands = False
         running_command = None
         additional_context = ""
+        parent_activity_id = None
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -1757,6 +1865,8 @@ Your response (true or false):"""
                 log_user_input = str(message["log_user_input"]).lower() == "true"
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
+            if "parent_activity_id" in message:
+                parent_activity_id = message["parent_activity_id"]
             if "language" in message:
                 language = message["language"]
             if "conversation_results" in message:
@@ -2030,7 +2140,9 @@ Your response (true or false):"""
                                                 },
                                             }
                                         new_prompt += transcribed_audio
-        # Add user input to conversation
+        # Save the original user prompt before adding file info (for logging)
+        original_user_prompt = new_prompt.strip()
+        # Add file info to the prompt (for context to the agent)
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
         if "log_output" in prompt_args:
@@ -2040,7 +2152,8 @@ Your response (true or false):"""
             log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
             del prompt_args["log_user_input"]
         if log_user_input:
-            c.log_interaction(role="USER", message=new_prompt)
+            # Log the original user input, not the modified one with file names appended
+            c.log_interaction(role="USER", message=original_user_prompt)
         thinking_id = ""
         if log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
@@ -2168,6 +2281,7 @@ Your response (true or false):"""
                 include_sources=include_sources,
                 context=additional_context,
                 command_overrides=command_overrides,
+                parent_activity_id=parent_activity_id,
                 **prompt_args,
             )
             if response.startswith(f"{self.agent_name}:"):
@@ -2454,6 +2568,7 @@ Your response (true or false):"""
             )
 
         # Extract user message content from the prompt (same as non-streaming)
+        parent_activity_id = None
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -2464,6 +2579,8 @@ Your response (true or false):"""
                 log_user_input = str(message["log_user_input"]).lower() == "true"
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
+            if "parent_activity_id" in message:
+                parent_activity_id = message["parent_activity_id"]
             if "language" in message:
                 language = message["language"]
             if "conversation_results" in message:
@@ -2720,13 +2837,15 @@ Your response (true or false):"""
                                                     if transcribed_audio:
                                                         new_prompt += transcribed_audio
 
-        # Add user input to conversation
+        # Save the original user prompt before adding file info (for logging)
+        original_user_prompt = new_prompt.strip()
+        # Add file info to the prompt (for context to the agent)
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
 
-        # Log user input
+        # Log user input (log original prompt without file names appended)
         if log_user_input:
-            c.log_interaction(role="USER", message=new_prompt)
+            c.log_interaction(role="USER", message=original_user_prompt)
 
         # Get thinking_id for activity logging
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
