@@ -52,6 +52,13 @@ async def lifespan(app: FastAPI):
         # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
         # to avoid multiple workers trying to clone the same repositories
 
+        # Run database migrations on startup
+        try:
+            from DB import migrate_terminal_command_executions_table
+            migrate_terminal_command_executions_table()
+        except Exception as e:
+            logging.warning(f"Migration check failed (may be normal on first run): {e}")
+
         workspace_manager.start_file_watcher()
         await task_monitor.start()
         yield

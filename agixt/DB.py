@@ -1408,7 +1408,15 @@ def migrate_terminal_command_executions_table():
     try:
         with get_db_session() as session:
             if DATABASE_TYPE == "sqlite":
-                # For SQLite, check if column exists
+                # For SQLite, first check if table exists
+                table_check = session.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name='terminal_command_executions'")
+                )
+                if not table_check.fetchone():
+                    logging.debug("terminal_command_executions table does not exist yet, skipping migration")
+                    return
+                
+                # Check if column exists
                 result = session.execute(text("PRAGMA table_info(terminal_command_executions)"))
                 existing_columns = [row[1] for row in result.fetchall()]
 
@@ -1420,8 +1428,23 @@ def migrate_terminal_command_executions_table():
                     )
                     session.commit()
                     logging.info("Added streaming_output column to terminal_command_executions table")
+                else:
+                    logging.debug("streaming_output column already exists")
             else:
-                # For PostgreSQL, check if column exists
+                # For PostgreSQL, first check if table exists
+                table_check = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'terminal_command_executions'
+                        """
+                    )
+                )
+                if not table_check.fetchone():
+                    logging.debug("terminal_command_executions table does not exist yet, skipping migration")
+                    return
+                
+                # Check if column exists
                 result = session.execute(
                     text(
                         """
@@ -1440,10 +1463,12 @@ def migrate_terminal_command_executions_table():
                     )
                     session.commit()
                     logging.info("Added streaming_output column to terminal_command_executions table")
+                else:
+                    logging.debug("streaming_output column already exists")
 
     except Exception as e:
-        logging.debug(
-            f"terminal_command_executions table migration completed or not needed: {e}"
+        logging.error(
+            f"Error migrating terminal_command_executions table: {e}"
         )
 
 
