@@ -1397,6 +1397,56 @@ default_extension_categories = [
 ]
 
 
+def migrate_terminal_command_executions_table():
+    """
+    Migration function to add streaming_output column to terminal_command_executions table.
+    This supports real-time output streaming for long-running commands.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # For SQLite, check if column exists
+                result = session.execute(text("PRAGMA table_info(terminal_command_executions)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "streaming_output" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE terminal_command_executions ADD COLUMN streaming_output TEXT"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added streaming_output column to terminal_command_executions table")
+            else:
+                # For PostgreSQL, check if column exists
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'terminal_command_executions' AND column_name = 'streaming_output'
+                    """
+                    )
+                )
+
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            "ALTER TABLE terminal_command_executions ADD COLUMN streaming_output TEXT"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added streaming_output column to terminal_command_executions table")
+
+    except Exception as e:
+        logging.debug(
+            f"terminal_command_executions table migration completed or not needed: {e}"
+        )
+
+
 def migrate_company_table():
     """
     Migration function to add new optional fields to the Company table if they don't exist.
@@ -1938,6 +1988,7 @@ if __name__ == "__main__":
     Base.metadata.create_all(engine)
     # Initialize extension tables after core tables
     initialize_extension_tables()
+    migrate_terminal_command_executions_table()
     migrate_company_table()
     migrate_payment_transaction_table()
     migrate_extension_table()
