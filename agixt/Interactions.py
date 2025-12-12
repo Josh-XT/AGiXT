@@ -677,6 +677,7 @@ class Interactions:
     ) -> str:
         """
         Process thinking and reflection tags in the response and log them as subactivities.
+        Also processes <step>, <reward>, and <count> tags that appear outside of thinking tags.
         Only processes new, unprocessed tags.
 
         Args:
@@ -737,6 +738,119 @@ class Interactions:
                     "content": cleaned_content,
                 }
 
+        # Process <step> tags that appear outside of thinking/reflection tags
+        # These should be treated as thinking steps
+        step_pattern = r"<step>(.*?)</step>"
+        for step_match in re.finditer(
+            step_pattern, response, re.DOTALL | re.IGNORECASE
+        ):
+            step_content = step_match.group(1).strip()
+            step_start = step_match.start()
+
+            # Check if this step is inside a thinking or reflection tag
+            is_inside_thinking = False
+            for thinking_match in re.finditer(
+                r"<(thinking|reflection)>.*?</\1>", response, re.DOTALL | re.IGNORECASE
+            ):
+                if thinking_match.start() < step_start < thinking_match.end():
+                    is_inside_thinking = True
+                    break
+
+            # Also check for unclosed thinking tags
+            if not is_inside_thinking:
+                text_before = response[:step_start]
+                thinking_opens = len(
+                    re.findall(r"<thinking>", text_before, re.IGNORECASE)
+                )
+                thinking_closes = len(
+                    re.findall(r"</thinking>", text_before, re.IGNORECASE)
+                )
+                reflection_opens = len(
+                    re.findall(r"<reflection>", text_before, re.IGNORECASE)
+                )
+                reflection_closes = len(
+                    re.findall(r"</reflection>", text_before, re.IGNORECASE)
+                )
+                if (
+                    thinking_opens > thinking_closes
+                    or reflection_opens > reflection_closes
+                ):
+                    is_inside_thinking = True
+
+            # Only process if outside thinking tags and not inside answer
+            if not is_inside_thinking:
+                # Check if inside answer block
+                answer_opens = len(
+                    re.findall(r"<answer>", response[:step_start], re.IGNORECASE)
+                )
+                answer_closes = len(
+                    re.findall(r"</answer>", response[:step_start], re.IGNORECASE)
+                )
+                if answer_opens > answer_closes:
+                    continue  # Skip steps inside answer blocks
+
+                # Clean the step content
+                cleaned_step = re.sub(
+                    r"<reward>.*?</reward>", "", step_content, flags=re.DOTALL
+                )
+                cleaned_step = re.sub(
+                    r"<count>.*?</count>", "", cleaned_step, flags=re.DOTALL
+                )
+                cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
+
+                if cleaned_step and cleaned_step not in unique_thoughts:
+                    unique_thoughts[cleaned_step] = {
+                        "tag_name": "step",
+                        "content": cleaned_step,
+                    }
+
+        # Process standalone <reward> tags outside thinking/reflection (log as reflection score)
+        reward_pattern = r"<reward>(.*?)</reward>"
+        for reward_match in re.finditer(
+            reward_pattern, response, re.DOTALL | re.IGNORECASE
+        ):
+            reward_content = reward_match.group(1).strip()
+            reward_start = reward_match.start()
+
+            # Check if inside thinking, reflection, or step tag
+            is_inside_container = False
+            for container_match in re.finditer(
+                r"<(thinking|reflection|step)>.*?</\1>",
+                response,
+                re.DOTALL | re.IGNORECASE,
+            ):
+                if container_match.start() < reward_start < container_match.end():
+                    is_inside_container = True
+                    break
+
+            # Check for unclosed tags
+            if not is_inside_container:
+                text_before = response[:reward_start]
+                for tag in ["thinking", "reflection", "step"]:
+                    opens = len(re.findall(f"<{tag}>", text_before, re.IGNORECASE))
+                    closes = len(re.findall(f"</{tag}>", text_before, re.IGNORECASE))
+                    if opens > closes:
+                        is_inside_container = True
+                        break
+
+            if not is_inside_container:
+                # Check if inside answer block
+                answer_opens = len(
+                    re.findall(r"<answer>", response[:reward_start], re.IGNORECASE)
+                )
+                answer_closes = len(
+                    re.findall(r"</answer>", response[:reward_start], re.IGNORECASE)
+                )
+                if answer_opens > answer_closes:
+                    continue
+
+                reward_key = f"reward:{reward_content}"
+                if reward_key not in unique_thoughts:
+                    unique_thoughts[reward_key] = {
+                        "tag_name": "reward",
+                        "content": reward_content,
+                    }
+
         # Log only unique thoughts
         for thought in unique_thoughts.values():
             tag_name = str(thought["tag_name"]).lower()
@@ -752,11 +866,14 @@ class Interactions:
 
             # Only log if we haven't seen this exact thought before
             if tag_identifier not in self._processed_tags:
-                # log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
                 if tag_name == "thinking":
                     log_message = f"[SUBACTIVITY][{thinking_id}][THOUGHT] {content}"
                 elif tag_name == "reflection":
                     log_message = f"[SUBACTIVITY][{thinking_id}][REFLECTION] {content}"
+                elif tag_name == "step":
+                    log_message = f"[SUBACTIVITY][{thinking_id}][STEP] {content}"
+                elif tag_name == "reward":
+                    log_message = f"[SUBACTIVITY][{thinking_id}][SCORE] {content}"
                 else:
                     log_message = f"[SUBACTIVITY][{thinking_id}] {content}"
                 c.log_interaction(role=self.agent_name, message=log_message)
@@ -1398,9 +1515,20 @@ class Interactions:
                             "<answer>", ""
                         )
                     elif "<execute>" in answer_block:
+                        # Execute commands found inside the answer block
+                        # Strip answer tags and execute the command
                         self.response = self.response.replace("</answer>", "").replace(
                             "<answer>", ""
                         )
+                        await self.execution_agent(
+                            conversation_name=conversation_name,
+                            conversation_id=conversation_id,
+                            thinking_id=thinking_id,
+                        )
+                        new_processed_length = len(self.response)
+                        if new_processed_length > processed_length:
+                            processed_length = new_processed_length
+                        continue
                     else:
                         # Answer review phase for high complexity tasks
                         if complexity_score and complexity_score.answer_review_enabled:
@@ -2217,8 +2345,8 @@ Example: If user says "list my files", use:
                 # This handles cases where <thinking> appears INSIDE <answer> blocks
                 in_answer = is_inside_top_level_answer(full_response)
 
-                # Check for execute tag completion - only at top level
-                # Find </execute> that's NOT inside thinking/reflection AND not inside answer
+                # Check for execute tag completion - allow commands inside answer blocks
+                # Find </execute> that's NOT inside thinking/reflection (but allow inside answer)
                 execute_pattern = r"<execute>.*?</execute>"
                 for match in re.finditer(
                     execute_pattern, full_response, re.DOTALL | re.IGNORECASE
@@ -2231,6 +2359,18 @@ Example: If user says "list my files", use:
                         or get_tag_depth(text_before, "reflection") > 0
                     ):
                         continue  # This execute is inside thinking/reflection, skip
+
+                    # Check if inside answer block - if so, strip answer tags first
+                    is_inside_answer = is_inside_top_level_answer(
+                        full_response, match.start()
+                    )
+                    if is_inside_answer:
+                        # Strip answer tags to allow command execution within answer phase
+                        full_response = full_response.replace("</answer>", "").replace(
+                            "<answer>", ""
+                        )
+                        in_answer = False
+                        answer_content = ""
 
                     # This is a top-level execute - check if we've processed it
                     execute_content = match.group(0)
@@ -2301,7 +2441,15 @@ Example: If user says "list my files", use:
 
                         # Clean content - remove any tag mentions
                         content = re.sub(
-                            r"</?(?:answer|execute|output|step)>", "", content
+                            r"</?(?:answer|execute|output|step|reward|count)>",
+                            "",
+                            content,
+                        )
+                        content = re.sub(
+                            r"<reward>.*?</reward>", "", content, flags=re.DOTALL
+                        )
+                        content = re.sub(
+                            r"<count>.*?</count>", "", content, flags=re.DOTALL
                         )
                         content = re.sub(r"\n\s*\n\s*\n", "\n\n", content).strip()
 
@@ -2319,6 +2467,88 @@ Example: If user says "list my files", use:
                                 "content": content,
                                 "complete": True,
                             }
+
+                # Process standalone <step> tags outside thinking/reflection (treat as thinking steps)
+                step_pattern = r"<step>(.*?)</step>"
+                for match in re.finditer(
+                    step_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    step_content = match.group(1).strip()
+                    step_start = match.start()
+                    step_id = f"step:{hash(step_content)}"
+
+                    if step_id in processed_thinking_ids or not step_content:
+                        continue
+
+                    # Check if this step is inside thinking/reflection
+                    text_before = full_response[:step_start]
+                    if (
+                        get_tag_depth(text_before, "thinking") > 0
+                        or get_tag_depth(text_before, "reflection") > 0
+                    ):
+                        continue  # Skip steps inside thinking/reflection
+
+                    # Check if inside answer block
+                    if is_inside_top_level_answer(full_response, step_start):
+                        continue  # Skip steps inside answer
+
+                    processed_thinking_ids.add(step_id)
+
+                    # Clean content
+                    cleaned_step = re.sub(
+                        r"<reward>.*?</reward>", "", step_content, flags=re.DOTALL
+                    )
+                    cleaned_step = re.sub(
+                        r"<count>.*?</count>", "", cleaned_step, flags=re.DOTALL
+                    )
+                    cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
+
+                    if cleaned_step and not is_executing:
+                        log_msg = f"[SUBACTIVITY][STEP] {cleaned_step}"
+                        c.log_interaction(role=self.agent_name, message=log_msg)
+
+                        yield {
+                            "type": "step",
+                            "content": cleaned_step,
+                            "complete": True,
+                        }
+
+                # Process standalone <reward> tags outside containers (log as score)
+                reward_pattern = r"<reward>(.*?)</reward>"
+                for match in re.finditer(
+                    reward_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    reward_content = match.group(1).strip()
+                    reward_start = match.start()
+                    reward_id = f"reward:{hash(reward_content)}"
+
+                    if reward_id in processed_thinking_ids or not reward_content:
+                        continue
+
+                    # Check if this reward is inside thinking/reflection/step
+                    text_before = full_response[:reward_start]
+                    if (
+                        get_tag_depth(text_before, "thinking") > 0
+                        or get_tag_depth(text_before, "reflection") > 0
+                        or get_tag_depth(text_before, "step") > 0
+                    ):
+                        continue  # Skip rewards inside containers
+
+                    # Check if inside answer block
+                    if is_inside_top_level_answer(full_response, reward_start):
+                        continue
+
+                    processed_thinking_ids.add(reward_id)
+
+                    if not is_executing:
+                        log_msg = f"[SUBACTIVITY][SCORE] {reward_content}"
+                        c.log_interaction(role=self.agent_name, message=log_msg)
+
+                        yield {
+                            "type": "reward",
+                            "content": reward_content,
+                            "complete": True,
+                        }
 
                 # Yield answer tokens for streaming
                 if in_answer and not is_executing:
