@@ -145,6 +145,13 @@ class EzlocalaiProvider:
                     )
         else:
             messages.append({"role": "user", "content": prompt})
+
+        # Debug logging to see actual prompt size
+        prompt_len = len(prompt) if prompt else 0
+        logging.info(
+            f"[ezlocalai] Sending prompt with {prompt_len} characters, ~{prompt_len // 4} estimated tokens"
+        )
+
         try:
             response = client.chat.completions.create(
                 model=self.AI_MODEL,

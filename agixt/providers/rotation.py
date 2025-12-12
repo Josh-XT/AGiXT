@@ -130,6 +130,12 @@ class RotationProvider:
             logging.error("No providers available for inference")
             raise Exception("Unable to process request. No providers available.")
 
+        # Debug: Log prompt size coming in
+        prompt_len = len(prompt) if prompt else 0
+        logging.info(
+            f"[rotation] Received prompt with {prompt_len} characters, tokens param={tokens}"
+        )
+
         # Get provider token limits
         provider_max_tokens = self._get_provider_token_limits()
 
