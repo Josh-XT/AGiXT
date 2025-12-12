@@ -42,6 +42,186 @@ logging.basicConfig(
 webhook_emitter = WebhookEventEmitter()
 
 
+def has_complete_answer(response: str) -> bool:
+    """
+    Check if the response contains a complete <answer>...</answer> block at the top level.
+
+    A complete answer means:
+    1. There is an <answer> tag
+    2. There is a matching </answer> tag
+    3. The </answer> is NOT inside a <thinking> or <reflection> block
+
+    This handles edge cases like:
+    - <answer>Some text <thinking>thoughts</thinking> more text</answer> - COMPLETE (thinking is inside answer)
+    - <answer>Some text</answer> - COMPLETE
+    - <answer>Some text <thinking>thoughts</thinking> - INCOMPLETE (no closing answer after thinking)
+    - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
+
+    Returns:
+        bool: True if there's a complete top-level answer block
+    """
+    # First, quick check - if no </answer> at all, definitely incomplete
+    if "</answer>" not in response.lower():
+        return False
+
+    # If no <answer> at all, definitely incomplete
+    if "<answer>" not in response.lower():
+        return False
+
+    # Find all answer open/close positions
+    answer_opens = [
+        m.start() for m in re.finditer(r"<answer>", response, re.IGNORECASE)
+    ]
+    answer_closes = [
+        m.start() for m in re.finditer(r"</answer>", response, re.IGNORECASE)
+    ]
+
+    if not answer_opens or not answer_closes:
+        return False
+
+    # For each answer open, check if it has a valid close
+    # A valid close is one that:
+    # 1. Comes after the open
+    # 2. Is at the top level (not inside a thinking/reflection that started after the answer open)
+
+    for answer_open_pos in answer_opens:
+        # Get text before this answer tag to check if it's inside thinking/reflection
+        text_before = response[:answer_open_pos]
+
+        # Count open/close tags before this position
+        thinking_depth = len(
+            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+        reflection_depth = len(
+            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+
+        # If this answer open is inside thinking/reflection, skip it
+        if thinking_depth > 0 or reflection_depth > 0:
+            continue
+
+        # This is a top-level answer open - now find its matching close
+        # The close should be at the same nesting level
+        # We need to track answer nesting within the answer block
+        text_after_open = response[answer_open_pos + len("<answer>") :]
+
+        # Track nesting - we start inside the answer (depth 1)
+        answer_depth = 1
+        pos = 0
+
+        while pos < len(text_after_open):
+            # Look for next tag
+            next_open = text_after_open.find("<answer>", pos)
+            next_close = text_after_open.find("</answer>", pos)
+
+            # Case insensitive search
+            next_open_lower = text_after_open.lower().find("<answer>", pos)
+            next_close_lower = text_after_open.lower().find("</answer>", pos)
+
+            if next_open_lower == -1:
+                next_open = float("inf")
+            else:
+                next_open = next_open_lower
+            if next_close_lower == -1:
+                next_close = float("inf")
+            else:
+                next_close = next_close_lower
+
+            if next_open == float("inf") and next_close == float("inf"):
+                # No more answer tags found
+                break
+
+            if next_open < next_close:
+                # Found nested answer open
+                answer_depth += 1
+                pos = next_open + len("<answer>")
+            else:
+                # Found answer close
+                answer_depth -= 1
+                if answer_depth == 0:
+                    # This is the matching close for our top-level answer
+                    return True
+                pos = next_close + len("</answer>")
+
+    return False
+
+
+def is_inside_top_level_answer(response: str, position: int = None) -> bool:
+    """
+    Check if the current position (or end of string) is inside a top-level <answer> block.
+
+    This handles cases where <thinking> appears inside <answer>:
+    - <answer>Text <thinking>thought</thinking> more</answer> - position after <thinking> IS inside answer
+    - <thinking>thoughts</thinking><answer>text - position at end IS inside answer
+    - <thinking><answer>text</answer></thinking> - the answer is NOT top-level
+
+    Args:
+        response: The full response text
+        position: The position to check (default: end of string)
+
+    Returns:
+        bool: True if the position is inside a top-level answer block
+    """
+    if position is None:
+        position = len(response)
+
+    text_to_check = response[:position]
+
+    # Find all top-level answer opens before this position
+    answer_open_positions = []
+    for match in re.finditer(r"<answer>", text_to_check, re.IGNORECASE):
+        open_pos = match.start()
+        # Check if this answer open is at top level (not inside thinking/reflection)
+        text_before = text_to_check[:open_pos]
+        thinking_depth = len(
+            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+        reflection_depth = len(
+            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+        if thinking_depth == 0 and reflection_depth == 0:
+            answer_open_positions.append(open_pos)
+
+    if not answer_open_positions:
+        return False
+
+    # For each top-level answer open, check if it's been closed before our position
+    for answer_open_pos in answer_open_positions:
+        # Look for the matching close after this open but before our position
+        text_after_open = text_to_check[answer_open_pos + len("<answer>") :]
+
+        # Count answer opens and closes to find the matching close
+        answer_depth = 1
+        pos = 0
+        found_close = False
+
+        while pos < len(text_after_open):
+            next_open_lower = text_after_open.lower().find("<answer>", pos)
+            next_close_lower = text_after_open.lower().find("</answer>", pos)
+
+            next_open = float("inf") if next_open_lower == -1 else next_open_lower
+            next_close = float("inf") if next_close_lower == -1 else next_close_lower
+
+            if next_open == float("inf") and next_close == float("inf"):
+                break
+
+            if next_open < next_close:
+                answer_depth += 1
+                pos = next_open + len("<answer>")
+            else:
+                answer_depth -= 1
+                if answer_depth == 0:
+                    found_close = True
+                    break
+                pos = next_close + len("</answer>")
+
+        if not found_close:
+            # This top-level answer hasn't been closed yet - we're inside it
+            return True
+
+    return False
+
+
 class Interactions:
     def __init__(
         self,
@@ -83,6 +263,16 @@ class Interactions:
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
         self._processed_commands = set()
+
+    def _check_cancelled(self):
+        """
+        Check if the current asyncio task has been cancelled.
+        Raises asyncio.CancelledError if the task was cancelled.
+        This allows graceful stopping of long-running operations.
+        """
+        task = asyncio.current_task()
+        if task and task.cancelled():
+            raise asyncio.CancelledError("Task was cancelled by user")
 
     def custom_format(self, string, **kwargs):
         if "fp" in kwargs:
@@ -655,14 +845,6 @@ class Interactions:
         websearch_depth = 3
         conversation_results = 5
         kwargs["42"] = self.agent_name[-3:].lower() == "pt"
-        if command_overrides:
-            for tool in command_overrides:
-                tool_type = tool.get("type")
-                # Find the command in available_commands list and toggle its enabled status
-                for available_command in self.agent.available_commands:
-                    if available_command["friendly_name"] == tool_type:
-                        available_command["enabled"] = not available_command["enabled"]
-                        break
 
         if "conversation_results" in kwargs:
             try:
@@ -835,6 +1017,68 @@ class Interactions:
                                 )
                                 async_tasks.append(search_task)
         await asyncio.gather(*async_tasks)
+
+        # Process command_overrides BEFORE format_prompt so enabled state is correct
+        # Initialize client_tools to store OpenAI-format function definitions for client-side execution
+        self._client_tools = {}
+
+        if command_overrides:
+            # Check if any tool requests exclusive mode (disable all other commands)
+            exclusive_mode = any(
+                tool.get("exclusive", False) for tool in command_overrides
+            )
+
+            if exclusive_mode:
+                # Disable ALL commands first, then enable only the requested ones
+                for cmd in self.agent.available_commands:
+                    cmd["enabled"] = False
+
+            for tool in command_overrides:
+                # Handle OpenAI-format tools (type: "function" with function object)
+                if tool.get("type") == "function" and "function" in tool:
+                    func_def = tool["function"]
+                    func_name = func_def.get("name", "")
+                    if func_name:
+                        self._client_tools[func_name] = func_def
+                        description = func_def.get(
+                            "description", f"Client-defined tool: {func_name}"
+                        )
+                        parameters = func_def.get("parameters", {})
+                        args = {}
+                        for param_name, param_def in parameters.get(
+                            "properties", {}
+                        ).items():
+                            args[param_name] = param_def.get(
+                                "description", f"Parameter: {param_name}"
+                            )
+                        client_command = {
+                            "friendly_name": func_name,
+                            "name": func_name,
+                            "description": description,
+                            "enabled": True,
+                            "args": args,
+                            "extension_name": "__client__",
+                        }
+                        self.agent.available_commands.append(client_command)
+                    continue
+
+                # Handle legacy format
+                tool_type = tool.get("type")
+                # Find the command in available_commands list and enable it
+                # This allows CLI/API to enable specific commands for this request
+                for available_command in self.agent.available_commands:
+                    if available_command["friendly_name"] == tool_type:
+                        # Always enable when specified in tools (not toggle)
+                        available_command["enabled"] = True
+                        # If enabling Execute Terminal Command, disable Execute Shell
+                        # to ensure the agent uses the remote terminal instead
+                        if tool_type == "Execute Terminal Command":
+                            for cmd in self.agent.available_commands:
+                                if cmd["friendly_name"] == "Execute Shell":
+                                    cmd["enabled"] = False
+                                    break
+                        break
+
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -876,6 +1120,9 @@ class Interactions:
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
         # Inject planning phase prompt for multi-step tasks before initial inference
@@ -1115,8 +1362,10 @@ class Interactions:
                             )
                     else:
                         break  # No new content, stop processing
-                # If no answer block yet, try to get it
-                elif "</answer>" not in self.response:
+                # If no complete answer block yet, try to get it
+                # Use has_complete_answer() to properly detect complete answers
+                # This handles edge cases like <thinking> inside <answer> tags
+                elif not has_complete_answer(self.response):
                     new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>' as long as there is a <answer> block present, otherwise, the final answer to the user should be within the <answer> block. to send the message to the user. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
                     response = await self.agent.inference(
                         prompt=new_prompt, use_smartest=use_smartest
@@ -1332,6 +1581,9 @@ class Interactions:
                         "prompt_tokens": tokens if "tokens" in locals() else 0,
                     },
                     user_id=self.user,
+                    agent_id=self.agent.agent_id,
+                    agent_name=self.agent_name,
+                    company_id=self.agent.company_id,
                 )
 
                 # Also emit chat completion event
@@ -1348,6 +1600,9 @@ class Interactions:
                         "prompt_tokens": tokens if "tokens" in locals() else 0,
                     },
                     user_id=self.user,
+                    agent_id=self.agent.agent_id,
+                    agent_name=self.agent_name,
+                    company_id=self.agent.company_id,
                 )
         if shots > 1:
             responses = [self.response]
@@ -1410,6 +1665,7 @@ class Interactions:
         use_smartest: bool = False,
         thinking_id: str = None,
         searching: bool = False,
+        command_overrides: list = None,
         **kwargs,
     ):
         """
@@ -1655,6 +1911,94 @@ class Interactions:
         # Wait for all async tasks to complete before formatting prompt
         await asyncio.gather(*async_tasks)
 
+        # Process command_overrides BEFORE format_prompt so enabled state is correct
+        # Initialize client_tools to store OpenAI-format function definitions for client-side execution
+        self._client_tools = {}
+
+        if command_overrides:
+            logging.info(
+                f"[run_stream] Processing command_overrides: {command_overrides}"
+            )
+
+            # Check if any tool requests exclusive mode (disable all other commands)
+            exclusive_mode = any(
+                tool.get("exclusive", False) for tool in command_overrides
+            )
+            requested_tools = [tool.get("type") for tool in command_overrides]
+
+            if exclusive_mode:
+                # Disable ALL commands first, then enable only the requested ones
+                logging.info(
+                    "[run_stream] Exclusive mode enabled - disabling all commands first"
+                )
+                for cmd in self.agent.available_commands:
+                    cmd["enabled"] = False
+
+            for tool in command_overrides:
+                # Handle OpenAI-format tools (type: "function" with function object)
+                # These are client-defined tools that should be routed back to the client for execution
+                if tool.get("type") == "function" and "function" in tool:
+                    func_def = tool["function"]
+                    func_name = func_def.get("name", "")
+                    if func_name:
+                        # Store the full function definition for later use in execution_agent
+                        self._client_tools[func_name] = func_def
+                        logging.info(
+                            f"[run_stream] Registered client-defined tool: {func_name}"
+                        )
+
+                        # Add a pseudo-command to available_commands so the agent knows about it
+                        # This allows the command to appear in the prompt and be called
+                        description = func_def.get(
+                            "description", f"Client-defined tool: {func_name}"
+                        )
+                        parameters = func_def.get("parameters", {})
+
+                        # Build args list from parameters
+                        args = {}
+                        props = parameters.get("properties", {})
+                        for param_name, param_def in props.items():
+                            args[param_name] = param_def.get(
+                                "description", f"Parameter: {param_name}"
+                            )
+
+                        # Create a pseudo-command entry
+                        client_command = {
+                            "friendly_name": func_name,
+                            "name": func_name,
+                            "description": description,
+                            "enabled": True,
+                            "args": args,
+                            "extension_name": "__client__",  # Special marker for client-defined tools
+                        }
+                        self.agent.available_commands.append(client_command)
+                        logging.info(
+                            f"[run_stream] Added client command to available_commands: {func_name}"
+                        )
+                    continue
+
+                # Handle legacy format (type is the command name)
+                tool_type = tool.get("type")
+                logging.info(f"[run_stream] Looking for command: {tool_type}")
+                # Find the command in available_commands list and enable it
+                # This allows CLI/API to enable specific commands for this request
+                for available_command in self.agent.available_commands:
+                    if available_command["friendly_name"] == tool_type:
+                        # Always enable when specified in tools (not toggle)
+                        available_command["enabled"] = True
+                        logging.info(f"[run_stream] Enabled command: {tool_type}")
+                        # If enabling Execute Terminal Command, disable Execute Shell
+                        # to ensure the agent uses the remote terminal instead
+                        if tool_type == "Execute Terminal Command":
+                            for cmd in self.agent.available_commands:
+                                if cmd["friendly_name"] == "Execute Shell":
+                                    cmd["enabled"] = False
+                                    logging.info(
+                                        "[run_stream] Disabled Execute Shell in favor of Execute Terminal Command"
+                                    )
+                                    break
+                        break
+
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -1667,6 +2011,53 @@ class Interactions:
             vision_response=vision_response,
             **kwargs,
         )
+
+        # Inject special CLI instructions if terminal command tools were requested
+        if command_overrides:
+            # Check for both legacy "Execute Terminal Command" and new "execute_terminal_command"
+            has_terminal_command = any(
+                tool.get("type") == "Execute Terminal Command"
+                or (
+                    tool.get("type") == "function"
+                    and tool.get("function", {}).get("name")
+                    == "execute_terminal_command"
+                )
+                for tool in command_overrides
+            )
+            if has_terminal_command:
+                # Get the correct command name based on what's available
+                terminal_cmd_name = (
+                    "execute_terminal_command"
+                    if "execute_terminal_command" in self._client_tools
+                    else "Execute Terminal Command"
+                )
+                cli_instructions = f"""
+## IMPORTANT: CLI Mode Instructions
+You are interacting with a user through a command-line interface (CLI). The user is on their local machine.
+
+**You MUST use the `{terminal_cmd_name}` command for ANY of these requests:**
+- Listing files or directories (e.g., "list files", "show me what's here", "what files do I have")
+- Creating, moving, copying, or deleting files/folders
+- Checking system information (pwd, whoami, uname, etc.)
+- Running build commands (npm, cargo, make, pip, etc.)
+- Executing scripts or programs
+- Git operations (status, log, diff, etc.)
+- Package installation
+- ANY terminal or shell operation
+
+**Do NOT use workspace file commands like "Search Files" or "Read File" - those only work on the server, not the user's machine.**
+**The `{terminal_cmd_name}` is the ONLY way to interact with the user's local filesystem.**
+
+Example: If user says "list my files", use:
+<execute>
+<name>{terminal_cmd_name}</name>
+<command>ls -la</command>
+</execute>
+"""
+                formatted_prompt = f"{formatted_prompt}\n{cli_instructions}"
+                logging.info(
+                    "[run_stream] Injected CLI mode instructions for Execute Terminal Command"
+                )
 
         # Anonymize AGiXT server URL
         if self.outputs in formatted_prompt:
@@ -1691,6 +2082,9 @@ class Interactions:
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
         # Inject planning phase if needed
@@ -1714,6 +2108,9 @@ class Interactions:
         in_answer = False
         answer_content = ""
         is_executing = False  # Flag to pause streaming during command execution
+        remote_command_yielded = (
+            False  # Flag to track if remote command was yielded (skip continuation)
+        )
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -1782,6 +2179,10 @@ class Interactions:
             last_tag_check_pos = 0
 
             async for chunk in iterate_stream(stream):
+                # Check for cancellation periodically during streaming
+                if chunk_count % 10 == 0:  # Check every 10 chunks to avoid overhead
+                    self._check_cancelled()
+
                 chunk_count += 1
 
                 # Extract content from the chunk - handle different formats
@@ -1812,46 +2213,12 @@ class Interactions:
                 reflection_depth = get_tag_depth(full_response, "reflection")
                 in_thinking_or_reflection = thinking_depth > 0 or reflection_depth > 0
 
-                # Check for answer tag - only valid at top level (not inside thinking/reflection)
-                # Find the LAST <answer> tag and check if it's inside thinking/reflection
-                answer_depth = get_tag_depth(full_response, "answer")
-
-                # Properly determine if we're in an answer block at top level
-                # We need to check if <answer> appears AFTER all thinking/reflection blocks close
-                last_thinking_close = max(
-                    [
-                        m.end()
-                        for m in re.finditer(
-                            r"</thinking>", full_response, re.IGNORECASE
-                        )
-                    ]
-                    or [0]
-                )
-                last_reflection_close = max(
-                    [
-                        m.end()
-                        for m in re.finditer(
-                            r"</reflection>", full_response, re.IGNORECASE
-                        )
-                    ]
-                    or [0]
-                )
-                last_closed_pos = max(last_thinking_close, last_reflection_close)
-
-                # Find answer tags that appear after all thinking/reflection closes
-                answer_after_thinking = re.search(
-                    r"<answer>", full_response[last_closed_pos:], re.IGNORECASE
-                )
-                answer_closed_after = re.search(
-                    r"</answer>", full_response[last_closed_pos:], re.IGNORECASE
-                )
-
-                in_answer = (
-                    answer_after_thinking is not None and answer_closed_after is None
-                )
+                # Use is_inside_top_level_answer for proper answer detection
+                # This handles cases where <thinking> appears INSIDE <answer> blocks
+                in_answer = is_inside_top_level_answer(full_response)
 
                 # Check for execute tag completion - only at top level
-                # Find </execute> that's NOT inside thinking/reflection
+                # Find </execute> that's NOT inside thinking/reflection AND not inside answer
                 execute_pattern = r"<execute>.*?</execute>"
                 for match in re.finditer(
                     execute_pattern, full_response, re.DOTALL | re.IGNORECASE
@@ -1885,12 +2252,35 @@ class Interactions:
                         full_response = truncated_response
                         self.response = full_response
 
-                        # Execute the command
+                        # Create a queue to receive remote command requests
+                        remote_command_queue = asyncio.Queue()
+
+                        async def remote_command_callback(remote_cmd):
+                            """Callback that yields remote command request to SSE stream."""
+                            # Put the remote command request in the queue
+                            await remote_command_queue.put(remote_cmd)
+                            # Return a placeholder - the actual result will come from CLI
+                            return f"[REMOTE COMMAND QUEUED] Waiting for client-side execution.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
+
+                        # Execute the command with callback
                         await self.execution_agent(
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
                             thinking_id=thinking_id,
+                            remote_command_callback=remote_command_callback,
                         )
+
+                        # Yield any remote command requests that were queued
+                        while not remote_command_queue.empty():
+                            remote_cmd = await remote_command_queue.get()
+                            remote_command_yielded = (
+                                True  # Mark that we yielded a remote command
+                            )
+                            yield {
+                                "type": "remote_command_request",
+                                "content": remote_cmd,
+                                "complete": True,
+                            }
 
                         full_response = self.response
                         is_executing = False
@@ -1932,23 +2322,54 @@ class Interactions:
 
                 # Yield answer tokens for streaming
                 if in_answer and not is_executing:
-                    # Get content after <answer> that's at top level
-                    answer_start_match = re.search(
-                        r"<answer>", full_response[last_closed_pos:], re.IGNORECASE
-                    )
-                    if answer_start_match:
-                        answer_start = last_closed_pos + answer_start_match.end()
+                    # Find the TOP-LEVEL answer tag (not inside thinking/reflection)
+                    # Use a helper to find the start of the top-level answer
+                    answer_start = None
+                    for match in re.finditer(r"<answer>", full_response, re.IGNORECASE):
+                        open_pos = match.start()
+                        text_before = full_response[:open_pos]
+                        thinking_depth = len(
+                            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+                        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+                        reflection_depth = len(
+                            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+                        ) - len(
+                            re.findall(r"</reflection>", text_before, re.IGNORECASE)
+                        )
+                        if thinking_depth == 0 and reflection_depth == 0:
+                            answer_start = match.end()
+                            break  # Use the first top-level answer
+
+                    if answer_start is not None:
                         new_answer = full_response[answer_start:]
+
+                        # Check if </answer> appears - if so, truncate before it
+                        close_tag_match = re.search(
+                            r"</answer>", new_answer, re.IGNORECASE
+                        )
+                        if close_tag_match:
+                            new_answer = new_answer[: close_tag_match.start()]
+                        else:
+                            # Also check for partial closing tags at the end (e.g., "</", "</ans", etc.)
+                            partial_close_match = re.search(
+                                r"</?a?n?s?w?e?r?>?$", new_answer, re.IGNORECASE
+                            )
+                            if (
+                                partial_close_match
+                                and partial_close_match.group().startswith("<")
+                            ):
+                                new_answer = new_answer[: partial_close_match.start()]
+
                         if len(new_answer) > len(answer_content):
                             delta = new_answer[len(answer_content) :]
-                            # Allow tokens with < if they're part of actual answer content
-                            # Only skip if it looks like an opening tag pattern
+                            # Skip if it looks like an opening tag pattern (thinking, reflection, etc.)
                             if not re.match(r"^\s*<[a-zA-Z]", delta):
-                                yield {
-                                    "type": "answer",
-                                    "content": delta,
-                                    "complete": False,
-                                }
+                                if delta:
+                                    yield {
+                                        "type": "answer",
+                                        "content": delta,
+                                        "complete": False,
+                                    }
                             answer_content = new_answer
 
         except Exception as e:
@@ -1960,6 +2381,21 @@ class Interactions:
         # Store the full response
         self.response = full_response
 
+        # Skip continuation logic if a remote command was yielded
+        # The CLI will handle the command execution and submit the result
+        # The next user interaction will pick up from there
+        if remote_command_yielded:
+            logging.info(
+                "[run_stream] Remote command yielded - skipping continuation loop"
+            )
+            # Yield a final completion indicator
+            yield {
+                "type": "remote_command_pending",
+                "content": "Waiting for remote command execution...",
+                "complete": True,
+            }
+            return
+
         # Continuation logic: Handle execution outputs and incomplete answers
         # This matches the non-streaming behavior where we inject output and run inference again
         max_continuation_loops = 10  # Prevent infinite loops
@@ -1968,8 +2404,10 @@ class Interactions:
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
 
+        # Use has_complete_answer() to properly check for complete answer blocks
+        # This handles edge cases like <thinking> inside <answer> tags
         while (
-            "</answer>" not in self.response
+            not has_complete_answer(self.response)
             and continuation_count < max_continuation_loops
         ):
             # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
@@ -1979,8 +2417,10 @@ class Interactions:
                 else self.response
             )
             has_new_execution = "</execute>" in unprocessed_response
+            # Use has_complete_answer for proper detection instead of simple string check
             has_incomplete_answer = (
-                "<answer>" in self.response and "</answer>" not in self.response
+                "<answer>" in self.response.lower()
+                and not has_complete_answer(self.response)
             )
 
             if not has_new_execution and not has_incomplete_answer:
@@ -2124,10 +2564,27 @@ Analyze the actual output shown and continue with your response.
                                 # Update processed_length before execution so we can detect new executions
                                 processed_length = len(self.response)
 
+                                # Create queue for remote command requests in continuation
+                                cont_remote_queue = asyncio.Queue()
+
+                                async def cont_remote_callback(remote_cmd):
+                                    await cont_remote_queue.put(remote_cmd)
+                                    return f"[REMOTE COMMAND QUEUED] Waiting for client-side execution.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
+
                                 await self.execution_agent(
                                     conversation_name=conversation_name,
                                     conversation_id=conversation_id,
+                                    remote_command_callback=cont_remote_callback,
                                 )
+
+                                # Yield any remote command requests
+                                while not cont_remote_queue.empty():
+                                    remote_cmd = await cont_remote_queue.get()
+                                    yield {
+                                        "type": "remote_command_request",
+                                        "content": remote_cmd,
+                                        "complete": True,
+                                    }
 
                                 # Update processed_length again after execution adds output
                                 processed_length = len(self.response)
@@ -2253,8 +2710,9 @@ Analyze the actual output shown and continue with your response.
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
 
-                # If we got an answer tag, we're done
-                if "</answer>" in continuation_response:
+                # If we got a COMPLETE answer (properly closed, not inside thinking), we're done
+                # Use has_complete_answer to handle edge cases like <thinking> inside <answer>
+                if has_complete_answer(self.response):
                     break
 
                 # If we hit an execute tag, continue loop to handle it
@@ -2414,6 +2872,9 @@ Analyze the actual output shown and continue with your response.
                     "prompt_tokens": tokens if "tokens" in locals() else 0,
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
             # Also emit chat completion event
@@ -2430,6 +2891,9 @@ Analyze the actual output shown and continue with your response.
                     "prompt_tokens": tokens if "tokens" in locals() else 0,
                 },
                 user_id=self.user,
+                agent_id=self.agent.agent_id,
+                agent_name=self.agent_name,
+                company_id=self.agent.company_id,
             )
 
         # Yield the complete answer
@@ -2462,9 +2926,46 @@ Analyze the actual output shown and continue with your response.
                 extracted_commands.append((command_block, command_name, args))
         return extracted_commands
 
+    def _is_remote_command(self, command_output: str) -> dict:
+        """
+        Check if a command output is a remote command request.
+
+        Remote commands are executed on the client side (e.g., CLI) instead of the server.
+        They return a JSON object with __remote_command__: true
+
+        Returns:
+            dict with remote command details if it's a remote command, None otherwise
+        """
+        if not command_output:
+            return None
+        try:
+            # Try to parse as JSON
+            parsed = json.loads(command_output)
+            if isinstance(parsed, dict) and parsed.get("__remote_command__") == True:
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return None
+
     async def execution_agent(
-        self, conversation_name, conversation_id=None, thinking_id=None
+        self,
+        conversation_name,
+        conversation_id=None,
+        thinking_id=None,
+        remote_command_callback=None,
     ):
+        """
+        Execute commands found in the agent's response.
+
+        Args:
+            conversation_name: Name of the conversation
+            conversation_id: ID of the conversation
+            thinking_id: ID for tracking thinking activities
+            remote_command_callback: Optional async callback for handling remote commands.
+                                   If provided and a remote command is detected, this callback
+                                   will be called with the remote command request dict.
+                                   The callback should return the command output string.
+        """
         c = Conversations(
             conversation_name=conversation_name,
             user=self.user,
@@ -2478,11 +2979,22 @@ Analyze the actual output shown and continue with your response.
         # Use provided thinking_id if available, otherwise get a new one
         if not thinking_id:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        # Check for cancellation before starting command execution
+        self._check_cancelled()
+
         # Extract commands from the response
         commands_to_execute = self.extract_commands_from_response(self.response)
         reformatted_response = self.response
+
+        # Get client-defined tools if available
+        client_tools = getattr(self, "_client_tools", {})
+
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:
+                # Check for cancellation before each command
+                self._check_cancelled()
+
                 position = self.response.index(command_block)
                 command_id = f"{position}:{command_name}:{json.dumps(command_args, sort_keys=True)}"
                 # Skip if we've already processed this exact command
@@ -2493,7 +3005,78 @@ Analyze the actual output shown and continue with your response.
                 self._processed_commands.add(command_id)
 
                 command_output = ""
-                if command_name.strip().lower() not in [
+
+                # Check if this is a client-defined tool
+                if command_name in client_tools:
+                    # This is a client-defined tool - create a remote command request
+                    logging.info(
+                        f"[execution_agent] Client-defined tool called: {command_name}"
+                    )
+                    json_args = json.dumps(command_args, indent=2)
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{thinking_id}][CLIENT_TOOL] Calling client tool `{command_name}`.\n```json\n{json_args}```",
+                    )
+
+                    # Create a remote command request for the client
+                    remote_cmd = {
+                        "__remote_command__": True,
+                        "tool_name": command_name,
+                        "tool_args": command_args,
+                        "request_id": str(uuid.uuid4()),
+                    }
+
+                    # For execute_terminal_command, map the args to the expected format
+                    if command_name == "execute_terminal_command":
+                        remote_cmd["command"] = command_args.get("command", "")
+                        remote_cmd["terminal_id"] = command_args.get(
+                            "terminal_id", str(uuid.uuid4())
+                        )
+                        remote_cmd["working_directory"] = command_args.get(
+                            "working_directory"
+                        )
+                        remote_cmd["is_background"] = command_args.get(
+                            "is_background", False
+                        )
+
+                    if remote_command_callback:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Requesting remote execution of client tool...",
+                        )
+                        try:
+                            command_output = await remote_command_callback(remote_cmd)
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Remote execution completed.\n```\n{command_output}\n```",
+                            )
+                        except Exception as e:
+                            command_output = f"Client tool execution failed: {str(e)}"
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{thinking_id}][ERROR] Client tool execution failed: {str(e)}",
+                            )
+                    else:
+                        # No callback - emit webhook for external handling
+                        await webhook_emitter.emit_event(
+                            event_type="command.remote.request",
+                            data={
+                                "conversation_id": c.get_conversation_id(),
+                                "conversation_name": conversation_name,
+                                "agent_name": self.agent_name,
+                                "user": self.user,
+                                "command_name": command_name,
+                                "remote_request": remote_cmd,
+                                "timestamp": datetime.now().isoformat(),
+                            },
+                            user_id=self.user,
+                            agent_id=self.agent.agent_id,
+                            agent_name=self.agent_name,
+                            company_id=self.agent.company_id,
+                        )
+                        command_output = f"[CLIENT TOOL PENDING] This tool requires client-side execution.\nTool: {command_name}\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
+
+                elif command_name.strip().lower() not in [
                     cmd.lower() for cmd in command_list
                 ]:
                     command_output = f"Unknown command: {command_name}"
@@ -2520,6 +3103,54 @@ Analyze the actual output shown and continue with your response.
                             command_name=command_name,
                             command_args=command_args,
                         )
+
+                        # Check if this is a remote command that needs client-side execution
+                        remote_cmd = self._is_remote_command(command_output)
+                        if remote_cmd:
+                            # This is a remote command - needs to be executed on the client
+                            if remote_command_callback:
+                                # Use callback to handle remote execution
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Requesting remote execution of terminal command...",
+                                )
+                                try:
+                                    # Call the callback with the remote command request
+                                    command_output = await remote_command_callback(
+                                        remote_cmd
+                                    )
+                                    c.log_interaction(
+                                        role=self.agent_name,
+                                        message=f"[SUBACTIVITY][{thinking_id}][REMOTE] Remote execution completed.\n```\n{command_output}\n```",
+                                    )
+                                except Exception as e:
+                                    command_output = (
+                                        f"Remote command execution failed: {str(e)}"
+                                    )
+                                    c.log_interaction(
+                                        role=self.agent_name,
+                                        message=f"[SUBACTIVITY][{thinking_id}][ERROR] Remote execution failed: {str(e)}",
+                                    )
+                            else:
+                                # No callback - emit webhook for external handling
+                                await webhook_emitter.emit_event(
+                                    event_type="command.remote.request",
+                                    data={
+                                        "conversation_id": c.get_conversation_id(),
+                                        "conversation_name": conversation_name,
+                                        "agent_name": self.agent_name,
+                                        "user": self.user,
+                                        "command_name": command_name,
+                                        "remote_request": remote_cmd,
+                                        "timestamp": datetime.now().isoformat(),
+                                    },
+                                    user_id=self.user,
+                                    agent_id=self.agent.agent_id,
+                                    agent_name=self.agent_name,
+                                    company_id=self.agent.company_id,
+                                )
+                                # Format as pending remote execution for the response
+                                command_output = f"[REMOTE COMMAND PENDING] This command requires execution on the client.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}\nCommand: {remote_cmd.get('command', 'unknown')}"
                         # Handle different types of command output
                         if isinstance(command_output, (dict, list)):
                             # Already a structured object, serialize directly to JSON
@@ -2568,6 +3199,9 @@ Analyze the actual output shown and continue with your response.
                                 "timestamp": datetime.now().isoformat(),
                             },
                             user_id=self.user,
+                            agent_id=self.agent.agent_id,
+                            agent_name=self.agent_name,
+                            company_id=self.agent.company_id,
                         )
                     except Exception as e:
                         error_message = f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
@@ -2592,6 +3226,9 @@ Analyze the actual output shown and continue with your response.
                                 "timestamp": datetime.now().isoformat(),
                             },
                             user_id=self.user,
+                            agent_id=self.agent.agent_id,
+                            agent_name=self.agent_name,
+                            company_id=self.agent.company_id,
                         )
                 # Format the command execution and output
                 formatted_execution = (

@@ -1,4 +1,3 @@
-from providers.gpt4free import Gpt4freeProvider
 from providers.google import GoogleProvider
 from onnxruntime import InferenceSession
 from tokenizers import Tokenizer
@@ -9,10 +8,10 @@ import logging
 import numpy as np
 
 # Default provider uses:
-# llm: gpt4free
 # tts: google
 # transcription: faster-whisper
 # translation: faster-whisper
+# embeddings: local ONNX MiniLM
 
 
 # Borrowed ONNX MiniLM embedder from ChromaDB <3 https://github.com/chroma-core/chroma
@@ -80,24 +79,11 @@ class DefaultProvider:
     @staticmethod
     def services():
         return [
-            "llm",
             "embeddings",
             "tts",
             "transcription",
             "translation",
         ]
-
-    async def inference(
-        self,
-        prompt,
-        tokens: int = 0,
-        images: list = [],
-        stream: bool = False,
-        use_smartest: bool = False,
-    ):
-        return await Gpt4freeProvider(
-            **self.agent_settings,
-        ).inference(prompt=prompt, tokens=tokens, images=images, stream=stream)
 
     async def text_to_speech(self, text: str):
         return await GoogleProvider().text_to_speech(text=text)

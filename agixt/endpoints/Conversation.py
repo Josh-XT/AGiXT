@@ -1542,6 +1542,102 @@ async def get_notifications(user=Depends(verify_api_key)):
     return {"notifications": notifications}
 
 
+# Remote Command Execution Endpoint (for CLI remote tools)
+@app.post(
+    "/v1/conversation/{conversation_id}/remote-command-result",
+    summary="Submit Remote Command Result",
+    description="Submit the result of a remote command execution from the CLI. This injects the command output into the conversation so the agent can continue processing.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def submit_remote_command_result(
+    conversation_id: str,
+    result: dict,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Submit the result of a remote command execution.
+
+    This endpoint is called by the CLI after executing a command locally.
+    The result is injected into the conversation as an activity log entry,
+    allowing the agent to see the command output in its next inference.
+
+    Request body should contain:
+    - request_id: The unique ID of the remote command request
+    - terminal_id: The terminal session ID
+    - exit_code: The command's exit code (0 for success)
+    - stdout: Standard output from the command
+    - stderr: Standard error from the command
+    - working_directory: The current working directory after command execution
+    - execution_time_seconds: How long the command took to run
+    """
+    try:
+        auth = MagicalAuth(token=authorization)
+
+        # Resolve conversation
+        try:
+            conversation_uuid = uuid.UUID(conversation_id)
+            conversation_id_str = str(conversation_uuid)
+            conversation_name = get_conversation_name_by_id(
+                conversation_id=conversation_id_str, user_id=auth.user_id
+            )
+            if conversation_name is None:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        except ValueError:
+            conversation_name = conversation_id
+            conversation_id_str = get_conversation_id_by_name(
+                conversation_name=conversation_name, user_id=auth.user_id
+            )
+
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id_str,
+        )
+
+        # Extract result data
+        request_id = result.get("request_id", "unknown")
+        terminal_id = result.get("terminal_id", "unknown")
+        exit_code = result.get("exit_code", -1)
+        stdout = result.get("stdout", "")
+        stderr = result.get("stderr", "")
+        working_directory = result.get("working_directory", "")
+        execution_time = result.get("execution_time_seconds", 0)
+
+        # Format the output
+        output_parts = []
+        if stdout:
+            output_parts.append(f"**stdout:**\n```\n{stdout}\n```")
+        if stderr:
+            output_parts.append(f"**stderr:**\n```\n{stderr}\n```")
+
+        output_text = "\n\n".join(output_parts) if output_parts else "(no output)"
+
+        # Log the result to the conversation
+        status_emoji = "✅" if exit_code == 0 else "❌"
+
+        c.log_interaction(
+            role="REMOTE_TERMINAL",
+            message=f"[REMOTE_COMMAND_RESULT][{request_id}] {status_emoji} Exit code: {exit_code}\nTerminal: {terminal_id}\nWorking directory: {working_directory}\nExecution time: {execution_time:.2f}s\n\n{output_text}",
+        )
+
+        return {
+            "status": "success",
+            "message": "Remote command result recorded",
+            "request_id": request_id,
+            "conversation_id": conversation_id_str,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error submitting remote command result: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to submit remote command result: {str(e)}"
+        )
+
+
 # Conversation Sharing Endpoints
 @app.post(
     "/v1/conversation/{conversation_id}/share",

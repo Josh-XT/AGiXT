@@ -2281,6 +2281,8 @@ class Agent:
             for available_command in self.available_commands
             if available_command["enabled"] == True
         ]
+        # Debug log the enabled commands
+        logging.info(f"[get_commands_prompt] Enabled commands: {command_list}")
         if self.company_id and self.company_agent:
             company_command_list = [
                 available_command["friendly_name"]
@@ -2305,7 +2307,40 @@ class Agent:
             except Exception as e:
                 logging.error(f"Error getting agent extensions: {str(e)}")
                 agent_extensions = self.get_agent_extensions()
+
+            # Collect client-defined tools (extension_name == "__client__") from available_commands
+            client_commands = [
+                cmd
+                for cmd in self.available_commands
+                if cmd.get("extension_name") == "__client__"
+                and cmd.get("enabled", False)
+            ]
+            if client_commands:
+                logging.info(
+                    f"[get_commands_prompt] Found {len(client_commands)} client-defined tools: {[c['friendly_name'] for c in client_commands]}"
+                )
+
             agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
+
+            # First add client-defined tools as a special extension section
+            if client_commands:
+                agent_commands += f"\n### Client-Defined Tools\nDescription: These commands are executed on the client's machine (e.g., CLI terminal).\n"
+                for command in client_commands:
+                    if running_command and command["friendly_name"] == running_command:
+                        continue
+                    command_friendly_name = command["friendly_name"]
+                    command_description = command.get(
+                        "description", f"Client-defined tool: {command_friendly_name}"
+                    )
+                    agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:\n"
+                    agent_commands += (
+                        f"<execute>\n<name>{command_friendly_name}</name>\n"
+                    )
+                    command_args = command.get("args", {})
+                    for arg_name in command_args.keys():
+                        agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
+                    agent_commands += "</execute>\n"
+
             for extension in agent_extensions:
                 if extension["commands"] == []:
                     continue

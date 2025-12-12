@@ -894,7 +894,8 @@ print(output)
                 f.write(text)
 
         execution_response = execute_python_code(
-            code=code, working_directory=self.WORKING_DIRECTORY
+            code=code,
+            working_directory=self.WORKING_DIRECTORY,
         )
         return execution_response
 
