@@ -1305,12 +1305,16 @@ Your response (true or false):"""
                 os.path.join(self.agent_workspace, collection_id, file_name)
             )
         abs_workspace = os.path.abspath(self.agent_workspace)
-        abs_file_path = os.path.abspath(os.path.normpath(
-            os.path.join(self.agent_workspace, collection_id, file_name)
-        ))
+        abs_file_path = os.path.abspath(
+            os.path.normpath(
+                os.path.join(self.agent_workspace, collection_id, file_name)
+            )
+        )
         # Ensure file path stays within the workspace directory
         if not abs_file_path.startswith(abs_workspace + os.sep):
-            raise Exception("Invalid file path: attempt to access outside of the workspace.")
+            raise Exception(
+                "Invalid file path: attempt to access outside of the workspace."
+            )
         file_path = abs_file_path
         file_type = file_name.split(".")[-1]
         action_verb = "Learning" if save_to_memory else "Saving"
@@ -1597,7 +1601,9 @@ Your response (true or false):"""
                     # Securely determine the directory for file_path
                     dir_path = os.path.normpath(os.path.dirname(file_path))
                     if not dir_path.startswith(self.agent_workspace):
-                        raise Exception("Access to directory outside agent workspace is not allowed.")
+                        raise Exception(
+                            "Access to directory outside agent workspace is not allowed."
+                        )
                     csv_files = [
                         f
                         for f in os.listdir(dir_path)
