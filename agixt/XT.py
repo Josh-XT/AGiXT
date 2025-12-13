@@ -1226,10 +1226,6 @@ Your response (true or false):"""
                                 thinking_id=thinking_id,
                                 save_to_memory=save_to_memory,
                             )
-                            self.conversation.log_interaction(
-                                role=self.agent_name,
-                                message=f"[SUBACTIVITY][{thinking_id}] {message}",
-                            )
                             string_file_content += file_content
                         return (
                             f"Processed all sheets in [{file_name}]({file_path}).",
