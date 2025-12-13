@@ -1589,9 +1589,13 @@ Your response (true or false):"""
             if file_type in ["xlsx", "xls"]:
                 base_name = file_name.rsplit(".", 1)[0]
                 try:
+                    # Securely determine the directory for file_path
+                    dir_path = os.path.normpath(os.path.dirname(file_path))
+                    if not dir_path.startswith(self.agent_workspace):
+                        raise Exception("Access to directory outside agent workspace is not allowed.")
                     csv_files = [
                         f
-                        for f in os.listdir(os.path.dirname(file_path))
+                        for f in os.listdir(dir_path)
                         if f.startswith(base_name) and f.endswith(".csv")
                     ]
                     if csv_files:
