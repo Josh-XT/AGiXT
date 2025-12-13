@@ -1131,13 +1131,27 @@ Your response (true or false):"""
             actual_path = converted_file_name if converted_file_name else file_name
 
         # Base info about the file
-        info = f"## Uploaded File: `{file_name}`\n"
-        info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
-        info += f"- **Path for commands:** `{actual_path}`\n"
-        info += f"- **URL:** [{file_name}]({file_url})\n"
+        # For xlsx/xls files that were converted, emphasize the CSV as the primary file to use
+        if (
+            converted_file_name
+            and converted_file_name != file_name
+            and file_type
+            and file_type.lower() in ["xlsx", "xls"]
+        ):
+            info = f"## File Available: `{converted_file_name}` (converted from `{file_name}`)\n"
+            info += f"- **Original file:** `{file_name}` (Excel format - do NOT read this directly)\n"
+            info += f"- **Use this file:** `{actual_path}` (CSV format - use this for all commands)\n"
+            info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
+            info += f"- **URL:** [{file_name}]({file_url})\n"
+            info += "\n**IMPORTANT:** The Excel file has been converted to CSV. Always use the CSV file (`{actual_path}`) for Read File and pandas operations.\n"
+        else:
+            info = f"## Uploaded File: `{file_name}`\n"
+            info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
+            info += f"- **Path for commands:** `{actual_path}`\n"
+            info += f"- **URL:** [{file_name}]({file_url})\n"
 
-        if converted_file_name and converted_file_name != file_name:
-            info += f"- **Converted to:** `{converted_file_name}` (CSV format)\n"
+            if converted_file_name and converted_file_name != file_name:
+                info += f"- **Converted to:** `{converted_file_name}` (CSV format)\n"
 
         info += "\n"
 
@@ -1228,9 +1242,9 @@ Your response (true or false):"""
                         csv_file_path = file_path.replace(f".{file_type}", ".csv")
                         csv_file_name = os.path.basename(csv_file_path)
                         df.to_csv(csv_file_path, index=False)
-                        string_file_content += f"Content from file uploaded named `{file_name}` (also saved as `{csv_file_name}`):\n```csv\n{csv}```\n"
+                        string_file_content += f"Content from uploaded Excel file `{file_name}` (converted and saved as `{csv_file_name}` - use this CSV file for all Read File and pandas operations):\n```csv\n{csv}```\n"
                         return (
-                            f"Converted [{file_name}]({file_path}) and converted to CSV format at [{csv_file_name}]({csv_file_path}).",
+                            f"Converted [{file_name}]({file_path}) to CSV format at [{csv_file_name}]({csv_file_path}). Use `{csv_file_name}` for file operations.",
                             string_file_content,
                         )
                 except Exception as e:

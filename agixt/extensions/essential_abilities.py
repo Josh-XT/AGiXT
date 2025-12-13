@@ -439,6 +439,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         - The user can browse the agents workspace by clicking the folder icon in their chat input bar
         - For large files or data analysis, consider using Execute Python Code to extract specific information
         - For CSV/data files, use Execute Python Code with pandas to analyze data efficiently
+        - XLSX/XLS files are automatically converted to CSV format for reading
         """
         MAX_LINES = 100  # Maximum lines to return per read
         try:
@@ -451,6 +452,47 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             line_end = None
         try:
             filepath = self.safe_join(filename)
+
+            # Check if this is an Excel file - convert to CSV if needed
+            file_ext = os.path.splitext(filename)[1].lower()
+            csv_notice = ""
+            if file_ext in [".xlsx", ".xls"]:
+                import pandas as pd
+
+                # Check if CSV version already exists
+                base_name = os.path.splitext(filename)[0]
+                csv_filename = f"{base_name}.csv"
+                csv_filepath = self.safe_join(csv_filename)
+
+                if not os.path.exists(csv_filepath):
+                    # Convert Excel to CSV
+                    try:
+                        xl = pd.ExcelFile(filepath)
+                        if len(xl.sheet_names) > 1:
+                            # Multiple sheets - convert each to separate CSV
+                            csv_files = []
+                            for i, sheet_name in enumerate(xl.sheet_names, 1):
+                                df = xl.parse(sheet_name)
+                                sheet_csv_filename = f"{base_name}_{i}.csv"
+                                sheet_csv_filepath = self.safe_join(sheet_csv_filename)
+                                df.to_csv(sheet_csv_filepath, index=False)
+                                csv_files.append(sheet_csv_filename)
+                            csv_notice = f"**Note**: Excel file `{filename}` has {len(xl.sheet_names)} sheets. Converted to: {', '.join(csv_files)}. Reading first sheet (`{csv_files[0]}`).\n\n"
+                            csv_filepath = self.safe_join(csv_files[0])
+                            csv_filename = csv_files[0]
+                        else:
+                            # Single sheet
+                            df = pd.read_excel(filepath)
+                            df.to_csv(csv_filepath, index=False)
+                            csv_notice = f"**Note**: Excel file `{filename}` converted to `{csv_filename}` for reading.\n\n"
+                    except Exception as e:
+                        return f"Error: Failed to convert Excel file to CSV: {str(e)}"
+                else:
+                    csv_notice = f"**Note**: Reading CSV version `{csv_filename}` of Excel file `{filename}`.\n\n"
+
+                # Update filepath to read the CSV version
+                filepath = csv_filepath
+                filename = csv_filename
 
             # Read the file lines
             with open(filepath, "r", encoding="utf-8") as f:
@@ -479,7 +521,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             lines_returned = len(selected_lines)
 
             # Build header with line information
-            header = (
+            header = csv_notice  # Include Excel->CSV conversion notice if applicable
+            header += (
                 f"Lines {actual_start}-{actual_end} of {total_lines} total lines:\n"
             )
             header += "=" * 40 + "\n"
