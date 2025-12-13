@@ -735,10 +735,15 @@ class Conversations:
         )
         return f"### Detailed Activities:\n{subactivities}"
 
-    def get_activities_with_subactivities(self, max_activities: int = 5, max_subactivities_per_activity: int = 3, summarize: bool = True):
+    def get_activities_with_subactivities(
+        self,
+        max_activities: int = 5,
+        max_subactivities_per_activity: int = 3,
+        summarize: bool = True,
+    ):
         """
         Get recent activities with their subactivities, with context compression.
-        
+
         Args:
             max_activities: Maximum number of activities to return (most recent)
             max_subactivities_per_activity: Max subactivities per activity
@@ -797,64 +802,78 @@ class Conversations:
         if current_activity:
             return_activities.append(current_activity)
         session.close()
-        
+
         # Only keep the most recent activities
         if len(return_activities) > max_activities:
             skipped_count = len(return_activities) - max_activities
             return_activities = return_activities[-max_activities:]
         else:
             skipped_count = 0
-        
+
         def summarize_content(content: str, max_chars: int = 200) -> str:
             """Summarize long content for context compression."""
             if not summarize or len(content) <= max_chars:
                 return content
-            
+
             # For execution outputs, keep first and last parts
             if "[EXECUTION]" in content or "Output:" in content:
-                lines = content.split('\n')
+                lines = content.split("\n")
                 if len(lines) > 6:
                     # Keep first 3 and last 2 lines
-                    return '\n'.join(lines[:3]) + f"\n... [{len(lines) - 5} lines omitted] ...\n" + '\n'.join(lines[-2:])
-            
+                    return (
+                        "\n".join(lines[:3])
+                        + f"\n... [{len(lines) - 5} lines omitted] ...\n"
+                        + "\n".join(lines[-2:])
+                    )
+
             # For other content, truncate with indicator
             truncated = content[:max_chars]
-            last_space = truncated.rfind(' ')
+            last_space = truncated.rfind(" ")
             if last_space > max_chars * 0.7:
                 truncated = truncated[:last_space]
             return truncated + "..."
-        
+
         # Return in markdown with compression
         activities_md = []
         for activity in return_activities:
-            activity_msg = summarize_content(activity['message'], max_chars=300)
+            activity_msg = summarize_content(activity["message"], max_chars=300)
             subactivities = activity.get("subactivities", [])
-            
+
             # Limit subactivities
             if len(subactivities) > max_subactivities_per_activity:
                 skipped_subs = len(subactivities) - max_subactivities_per_activity
                 # Keep first and last subactivities
-                kept_subs = subactivities[:max_subactivities_per_activity - 1] + [subactivities[-1]]
-                sub_text = "\n".join([
-                    f"- {summarize_content(sub['message'], max_chars=150)}"
-                    for sub in kept_subs
-                ])
+                kept_subs = subactivities[: max_subactivities_per_activity - 1] + [
+                    subactivities[-1]
+                ]
+                sub_text = "\n".join(
+                    [
+                        f"- {summarize_content(sub['message'], max_chars=150)}"
+                        for sub in kept_subs
+                    ]
+                )
                 sub_text += f"\n  *({skipped_subs} additional subactivities omitted)*"
             else:
-                sub_text = "\n".join([
-                    f"- {summarize_content(sub['message'], max_chars=150)}"
-                    for sub in subactivities
-                ])
-            
-            activities_md.append(f"**{activity_msg}**\n{sub_text}" if sub_text else f"**{activity_msg}**")
-        
+                sub_text = "\n".join(
+                    [
+                        f"- {summarize_content(sub['message'], max_chars=150)}"
+                        for sub in subactivities
+                    ]
+                )
+
+            activities_md.append(
+                f"**{activity_msg}**\n{sub_text}" if sub_text else f"**{activity_msg}**"
+            )
+
         activities = "\n\n".join(activities_md)
-        
+
         header = "### Recent Activities"
         if skipped_count > 0:
-            header += f" (showing last {max_activities} of {skipped_count + max_activities})"
+            header += (
+                f" (showing last {max_activities} of {skipped_count + max_activities})"
+            )
         header += ":\n"
-        
+
         return f"{header}{activities}"
 
     def new_conversation(self, conversation_content=[]):
