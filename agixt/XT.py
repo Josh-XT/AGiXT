@@ -1205,10 +1205,6 @@ Your response (true or false):"""
                                 f".{file_type}", f"_{i}.csv"
                             )
                             csv_file_name = os.path.basename(csv_file_path)
-                            self.conversation.log_interaction(
-                                role=self.agent_name,
-                                message=f"[SUBACTIVITY][{thinking_id}] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
-                            )
                             df.to_csv(csv_file_path, index=False)
                             message, file_content = await self.learn_spreadsheet(
                                 user_input=user_input,
@@ -1232,13 +1228,9 @@ Your response (true or false):"""
                         csv_file_path = file_path.replace(f".{file_type}", ".csv")
                         csv_file_name = os.path.basename(csv_file_path)
                         df.to_csv(csv_file_path, index=False)
-                        self.conversation.log_interaction(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{thinking_id}] Converted `{file_name}` to CSV file `{csv_file_name}` for easier data access.",
-                        )
                         string_file_content += f"Content from file uploaded named `{file_name}` (also saved as `{csv_file_name}`):\n```csv\n{csv}```\n"
                         return (
-                            f"{action_verb} [{file_name}]({file_path}) {action_location} and converted to [{csv_file_name}]({csv_file_path}).",
+                            f"Converted [{file_name}]({file_path}) and converted to CSV format at [{csv_file_name}]({csv_file_path}).",
                             string_file_content,
                         )
                 except Exception as e:
