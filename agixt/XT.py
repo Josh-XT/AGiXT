@@ -1289,6 +1289,14 @@ Your response (true or false):"""
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, folder_path)
             )
+            abs_workspace = os.path.abspath(self.agent_workspace)
+            abs_file_path = os.path.abspath(file_path)
+            # Ensure file path stays within the workspace directory
+            if not abs_file_path.startswith(abs_workspace + os.sep):
+                raise Exception(
+                    "Invalid file path: attempt to access outside of the workspace."
+                )
+            file_path = abs_file_path
         else:
             file_data = await self.download_file_to_workspace(
                 url=file_url, file_name=file_name
@@ -1304,18 +1312,14 @@ Your response (true or false):"""
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, collection_id, file_name)
             )
-        abs_workspace = os.path.abspath(self.agent_workspace)
-        abs_file_path = os.path.abspath(
-            os.path.normpath(
-                os.path.join(self.agent_workspace, collection_id, file_name)
-            )
-        )
-        # Ensure file path stays within the workspace directory
-        if not abs_file_path.startswith(abs_workspace + os.sep):
-            raise Exception(
-                "Invalid file path: attempt to access outside of the workspace."
-            )
-        file_path = abs_file_path
+            abs_workspace = os.path.abspath(self.agent_workspace)
+            abs_file_path = os.path.abspath(file_path)
+            # Ensure file path stays within the workspace directory
+            if not abs_file_path.startswith(abs_workspace + os.sep):
+                raise Exception(
+                    "Invalid file path: attempt to access outside of the workspace."
+                )
+            file_path = abs_file_path
         file_type = file_name.split(".")[-1]
         action_verb = "Learning" if save_to_memory else "Saving"
         action_location = "to memory" if save_to_memory else "to workspace"
@@ -1581,7 +1585,13 @@ Your response (true or false):"""
             ),
         )
 
-        # NEVER return full file content - instead return metadata and instructions
+        # For learn endpoints (save_to_memory=True), return the simple response message
+        # For chat completions (save_to_memory=False), return metadata and instructions
+        if save_to_memory:
+            # Learning to memory - return simple success message
+            return response
+
+        # Chat completions - return metadata and instructions instead of full file content
         # This keeps context manageable and the agent can use commands to access files
         if file_content:
             file_tokens = get_tokens(file_content)
