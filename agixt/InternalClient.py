@@ -370,6 +370,13 @@ class InternalClient:
         # Get conversation name from chain args
         conversation_name = chain_args.get("conversation_name", "-")
 
+        # Extract log_output from chain_args if present (defaults to True)
+        # This is important when chains are executed as commands - the caller
+        # sets log_output=False to avoid double-logging
+        log_output = chain_args.pop("log_output", True)
+        if isinstance(log_output, str):
+            log_output = log_output.lower() not in ["false", "0", "no"]
+
         # Create AGiXT instance
         AGiXT = self._get_agixt_class()
         agixt = AGiXT(
@@ -398,6 +405,7 @@ class InternalClient:
                         agent_override=agent_name,
                         from_step=from_step,
                         chain_args=chain_args,
+                        log_output=log_output,
                     ),
                 )
                 response = future.result()
@@ -409,6 +417,7 @@ class InternalClient:
                     agent_override=agent_name,
                     from_step=from_step,
                     chain_args=chain_args,
+                    log_output=log_output,
                 )
             )
 
