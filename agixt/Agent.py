@@ -2275,14 +2275,32 @@ class Agent:
             return agent_commands
         return ""
 
-    def get_commands_prompt(self, conversation_id, running_command=None):
+    def get_commands_prompt(
+        self, conversation_id, running_command=None, selected_commands=None
+    ):
+        """
+        Get the commands prompt for the agent.
+
+        Args:
+            conversation_id: The conversation ID
+            running_command: Command currently being executed (to exclude)
+            selected_commands: List of command names to include. If None, includes all enabled commands.
+
+        Returns:
+            str: The formatted commands prompt
+        """
         command_list = [
             available_command["friendly_name"]
             for available_command in self.available_commands
             if available_command["enabled"] == True
         ]
-        # Debug log the enabled commands
-        logging.info(f"[get_commands_prompt] Enabled commands: {command_list}")
+        # Debug log the selected_commands filter
+        logging.info(
+            f"[get_commands_prompt] selected_commands filter: {selected_commands}"
+        )
+        logging.info(
+            f"[get_commands_prompt] All enabled commands count: {len(command_list)}"
+        )
         if self.company_id and self.company_agent:
             company_command_list = [
                 available_command["friendly_name"]
@@ -2328,6 +2346,12 @@ class Agent:
                 for command in client_commands:
                     if running_command and command["friendly_name"] == running_command:
                         continue
+                    # If selected_commands is provided, only include selected ones
+                    if (
+                        selected_commands
+                        and command["friendly_name"] not in selected_commands
+                    ):
+                        continue
                     command_friendly_name = command["friendly_name"]
                     command_description = command.get(
                         "description", f"Client-defined tool: {command_friendly_name}"
@@ -2358,6 +2382,13 @@ class Agent:
                         for command in enabled_commands
                         if command["friendly_name"] != running_command
                     ]
+                # If selected_commands is provided, filter to only selected ones
+                if selected_commands:
+                    enabled_commands = [
+                        command
+                        for command in enabled_commands
+                        if command["friendly_name"] in selected_commands
+                    ]
                 if enabled_commands == []:
                     continue
                 agent_commands += (
@@ -2378,6 +2409,13 @@ class Agent:
                                 f"<chain_name>{command_friendly_name}</chain_name>\n"
                             )
                     agent_commands += "</execute>\n"
+
+            # Log how many commands were included
+            if selected_commands:
+                logging.info(
+                    f"[get_commands_prompt] Using {len(selected_commands)} selected commands"
+                )
+
             agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**
 - Reference examples for correct syntax and usage of commands.
@@ -2407,6 +2445,85 @@ class Agent:
 - **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
             return agent_commands
         return ""
+
+    def get_commands_for_selection(self):
+        """
+        Get all available commands with their descriptions for the tool selection phase.
+        Returns a formatted string listing all commands grouped by extension.
+
+        Returns:
+            tuple: (formatted_string, list_of_command_names)
+        """
+        command_list = [
+            available_command["friendly_name"]
+            for available_command in self.available_commands
+            if available_command["enabled"] == True
+        ]
+
+        if self.company_id and self.company_agent:
+            company_command_list = [
+                available_command["friendly_name"]
+                for available_command in self.company_agent.available_commands
+                if available_command["enabled"] == True
+            ]
+            for company_command in company_command_list:
+                if company_command not in command_list:
+                    command_list.append(company_command)
+
+        if len(command_list) == 0:
+            return "", []
+
+        try:
+            agent_extensions = self.get_company_agent_extensions()
+            if agent_extensions == "":
+                agent_extensions = self.get_agent_extensions()
+        except Exception as e:
+            logging.error(f"Error getting agent extensions: {str(e)}")
+            agent_extensions = self.get_agent_extensions()
+
+        # Collect client-defined tools
+        client_commands = [
+            cmd
+            for cmd in self.available_commands
+            if cmd.get("extension_name") == "__client__" and cmd.get("enabled", False)
+        ]
+
+        all_command_names = []
+        selection_prompt = "## Available Commands for Selection\n\n"
+
+        # Add client-defined tools
+        if client_commands:
+            selection_prompt += "### Client-Defined Tools\n"
+            for command in client_commands:
+                cmd_name = command["friendly_name"]
+                cmd_desc = command.get(
+                    "description", f"Client-defined tool: {cmd_name}"
+                )
+                selection_prompt += f"- **{cmd_name}**: {cmd_desc}\n"
+                all_command_names.append(cmd_name)
+
+        # Add extension commands
+        for extension in agent_extensions:
+            if extension["commands"] == []:
+                continue
+            extension_name = extension["extension_name"]
+            extension_description = extension["description"]
+            enabled_commands = [
+                command
+                for command in extension["commands"]
+                if command["enabled"] == True
+            ]
+            if enabled_commands == []:
+                continue
+
+            selection_prompt += f"\n### {extension_name}\n{extension_description}\n"
+            for command in enabled_commands:
+                cmd_name = command["friendly_name"]
+                cmd_desc = command["description"]
+                selection_prompt += f"- **{cmd_name}**: {cmd_desc}\n"
+                all_command_names.append(cmd_name)
+
+        return selection_prompt, all_command_names
 
     def get_agent_wallet(self):
         """

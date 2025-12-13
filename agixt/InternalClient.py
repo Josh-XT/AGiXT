@@ -123,6 +123,7 @@ class InternalClient:
         agent_name: str = None,
         prompt_name: str = "Think About It",
         prompt_args: dict = None,
+        parent_activity_id: str = None,
     ) -> str:
         """
         Send a prompt to an agent directly without HTTP round-trip.
@@ -132,6 +133,7 @@ class InternalClient:
             agent_name: The agent's name (fallback)
             prompt_name: Name of the prompt to use
             prompt_args: Arguments to pass to the prompt
+            parent_activity_id: Optional ID of parent thinking activity to nest under
 
         Returns:
             The agent's response as a string
@@ -182,14 +184,16 @@ class InternalClient:
             prompt_args["prompt_category"] = "Default"
 
         # Build messages
-        messages = [
-            {
-                "role": "user",
-                **{k: v for k, v in prompt_args.items() if k != "user_input"},
-                "prompt_args": prompt_args,
-                "content": user_input,
-            }
-        ]
+        message_data = {
+            "role": "user",
+            **{k: v for k, v in prompt_args.items() if k != "user_input"},
+            "prompt_args": prompt_args,
+            "content": user_input,
+        }
+        # Pass parent_activity_id to keep subactivities within the parent's thinking activity
+        if parent_activity_id:
+            message_data["parent_activity_id"] = parent_activity_id
+        messages = [message_data]
 
         # Run the prompt
         try:

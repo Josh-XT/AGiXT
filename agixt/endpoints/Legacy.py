@@ -877,6 +877,7 @@ async def learn_file(
         file_name=file.file_name,
         user_input=f"File {file.file_name} uploaded on {timestamp}.",
         collection_id=str(file.collection_number),
+        save_to_memory=True,
     )
     agent.conversation.log_interaction(
         role=agent_name,
