@@ -966,7 +966,9 @@ Your response (true or false):"""
             summarize_content=summarize_content,
             conversation_name=self.conversation_name,
         )
-        return "I have read the information from the websites into my memory."
+        return (
+            "I have scraped the information from the websites and saved it to memory."
+        )
 
     def _get_large_file_instructions(
         self,
@@ -1023,9 +1025,9 @@ Your response (true or false):"""
         elif file_type and file_type.lower() == "pdf":
             return (
                 f"The user uploaded a PDF file called `{file_name}` which is {file_size_mb}MB in size. "
-                f"The PDF content has been extracted to memory. Since the full content is too large to include "
-                f"in context, use the **Search Files** command to search for specific content, or query the "
-                f"agent's memory about the PDF content."
+                f"The PDF content has been extracted and saved to the workspace. Since the full content is too large to include "
+                f"in context, use the **Search Files** command to search for specific content, or use the **Read File Lines** command "
+                f"to read specific line ranges from the file."
             )
         else:
             return (
@@ -1131,9 +1133,9 @@ Your response (true or false):"""
                 info += f"3. **Execute the code** using `Execute Python File` with path `{actual_path}`\n"
         elif file_type and file_type.lower() == "pdf":
             info += "### How to Access This PDF:\n"
-            info += "The PDF content has been indexed into memory and can be queried.\n"
-            info += "1. **Search memories** for specific content from the PDF\n"
-            info += f"2. **Read raw text** using `Read File` with filename `{actual_path}` if text extraction is available\n"
+            info += "The PDF content has been extracted and is available in the workspace.\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}`\n"
+            info += "2. **Search for patterns** using `Search File Content` to find specific text\n"
         else:
             info += "### How to Access This File:\n"
             info += f"1. **Read the file** using `Read File` command with filename `{actual_path}`\n"
@@ -1141,17 +1143,21 @@ Your response (true or false):"""
 
         return info
 
-    async def learn_spreadsheet(self, user_input, file_path, thinking_id):
+    async def learn_spreadsheet(
+        self, user_input, file_path, thinking_id, save_to_memory: bool = False
+    ):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
         string_file_content = ""
+        action_verb = "Learned" if save_to_memory else "Saved"
+        action_location = "to memory" if save_to_memory else "to workspace"
         try:
             if file_type.lower() == "csv":
                 df = pd.read_csv(file_path)
                 csv = df.to_csv(index=False)
                 string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{csv}```\n"
                 return (
-                    f"Read [{file_name}]({file_path}) into memory.",
+                    f"{action_verb} [{file_name}]({file_path}) {action_location}.",
                     string_file_content,
                 )
             else:  # Excel file
@@ -1174,6 +1180,7 @@ Your response (true or false):"""
                                 user_input=user_input,
                                 file_path=csv_file_path,
                                 thinking_id=thinking_id,
+                                save_to_memory=save_to_memory,
                             )
                             self.conversation.log_interaction(
                                 role=self.agent_name,
@@ -1197,7 +1204,7 @@ Your response (true or false):"""
                         )
                         string_file_content += f"Content from file uploaded named `{file_name}` (also saved as `{csv_file_name}`):\n```csv\n{csv}```\n"
                         return (
-                            f"Read [{file_name}]({file_path}) into memory and converted to [{csv_file_name}]({csv_file_path}).",
+                            f"{action_verb} [{file_name}]({file_path}) {action_location} and converted to [{csv_file_name}]({csv_file_path}).",
                             string_file_content,
                         )
                 except Exception as e:
@@ -1220,6 +1227,7 @@ Your response (true or false):"""
         user_input: str = "",
         collection_id: str = "0",
         thinking_id: str = "",
+        save_to_memory: bool = False,
     ):
         """
         Learn from a file
@@ -1229,6 +1237,9 @@ Your response (true or false):"""
             file_name (str): Name of the file
             user_input (str): User input to the agent
             collection_id (str): Collection ID to save the file to
+            thinking_id (str): Thinking ID for activity logging
+            save_to_memory (bool): Whether to save file content to agent memories for RAG.
+                                   Set to True for learn endpoints, False for chat completions.
 
         Returns:
             str: Response from the agent
@@ -1264,16 +1275,18 @@ Your response (true or false):"""
                 os.path.join(self.agent_workspace, collection_id, file_name)
             )
         file_type = file_name.split(".")[-1]
+        action_verb = "Learning" if save_to_memory else "Saving"
+        action_location = "to memory" if save_to_memory else "to workspace"
         if file_type not in ["jpg", "jpeg", "png", "gif"]:
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Reading [{file_name}]({file_url}) into memory.",
+                message=f"[SUBACTIVITY][{thinking_id}] {action_verb} [{file_name}]({file_url}) {action_location}.",
             )
         if file_type in ["ppt", "pptx"]:
             # Extract text directly from PowerPoint using python-pptx
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Reading PowerPoint file [{file_name}]({file_url}) into memory.",
+                message=f"[SUBACTIVITY][{thinking_id}] {action_verb} PowerPoint file [{file_name}]({file_url}) {action_location}.",
             )
             try:
                 prs = Presentation(file_path)
@@ -1293,13 +1306,14 @@ Your response (true or false):"""
                 )
                 file_content += pptx_content_str
                 self.input_tokens += get_tokens(content)
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                await self.file_reader.write_text_to_memory(
-                    user_input=user_input,
-                    text=f"Content from PowerPoint uploaded at {timestamp} named `{file_name}`:\n{content}",
-                    external_source=f"file {file_path}",
-                )
-                response = f"Read [{file_name}]({file_url}) into memory."
+                if save_to_memory:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    await self.file_reader.write_text_to_memory(
+                        user_input=user_input,
+                        text=f"Content from PowerPoint uploaded at {timestamp} named `{file_name}`:\n{content}",
+                        external_source=f"file {file_path}",
+                    )
+                response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             except Exception as e:
                 logging.error(f"Error reading PowerPoint file: {e}")
                 return f"Failed to read PowerPoint file [{file_name}]({file_url}). Error: {str(e)}"
@@ -1339,13 +1353,14 @@ Your response (true or false):"""
                         file_content += f"Visual description from viewing uploaded PDF called `{file_name}` from page {i} with OCR:\n"
                         file_content += vision_response
             self.input_tokens += get_tokens(content)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
-                external_source=f"file {file_path}",
-            )
-            response = f"Read [{file_name}]({file_url}) into memory."
+            if save_to_memory:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
+                    external_source=f"file {file_path}",
+                )
+            response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
         elif file_path.endswith(".zip"):
             extracted_zip_folder_name = f"extracted_{file_name.replace('.zip', '_zip')}"
             new_folder = os.path.normpath(
@@ -1369,8 +1384,9 @@ Your response (true or false):"""
                             user_input=user_input,
                             collection_id=collection_id,
                             thinking_id=thinking_id,
+                            save_to_memory=save_to_memory,
                         )
-                response = f"Extracted the content of the zip file [{file_name}]({file_url}) and read them into memory."
+                response = f"Extracted the content of the zip file [{file_name}]({file_url}) and {'learned them to memory' if save_to_memory else 'saved them to workspace'}."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
@@ -1382,24 +1398,27 @@ Your response (true or false):"""
             )
             file_content += docx_content
             self.input_tokens += get_tokens(content)
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=docx_content,
-                external_source=f"file {file_path}",
-            )
-            response = f"Read [{file_name}]({file_url}) into memory."
+            if save_to_memory:
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=docx_content,
+                    external_source=f"file {file_path}",
+                )
+            response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
         elif file_type == "xlsx" or file_type == "xls" or file_type == "csv":
             response, content = await self.learn_spreadsheet(
                 user_input=user_input,
                 file_path=file_path,
                 thinking_id=thinking_id,
+                save_to_memory=save_to_memory,
             )
             file_content += content
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=content,
-                external_source=f"file {file_path}",
-            )
+            if save_to_memory:
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=content,
+                    external_source=f"file {file_path}",
+                )
         elif (
             file_type == "wav"
             or file_type == "mp3"
@@ -1413,7 +1432,7 @@ Your response (true or false):"""
             audio.export(file_path, format="wav")
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
+                message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}).",
             )
             audio_response = await self.audio_to_text(audio_path=file_path)
             file_content += (
@@ -1421,15 +1440,14 @@ Your response (true or false):"""
             )
             file_content += audio_response
             self.input_tokens += get_tokens(audio_response)
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
-                external_source=f"audio {file_name}",
-            )
-            response = (
-                f"Transcribed the audio from [{file_name}]({file_url}) into memory."
-            )
-        # If it is an image, generate a description then save to memory
+            if save_to_memory:
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
+                    external_source=f"audio {file_name}",
+                )
+            response = f"Transcribed audio from [{file_name}]({file_url}) and {'saved to memory' if save_to_memory else 'saved to workspace'}."
+        # If it is an image, generate a description
         elif file_type in [
             "jpg",
             "jpeg",
@@ -1457,13 +1475,14 @@ Your response (true or false):"""
                     )
                     file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
                     file_content += vision_response
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    await self.file_reader.write_text_to_memory(
-                        user_input=user_input,
-                        text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
-                        external_source=f"image {file_name}",
-                    )
-                    response = f"Read [{file_name}]({file_url}) into memory."
+                    if save_to_memory:
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        await self.file_reader.write_text_to_memory(
+                            user_input=user_input,
+                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
+                            external_source=f"image {file_name}",
+                        )
+                    response = f"{'Learned' if save_to_memory else 'Processed'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
                 except Exception as e:
                     logging.error(f"Error getting vision response: {e}")
                     response = (
@@ -1490,21 +1509,22 @@ Your response (true or false):"""
                 file_content += content
                 self.input_tokens += get_tokens(content)
                 # Check how many lines are in the file content
-                lines = content.split("\n")
-                if len(lines) > 1:
-                    for line_number, line in enumerate(lines):
+                if save_to_memory:
+                    lines = content.split("\n")
+                    if len(lines) > 1:
+                        for line_number, line in enumerate(lines):
+                            await self.file_reader.write_text_to_memory(
+                                user_input=user_input,
+                                text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
+                                external_source=f"file {fp}",
+                            )
+                    else:
                         await self.file_reader.write_text_to_memory(
                             user_input=user_input,
-                            text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
+                            text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{content}",
                             external_source=f"file {fp}",
                         )
-                else:
-                    await self.file_reader.write_text_to_memory(
-                        user_input=user_input,
-                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{content}",
-                        external_source=f"file {fp}",
-                    )
-                response = f"Read [{file_name}]({file_url}) into memory."
+                response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."

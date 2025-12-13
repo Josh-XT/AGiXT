@@ -2996,6 +2996,7 @@ class Mutation:
             file_name=file_name,
             user_input=f"File {file_name} uploaded on {timestamp}.",
             collection_id=str(input.collection_number),
+            save_to_memory=True,
         )
 
         agent.conversation.log_interaction(

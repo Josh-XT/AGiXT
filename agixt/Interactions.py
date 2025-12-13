@@ -1347,12 +1347,6 @@ Example: memories, persona, files"""
         if not thinking_id and log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
 
-        if log_output and thinking_id:
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Analyzing request to select relevant abilities...",
-            )
-
         valid_commands = []
 
         # Process both batches in parallel for speed using DIRECT inference (not run())
