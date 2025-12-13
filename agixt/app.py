@@ -20,7 +20,6 @@ from endpoints.Provider import app as provider_endpoints
 from endpoints.Auth import app as auth_endpoints
 from endpoints.Health import app as health_endpoints
 from endpoints.Tasks import app as tasks_endpoints
-from endpoints.Legacy import app as legacy_endpoints
 from endpoints.TeslaIntegration import register_tesla_routes
 from endpoints.Webhook import app as webhook_endpoints
 from endpoints.Billing import app as billing_endpoints
@@ -149,7 +148,6 @@ app.include_router(prompt_endpoints)
 app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
 app.include_router(health_endpoints)
-app.include_router(legacy_endpoints)
 app.include_router(webhook_endpoints)
 app.include_router(billing_endpoints)
 
@@ -403,13 +401,3 @@ async def serve_file(
 
 
 register_tesla_routes(app)
-
-from strawberry.fastapi import GraphQLRouter
-from endpoints.GQL import schema
-
-graphql_app = GraphQLRouter(
-    schema=schema,
-    subscription_protocols=["graphql-ws", "graphql-transport-ws"],
-    graphiql=str(getenv("GRAPHIQL")).lower() == "true",
-)
-app.include_router(graphql_app, prefix="/graphql")
