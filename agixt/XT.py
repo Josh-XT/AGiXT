@@ -196,6 +196,8 @@ class AGiXT:
         This runs asynchronously and should be called right after user input is logged.
         The WebSocket will notify the frontend when the rename completes.
 
+        Uses a direct LLM call (bypassing full inference pipeline) for speed.
+
         Args:
             user_input (str): The user's first message in the conversation
         """
@@ -213,23 +215,40 @@ class AGiXT:
             # Get list of existing conversations to avoid duplicates
             conversation_list = c.get_conversations()
 
-            # Use LLM to generate a meaningful name based on user input
-            new_convo = await self.inference(
-                user_input=f"Rename conversation based on: {user_input[:500]}",  # Limit context
-                prompt_name="Name Conversation",
-                conversation_list="\n".join(conversation_list),
-                conversation_results=5,  # Reduced from 10 for speed
-                websearch=False,
-                browse_links=False,
-                voice_response=False,
-                log_user_input=False,
-                log_output=False,
-                conversation_name=self.conversation_name,
-                disable_commands=True,  # Skip command selection for fast rename
+            # Build a simple, direct prompt for naming (bypasses Think About It pattern)
+            naming_prompt = f"""Based on the user's message below, suggest a short, descriptive name for this conversation.
+
+**User's message:**
+{user_input[:500]}
+
+**Existing conversation names to NOT use:**
+{chr(10).join(conversation_list[:20])}
+
+Respond with ONLY a JSON object in this exact format:
+{{"suggested_conversation_name": "Your Suggested Name Here"}}
+
+Rules:
+- Use spaces in the name, not underscores
+- Keep the name short (3-6 words)
+- Make it descriptive of the topic
+- Do not use any name from the existing list above
+- Respond with ONLY the JSON, no explanation"""
+
+            # Direct LLM call - bypasses full inference pipeline for speed
+            new_convo = await self.agent.inference(
+                prompt=naming_prompt,
+                use_smartest=False,
+                stream=False,
             )
 
             # Extract JSON from the response
             try:
+                # Handle potential thinking tags in response (strip them out)
+                if "<answer>" in new_convo:
+                    new_convo = (
+                        new_convo.split("<answer>")[-1].split("</answer>")[0].strip()
+                    )
+
                 if "```json" in new_convo:
                     json_text = new_convo.split("```json")[1].split("```")[0].strip()
                 elif "```" in new_convo:
@@ -245,38 +264,48 @@ class AGiXT:
                 parsed_json = json.loads(json_text)
                 new_name = parsed_json.get("suggested_conversation_name", new_name)
 
-                # Handle duplicate names
+                # Handle duplicate names with a simpler retry
                 if new_name in conversation_list:
-                    new_convo = await self.inference(
-                        user_input=f"**Do not use {new_name}!**",
-                        prompt_name="Name Conversation",
-                        conversation_list="\n".join(conversation_list),
-                        conversation_results=5,
-                        websearch=False,
-                        browse_links=False,
-                        voice_response=False,
-                        log_user_input=False,
-                        log_output=False,
-                        disable_commands=True,  # Skip command selection for fast rename
+                    retry_prompt = f"""The name "{new_name}" is already taken. Suggest a DIFFERENT name.
+
+**User's message:**
+{user_input[:300]}
+
+Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
+
+                    retry_response = await self.agent.inference(
+                        prompt=retry_prompt,
+                        use_smartest=False,
+                        stream=False,
                     )
 
-                    if "```json" in new_convo:
-                        json_text = (
-                            new_convo.split("```json")[1].split("```")[0].strip()
+                    # Handle potential thinking tags
+                    if "<answer>" in retry_response:
+                        retry_response = (
+                            retry_response.split("<answer>")[-1]
+                            .split("</answer>")[0]
+                            .strip()
                         )
-                    elif "```" in new_convo:
-                        json_text = new_convo.split("```")[1].split("```")[0].strip()
+
+                    if "```json" in retry_response:
+                        json_text = (
+                            retry_response.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in retry_response:
+                        json_text = (
+                            retry_response.split("```")[1].split("```")[0].strip()
+                        )
                     else:
-                        json_start = new_convo.find("{")
-                        json_end = new_convo.rfind("}")
+                        json_start = retry_response.find("{")
+                        json_end = retry_response.rfind("}")
                         if (
                             json_start != -1
                             and json_end != -1
                             and json_end > json_start
                         ):
-                            json_text = new_convo[json_start : json_end + 1]
+                            json_text = retry_response[json_start : json_end + 1]
                         else:
-                            raise ValueError("No valid JSON found in second response")
+                            raise ValueError("No valid JSON found in retry response")
 
                     parsed_json = json.loads(json_text)
                     new_name = parsed_json.get("suggested_conversation_name", new_name)
@@ -289,7 +318,10 @@ class AGiXT:
             except Exception as e:
                 logging.error(f"Error parsing conversation name: {e}")
                 if new_convo and isinstance(new_convo, str) and len(new_convo) < 100:
-                    new_name = str(new_convo)
+                    # Try to use as name if it looks reasonable
+                    clean_name = new_convo.strip().strip('"').strip("'")
+                    if len(clean_name) > 3 and len(clean_name) < 80:
+                        new_name = clean_name
 
             # Apply the rename
             c.set_conversation_summary(summary=new_name)
