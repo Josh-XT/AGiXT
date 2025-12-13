@@ -1322,6 +1322,50 @@ class MagicalAuth:
                 return True
         return False
 
+    def check_billing_balance(self):
+        """
+        Pre-check if the user has sufficient token balance before running inference.
+        Raises HTTPException 402 if billing is enabled and balance is insufficient.
+        Should be called before any billable operation (inference, etc).
+        """
+        # Check if billing is enabled
+        price_service = PriceService()
+        token_price = price_service.get_token_price()
+        billing_enabled = token_price > 0
+
+        if not billing_enabled:
+            # Billing is disabled, allow all operations
+            return True
+
+        # Get wallet address for the 402 response
+        wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+
+        session = get_session()
+        try:
+            # Get user's companies
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+
+            # Check if any company has sufficient balance
+            if self._has_sufficient_token_balance(session, user_companies):
+                return True
+
+            # No sufficient balance found - raise 402
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "message": "Insufficient token balance. Please top up your tokens to continue.",
+                    "customer_session": {"client_secret": None},
+                    "wallet_address": wallet_address,
+                    "token_price_per_million_usd": float(token_price),
+                },
+            )
+        finally:
+            session.close()
+
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
@@ -1731,14 +1775,15 @@ class MagicalAuth:
             token_price = 1
         billing_enabled = token_price > 0
 
-        # Separate subscription billing from token billing
-        subscription_billing_enabled = price_value > 0
+        # Token billing is the primary billing model
         token_billing_enabled = token_price > 0
+        # Subscription billing is deprecated but kept for backwards compatibility
+        subscription_billing_enabled = price_value > 0
 
+        # Wallet paywall is enabled when token billing is enabled and wallet address is set
         wallet_paywall_enabled = (
             bool(wallet_address)
             and str(wallet_address).lower() != "none"
-            and price_value > 0
             and token_billing_enabled
         )
         has_active_subscription = False
@@ -1910,7 +1955,7 @@ class MagicalAuth:
                             "message": "Insufficient token balance. Please top up your tokens.",
                             "customer_session": {"client_secret": None},
                             "wallet_address": wallet_address,
-                            "monthly_price_usd": price_value,
+                            "token_price_per_million_usd": float(token_price),
                         },
                     )
         if "email" in user_preferences:
@@ -1939,7 +1984,9 @@ class MagicalAuth:
             user_preferences["missing_requirements"] = missing_requirements
         if wallet_paywall_enabled:
             user_preferences.setdefault("wallet_address", wallet_address)
-            user_preferences.setdefault("monthly_price_usd", price_value)
+            user_preferences.setdefault(
+                "token_price_per_million_usd", float(token_price)
+            )
         session.close()
         return user_preferences
 

@@ -1386,6 +1386,11 @@ class Agent:
     ):
         if not prompt:
             return ""
+
+        # Pre-check billing balance before running inference
+        # This will raise HTTPException 402 if billing is enabled and balance is insufficient
+        self.auth.check_billing_balance()
+
         input_tokens = get_tokens(prompt)
         provider_name = self.AGENT_CONFIG["settings"]["provider"]
 
@@ -1471,6 +1476,10 @@ class Agent:
             return ""
         if not self.VISION_PROVIDER:
             return ""
+
+        # Pre-check billing balance before running inference
+        self.auth.check_billing_balance()
+
         input_tokens = get_tokens(prompt)
         try:
             answer = await self.PROVIDER.inference(
