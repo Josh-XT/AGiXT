@@ -42,13 +42,84 @@ logging.basicConfig(
 webhook_emitter = WebhookEventEmitter()
 
 
+def is_real_answer_tag(response: str, match_start: int) -> bool:
+    """
+    Determine if an <answer> tag at the given position is a real XML tag
+    or just a mention in natural language (e.g., "I'll respond in the <answer> block").
+
+    A real answer tag is typically:
+    1. At the start of the string, OR
+    2. Preceded by a newline (possibly with whitespace), OR
+    3. Preceded by a closing tag like </thinking> or </reflection>
+
+    This is much stricter than trying to detect fake tags by context after the tag.
+
+    Args:
+        response: The full response text
+        match_start: The position where <answer> starts
+
+    Returns:
+        bool: True if this appears to be a real XML tag, False if it's just a mention
+    """
+    # At start of string - real tag
+    if match_start == 0:
+        return True
+
+    # Get text before the tag
+    text_before = response[:match_start]
+
+    # Check if preceded by newline (with optional whitespace)
+    # This matches: \n<answer>, \n  <answer>, etc.
+    stripped_before = text_before.rstrip(" \t")
+    if stripped_before.endswith("\n") or stripped_before.endswith("\r"):
+        return True
+
+    # Check if preceded by a closing tag (like </thinking> or </reflection>)
+    # Allow optional whitespace between closing tag and <answer>
+    closing_tag_pattern = r"</(thinking|reflection|step|execute|output)>\s*$"
+    if re.search(closing_tag_pattern, text_before, re.IGNORECASE):
+        return True
+
+    # Check if preceded by just ">" (end of some other tag)
+    if stripped_before.endswith(">"):
+        return True
+
+    # Otherwise, it's likely just mentioned in text
+    return False
+
+
+def find_real_answer_tags(response: str, tag_type: str = "open") -> list:
+    """
+    Find all real <answer> or </answer> tags in the response,
+    filtering out mentions in natural language.
+
+    Args:
+        response: The full response text
+        tag_type: "open" for <answer>, "close" for </answer>
+
+    Returns:
+        list: List of match positions for real tags
+    """
+    if tag_type == "open":
+        pattern = r"<answer>"
+    else:
+        pattern = r"</answer>"
+
+    positions = []
+    for match in re.finditer(pattern, response, re.IGNORECASE):
+        if tag_type == "close" or is_real_answer_tag(response, match.start()):
+            positions.append(match.start())
+
+    return positions
+
+
 def has_complete_answer(response: str) -> bool:
     """
     Check if the response contains a complete <answer>...</answer> block at the top level
     with meaningful content (not just step/thinking tags).
 
     A complete answer means:
-    1. There is an <answer> tag
+    1. There is an <answer> tag (that's a real XML tag, not just mentioned in text)
     2. There is a matching </answer> tag
     3. The </answer> is NOT inside a <thinking> or <reflection> block
     4. The content inside has actual text after removing step/reward/count tags
@@ -59,6 +130,7 @@ def has_complete_answer(response: str) -> bool:
     - <answer>Some text <thinking>thoughts</thinking> - INCOMPLETE (no closing answer after thinking)
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
     - <answer><step>plan step</step></answer> - NOT COMPLETE (only contains step tags)
+    - <thinking>I'll put my response in the <answer> block</thinking> - NOT an answer (just mentioned in text)
 
     Returns:
         bool: True if there's a complete top-level answer block with meaningful content
@@ -71,13 +143,9 @@ def has_complete_answer(response: str) -> bool:
     if "<answer>" not in response.lower():
         return False
 
-    # Find all answer open/close positions
-    answer_opens = [
-        m.start() for m in re.finditer(r"<answer>", response, re.IGNORECASE)
-    ]
-    answer_closes = [
-        m.start() for m in re.finditer(r"</answer>", response, re.IGNORECASE)
-    ]
+    # Find real answer tags (not just mentions in natural language)
+    answer_opens = find_real_answer_tags(response, "open")
+    answer_closes = find_real_answer_tags(response, "close")
 
     if not answer_opens or not answer_closes:
         return False
@@ -198,6 +266,7 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
     - <answer>Text <thinking>thought</thinking> more</answer> - position after <thinking> IS inside answer
     - <thinking>thoughts</thinking><answer>text - position at end IS inside answer
     - <thinking><answer>text</answer></thinking> - the answer is NOT top-level
+    - <thinking>I'll put response in the <answer> block</thinking> - NOT an answer (just mentioned)
 
     Args:
         response: The full response text
@@ -211,10 +280,15 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
     text_to_check = response[:position]
 
-    # Find all top-level answer opens before this position
+    # Find all top-level answer opens before this position (using real tag detection)
     answer_open_positions = []
     for match in re.finditer(r"<answer>", text_to_check, re.IGNORECASE):
         open_pos = match.start()
+
+        # First check if this is a real tag (not just mentioned in text)
+        if not is_real_answer_tag(response, open_pos):
+            continue
+
         # Check if this answer open is at top level (not inside thinking/reflection)
         text_before = text_to_check[:open_pos]
         thinking_depth = len(
@@ -248,7 +322,6 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
             if next_open == float("inf") and next_close == float("inf"):
                 break
-
             if next_open < next_close:
                 answer_depth += 1
                 pos = next_open + len("<answer>")
@@ -2604,10 +2677,15 @@ Example: If user says "list my files", use:
                 # Yield answer tokens for streaming
                 if in_answer and not is_executing:
                     # Find the TOP-LEVEL answer tag (not inside thinking/reflection)
-                    # Use a helper to find the start of the top-level answer
+                    # Use real tag detection to avoid false positives from mentions in text
                     answer_start = None
                     for match in re.finditer(r"<answer>", full_response, re.IGNORECASE):
                         open_pos = match.start()
+
+                        # Skip if this is not a real tag (just mentioned in text)
+                        if not is_real_answer_tag(full_response, open_pos):
+                            continue
+
                         text_before = full_response[:open_pos]
                         thinking_depth = len(
                             re.findall(r"<thinking>", text_before, re.IGNORECASE)
@@ -2663,11 +2741,24 @@ Example: If user says "list my files", use:
                         if new_answer.endswith(">"):
                             new_answer = new_answer[:-1]
 
-                        # Clean step/reward/count tags from answer content before yielding
+                        # Clean all internal tags from answer content before yielding
+                        # Complete tags
+                        cleaned_new_answer = re.sub(
+                            r"<thinking>.*?</thinking>",
+                            "",
+                            new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
+                        cleaned_new_answer = re.sub(
+                            r"<reflection>.*?</reflection>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
                         cleaned_new_answer = re.sub(
                             r"<step>.*?</step>",
                             "",
-                            new_answer,
+                            cleaned_new_answer,
                             flags=re.DOTALL | re.IGNORECASE,
                         )
                         cleaned_new_answer = re.sub(
@@ -2682,10 +2773,67 @@ Example: If user says "list my files", use:
                             cleaned_new_answer,
                             flags=re.DOTALL | re.IGNORECASE,
                         )
-                        # Also strip partial/unclosed step tags
+                        # Partial/unclosed opening tags at end (tag started but not closed)
                         cleaned_new_answer = re.sub(
-                            r"<step>[^<]*$", "", cleaned_new_answer, flags=re.IGNORECASE
+                            r"<(thinking|reflection|step|reward|count)>[^<]*$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
                         )
+                        # Partial opening tags at end (tag not fully written yet)
+                        cleaned_new_answer = re.sub(
+                            r"<(thinking|reflection|step|reward|count|/thinking|/reflection|/step|/reward|/count)?$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Orphaned closing tags (closing tag without opening)
+                        cleaned_new_answer = re.sub(
+                            r"</(thinking|reflection|step|reward|count)>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Partial closing tags at start (leftover from previous chunk)
+                        cleaned_new_answer = re.sub(
+                            r"^[^<]*</(thinking|reflection|step|reward|count)>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Clean any remaining partial tag fragments at start
+                        cleaned_new_answer = re.sub(
+                            r"^(thinking|reflection|step|reward|count)?>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Clean answer tag fragments at start (e.g., ">" or "nswer>" leftover)
+                        cleaned_new_answer = re.sub(
+                            r"^a?n?s?w?e?r?>[\s]*",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Clean lone ">" at start (leftover from answer tag)
+                        if cleaned_new_answer.startswith(">"):
+                            cleaned_new_answer = cleaned_new_answer[1:].lstrip()
+                        # Clean answer tag fragments at end (e.g., "</ans" or "answer>")
+                        cleaned_new_answer = re.sub(
+                            r"</?a?n?s?w?e?r?>?[\s]*$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Also clean just "answer>" at end (without the </)
+                        cleaned_new_answer = re.sub(
+                            r"a?n?s?w?e?r?>[\s]*$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Strip any remaining whitespace
+                        cleaned_new_answer = cleaned_new_answer.strip()
 
                         if len(cleaned_new_answer) > len(answer_content):
                             delta = cleaned_new_answer[len(answer_content) :]

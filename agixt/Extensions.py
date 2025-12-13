@@ -141,6 +141,7 @@ class Extensions:
         return self.ApiClient.run_chain(
             chain_name=chain_name,
             user_input=user_input,
+            agent_name=self.agent_name,  # Use the current agent executing the chain
             chain_args=kwargs,
         )
 

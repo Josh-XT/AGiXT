@@ -959,7 +959,9 @@ Your response (true or false):"""
                         step_summaries.append(f"{step_label} Output:\n{task}")
         if step_responses:
             response = step_responses[-1]
-            if step_summaries:
+            # Only include step labels/summaries if there are multiple steps
+            # For single-step chains (like commands), just return the clean output
+            if step_summaries and len(step_summaries) > 1:
                 response = "\n\n".join(step_summaries)
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
@@ -3198,6 +3200,9 @@ Your response (true or false):"""
             # This properly handles thinking/reflection tags and streams answer content
             final_answer = ""
 
+            # Track if we've streamed any answer content progressively
+            has_streamed_progressively = False
+
             async for event in self.agent_interactions.run_stream(
                 user_input=new_prompt,
                 prompt_category=prompt_category,
@@ -3223,10 +3228,28 @@ Your response (true or false):"""
                 # Stream answer tokens to the frontend via SSE
                 if event_type == "answer" and content:
                     if is_complete:
-                        # Final answer - we've already streamed it progressively
+                        # Final answer received - store it
                         final_answer = content
+                        # Only send if we haven't been streaming progressively
+                        # This handles command results that return in one shot
+                        if not has_streamed_progressively:
+                            chunk = {
+                                "id": chunk_id,
+                                "object": "chat.completion.chunk",
+                                "created": created_time,
+                                "model": self.agent_name,
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "delta": {"content": content},
+                                        "finish_reason": None,
+                                    }
+                                ],
+                            }
+                            yield f"data: {json.dumps(chunk)}\n\n"
                     else:
                         # Progressive answer streaming - send each token
+                        has_streamed_progressively = True
                         chunk = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
