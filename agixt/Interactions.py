@@ -2167,6 +2167,8 @@ Example: If user says "list my files", use:
         processed_thinking_ids = set()
         in_answer = False
         answer_content = ""
+        thinking_content = ""  # Track streamed thinking content
+        reflection_content = ""  # Track streamed reflection content
         is_executing = False  # Flag to pause streaming during command execution
         remote_command_yielded = (
             False  # Flag to track if remote command was yielded (skip continuation)
@@ -2259,6 +2261,15 @@ Example: If user says "list my files", use:
                     continue
 
                 full_response += token
+
+                # Check for complete answer - stop streaming early if we have a full answer
+                # This prevents the model from continuing to think after providing the answer
+                if has_complete_answer(full_response):
+                    # We have a complete answer - break out of streaming
+                    logging.info(
+                        "[run_stream] Complete answer detected - stopping stream early"
+                    )
+                    break
 
                 # Simple tag state detection based on COMPLETE response
                 # Count open/close tags to determine current state
@@ -2488,6 +2499,116 @@ Example: If user says "list my files", use:
                             "content": reward_content,
                             "complete": True,
                         }
+
+                # Progressive streaming of thinking content (stream as it's generated)
+                if thinking_depth > 0 and not is_executing:
+                    # Find the currently open (incomplete) thinking tag
+                    # Look for the last <thinking> that doesn't have a matching </thinking>
+                    thinking_start = None
+                    for match in re.finditer(
+                        r"<thinking>", full_response, re.IGNORECASE
+                    ):
+                        open_pos = match.end()
+                        text_after = full_response[open_pos:]
+                        # Count opens and closes after this position
+                        opens_after = len(
+                            re.findall(r"<thinking>", text_after, re.IGNORECASE)
+                        )
+                        closes_after = len(
+                            re.findall(r"</thinking>", text_after, re.IGNORECASE)
+                        )
+                        # If there are fewer closes than opens+1, this tag is still open
+                        if closes_after <= opens_after:
+                            thinking_start = open_pos
+                            # Don't break - we want the LAST unclosed one
+
+                    if thinking_start is not None:
+                        new_thinking = full_response[thinking_start:]
+                        # Truncate at </thinking> if present
+                        close_match = re.search(
+                            r"</thinking>", new_thinking, re.IGNORECASE
+                        )
+                        if close_match:
+                            new_thinking = new_thinking[: close_match.start()]
+                        # Also handle partial closing tags
+                        partial_close = re.search(
+                            r"</?t?h?i?n?k?i?n?g?>?$", new_thinking, re.IGNORECASE
+                        )
+                        if partial_close and partial_close.group().startswith("<"):
+                            new_thinking = new_thinking[: partial_close.start()]
+                        # Clean up
+                        if new_thinking.startswith(">"):
+                            new_thinking = new_thinking[1:]
+
+                        # Stream the delta
+                        if len(new_thinking) > len(thinking_content):
+                            delta = new_thinking[len(thinking_content) :]
+                            if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
+                                yield {
+                                    "type": "thinking_stream",
+                                    "content": delta,
+                                    "complete": False,
+                                }
+                            thinking_content = new_thinking
+                    else:
+                        # Reset tracking when we exit thinking
+                        thinking_content = ""
+
+                # Progressive streaming of reflection content (stream as it's generated)
+                if reflection_depth > 0 and not is_executing:
+                    # Find the currently open (incomplete) reflection tag
+                    reflection_start = None
+                    for match in re.finditer(
+                        r"<reflection>", full_response, re.IGNORECASE
+                    ):
+                        open_pos = match.end()
+                        text_after = full_response[open_pos:]
+                        opens_after = len(
+                            re.findall(r"<reflection>", text_after, re.IGNORECASE)
+                        )
+                        closes_after = len(
+                            re.findall(r"</reflection>", text_after, re.IGNORECASE)
+                        )
+                        if closes_after <= opens_after:
+                            reflection_start = open_pos
+
+                    if reflection_start is not None:
+                        new_reflection = full_response[reflection_start:]
+                        # Truncate at </reflection> if present
+                        close_match = re.search(
+                            r"</reflection>", new_reflection, re.IGNORECASE
+                        )
+                        if close_match:
+                            new_reflection = new_reflection[: close_match.start()]
+                        # Handle partial closing tags
+                        partial_close = re.search(
+                            r"</?r?e?f?l?e?c?t?i?o?n?>?$", new_reflection, re.IGNORECASE
+                        )
+                        if partial_close and partial_close.group().startswith("<"):
+                            new_reflection = new_reflection[: partial_close.start()]
+                        # Clean up
+                        if new_reflection.startswith(">"):
+                            new_reflection = new_reflection[1:]
+
+                        # Stream the delta
+                        if len(new_reflection) > len(reflection_content):
+                            delta = new_reflection[len(reflection_content) :]
+                            if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
+                                yield {
+                                    "type": "reflection_stream",
+                                    "content": delta,
+                                    "complete": False,
+                                }
+                            reflection_content = new_reflection
+                    else:
+                        # Reset tracking when we exit reflection
+                        reflection_content = ""
+
+                # Reset thinking/reflection content tracking when tags close
+                if thinking_depth == 0 and thinking_content:
+                    thinking_content = ""
+                if reflection_depth == 0 and reflection_content:
+                    reflection_content = ""
 
                 # Yield answer tokens for streaming
                 if in_answer and not is_executing:
