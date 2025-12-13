@@ -2262,15 +2262,6 @@ Example: If user says "list my files", use:
 
                 full_response += token
 
-                # Check for complete answer - stop streaming early if we have a full answer
-                # This prevents the model from continuing to think after providing the answer
-                if has_complete_answer(full_response):
-                    # We have a complete answer - break out of streaming
-                    logging.info(
-                        "[run_stream] Complete answer detected - stopping stream early"
-                    )
-                    break
-
                 # Simple tag state detection based on COMPLETE response
                 # Count open/close tags to determine current state
                 def get_tag_depth(text, tag_name):
@@ -2707,6 +2698,15 @@ Example: If user says "list my files", use:
                                         "complete": False,
                                     }
                             answer_content = cleaned_new_answer
+
+                # Check for complete answer - stop streaming early if we have a full answer
+                # This prevents the model from continuing to think after providing the answer
+                # IMPORTANT: This check must be AFTER the streaming logic so the final answer content is yielded
+                if has_complete_answer(full_response):
+                    logging.info(
+                        "[run_stream] Complete answer detected - stopping stream early"
+                    )
+                    break
 
         except Exception as e:
             logging.error(f"Error during streaming: {e}")

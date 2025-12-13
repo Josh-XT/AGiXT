@@ -225,6 +225,7 @@ class AGiXT:
                 log_user_input=False,
                 log_output=False,
                 conversation_name=self.conversation_name,
+                disable_commands=True,  # Skip command selection for fast rename
             )
 
             # Extract JSON from the response
@@ -256,6 +257,7 @@ class AGiXT:
                         voice_response=False,
                         log_user_input=False,
                         log_output=False,
+                        disable_commands=True,  # Skip command selection for fast rename
                     )
 
                     if "```json" in new_convo:
