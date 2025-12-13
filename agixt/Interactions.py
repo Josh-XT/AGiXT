@@ -44,21 +44,24 @@ webhook_emitter = WebhookEventEmitter()
 
 def has_complete_answer(response: str) -> bool:
     """
-    Check if the response contains a complete <answer>...</answer> block at the top level.
+    Check if the response contains a complete <answer>...</answer> block at the top level
+    with meaningful content (not just step/thinking tags).
 
     A complete answer means:
     1. There is an <answer> tag
     2. There is a matching </answer> tag
     3. The </answer> is NOT inside a <thinking> or <reflection> block
+    4. The content inside has actual text after removing step/reward/count tags
 
     This handles edge cases like:
     - <answer>Some text <thinking>thoughts</thinking> more text</answer> - COMPLETE (thinking is inside answer)
     - <answer>Some text</answer> - COMPLETE
     - <answer>Some text <thinking>thoughts</thinking> - INCOMPLETE (no closing answer after thinking)
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
+    - <answer><step>plan step</step></answer> - NOT COMPLETE (only contains step tags)
 
     Returns:
-        bool: True if there's a complete top-level answer block
+        bool: True if there's a complete top-level answer block with meaningful content
     """
     # First, quick check - if no </answer> at all, definitely incomplete
     if "</answer>" not in response.lower():
@@ -140,7 +143,33 @@ def has_complete_answer(response: str) -> bool:
                 answer_depth -= 1
                 if answer_depth == 0:
                     # This is the matching close for our top-level answer
-                    return True
+                    # Extract the answer content and check if it has meaningful text
+                    answer_content = text_after_open[:next_close]
+                    
+                    # Clean out step/reward/count/thinking/reflection tags
+                    cleaned_content = re.sub(
+                        r"<step>.*?</step>", "", answer_content, flags=re.DOTALL | re.IGNORECASE
+                    )
+                    cleaned_content = re.sub(
+                        r"<reward>.*?</reward>", "", cleaned_content, flags=re.DOTALL | re.IGNORECASE
+                    )
+                    cleaned_content = re.sub(
+                        r"<count>.*?</count>", "", cleaned_content, flags=re.DOTALL | re.IGNORECASE
+                    )
+                    cleaned_content = re.sub(
+                        r"<thinking>.*?</thinking>", "", cleaned_content, flags=re.DOTALL | re.IGNORECASE
+                    )
+                    cleaned_content = re.sub(
+                        r"<reflection>.*?</reflection>", "", cleaned_content, flags=re.DOTALL | re.IGNORECASE
+                    )
+                    cleaned_content = cleaned_content.strip()
+                    
+                    # Only consider it complete if there's actual content
+                    if cleaned_content:
+                        return True
+                    else:
+                        # Answer only contained step/thinking tags, not a real answer
+                        continue
                 pos = next_close + len("</answer>")
 
     return False
@@ -300,9 +329,13 @@ class Interactions:
         conversation_name="",
         vision_response: str = "",
         selected_commands: list = None,
-        max_context_tokens: int = 16000,
+        max_context_tokens: int = None,
         **kwargs,
     ):
+        # Use agent's max_input_tokens as default for context limit
+        # Reserve some tokens for the response (about 25% of max)
+        if max_context_tokens is None:
+            max_context_tokens = int(self.agent.max_input_tokens * 0.75)
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
@@ -896,8 +929,25 @@ class Interactions:
                         "content": reward_content,
                     }
 
-        # Log only unique thoughts
-        for thought in unique_thoughts.values():
+        # Combine all step tags into a single thought
+        step_contents = []
+        non_step_thoughts = {}
+        for key, thought in unique_thoughts.items():
+            if thought["tag_name"] == "step":
+                step_contents.append(thought["content"])
+            else:
+                non_step_thoughts[key] = thought
+
+        # If we have steps, combine them into a single thinking entry
+        if step_contents:
+            combined_steps = "\n".join(f"- {step}" for step in step_contents)
+            non_step_thoughts["combined_steps"] = {
+                "tag_name": "thinking",
+                "content": combined_steps,
+            }
+
+        # Log only unique thoughts (now with combined steps)
+        for thought in non_step_thoughts.values():
             tag_name = str(thought["tag_name"]).lower()
             content = thought["content"]
             content = re.sub(r"\. ", ".\n", content, count=1)
@@ -925,6 +975,103 @@ class Interactions:
                 self._processed_tags.add(tag_identifier)
 
         return response
+
+    def compress_response_for_continuation(
+        self,
+        response: str,
+        max_output_lines: int = 20,
+        max_thinking_chars: int = 500,
+    ) -> str:
+        """
+        Compress a response for continuation prompts to prevent context explosion.
+        
+        This function:
+        1. Summarizes long <output> blocks (keep first/last lines)
+        2. Truncates verbose thinking/reflection blocks
+        3. Preserves <execute> blocks intact (needed for tracking what was executed)
+        4. Preserves answer content intact
+        
+        Args:
+            response: The full response to compress
+            max_output_lines: Maximum lines to keep per output block
+            max_thinking_chars: Maximum characters to keep per thinking block
+            
+        Returns:
+            Compressed response suitable for continuation context
+        """
+        compressed = response
+        
+        # 1. Compress <output> blocks - these tend to be the biggest culprits
+        output_pattern = r'<output>(.*?)</output>'
+        
+        def compress_output(match):
+            content = match.group(1).strip()
+            lines = content.split('\n')
+            
+            if len(lines) <= max_output_lines:
+                return match.group(0)  # Keep as-is if short enough
+            
+            # Keep first few and last few lines with a summary in between
+            keep_start = max_output_lines // 2
+            keep_end = max_output_lines // 2
+            
+            compressed_lines = lines[:keep_start]
+            compressed_lines.append(f"\n... [{len(lines) - max_output_lines} lines omitted for brevity] ...\n")
+            compressed_lines.extend(lines[-keep_end:])
+            
+            return f"<output>{chr(10).join(compressed_lines)}</output>"
+        
+        compressed = re.sub(output_pattern, compress_output, compressed, flags=re.DOTALL | re.IGNORECASE)
+        
+        # 2. Compress <thinking> blocks - keep the essence but not verbose detail
+        thinking_pattern = r'<thinking>(.*?)</thinking>'
+        
+        def compress_thinking(match):
+            content = match.group(1).strip()
+            
+            if len(content) <= max_thinking_chars:
+                return match.group(0)
+            
+            # Keep first part and note that it was truncated
+            truncated = content[:max_thinking_chars]
+            # Try to cut at a sentence boundary
+            last_period = truncated.rfind('.')
+            if last_period > max_thinking_chars * 0.7:
+                truncated = truncated[:last_period + 1]
+            
+            return f"<thinking>{truncated} [thinking truncated for brevity]</thinking>"
+        
+        compressed = re.sub(thinking_pattern, compress_thinking, compressed, flags=re.DOTALL | re.IGNORECASE)
+        
+        # 3. Compress <reflection> blocks similarly
+        reflection_pattern = r'<reflection>(.*?)</reflection>'
+        
+        def compress_reflection(match):
+            content = match.group(1).strip()
+            
+            if len(content) <= max_thinking_chars:
+                return match.group(0)
+            
+            truncated = content[:max_thinking_chars]
+            last_period = truncated.rfind('.')
+            if last_period > max_thinking_chars * 0.7:
+                truncated = truncated[:last_period + 1]
+            
+            return f"<reflection>{truncated} [reflection truncated]</reflection>"
+        
+        compressed = re.sub(reflection_pattern, compress_reflection, compressed, flags=re.DOTALL | re.IGNORECASE)
+        
+        # 4. Remove <step> tags entirely from continuation context - they're internal
+        compressed = re.sub(r'<step>.*?</step>', '', compressed, flags=re.DOTALL | re.IGNORECASE)
+        
+        # 5. Remove <reward> and <count> tags
+        compressed = re.sub(r'<reward>.*?</reward>', '', compressed, flags=re.DOTALL | re.IGNORECASE)
+        compressed = re.sub(r'<count>.*?</count>', '', compressed, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Clean up any excessive whitespace left behind
+        compressed = re.sub(r'\n{3,}', '\n\n', compressed)
+        
+        return compressed.strip()
 
     async def reduce_context(
         self,
@@ -1904,9 +2051,15 @@ Web Search, Read File, Write to File, Execute Python Code"""
                     new_processed_length = len(self.response)
                     if new_processed_length > processed_length:
                         # Get continuation only if we got new content
-                        # Make the context about command execution clearer
+                        # Compress response to prevent context explosion
+                        compressed_response = self.compress_response_for_continuation(
+                            self.response[:processed_length],
+                            max_output_lines=20,
+                            max_thinking_chars=500,
+                        )
                         command_output = self.response[processed_length:].strip()
-                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response[:processed_length]}\n\nCommand executed with output: {command_output}\n\nThe assistant should continue its thought process based on this command output..."
+                        # Keep recent command output but compress older response
+                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nCommand executed with output: {command_output}\n\nThe assistant should continue its thought process based on this command output..."
                         command_response = await self.agent.inference(
                             prompt=new_prompt, use_smartest=use_smartest
                         )
@@ -1947,7 +2100,13 @@ Web Search, Read File, Write to File, Execute Python Code"""
 
                     if new_processed_length > processed_length:
                         # Only continue if we actually got new content
-                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
+                        # Compress response to prevent context explosion
+                        compressed_response = self.compress_response_for_continuation(
+                            self.response,
+                            max_output_lines=20,
+                            max_thinking_chars=500,
+                        )
+                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
                         command_response = await self.agent.inference(
                             prompt=new_prompt, use_smartest=use_smartest
                         )
@@ -3016,7 +3175,9 @@ Example: If user says "list my files", use:
                             }
 
                 # Process standalone <step> tags outside thinking/reflection (treat as thinking steps)
+                # Collect all steps to combine them into a single thought
                 step_pattern = r"<step>(.*?)</step>"
+                collected_steps = []
                 for match in re.finditer(
                     step_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
@@ -3050,15 +3211,20 @@ Example: If user says "list my files", use:
                     )
                     cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
 
-                    if cleaned_step and not is_executing:
-                        log_msg = f"[SUBACTIVITY][STEP] {cleaned_step}"
-                        c.log_interaction(role=self.agent_name, message=log_msg)
+                    if cleaned_step:
+                        collected_steps.append(cleaned_step)
 
-                        yield {
-                            "type": "step",
-                            "content": cleaned_step,
-                            "complete": True,
-                        }
+                # Log all collected steps as a single combined thought
+                if collected_steps and not is_executing:
+                    combined_steps = "\n".join(f"- {step}" for step in collected_steps)
+                    log_msg = f"[SUBACTIVITY][THOUGHT] {combined_steps}"
+                    c.log_interaction(role=self.agent_name, message=log_msg)
+
+                    yield {
+                        "type": "thinking",
+                        "content": combined_steps,
+                        "complete": True,
+                    }
 
                 # Process standalone <reward> tags outside containers (log as score)
                 reward_pattern = r"<reward>(.*?)</reward>"
@@ -3119,6 +3285,10 @@ Example: If user says "list my files", use:
 
                     if answer_start is not None:
                         new_answer = full_response[answer_start:]
+                        
+                        # Debug: log what we're extracting
+                        if len(new_answer) < 100:
+                            logging.debug(f"[answer_extract] raw new_answer: {repr(new_answer)}")
 
                         # Check if </answer> appears - if so, truncate before it
                         close_tag_match = re.search(
@@ -3128,6 +3298,7 @@ Example: If user says "list my files", use:
                             new_answer = new_answer[: close_tag_match.start()]
                         else:
                             # Also check for partial closing tags at the end (e.g., "</", "</ans", etc.)
+                            # Match any partial </answer> pattern
                             partial_close_match = re.search(
                                 r"</?a?n?s?w?e?r?>?$", new_answer, re.IGNORECASE
                             )
@@ -3137,8 +3308,36 @@ Example: If user says "list my files", use:
                             ):
                                 new_answer = new_answer[: partial_close_match.start()]
 
-                        if len(new_answer) > len(answer_content):
-                            delta = new_answer[len(answer_content) :]
+                        # Clean any leading ">" that might be from the opening <answer> tag
+                        # This can happen if we start extracting mid-tag
+                        if new_answer.startswith(">"):
+                            new_answer = new_answer[1:]
+                        # Also strip leading whitespace after tag cleanup
+                        new_answer = new_answer.lstrip()
+                        
+                        # Clean any trailing partial tag fragments like "answer>" or just ">"
+                        new_answer = re.sub(r'a?n?s?w?e?r?>$', '', new_answer, flags=re.IGNORECASE)
+                        # Also strip trailing ">" that might be from partial tag
+                        if new_answer.endswith(">"):
+                            new_answer = new_answer[:-1]
+
+                        # Clean step/reward/count tags from answer content before yielding
+                        cleaned_new_answer = re.sub(
+                            r"<step>.*?</step>", "", new_answer, flags=re.DOTALL | re.IGNORECASE
+                        )
+                        cleaned_new_answer = re.sub(
+                            r"<reward>.*?</reward>", "", cleaned_new_answer, flags=re.DOTALL | re.IGNORECASE
+                        )
+                        cleaned_new_answer = re.sub(
+                            r"<count>.*?</count>", "", cleaned_new_answer, flags=re.DOTALL | re.IGNORECASE
+                        )
+                        # Also strip partial/unclosed step tags
+                        cleaned_new_answer = re.sub(
+                            r"<step>[^<]*$", "", cleaned_new_answer, flags=re.IGNORECASE
+                        )
+
+                        if len(cleaned_new_answer) > len(answer_content):
+                            delta = cleaned_new_answer[len(answer_content) :]
                             # Skip if it looks like an opening tag pattern (thinking, reflection, etc.)
                             if not re.match(r"^\s*<[a-zA-Z]", delta):
                                 if delta:
@@ -3147,7 +3346,7 @@ Example: If user says "list my files", use:
                                         "content": delta,
                                         "complete": False,
                                     }
-                            answer_content = new_answer
+                            answer_content = cleaned_new_answer
 
         except Exception as e:
             logging.error(f"Error during streaming: {e}")
@@ -3199,12 +3398,35 @@ Example: If user says "list my files", use:
                 "<answer>" in self.response.lower()
                 and not has_complete_answer(self.response)
             )
+            # Also check if there's NO answer at all - we need to prompt for one
+            has_no_answer = "<answer>" not in self.response.lower()
 
-            if not has_new_execution and not has_incomplete_answer:
-                # No execution and no incomplete answer - agent didn't finish properly or gave up
+            logging.info(f"[continuation_loop] count={continuation_count}, has_new_execution={has_new_execution}, has_incomplete_answer={has_incomplete_answer}, has_no_answer={has_no_answer}, has_complete={has_complete_answer(self.response)}")
+
+            # Continue if: new execution, incomplete answer, OR no answer at all (need to prompt for one)
+            should_continue = has_new_execution or has_incomplete_answer or has_no_answer
+
+            if not should_continue:
+                # Has a complete answer or nothing more to do
+                logging.info("[continuation_loop] Breaking: has complete answer or nothing to continue")
                 break
 
             continuation_count += 1
+            logging.info(f"[continuation_loop] Continuing iteration {continuation_count}")
+
+            # Compress the response to prevent context explosion
+            # This summarizes long outputs and truncates verbose thinking
+            compressed_response = self.compress_response_for_continuation(
+                self.response,
+                max_output_lines=20,  # Keep 20 lines max per output
+                max_thinking_chars=500,  # Keep 500 chars max per thinking block
+            )
+            
+            # Log compression stats
+            original_tokens = get_tokens(self.response)
+            compressed_tokens = get_tokens(compressed_response)
+            if original_tokens > compressed_tokens:
+                logging.info(f"[continuation_loop] Compressed response: {original_tokens} -> {compressed_tokens} tokens ({100 - (compressed_tokens * 100 // original_tokens)}% reduction)")
 
             if has_new_execution:
 
@@ -3237,6 +3459,7 @@ Example: If user says "list my files", use:
                 # The response now has real command output in <output> tags
                 # CRITICAL: Tell the model this is a NEW inference turn where it should
                 # analyze the actual command output, NOT continue generating from before
+                # Use COMPRESSED response to prevent context explosion
                 continuation_prompt = f"""{fresh_formatted_prompt}
 
 ## Command Execution Complete
@@ -3246,7 +3469,7 @@ DO NOT hallucinate or make up what the command output should be - the real outpu
 Analyze the actual output shown and continue with your response.
 
 ### Previous Assistant Response (with real command outputs):
-{self.response}
+{compressed_response}
 
 ### Instructions:
 1. READ the actual <output> content above - this is the REAL command result
@@ -3255,7 +3478,7 @@ Analyze the actual output shown and continue with your response.
 4. If you need to execute more commands, you may do so
 """
             else:
-                # Incomplete answer - prompt to continue (also get fresh context)
+                # Incomplete answer or no answer - prompt to continue/provide answer
                 # IMPORTANT: Pass selected_commands to maintain the filtered command set
                 fresh_formatted_prompt, _, _ = await self.format_prompt(
                     user_input=user_input,
@@ -3274,7 +3497,15 @@ Analyze the actual output shown and continue with your response.
                         self.outputs,
                         f"http://localhost:7437/outputs/{self.agent.agent_id}",
                     )
-                continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+                
+                if has_no_answer:
+                    # No answer block at all - prompt to provide one
+                    # Use compressed response to prevent context explosion
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant has completed thinking and command execution but has not yet provided a final answer to the user. Now provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
+                else:
+                    # Incomplete answer - prompt to continue
+                    # Use compressed response to prevent context explosion
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
 
             try:
                 # Run FRESH inference with stream=True
@@ -3421,6 +3652,10 @@ Analyze the actual output shown and continue with your response.
                             continuation_current_tag = None
                             continuation_current_tag_content = ""
                             continuation_current_tag_message_id = None  # Reset
+                    
+                    # Break out of stream loop if we're breaking for execution
+                    if broke_for_execution:
+                        break
 
                     # Stream progressive content for current tag
                     if continuation_current_tag and continuation_current_tag in (
@@ -3490,14 +3725,23 @@ Analyze the actual output shown and continue with your response.
 
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
+                
+                logging.info(f"[continuation_loop] After iteration {continuation_count}: continuation_response length={len(continuation_response)}, total response length={len(self.response)}, has_complete={has_complete_answer(self.response)}, has_answer_tag={'<answer>' in self.response.lower()}")
 
                 # If we got a COMPLETE answer (properly closed, not inside thinking), we're done
                 # Use has_complete_answer to handle edge cases like <thinking> inside <answer>
                 if has_complete_answer(self.response):
+                    logging.info("[continuation_loop] Breaking: got complete answer")
                     break
 
                 # If we hit an execute tag, continue loop to handle it
                 if "</execute>" in continuation_response:
+                    logging.info("[continuation_loop] Continuing: new execute tag found")
+                    continue
+                
+                # If we still don't have an answer, continue to prompt for one
+                if "<answer>" not in self.response.lower():
+                    logging.info("[continuation_loop] Continuing: still no answer tag in response")
                     continue
 
             except Exception as e:
@@ -3506,6 +3750,9 @@ Analyze the actual output shown and continue with your response.
 
                 logging.error(traceback.format_exc())
                 break
+        
+        # Log why we exited the loop
+        logging.info(f"[continuation_loop] Exited loop: count={continuation_count}, max={max_continuation_loops}, has_complete={has_complete_answer(self.response)}, has_answer={'<answer>' in self.response.lower()}")
 
         # Extract final answer
         final_answer = ""
@@ -3539,6 +3786,17 @@ Analyze the actual output shown and continue with your response.
         )
         final_answer = re.sub(
             r"<output>.*?</output>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove <step> tags from answer - these are thinking artifacts
+        final_answer = re.sub(
+            r"<step>.*?</step>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove <reward> and <count> tags
+        final_answer = re.sub(
+            r"<reward>.*?</reward>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        final_answer = re.sub(
+            r"<count>.*?</count>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
         final_answer = final_answer.strip()
 

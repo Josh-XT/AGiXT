@@ -419,18 +419,28 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         line_end: str,
     ) -> str:
         """
-        Read a file in the workspace, optionally reading only specific line ranges
+        Read a file in the workspace, optionally reading only specific line ranges.
+        
+        **IMPORTANT**: This command returns a maximum of 100 lines at a time to manage context size.
+        If a file is larger than 100 lines, it will be truncated and you will need to make additional
+        calls with different line ranges to see the full content.
 
         Args:
         filename (str): The name of the file to read
         line_start (int): The starting line number (1-indexed). If "None", starts from beginning
-        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end
+        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end (max 100 lines)
 
         Returns:
         str: The content of the file or specified line range
 
-        Notes: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access. The user can browse the agents workspace by clicking the folder icon in their chat input bar.
+        Notes: 
+        - This command will only work in the agent's designated workspace
+        - The agent's workspace may contain files uploaded by the user or files saved by the agent
+        - The user can browse the agents workspace by clicking the folder icon in their chat input bar
+        - For large files or data analysis, consider using Execute Python Code to extract specific information
+        - For CSV/data files, use Execute Python Code with pandas to analyze data efficiently
         """
+        MAX_LINES = 100  # Maximum lines to return per read
         try:
             line_start = int(line_start)
         except:
@@ -442,34 +452,61 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         try:
             filepath = self.safe_join(filename)
 
-            # Read the entire file or specific lines
+            # Read the file lines
             with open(filepath, "r", encoding="utf-8") as f:
-                if line_start is None and line_end is None:
-                    # Read entire file
-                    content = f.read()
-                else:
-                    # Read specific line range
-                    lines = f.readlines()
-                    total_lines = len(lines)
-
-                    # Convert to 0-indexed and handle bounds
-                    start_idx = 0 if line_start is None else max(0, line_start - 1)
-                    end_idx = (
-                        total_lines if line_end is None else min(total_lines, line_end)
-                    )
-
-                    # Extract the requested lines
-                    selected_lines = lines[start_idx:end_idx]
-                    content = "".join(selected_lines)
-
-                    # Add line number information if reading a range
-                    if line_start is not None or line_end is not None:
-                        actual_start = start_idx + 1
-                        actual_end = min(end_idx, total_lines)
-                        header = f"Lines {actual_start}-{actual_end} of {total_lines} total lines:\\n"
-                        content = header + "=" * 40 + "\\n" + content
-
-            return content
+                lines = f.readlines()
+            
+            total_lines = len(lines)
+            
+            # Determine start and end indices
+            start_idx = 0 if line_start is None else max(0, line_start - 1)
+            
+            if line_end is None:
+                # No end specified - read from start up to MAX_LINES
+                end_idx = min(start_idx + MAX_LINES, total_lines)
+            else:
+                # End specified - respect it but cap at MAX_LINES from start
+                requested_end = min(total_lines, line_end)
+                end_idx = min(start_idx + MAX_LINES, requested_end)
+            
+            # Extract the requested lines
+            selected_lines = lines[start_idx:end_idx]
+            content = "".join(selected_lines)
+            
+            # Calculate actual line numbers (1-indexed)
+            actual_start = start_idx + 1
+            actual_end = start_idx + len(selected_lines)
+            lines_returned = len(selected_lines)
+            
+            # Build header with line information
+            header = f"Lines {actual_start}-{actual_end} of {total_lines} total lines:\n"
+            header += "=" * 40 + "\n"
+            
+            # Check if content was truncated
+            was_truncated = False
+            if line_end is None and actual_end < total_lines:
+                # Reading from start with no end specified - truncated at MAX_LINES
+                was_truncated = True
+            elif line_end is not None and actual_end < line_end and actual_end < total_lines:
+                # Requested range was larger than MAX_LINES
+                was_truncated = True
+            
+            # Build footer with truncation notice and guidance
+            footer = ""
+            if was_truncated:
+                remaining_lines = total_lines - actual_end
+                next_start = actual_end + 1
+                footer = "\n" + "=" * 40 + "\n"
+                footer += f"**TRUNCATED**: Output limited to {MAX_LINES} lines. "
+                footer += f"Showing lines {actual_start}-{actual_end} of {total_lines} total.\n"
+                footer += f"- To see more, use Read File with line_start={next_start} ({remaining_lines} lines remaining)\n"
+                footer += f"- For data files (CSV, JSON, etc.), consider using Execute Python Code to:\n"
+                footer += f"  - Load and analyze data with pandas: `pd.read_csv('{filename}')`\n"
+                footer += f"  - Extract specific columns or rows\n"
+                footer += f"  - Get summary statistics with `.describe()` or `.info()`\n"
+                footer += f"  - Filter data to find specific information\n"
+            
+            return header + content + footer
         except Exception as e:
             return f"Error: {str(e)}"
 
@@ -837,6 +874,21 @@ print(output)
         - Files you create are immediately accessible to users via download links
         - Use standard Python file operations: open(), pandas.read_csv(), PIL.Image.open(), etc.
 
+        **CRITICAL: Working with Uploaded Spreadsheets:**
+        - XLSX files are automatically converted to CSV format - ALWAYS use the .csv version with pd.read_csv()
+        - NEVER use pd.read_csv() on .xlsx files - it will fail with encoding errors
+        - List files first: `import os; print([f for f in os.listdir('.') if f.endswith('.csv')])`
+        - Always inspect data structure BEFORE selecting columns:
+          ```python
+          df = pd.read_csv('filename.csv')
+          print("Columns:", df.columns.tolist())
+          print("Shape:", df.shape)
+          print(df.head())
+          ```
+        - Column names vs row values: If data has a "Reaction" or "Name" column, those VALUES are not column names!
+          Example: If df has columns ['Reaction', 'Control', 'Treatment'] and Reaction contains ['ATP', 'NADPH'],
+          to get ATP data: `df[df['Reaction'] == 'ATP']` NOT `df['ATP']`
+
         **Multi-File Operations:**
         - Process entire directories of files at once
         - Combine data from multiple sources automatically
@@ -874,6 +926,7 @@ print(output)
         - Study schedules and optimization problems
 
         **Code Best Practices:**
+        - Always print df.columns.tolist() first when working with dataframes
         - Always end with a print() statement showing results to the user
         - Save important outputs as files for user download
         - Include data visualizations when appropriate
