@@ -1304,10 +1304,14 @@ Your response (true or false):"""
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, collection_id, file_name)
             )
-        if not file_path.startswith(self.agent_workspace):
-            file_path = os.path.normpath(
-                os.path.join(self.agent_workspace, collection_id, file_name)
-            )
+        abs_workspace = os.path.abspath(self.agent_workspace)
+        abs_file_path = os.path.abspath(os.path.normpath(
+            os.path.join(self.agent_workspace, collection_id, file_name)
+        ))
+        # Ensure file path stays within the workspace directory
+        if not abs_file_path.startswith(abs_workspace + os.sep):
+            raise Exception("Invalid file path: attempt to access outside of the workspace.")
+        file_path = abs_file_path
         file_type = file_name.split(".")[-1]
         action_verb = "Learning" if save_to_memory else "Saving"
         action_location = "to memory" if save_to_memory else "to workspace"
@@ -1528,8 +1532,9 @@ Your response (true or false):"""
                 )
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            fp = os.path.normpath(file_path)
-            if fp.startswith(self.agent_workspace):
+            abs_workspace = os.path.abspath(self.agent_workspace)
+            fp = os.path.abspath(os.path.normpath(file_path))
+            if fp.startswith(abs_workspace + os.sep):
                 try:
                     with open(fp, "r") as f:
                         content = f.read()
