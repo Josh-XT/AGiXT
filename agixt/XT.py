@@ -1607,6 +1607,15 @@ Your response (true or false):"""
             # Learning to memory - return simple success message
             return response
 
+        # For images with vision content, return the vision description (it's already concise)
+        # The vision response is essential context for the agent to respond about the image
+        image_types = ["jpg", "jpeg", "png", "gif", "webp", "tiff", "bmp", "svg"]
+        if file_type in image_types and file_content:
+            logging.info(
+                f"Image {file_name} - returning vision response content ({get_tokens(file_content)} tokens)"
+            )
+            return file_content
+
         # Chat completions - return metadata and instructions instead of full file content
         # This keeps context manageable and the agent can use commands to access files
         if file_content:
@@ -1704,6 +1713,17 @@ Your response (true or false):"""
             str: URL of the downloaded file
         """
         try:
+            # Check if URL already points to the same conversation workspace - skip re-downloading
+            if self.outputs and self.conversation_id:
+                workspace_prefix = f"{self.outputs}/{self.conversation_id}/"
+                if url.startswith(workspace_prefix):
+                    # File already exists in this conversation's workspace, no need to re-download
+                    existing_file_name = url[len(workspace_prefix) :]
+                    logging.info(
+                        f"File already in workspace, skipping download: {existing_file_name}"
+                    )
+                    return {"file_name": existing_file_name, "file_url": url}
+
             if url.startswith("data:"):
                 file_type = url.split(",")[0].split("/")[1].split(";")[0]
             else:
@@ -2180,8 +2200,73 @@ Your response (true or false):"""
                 running_command = message["running_command"]
             if "content" not in message:
                 continue
+            role = message["role"] if "role" in message else "User"
+            # Handle tool result messages - treat as context for continuing conversation
+            if role.lower() == "tool":
+                tool_call_id = message.get("tool_call_id", "unknown")
+                tool_content = message["content"]
+                if isinstance(tool_content, str):
+                    # Add tool result as prompt content - agent should respond based on this
+                    new_prompt += f"{tool_content}\n\n"
+                elif isinstance(tool_content, list):
+                    # Handle multipart tool results (text + images)
+                    for part in tool_content:
+                        if isinstance(part, dict):
+                            if "text" in part:
+                                new_prompt += f"{part['text']}\n\n"
+                            # Process file type parts
+                            await self._process_file_type_message(part, files)
+                            # Process image_url type parts (from ESP32 camera, etc)
+                            if part.get("type") == "image_url" and "image_url" in part:
+                                img_url_data = part["image_url"]
+                                url = (
+                                    img_url_data.get("url", "")
+                                    if isinstance(img_url_data, dict)
+                                    else str(img_url_data)
+                                )
+                                if url:
+                                    agent_id = (
+                                        self.agent.agent_id if self.agent else None
+                                    )
+                                    # Check if this is a workspace URL missing agent_id
+                                    # Pattern: /outputs/{conversation_id}/{filename} -> needs agent_id
+                                    if "/outputs/" in url and agent_id:
+                                        # Extract path after /outputs/
+                                        outputs_idx = url.find("/outputs/")
+                                        path_after_outputs = url[
+                                            outputs_idx + 9 :
+                                        ]  # After "/outputs/"
+                                        parts = path_after_outputs.split("/")
+                                        # If only 2 parts (conversation_id/filename), insert agent_id
+                                        if (
+                                            len(parts) == 2
+                                            and parts[0] == self.conversation_id
+                                        ):
+                                            # Reconstruct with agent_id
+                                            base_url = url[:outputs_idx]
+                                            url = f"{base_url}/outputs/{agent_id}/{path_after_outputs}"
+                                            logging.info(
+                                                f"[chat_completions] Fixed workspace URL: {url}"
+                                            )
+                                    # Download to workspace
+                                    file_name = (
+                                        url.split("/")[-1]
+                                        if "/" in url
+                                        else f"{uuid.uuid4().hex}.jpg"
+                                    )
+                                    downloaded = await self.download_file_to_workspace(
+                                        url=url, file_name=file_name
+                                    )
+                                    if downloaded and downloaded != {}:
+                                        files.append(downloaded)
+                                        logging.info(
+                                            f"[chat_completions] Downloaded tool image: {file_name}"
+                                        )
+                logging.info(
+                    f"[chat_completions] Processed tool result for {tool_call_id}"
+                )
+                continue
             if isinstance(message["content"], str):
-                role = message["role"] if "role" in message else "User"
                 if role.lower() == "system":
                     if "/" in message["content"]:
                         new_prompt += f"{message['content']}\n\n"
@@ -2190,7 +2275,6 @@ Your response (true or false):"""
             if isinstance(message["content"], list):
                 for msg in message["content"]:
                     if "text" in msg:
-                        role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
                     # Process file type messages (non-streaming)
