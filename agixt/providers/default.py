@@ -3,15 +3,34 @@ from onnxruntime import InferenceSession
 from tokenizers import Tokenizer
 from typing import List, cast, Union, Sequence
 from faster_whisper import WhisperModel
+from Globals import getenv
 import os
 import logging
 import numpy as np
 
 # Default provider uses:
-# tts: google
-# transcription: faster-whisper
-# translation: faster-whisper
+# tts: ezlocalai if available, else google
+# transcription: ezlocalai if available, else faster-whisper (small model)
+# translation: ezlocalai if available, else faster-whisper
 # embeddings: local ONNX MiniLM
+
+
+def get_ezlocalai_uri(agent_settings: dict = None) -> str:
+    """Get ezlocalai URI from agent settings or environment."""
+    if agent_settings:
+        uri = agent_settings.get("EZLOCALAI_API_URI", "")
+        if uri:
+            return uri
+    return getenv("EZLOCALAI_API_URI") or ""
+
+
+def get_ezlocalai_api_key(agent_settings: dict = None) -> str:
+    """Get ezlocalai API key from agent settings or environment."""
+    if agent_settings:
+        key = agent_settings.get("EZLOCALAI_API_KEY", "")
+        if key:
+            return key
+    return getenv("EZLOCALAI_API_KEY") or ""
 
 
 # Borrowed ONNX MiniLM embedder from ChromaDB <3 https://github.com/chroma-core/chroma
@@ -55,6 +74,8 @@ def embed(input: List[str]) -> List[Union[Sequence[float], Sequence[int]]]:
 class DefaultProvider:
     """
     The default provider uses free or built-in services for various tasks like LLM, TTS, transcription, translation, and embeddings.
+    If ezlocalai is configured (via agent settings or environment), it will be used for TTS, transcription, and translation
+    as it provides better quality than the built-in models.
     """
 
     def __init__(
@@ -76,6 +97,42 @@ class DefaultProvider:
         self.chunk_size = 256
         self.agent_settings = kwargs
 
+        # Check if ezlocalai is available for better quality audio services
+        self.ezlocalai_uri = get_ezlocalai_uri(kwargs)
+        self.ezlocalai_api_key = get_ezlocalai_api_key(kwargs)
+        self._ezlocalai_provider = None
+
+    def _get_ezlocalai_provider(self):
+        """Lazy initialization of ezlocalai provider."""
+        if self._ezlocalai_provider is None and self.ezlocalai_uri:
+            try:
+                from providers.ezlocalai import EzlocalaiProvider
+
+                # Create filtered settings without the keys we're explicitly passing
+                filtered_settings = {
+                    k: v
+                    for k, v in self.agent_settings.items()
+                    if k
+                    not in (
+                        "EZLOCALAI_API_URI",
+                        "EZLOCALAI_API_KEY",
+                        "EZLOCALAI_TRANSCRIPTION_MODEL",
+                    )
+                }
+                self._ezlocalai_provider = EzlocalaiProvider(
+                    EZLOCALAI_API_URI=self.ezlocalai_uri,
+                    EZLOCALAI_API_KEY=self.ezlocalai_api_key,
+                    EZLOCALAI_TRANSCRIPTION_MODEL=self.TRANSCRIPTION_MODEL,
+                    **filtered_settings,
+                )
+                logging.info("[Default Provider] Using ezlocalai for audio services")
+            except Exception as e:
+                logging.warning(
+                    f"[Default Provider] Failed to initialize ezlocalai: {e}"
+                )
+                self._ezlocalai_provider = None
+        return self._ezlocalai_provider
+
     @staticmethod
     def services():
         return [
@@ -86,6 +143,15 @@ class DefaultProvider:
         ]
 
     async def text_to_speech(self, text: str):
+        # Use ezlocalai if available for better quality TTS
+        ezlocalai = self._get_ezlocalai_provider()
+        if ezlocalai:
+            try:
+                return await ezlocalai.text_to_speech(text=text)
+            except Exception as e:
+                logging.warning(
+                    f"[Default Provider] ezlocalai TTS failed, falling back to Google: {e}"
+                )
         return await GoogleProvider().text_to_speech(text=text)
 
     def embeddings(self, input) -> np.ndarray:
@@ -95,7 +161,21 @@ class DefaultProvider:
         self,
         audio_path,
         translate=False,
+        vad_filter=False,  # Disabled VAD - ESP32 audio has issues with Silero VAD
     ):
+        # Use ezlocalai if available for better quality transcription
+        ezlocalai = self._get_ezlocalai_provider()
+        if ezlocalai:
+            try:
+                if translate:
+                    return await ezlocalai.translate_audio(audio_path=audio_path)
+                return await ezlocalai.transcribe_audio(audio_path=audio_path)
+            except Exception as e:
+                logging.warning(
+                    f"[Default Provider] ezlocalai transcription failed, falling back to local whisper: {e}"
+                )
+
+        # Fall back to local faster-whisper (smaller model, lower quality)
         self.w = WhisperModel(
             self.TRANSCRIPTION_MODEL,
             download_root="models",
@@ -105,7 +185,7 @@ class DefaultProvider:
         segments, _ = self.w.transcribe(
             audio_path,
             task="transcribe" if not translate else "translate",
-            vad_filter=True,
+            vad_filter=vad_filter,
             vad_parameters=dict(min_silence_duration_ms=500),
         )
         segments = list(segments)

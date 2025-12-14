@@ -1658,6 +1658,8 @@ Web Search, Read File, Write to File, Execute Python Code"""
 
         # Run single shot using run_stream and collect final answer
         final_answer = ""
+        # Capture any remote command requests for client-defined tools
+        self._pending_remote_commands = []
         async for chunk in self.run_stream(
             user_input=user_input,
             context_results=context_results,
@@ -1677,6 +1679,9 @@ Web Search, Read File, Write to File, Execute Python Code"""
             # Collect only complete answer chunks
             if chunk.get("type") == "answer" and chunk.get("complete"):
                 final_answer = chunk.get("content", "")
+            # Also capture remote command requests for client-defined tools
+            elif chunk.get("type") == "remote_command_request":
+                self._pending_remote_commands.append(chunk.get("content", {}))
 
         self.response = final_answer
 

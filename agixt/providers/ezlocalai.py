@@ -104,7 +104,8 @@ class EzlocalaiProvider:
             self.AI_MODEL = "default"
         if use_smartest:
             self.AI_MODEL = self.EZLOCALAI_CODING_MODEL
-        max_tokens = int(self.MAX_TOKENS) if tokens == 0 else tokens
+        # Always use MAX_TOKENS for output limit - the 'tokens' param is input tokens for budgeting, not output limit
+        max_tokens = int(self.MAX_TOKENS)
 
         import httpx
         from openai import OpenAI
@@ -123,6 +124,17 @@ class EzlocalaiProvider:
             )
             for image in images:
                 if image.startswith("http"):
+                    # HTTP/HTTPS URL
+                    messages[0]["content"].append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image,
+                            },
+                        }
+                    )
+                elif image.startswith("data:"):
+                    # Already a base64 data URI - use as-is
                     messages[0]["content"].append(
                         {
                             "type": "image_url",
@@ -132,6 +144,7 @@ class EzlocalaiProvider:
                         }
                     )
                 else:
+                    # Local file path - read and encode
                     file_type = image.split(".")[-1]
                     with open(image, "rb") as f:
                         image_base64 = f.read()

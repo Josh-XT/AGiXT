@@ -1397,8 +1397,15 @@ Your response (true or false):"""
                                 f"{file_path.replace('.pdf', f'_page_{i}.png')}"
                             )
                             page_image.save(image_path)
+                            # Read image and encode as base64 for vision inference
+                            with open(image_path, "rb") as img_file:
+                                image_data = img_file.read()
+                                base64_image = base64.b64encode(image_data).decode(
+                                    "utf-8"
+                                )
+                            base64_image = f"data:image/png;base64,{base64_image}"
                             vision_response = await self.agent.vision_inference(
-                                prompt=content, images=[image_path]
+                                prompt=content, images=[base64_image]
                             )
                         file_content += f"Visual description from viewing uploaded PDF called `{file_name}` from page {i} with OCR:\n"
                         file_content += vision_response
@@ -1520,8 +1527,13 @@ Your response (true or false):"""
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
                     self.input_tokens += get_tokens(vision_prompt)
+                    # Read image and encode as base64 for vision inference
+                    with open(file_path, "rb") as img_file:
+                        image_data = img_file.read()
+                        base64_image = base64.b64encode(image_data).decode("utf-8")
+                    base64_image = f"data:image/{file_type};base64,{base64_image}"
                     vision_response = await self.agent.vision_inference(
-                        prompt=vision_prompt, images=[file_url]
+                        prompt=vision_prompt, images=[base64_image]
                     )
                     file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
                     file_content += vision_response
@@ -1691,53 +1703,59 @@ Your response (true or false):"""
         Returns:
             str: URL of the downloaded file
         """
-        if url.startswith("data:"):
-            file_type = url.split(",")[0].split("/")[1].split(";")[0]
-        else:
-            if "?" in url:
-                file_type = url.split("?")[0]
-                file_type = file_type.split(".")[-1]
+        try:
+            if url.startswith("data:"):
+                file_type = url.split(",")[0].split("/")[1].split(";")[0]
             else:
-                file_type = url.split(".")[-1]
-        if not file_type:
-            file_type = "txt"
-        self.conversation_id
-        if not self.conversation_id:
-            self.conversation_id = self.conversation.get_conversation_id()
-        file_name = f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
-        file_name = "".join(c if c.isalnum() else "_" for c in file_name)
-        file_extension = file_name.split("_")[-1]
-        file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
-        full_path = os.path.normpath(
-            os.path.join(self.conversation_workspace, file_name)
-        )
-        if not full_path.startswith(self.conversation_workspace):
-            raise Exception("Path given not allowed")
-        if "," in url:
-            file_type = url.split(",")[0].split("/")[1].split(";")[0]
-            file_data = base64.b64decode(url.split(",")[1])
-        else:
-            file_type = file_name.split(".")[-1]
-            # Download the file
-            try:
-                if not url.startswith("http"):
+                if "?" in url:
+                    file_type = url.split("?")[0]
+                    file_type = file_type.split(".")[-1]
+                else:
+                    file_type = url.split(".")[-1]
+            if not file_type:
+                file_type = "txt"
+            self.conversation_id
+            if not self.conversation_id:
+                self.conversation_id = self.conversation.get_conversation_id()
+            file_name = (
+                f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
+            )
+            file_name = "".join(c if c.isalnum() else "_" for c in file_name)
+            file_extension = file_name.split("_")[-1]
+            file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
+            full_path = os.path.normpath(
+                os.path.join(self.conversation_workspace, file_name)
+            )
+            if not full_path.startswith(self.conversation_workspace):
+                raise Exception("Path given not allowed")
+            if "," in url:
+                file_type = url.split(",")[0].split("/")[1].split(";")[0]
+                file_data = base64.b64decode(url.split(",")[1])
+            else:
+                file_type = file_name.split(".")[-1]
+                # Download the file
+                try:
+                    if not url.startswith("http"):
+                        return {}
+                    if url in ["", None]:
+                        return {}
+                    file_download = requests.get(url)
+                    file_data = file_download.content
+                except Exception as e:
+                    logging.error(f"Error downloading file: {e}")
                     return {}
-                if url in ["", None]:
-                    return {}
-                file_download = requests.get(url)
-                file_data = file_download.content
-            except Exception as e:
-                logging.error(f"Error downloading file: {e}")
-                return {}
-        full_path = os.path.normpath(
-            os.path.join(self.conversation_workspace, file_name)
-        )
-        if not full_path.startswith(self.conversation_workspace):
-            raise Exception("Path given not allowed")
-        with open(full_path, "wb") as f:
-            f.write(file_data)
-        url = f"{self.outputs}/{self.conversation_id}/{file_name}"
-        return {"file_name": file_name, "file_url": url}
+            full_path = os.path.normpath(
+                os.path.join(self.conversation_workspace, file_name)
+            )
+            if not full_path.startswith(self.conversation_workspace):
+                raise Exception("Path given not allowed")
+            with open(full_path, "wb") as f:
+                f.write(file_data)
+            url = f"{self.outputs}/{self.conversation_id}/{file_name}"
+            return {"file_name": file_name, "file_url": url}
+        except Exception as e:
+            logging.error(f"Error in download_file_to_workspace: {e}")
+            return {}
 
     async def plan_task(
         self,
@@ -2322,8 +2340,23 @@ Your response (true or false):"""
                                 else:
                                     # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
                                     audio_file_info = (
-                                        await self.download_file_to_workspace(url=url)
+                                        await self.download_file_to_workspace(
+                                            url=url,
+                                            file_name=(
+                                                file_name
+                                                if file_name
+                                                else "recording.wav"
+                                            ),
+                                        )
                                     )
+                                    if (
+                                        not audio_file_info
+                                        or "file_name" not in audio_file_info
+                                    ):
+                                        logging.error(
+                                            f"Failed to download audio file from URL (length: {len(url) if url else 0})"
+                                        )
+                                        continue
                                     full_path = os.path.normpath(
                                         os.path.join(
                                             self.agent_workspace,
@@ -2603,6 +2636,56 @@ Your response (true or false):"""
                 logging.error(f"Error getting response: {response}")
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
+
+        # Check if there are pending remote commands (client-defined tools)
+        pending_commands = getattr(
+            self.agent_interactions, "_pending_remote_commands", []
+        )
+        if pending_commands:
+            # Build tool_calls response for client-defined tools
+            tool_calls = []
+            for idx, cmd in enumerate(pending_commands):
+                tool_call = {
+                    "id": cmd.get("request_id", f"call_{idx}"),
+                    "type": "function",
+                    "function": {
+                        "name": cmd.get("tool_name", "unknown"),
+                        "arguments": json.dumps(cmd.get("tool_args", {})),
+                    },
+                }
+                tool_calls.append(tool_call)
+
+            logging.info(
+                f"[chat_completions] Returning {len(tool_calls)} tool_calls for client-defined tools"
+            )
+
+            res_model = {
+                "id": self.conversation_id,
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": self.agent_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": tool_calls,
+                        },
+                        "finish_reason": "tool_calls",
+                        "logprobs": None,
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                },
+            }
+            # Clear the pending commands
+            self.agent_interactions._pending_remote_commands = []
+            return res_model
+
         res_model = {
             "id": self.conversation_id,
             "object": "chat.completion",
