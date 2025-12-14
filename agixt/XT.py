@@ -2129,6 +2129,8 @@ Your response (true or false):"""
         running_command = None
         additional_context = ""
         parent_activity_id = None
+        has_tool_result = False  # Track if this is a tool result continuation
+        tool_result_text = ""  # Store tool result text separately
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -2203,11 +2205,13 @@ Your response (true or false):"""
             role = message["role"] if "role" in message else "User"
             # Handle tool result messages - treat as context for continuing conversation
             if role.lower() == "tool":
+                has_tool_result = True  # Mark that this conversation has tool results
                 tool_call_id = message.get("tool_call_id", "unknown")
                 tool_content = message["content"]
                 if isinstance(tool_content, str):
                     # Add tool result as prompt content - agent should respond based on this
                     new_prompt += f"{tool_content}\n\n"
+                    tool_result_text = tool_content  # Store for logging
                 elif isinstance(tool_content, list):
                     # Handle multipart tool results (text + images)
                     for part in tool_content:
@@ -2506,12 +2510,19 @@ Your response (true or false):"""
         if "log_user_input" in prompt_args:
             log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
             del prompt_args["log_user_input"]
-        if log_user_input:
+        if log_user_input and not has_tool_result:
             # Log the original user input, not the modified one with file names appended
+            # Don't log tool results as USER - they should be logged as TOOL subactivity
             c.log_interaction(role="USER", message=original_user_prompt)
         thinking_id = ""
         if log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        # Log tool result as a subactivity under the thinking_id, not as a user message
+        if has_tool_result and tool_result_text and thinking_id:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{thinking_id}] Received tool result: {tool_result_text[:200]}{'...' if len(tool_result_text) > 200 else ''}",
+            )
         file_contents = []
         current_input_tokens = get_tokens(new_prompt)
         for file in files:
