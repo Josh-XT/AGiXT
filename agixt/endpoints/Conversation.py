@@ -268,17 +268,21 @@ async def new_conversation_v1(
     c = Conversations(conversation_name=history.conversation_name, user=user)
     c.new_conversation(conversation_content=history.conversation_content)
     conversation_id = c.get_conversation_id()
-    
+
     # Notify user of new conversation via websocket
     asyncio.create_task(
         notify_user_conversation_created(
             user_id=auth.user_id,
             conversation_id=conversation_id,
             conversation_name=history.conversation_name,
-            agent_id=str(c.get_agent_id(auth.user_id)) if c.get_agent_id(auth.user_id) else None,
+            agent_id=(
+                str(c.get_agent_id(auth.user_id))
+                if c.get_agent_id(auth.user_id)
+                else None
+            ),
         )
     )
-    
+
     return {
         "id": conversation_id,
         "conversation_history": history.conversation_content,
@@ -310,7 +314,7 @@ async def delete_conversation_v1(
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
     Conversations(conversation_name=conversation_name, user=user).delete_conversation()
-    
+
     # Notify user of deleted conversation via websocket
     asyncio.create_task(
         notify_user_conversation_deleted(
@@ -319,7 +323,7 @@ async def delete_conversation_v1(
             conversation_name=conversation_name,
         )
     )
-    
+
     return ResponseMessage(message=f"Conversation `{conversation_name}` deleted.")
 
 
@@ -347,10 +351,10 @@ async def rename_conversation_v1(
     )
     if not old_conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=old_conversation_name, user=user).rename_conversation(
-        new_name=rename_model.new_conversation_name
-    )
-    
+    Conversations(
+        conversation_name=old_conversation_name, user=user
+    ).rename_conversation(new_name=rename_model.new_conversation_name)
+
     # Notify user of renamed conversation via websocket
     asyncio.create_task(
         notify_user_conversation_renamed(
@@ -360,7 +364,7 @@ async def rename_conversation_v1(
             new_name=rename_model.new_conversation_name,
         )
     )
-    
+
     return ResponseMessage(
         message=f"Conversation renamed to `{rename_model.new_conversation_name}`."
     )
@@ -396,7 +400,7 @@ async def add_message_v1(
         message=log_interaction.message,
         role=log_interaction.role,
     )
-    
+
     # Notify user of new message via websocket
     asyncio.create_task(
         notify_user_message_added(
@@ -408,7 +412,7 @@ async def add_message_v1(
             role=log_interaction.role,
         )
     )
-    
+
     return ResponseMessage(message=str(interaction_id))
 
 
@@ -1641,9 +1645,7 @@ async def conversation_stream(
 
 # User-level WebSocket endpoint for global notifications
 @app.websocket("/v1/user/notifications")
-async def user_notifications_stream(
-    websocket: WebSocket, authorization: str = None
-):
+async def user_notifications_stream(websocket: WebSocket, authorization: str = None):
     """
     WebSocket endpoint for streaming user-level notifications across all conversations.
 
@@ -1713,7 +1715,9 @@ async def user_notifications_stream(
                 {
                     "type": "connected",
                     "user_id": user_id,
-                    "conversations": make_json_serializable(conversations) if conversations else {},
+                    "conversations": (
+                        make_json_serializable(conversations) if conversations else {}
+                    ),
                 }
             )
         )
@@ -1805,7 +1809,9 @@ async def notify_user_conversation_created(
     )
 
 
-async def notify_user_conversation_deleted(user_id: str, conversation_id: str, conversation_name: str):
+async def notify_user_conversation_deleted(
+    user_id: str, conversation_id: str, conversation_name: str
+):
     """Notify user when a conversation is deleted."""
     await user_notification_manager.broadcast_to_user(
         user_id,
