@@ -2139,11 +2139,35 @@ and can use this tool to get more output later.""",
                 print(f"   Speed: {overall_speed:.1f} tok/s")
             print()
 
-        # Interactive chat loop - prompt for follow-up
+        # Interactive chat loop - prompt for follow-up with 60s idle timeout
+        # Only run interactive loop if stdin is a TTY (not piped)
+        if not sys.stdin.isatty():
+            # Input is piped, don't enter interactive mode
+            return 0
+
+        def input_with_timeout(prompt: str, timeout: int = 60) -> str:
+            """Read input with a timeout. Returns None on timeout."""
+            import select
+
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+            ready, _, _ = select.select([sys.stdin], [], [], timeout)
+            if ready:
+                line = sys.stdin.readline()
+                if not line:  # EOF
+                    return None
+                return line.strip()
+            else:
+                print("\n⏱️  Chat session timed out after 60 seconds of inactivity.")
+                return None
+
         try:
             while True:
                 try:
-                    follow_up = input("You: ").strip()
+                    follow_up = input_with_timeout("You: ", timeout=60)
+                    if follow_up is None:
+                        # Timeout or EOF - exit gracefully
+                        break
                     if not follow_up:
                         continue
 

@@ -155,6 +155,189 @@ def can_user_access_agent(user_id, agent_id, auth: MagicalAuth = None):
     """
     session = get_session()
 
+
+class AIProviderManager:
+    """
+    Manages AI Provider extensions for an agent.
+
+    Discovers configured AI Provider extensions, handles provider selection based on
+    token limits and service requirements, and implements fallback logic.
+    """
+
+    def __init__(self, agent_settings: dict, extensions_instance=None):
+        """
+        Initialize the AI Provider Manager.
+
+        Args:
+            agent_settings: Dictionary of agent settings (includes extension settings)
+            extensions_instance: Optional Extensions instance to discover providers from
+        """
+        self.agent_settings = agent_settings
+        self.extensions_instance = extensions_instance
+        self.providers = {}
+        self.failed_providers = set()
+
+        # Intelligence tier preference (smartest to least smart)
+        smartest = agent_settings.get(
+            "SMARTEST_PROVIDER",
+            getenv("SMARTEST_PROVIDER", "anthropic,google,openai,ezlocalai"),
+        )
+        if "," in str(smartest):
+            self.intelligence_tiers = [p.strip() for p in smartest.split(",")]
+        else:
+            self.intelligence_tiers = [smartest] if smartest else ["ezlocalai"]
+
+        # Discover and load AI Provider extensions
+        self._discover_providers()
+
+    def _discover_providers(self):
+        """Discover all configured AI Provider extensions by their CATEGORY attribute"""
+        from ExtensionsHub import (
+            find_extension_files,
+            import_extension_module,
+            get_extension_class_name,
+        )
+
+        extension_files = find_extension_files()
+
+        for ext_file in extension_files:
+            filename = os.path.basename(ext_file)
+
+            module = import_extension_module(ext_file)
+            if module is None:
+                continue
+
+            class_name = get_extension_class_name(filename)
+            if not hasattr(module, class_name):
+                continue
+
+            try:
+                provider_class = getattr(module, class_name)
+
+                # Check if it's an AI Provider (has CATEGORY = "AI Provider")
+                if (
+                    not hasattr(provider_class, "CATEGORY")
+                    or provider_class.CATEGORY != "AI Provider"
+                ):
+                    continue
+
+                # Instantiate with agent settings
+                provider_instance = provider_class(**self.agent_settings)
+
+                # Only add if configured
+                if (
+                    hasattr(provider_instance, "configured")
+                    and provider_instance.configured
+                ):
+                    # Use class name without prefix as provider name (e.g., "ezlocalai")
+                    provider_name = class_name.lower()
+
+                    self.providers[provider_name] = {
+                        "instance": provider_instance,
+                        "max_tokens": (
+                            provider_instance.get_max_tokens()
+                            if hasattr(provider_instance, "get_max_tokens")
+                            else 32000
+                        ),
+                        "services": (
+                            provider_instance.services()
+                            if hasattr(provider_instance, "services")
+                            else ["llm"]
+                        ),
+                    }
+                    logging.debug(
+                        f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']})"
+                    )
+
+            except Exception as e:
+                logging.debug(
+                    f"[AIProviderManager] Could not load provider from {filename}: {e}"
+                )
+
+        if not self.providers:
+            logging.debug(
+                "[AIProviderManager] No AI Provider extensions configured. Will fall back to legacy providers."
+            )
+
+    def get_provider_for_service(
+        self, service: str = "llm", tokens: int = 0, use_smartest: bool = False
+    ):
+        """
+        Select the best available provider for a service.
+
+        Args:
+            service: The service type needed (llm, tts, image, transcription, etc.)
+            tokens: Required token count (0 if unknown)
+            use_smartest: Whether to prefer the smartest provider
+
+        Returns:
+            Provider instance or None if no suitable provider found
+        """
+        # Filter providers that support the service and have sufficient token limits
+        suitable = {}
+        for name, provider in self.providers.items():
+            if name in self.failed_providers:
+                continue
+            if service not in provider["services"]:
+                continue
+            if tokens > 0 and provider["max_tokens"] < tokens:
+                continue
+            suitable[name] = provider
+
+        if not suitable:
+            # Reset failed providers and try again
+            if self.failed_providers:
+                self.failed_providers.clear()
+                return self.get_provider_for_service(service, tokens, use_smartest)
+            return None
+
+        # If use_smartest, try intelligence tiers in order
+        if use_smartest:
+            for tier in self.intelligence_tiers:
+                if tier in suitable:
+                    logging.debug(
+                        f"[AIProviderManager] Selected smartest provider: {tier}"
+                    )
+                    return suitable[tier]["instance"]
+
+        # Otherwise, select provider with lowest max_tokens that can handle the request
+        # (prefer to use smaller/cheaper providers for smaller requests)
+        selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
+        logging.debug(
+            f"[AIProviderManager] Selected provider: {selected_name} for {tokens} tokens"
+        )
+        return suitable[selected_name]["instance"]
+
+    def has_service(self, service: str) -> bool:
+        """Check if any provider supports a given service without instantiating/selecting."""
+        for name, provider in self.providers.items():
+            if service in provider["services"]:
+                return True
+        return False
+
+    def mark_provider_failed(self, provider_name: str):
+        """Mark a provider as failed for this session"""
+        self.failed_providers.add(provider_name)
+        logging.warning(
+            f"[AIProviderManager] Marked provider as failed: {provider_name}"
+        )
+
+    def has_providers(self) -> bool:
+        """Check if any AI providers are available"""
+        return len(self.providers) > 0
+
+    def get_provider_names(self) -> list:
+        """Get list of available provider names"""
+        return list(self.providers.keys())
+
+
+def can_user_access_agent(user_id, agent_id, auth: MagicalAuth = None):
+    """
+    Check if a user can access an agent.
+    Returns: (can_access: bool, is_owner: bool, access_level: str)
+    """
+    session = get_session()
+
     # Get the agent
     agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
     if not agent:
@@ -900,87 +1083,131 @@ class Agent:
         for setting in DEFAULT_SETTINGS:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
+
+        # Clean up settings that shouldn't be passed to providers
+        for key in ["name", "ApiClient", "agent_name", "user", "user_id", "api_key"]:
+            if key in self.PROVIDER_SETTINGS:
+                del self.PROVIDER_SETTINGS[key]
+
+        # Initialize AI Provider Manager to discover AI Provider extensions
+        self.ai_provider_manager = AIProviderManager(
+            agent_settings=self.PROVIDER_SETTINGS,
+        )
+
+        # Store ApiClient and token for provider access
+        self._ApiClient = ApiClient
+        self._token = token
+
+        # Legacy provider support - only used if no AI Provider extensions are configured
+        # This maintains backward compatibility during migration
         try:
             self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
         except:
             self.AI_PROVIDER = "rotation"
-        for key in ["name", "ApiClient", "agent_name", "user", "user_id", "api_key"]:
-            if key in self.PROVIDER_SETTINGS:
-                del self.PROVIDER_SETTINGS[key]
-        self.PROVIDER = Providers(
-            name=self.AI_PROVIDER,
-            ApiClient=ApiClient,
-            agent_name=self.agent_name,
-            user=self.user,
-            api_key=token,
-            **self.PROVIDER_SETTINGS,
-        )
-        vision_provider = (
-            self.AGENT_CONFIG["settings"]["vision_provider"]
-            if "vision_provider" in self.AGENT_CONFIG["settings"]
-            else "rotation"
-        )
-        try:
-            self.VISION_PROVIDER = Providers(
-                name=vision_provider,
+
+        if self.ai_provider_manager.has_providers():
+            # Use new AI Provider extension system
+            logging.debug(
+                f"[Agent] Using AI Provider extensions: {self.ai_provider_manager.get_provider_names()}"
+            )
+            self.PROVIDER = None  # Will use ai_provider_manager in inference methods
+            self.VISION_PROVIDER = None
+            self.TTS_PROVIDER = (
+                True if self.ai_provider_manager.has_service("tts") else None
+            )  # Flag for availability
+            self.TRANSCRIPTION_PROVIDER = (
+                True if self.ai_provider_manager.has_service("transcription") else None
+            )
+            self.TRANSLATION_PROVIDER = (
+                True if self.ai_provider_manager.has_service("translation") else None
+            )
+            self.IMAGE_PROVIDER = (
+                True if self.ai_provider_manager.has_service("image") else None
+            )
+        else:
+            # Fall back to legacy provider system
+            logging.debug(
+                f"[Agent] No AI Provider extensions found, using legacy provider system"
+            )
+            self.PROVIDER = Providers(
+                name=self.AI_PROVIDER,
                 ApiClient=ApiClient,
                 agent_name=self.agent_name,
                 user=self.user,
                 api_key=token,
                 **self.PROVIDER_SETTINGS,
             )
-        except Exception as e:
-            logging.error(f"Error loading vision provider: {str(e)}")
-            self.VISION_PROVIDER = None
-        tts_provider = (
-            self.AGENT_CONFIG["settings"]["tts_provider"]
-            if "tts_provider" in self.AGENT_CONFIG["settings"]
-            else "None"
-        )
-        if tts_provider != "None" and tts_provider != None and tts_provider != "":
-            self.TTS_PROVIDER = Providers(
-                name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            vision_provider = (
+                self.AGENT_CONFIG["settings"]["vision_provider"]
+                if "vision_provider" in self.AGENT_CONFIG["settings"]
+                else "rotation"
             )
-        else:
-            self.TTS_PROVIDER = None
-        transcription_provider = (
-            self.AGENT_CONFIG["settings"]["transcription_provider"]
-            if "transcription_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
-        )
-        self.TRANSCRIPTION_PROVIDER = Providers(
-            name=transcription_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
-        translation_provider = (
-            self.AGENT_CONFIG["settings"]["translation_provider"]
-            if "translation_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
-        )
-        self.TRANSLATION_PROVIDER = Providers(
-            name=translation_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
-        image_provider = (
-            self.AGENT_CONFIG["settings"]["image_provider"]
-            if "image_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
-        )
-        image_services = get_provider_services(image_provider)
-        if "image" in image_services:
             try:
-                self.IMAGE_PROVIDER = Providers(
-                    name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+                self.VISION_PROVIDER = Providers(
+                    name=vision_provider,
+                    ApiClient=ApiClient,
+                    agent_name=self.agent_name,
+                    user=self.user,
+                    api_key=token,
+                    **self.PROVIDER_SETTINGS,
                 )
             except Exception as e:
-                logging.error(
-                    f"Error loading image provider '{image_provider}': {str(e)}"
+                logging.error(f"Error loading vision provider: {str(e)}")
+                self.VISION_PROVIDER = None
+            tts_provider = (
+                self.AGENT_CONFIG["settings"]["tts_provider"]
+                if "tts_provider" in self.AGENT_CONFIG["settings"]
+                else "None"
+            )
+            if tts_provider != "None" and tts_provider != None and tts_provider != "":
+                self.TTS_PROVIDER = Providers(
+                    name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
                 )
+            else:
+                self.TTS_PROVIDER = None
+            transcription_provider = (
+                self.AGENT_CONFIG["settings"]["transcription_provider"]
+                if "transcription_provider" in self.AGENT_CONFIG["settings"]
+                else "default"
+            )
+            self.TRANSCRIPTION_PROVIDER = Providers(
+                name=transcription_provider,
+                ApiClient=ApiClient,
+                **self.PROVIDER_SETTINGS,
+            )
+            translation_provider = (
+                self.AGENT_CONFIG["settings"]["translation_provider"]
+                if "translation_provider" in self.AGENT_CONFIG["settings"]
+                else "default"
+            )
+            self.TRANSLATION_PROVIDER = Providers(
+                name=translation_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            )
+            image_provider = (
+                self.AGENT_CONFIG["settings"]["image_provider"]
+                if "image_provider" in self.AGENT_CONFIG["settings"]
+                else "default"
+            )
+            image_services = get_provider_services(image_provider)
+            if "image" in image_services:
+                try:
+                    self.IMAGE_PROVIDER = Providers(
+                        name=image_provider,
+                        ApiClient=ApiClient,
+                        **self.PROVIDER_SETTINGS,
+                    )
+                except Exception as e:
+                    logging.error(
+                        f"Error loading image provider '{image_provider}': {str(e)}"
+                    )
+                    self.IMAGE_PROVIDER = None
+            else:
+                if image_provider not in [None, "None", "", "default"]:
+                    logging.warning(
+                        f"Configured image provider '{image_provider}' does not advertise image support; disabling image generation."
+                    )
                 self.IMAGE_PROVIDER = None
-        else:
-            if image_provider not in [None, "None", "", "default"]:
-                logging.warning(
-                    f"Configured image provider '{image_provider}' does not advertise image support; disabling image generation."
-                )
-            self.IMAGE_PROVIDER = None
+
         embeddings_provider = (
             self.AGENT_CONFIG["settings"]["embeddings_provider"]
             if "embeddings_provider" in self.AGENT_CONFIG["settings"]
@@ -1392,7 +1619,25 @@ class Agent:
         self.auth.check_billing_balance()
 
         input_tokens = get_tokens(prompt)
-        provider_name = self.AGENT_CONFIG["settings"]["provider"]
+
+        # Determine provider to use
+        if self.ai_provider_manager.has_providers():
+            # Use AI Provider extension system
+            provider = self.ai_provider_manager.get_provider_for_service(
+                service="vision" if images else "llm",
+                tokens=input_tokens,
+                use_smartest=use_smartest,
+            )
+            if provider is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="No AI providers available for inference",
+                )
+            provider_name = provider.__class__.__name__.replace("aiprovider_", "")
+        else:
+            # Legacy provider system
+            provider = self.PROVIDER
+            provider_name = self.AGENT_CONFIG["settings"].get("provider", "rotation")
 
         # Emit webhook event for inference start
         await webhook_emitter.emit_event(
@@ -1413,7 +1658,7 @@ class Agent:
         try:
             if stream:
                 # For streaming, return the stream object for the caller to handle
-                return await self.PROVIDER.inference(
+                return await provider.inference(
                     prompt=prompt,
                     tokens=input_tokens,
                     images=images,
@@ -1422,7 +1667,7 @@ class Agent:
                 )
             else:
                 # Non-streaming path
-                answer = await self.PROVIDER.inference(
+                answer = await provider.inference(
                     prompt=prompt,
                     tokens=input_tokens,
                     images=images,
@@ -1452,6 +1697,9 @@ class Agent:
                 )
         except Exception as e:
             logging.error(f"Error in inference: {str(e)}")
+            # Mark provider as failed if using AI Provider extensions
+            if self.ai_provider_manager.has_providers():
+                self.ai_provider_manager.mark_provider_failed(provider_name)
             answer = "<answer>Unable to process request.</answer>"
 
             # Emit webhook event for failed inference
@@ -1474,15 +1722,28 @@ class Agent:
     ):
         if not prompt:
             return ""
-        if not self.VISION_PROVIDER:
-            return ""
 
         # Pre-check billing balance before running inference
         self.auth.check_billing_balance()
 
         input_tokens = get_tokens(prompt)
+
+        # Get vision provider
+        if self.ai_provider_manager.has_providers():
+            provider = self.ai_provider_manager.get_provider_for_service(
+                service="vision",
+                tokens=input_tokens,
+                use_smartest=use_smartest,
+            )
+            if provider is None:
+                return ""
+        else:
+            if not self.VISION_PROVIDER:
+                return ""
+            provider = self.PROVIDER  # Vision uses main provider in legacy mode
+
         try:
-            answer = await self.PROVIDER.inference(
+            answer = await provider.inference(
                 prompt=prompt,
                 tokens=input_tokens,
                 images=images,
@@ -1496,7 +1757,7 @@ class Agent:
             if answer.endswith("\n\n"):
                 answer = answer[:-2]
         except Exception as e:
-            logging.error(f"Error in inference: {str(e)}")
+            logging.error(f"Error in vision inference: {str(e)}")
             answer = "<answer>Unable to process request.</answer>"
         return answer
 
@@ -1506,20 +1767,53 @@ class Agent:
         return embed(input=input)
 
     async def transcribe_audio(self, audio_path: str):
-        return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)
+        if self.ai_provider_manager.has_providers():
+            provider = self.ai_provider_manager.get_provider_for_service(
+                "transcription"
+            )
+            if provider is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No transcription provider available",
+                )
+            return await provider.transcribe_audio(audio_path=audio_path)
+        else:
+            return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(
+                audio_path=audio_path
+            )
 
     async def translate_audio(self, audio_path: str):
-        return await self.TRANSLATION_PROVIDER.translate_audio(audio_path=audio_path)
+        if self.ai_provider_manager.has_providers():
+            provider = self.ai_provider_manager.get_provider_for_service("translation")
+            if provider is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No translation provider available",
+                )
+            return await provider.translate_audio(audio_path=audio_path)
+        else:
+            return await self.TRANSLATION_PROVIDER.translate_audio(
+                audio_path=audio_path
+            )
 
     async def generate_image(self, prompt: str):
-        if not self.IMAGE_PROVIDER or not hasattr(
-            self.IMAGE_PROVIDER, "generate_image"
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="This agent is not configured with an image-capable provider.",
-            )
-        return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
+        if self.ai_provider_manager.has_providers():
+            provider = self.ai_provider_manager.get_provider_for_service("image")
+            if provider is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This agent is not configured with an image-capable provider.",
+                )
+            return await provider.generate_image(prompt=prompt)
+        else:
+            if not self.IMAGE_PROVIDER or not hasattr(
+                self.IMAGE_PROVIDER, "generate_image"
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="This agent is not configured with an image-capable provider.",
+                )
+            return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
 
     async def text_to_speech(self, text: str, conversation_id: str = None):
         if not text:
@@ -1531,7 +1825,15 @@ class Agent:
             conversation_id = get_conversation_id_by_name(
                 conversation_name="-", user_id=self.user_id
             )
-        if self.TTS_PROVIDER is not None:
+
+        # Get TTS provider
+        tts_provider = None
+        if self.ai_provider_manager.has_providers():
+            tts_provider = self.ai_provider_manager.get_provider_for_service("tts")
+        elif self.TTS_PROVIDER is not None:
+            tts_provider = self.TTS_PROVIDER
+
+        if tts_provider is not None:
             if "```" in text:
                 text = re.sub(
                     r"```[^```]+```",
@@ -1551,7 +1853,7 @@ class Agent:
                     "The link provided in the chat.",
                     text,
                 )
-            tts_content = await self.TTS_PROVIDER.text_to_speech(text=text)
+            tts_content = await tts_provider.text_to_speech(text=text)
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
             # CodeQL ultra-safe pattern: Complete data flow isolation

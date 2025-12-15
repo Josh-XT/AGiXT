@@ -43,7 +43,6 @@ import logging
 import base64
 import uuid
 import os
-from providers.default import DefaultProvider
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from MagicalAuth import MagicalAuth
 import traceback
@@ -820,7 +819,15 @@ async def text_to_speech_v1(
     if agent.TTS_PROVIDER != None:
         tts_response = await agent.text_to_speech(text=text.text)
     else:
-        tts_response = await DefaultProvider().text_to_speech(text=text.text)
+        # Fallback to ezlocalai or any available TTS provider
+        from Providers import get_providers_by_service, Providers
+
+        tts_providers = get_providers_by_service("tts")
+        if tts_providers:
+            provider = Providers(name=tts_providers[0])
+            tts_response = await provider.text_to_speech(text=text.text)
+        else:
+            raise HTTPException(status_code=400, detail="No TTS provider available")
     if not str(tts_response).startswith("http"):
         import tempfile
         import shutil
