@@ -577,3 +577,45 @@ class InternalClient:
             return token
         finally:
             session.close()
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str = "dall-e-3",
+        n: int = 1,
+        size: str = "1024x1024",
+        response_format: str = "url",
+    ) -> Dict[str, Any]:
+        """
+        Generate an image from a text prompt.
+
+        Args:
+            prompt: The text prompt to generate an image from
+            model: The model to use (defaults to dall-e-3, but AGiXT uses this as agent name)
+            n: Number of images to generate
+            size: Size of the generated image
+            response_format: Format of the response (url or b64_json)
+
+        Returns:
+            Dict containing the generated image URL(s)
+        """
+        import time
+
+        Agent = self._get_agent_class()
+        agent = Agent(agent_name=model, user=self.user, ApiClient=self)
+
+        images = []
+        if int(n) > 1:
+            for i in range(n):
+                image = await agent.generate_image(prompt=prompt)
+                images.append({"url": image})
+            return {
+                "created": int(time.time()),
+                "data": images,
+            }
+
+        image = await agent.generate_image(prompt=prompt)
+        return {
+            "created": int(time.time()),
+            "data": [{"url": image}],
+        }
