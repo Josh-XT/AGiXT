@@ -191,6 +191,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "View Image": self.view_image,
             "Get Web UI Tips": self.get_webui_tips,
             "Create AGiXT Agent": self.create_new_agixt_agent,
+            "Optimize Command Selection": self.optimize_command_selection,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -418,18 +419,29 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         line_end: str,
     ) -> str:
         """
-        Read a file in the workspace, optionally reading only specific line ranges
+        Read a file in the workspace, optionally reading only specific line ranges.
+
+        **IMPORTANT**: This command returns a maximum of 100 lines at a time to manage context size.
+        If a file is larger than 100 lines, it will be truncated and you will need to make additional
+        calls with different line ranges to see the full content.
 
         Args:
         filename (str): The name of the file to read
         line_start (int): The starting line number (1-indexed). If "None", starts from beginning
-        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end
+        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end (max 100 lines)
 
         Returns:
         str: The content of the file or specified line range
 
-        Notes: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access. The user can browse the agents workspace by clicking the folder icon in their chat input bar.
+        Notes:
+        - This command will only work in the agent's designated workspace
+        - The agent's workspace may contain files uploaded by the user or files saved by the agent
+        - The user can browse the agents workspace by clicking the folder icon in their chat input bar
+        - For large files or data analysis, consider using Execute Python Code to extract specific information
+        - For CSV/data files, use Execute Python Code with pandas to analyze data efficiently
+        - XLSX/XLS files are automatically converted to CSV format for reading
         """
+        MAX_LINES = 100  # Maximum lines to return per read
         try:
             line_start = int(line_start)
         except:
@@ -441,34 +453,111 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         try:
             filepath = self.safe_join(filename)
 
-            # Read the entire file or specific lines
-            with open(filepath, "r", encoding="utf-8") as f:
-                if line_start is None and line_end is None:
-                    # Read entire file
-                    content = f.read()
+            # Check if this is an Excel file - convert to CSV if needed
+            file_ext = os.path.splitext(filename)[1].lower()
+            csv_notice = ""
+            if file_ext in [".xlsx", ".xls"]:
+                import pandas as pd
+
+                # Check if CSV version already exists
+                base_name = os.path.splitext(filename)[0]
+                csv_filename = f"{base_name}.csv"
+                csv_filepath = self.safe_join(csv_filename)
+
+                if not os.path.exists(csv_filepath):
+                    # Convert Excel to CSV
+                    try:
+                        xl = pd.ExcelFile(filepath)
+                        if len(xl.sheet_names) > 1:
+                            # Multiple sheets - convert each to separate CSV
+                            csv_files = []
+                            for i, sheet_name in enumerate(xl.sheet_names, 1):
+                                df = xl.parse(sheet_name)
+                                sheet_csv_filename = f"{base_name}_{i}.csv"
+                                sheet_csv_filepath = self.safe_join(sheet_csv_filename)
+                                df.to_csv(sheet_csv_filepath, index=False)
+                                csv_files.append(sheet_csv_filename)
+                            csv_notice = f"**Note**: Excel file `{filename}` has {len(xl.sheet_names)} sheets. Converted to: {', '.join(csv_files)}. Reading first sheet (`{csv_files[0]}`).\n\n"
+                            csv_filepath = self.safe_join(csv_files[0])
+                            csv_filename = csv_files[0]
+                        else:
+                            # Single sheet
+                            df = pd.read_excel(filepath)
+                            df.to_csv(csv_filepath, index=False)
+                            csv_notice = f"**Note**: Excel file `{filename}` converted to `{csv_filename}` for reading.\n\n"
+                    except Exception as e:
+                        return f"Error: Failed to convert Excel file to CSV: {str(e)}"
                 else:
-                    # Read specific line range
-                    lines = f.readlines()
-                    total_lines = len(lines)
+                    csv_notice = f"**Note**: Reading CSV version `{csv_filename}` of Excel file `{filename}`.\n\n"
 
-                    # Convert to 0-indexed and handle bounds
-                    start_idx = 0 if line_start is None else max(0, line_start - 1)
-                    end_idx = (
-                        total_lines if line_end is None else min(total_lines, line_end)
-                    )
+                # Update filepath to read the CSV version
+                filepath = csv_filepath
+                filename = csv_filename
 
-                    # Extract the requested lines
-                    selected_lines = lines[start_idx:end_idx]
-                    content = "".join(selected_lines)
+            # Read the file lines
+            with open(filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
 
-                    # Add line number information if reading a range
-                    if line_start is not None or line_end is not None:
-                        actual_start = start_idx + 1
-                        actual_end = min(end_idx, total_lines)
-                        header = f"Lines {actual_start}-{actual_end} of {total_lines} total lines:\\n"
-                        content = header + "=" * 40 + "\\n" + content
+            total_lines = len(lines)
 
-            return content
+            # Determine start and end indices
+            start_idx = 0 if line_start is None else max(0, line_start - 1)
+
+            if line_end is None:
+                # No end specified - read from start up to MAX_LINES
+                end_idx = min(start_idx + MAX_LINES, total_lines)
+            else:
+                # End specified - respect it but cap at MAX_LINES from start
+                requested_end = min(total_lines, line_end)
+                end_idx = min(start_idx + MAX_LINES, requested_end)
+
+            # Extract the requested lines
+            selected_lines = lines[start_idx:end_idx]
+            content = "".join(selected_lines)
+
+            # Calculate actual line numbers (1-indexed)
+            actual_start = start_idx + 1
+            actual_end = start_idx + len(selected_lines)
+            lines_returned = len(selected_lines)
+
+            # Build header with line information
+            header = csv_notice  # Include Excel->CSV conversion notice if applicable
+            header += (
+                f"Lines {actual_start}-{actual_end} of {total_lines} total lines:\n"
+            )
+            header += "=" * 40 + "\n"
+
+            # Check if content was truncated
+            was_truncated = False
+            if line_end is None and actual_end < total_lines:
+                # Reading from start with no end specified - truncated at MAX_LINES
+                was_truncated = True
+            elif (
+                line_end is not None
+                and actual_end < line_end
+                and actual_end < total_lines
+            ):
+                # Requested range was larger than MAX_LINES
+                was_truncated = True
+
+            # Build footer with truncation notice and guidance
+            footer = ""
+            if was_truncated:
+                remaining_lines = total_lines - actual_end
+                next_start = actual_end + 1
+                footer = "\n" + "=" * 40 + "\n"
+                footer += f"**TRUNCATED**: Output limited to {MAX_LINES} lines. "
+                footer += f"Showing lines {actual_start}-{actual_end} of {total_lines} total.\n"
+                footer += f"- To see more, use Read File with line_start={next_start} ({remaining_lines} lines remaining)\n"
+                footer += f"- For data files (CSV, JSON, etc.), consider using Execute Python Code to:\n"
+                footer += f"  - Load and analyze data with pandas: `pd.read_csv('{filename}')`\n"
+                footer += f"  - Extract specific columns or rows\n"
+                footer += (
+                    f"  - Get summary statistics with `.describe()` or `.info()`\n"
+                )
+                footer += f"  - Filter data to find specific information\n"
+
+            return header + content + footer
         except Exception as e:
             return f"Error: {str(e)}"
 
@@ -786,6 +875,7 @@ print(output)
                 "tts": False,
                 "conversation_name": self.conversation_name,
             },
+            parent_activity_id=self.activity_id,
         )
 
     async def ask_for_help(self, query: str):
@@ -835,6 +925,21 @@ print(output)
         - Files you create are immediately accessible to users via download links
         - Use standard Python file operations: open(), pandas.read_csv(), PIL.Image.open(), etc.
 
+        **CRITICAL: Working with Uploaded Spreadsheets:**
+        - XLSX files are automatically converted to CSV format - ALWAYS use the .csv version with pd.read_csv()
+        - NEVER use pd.read_csv() on .xlsx files - it will fail with encoding errors
+        - List files first: `import os; print([f for f in os.listdir('.') if f.endswith('.csv')])`
+        - Always inspect data structure BEFORE selecting columns:
+          ```python
+          df = pd.read_csv('filename.csv')
+          print("Columns:", df.columns.tolist())
+          print("Shape:", df.shape)
+          print(df.head())
+          ```
+        - Column names vs row values: If data has a "Reaction" or "Name" column, those VALUES are not column names!
+          Example: If df has columns ['Reaction', 'Control', 'Treatment'] and Reaction contains ['ATP', 'NADPH'],
+          to get ATP data: `df[df['Reaction'] == 'ATP']` NOT `df['ATP']`
+
         **Multi-File Operations:**
         - Process entire directories of files at once
         - Combine data from multiple sources automatically
@@ -872,6 +977,7 @@ print(output)
         - Study schedules and optimization problems
 
         **Code Best Practices:**
+        - Always print df.columns.tolist() first when working with dataframes
         - Always end with a print() statement showing results to the user
         - Save important outputs as files for user download
         - Include data visualizations when appropriate
@@ -3373,3 +3479,23 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 return f"{general_information}\n\n{automation_page}"
             case _:
                 return f"# AGiXT Web UI Quick Tips\n\n{general_information}\n\n{chat_page}\n\n{billing_page}\n\n{team_page}\n\n{automation_page}"
+
+    async def optimize_command_selection(self, task_description: str) -> str:
+        """
+        Re-optimize the available commands for the current conversation based on a new task or changed requirements.
+        Use this when you realize you need different abilities than what was initially selected, or when starting a significantly different task.
+
+        Args:
+            task_description (str): Description of what you're trying to accomplish that requires different commands
+
+        Returns:
+            str: Confirmation that command selection has been optimized with the list of newly selected commands
+
+        Notes:
+            This command triggers a re-selection of available abilities based on the new task description.
+            After execution, the assistant will have access to a different set of optimized commands for the remainder of the conversation.
+            Use this when the current task requires abilities that weren't initially selected.
+        """
+        # This is a signal command - the actual optimization is handled by the Interactions class
+        # when it sees this command was executed. We return a message indicating optimization is requested.
+        return f"OPTIMIZE_COMMANDS:{task_description}"

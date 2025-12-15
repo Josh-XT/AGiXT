@@ -145,7 +145,9 @@ class DeepinfraProvider:
             "model": self.AI_MODEL,
             "messages": messages,
             "temperature": float(self.AI_TEMPERATURE),
-            "max_tokens": int(self.MAX_TOKENS) if tokens == 0 else int(tokens),
+            "max_tokens": int(
+                self.MAX_TOKENS
+            ),  # Always use MAX_TOKENS - 'tokens' param is input count for budgeting
             "top_p": float(self.AI_TOP_P),
             "stream": stream,
         }

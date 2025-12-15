@@ -264,7 +264,7 @@ class ChatCompletions(BaseModel):
     presence_penalty: Optional[float] = 0.0
     frequency_penalty: Optional[float] = 0.0
     logit_bias: Optional[Dict[str, float]] = None
-    user: Optional[str] = "Chat"  # This is the conversation name
+    user: Optional[str] = "-"  # This is the conversation name, defaults to "-"
 
 
 class TextToSpeech(BaseModel):

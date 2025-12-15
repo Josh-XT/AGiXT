@@ -1,8 +1,125 @@
 import logging
+import traceback
+import httpx
+from datetime import datetime
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Set
+from Globals import getenv
+
+
+async def send_discord_error(error: Exception, request: Request = None):
+    """
+    Send error traceback to Discord webhook if DISCORD_ERROR_WEBHOOK is configured.
+
+    Args:
+        error: The exception that occurred
+        request: Optional FastAPI request object for additional context
+    """
+    webhook_url = getenv("DISCORD_ERROR_WEBHOOK")
+    if not webhook_url:
+        return
+
+    try:
+        # Format the traceback
+        tb = traceback.format_exception(type(error), error, error.__traceback__)
+        tb_str = "".join(tb)
+
+        # Build the error message
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        error_type = type(error).__name__
+        error_message = str(error)
+
+        # Get server identification
+        agixt_server = getenv("AGIXT_URI", "Unknown Server")
+        app_name = getenv("APP_NAME", "AGiXT")
+
+        # Add request context if available
+        request_info = ""
+        if request:
+            request_info = f"\n**Endpoint:** `{request.method} {request.url.path}`"
+            if request.url.query:
+                request_info += f"\n**Query:** `{request.url.query}`"
+            # Add full URL if available
+            try:
+                full_url = str(request.url)
+                request_info += f"\n**Full URL:** `{full_url[:200]}`"
+            except Exception:
+                pass
+
+        # Discord has a 2000 character limit, so we need to truncate if necessary
+        # We'll use embeds which allow more content (up to 4096 chars per field)
+        content = {
+            "embeds": [
+                {
+                    "title": f"🚨 {app_name} Error: {error_type}",
+                    "description": f"**Server:** `{agixt_server}`\n**Message:** {error_message[:500]}{request_info}",
+                    "color": 15158332,  # Red color
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "fields": [
+                        {
+                            "name": "Traceback",
+                            "value": f"```python\n{tb_str[:1000]}{'...' if len(tb_str) > 1000 else ''}\n```",
+                            "inline": False,
+                        }
+                    ],
+                    "footer": {"text": f"{app_name} @ {agixt_server} | {timestamp}"},
+                }
+            ]
+        }
+
+        # If traceback is too long, add it as a second field
+        if len(tb_str) > 1000:
+            remaining = tb_str[1000:3000]
+            if remaining:
+                content["embeds"][0]["fields"].append(
+                    {
+                        "name": "Traceback (continued)",
+                        "value": f"```python\n{remaining}{'...' if len(tb_str) > 3000 else ''}\n```",
+                        "inline": False,
+                    }
+                )
+
+        # Send to Discord webhook asynchronously
+        async with httpx.AsyncClient() as client:
+            await client.post(webhook_url, json=content, timeout=10.0)
+
+    except Exception as e:
+        # Log but don't raise - we don't want error reporting to cause more errors
+        logging.error(f"Failed to send error to Discord webhook: {e}")
+
+
+class DiscordErrorMiddleware(BaseHTTPMiddleware):
+    """Middleware to catch unhandled exceptions and send them to Discord"""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.logger = logging.getLogger(__name__)
+        self.webhook_url = getenv("DISCORD_ERROR_WEBHOOK")
+        if self.webhook_url:
+            self.logger.info(
+                "Discord error webhook is configured - errors will be sent to Discord"
+            )
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            # Log the error locally
+            self.logger.error(
+                f"Unhandled exception in {request.method} {request.url.path}: {e}"
+            )
+            self.logger.error(traceback.format_exc())
+
+            # Send to Discord if configured
+            if self.webhook_url:
+                await send_discord_error(e, request)
+
+            # Re-raise the exception so FastAPI handles it normally
+            raise
+
 
 # Critical endpoints that should never be rate limited
 CRITICAL_ENDPOINTS: Set[str] = {

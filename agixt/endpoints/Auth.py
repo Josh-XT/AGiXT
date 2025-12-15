@@ -412,6 +412,48 @@ async def send_mfa_email(request: Request):
 
 
 @app.post(
+    "/v1/user/mfa/reset",
+    dependencies=[Depends(verify_api_key)],
+    summary="Reset MFA token",
+    description="Resets the user's MFA token and returns a new OTP URI for setting up the authenticator app.",
+    tags=["Auth"],
+)
+async def reset_mfa(
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Reset the user's MFA token. This will invalidate any existing authenticator app
+    setup and require the user to set up MFA again with a new token.
+    Returns the new OTP URI for setting up the authenticator app.
+    """
+    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+    auth = MagicalAuth(token=token)
+
+    # Reset the MFA token
+    auth.reset_mfa()
+
+    # Get the new MFA token to generate the OTP URI
+    from DB import get_session, User
+
+    session = get_session()
+    try:
+        db_user = session.query(User).filter(User.id == auth.user_id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        mfa_token = db_user.mfa_token
+        totp = pyotp.TOTP(mfa_token)
+        otp_uri = totp.provisioning_uri(
+            name=db_user.email, issuer_name=getenv("APP_NAME")
+        )
+
+        return {"detail": "MFA has been reset.", "otp_uri": otp_uri}
+    finally:
+        session.close()
+
+
+@app.post(
     "/v1/user/tos/accept",
     dependencies=[Depends(verify_api_key)],
     response_model=Detail,

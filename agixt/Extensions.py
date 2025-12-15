@@ -2,6 +2,7 @@ import importlib
 import os
 import glob
 import json
+import hashlib
 from inspect import signature, Parameter
 import logging
 import inspect
@@ -140,6 +141,7 @@ class Extensions:
         return self.ApiClient.run_chain(
             chain_name=chain_name,
             user_input=user_input,
+            agent_name=self.agent_name,  # Use the current agent executing the chain
             chain_args=kwargs,
         )
 
@@ -444,6 +446,9 @@ class Extensions:
     async def execute_command(self, command_name: str, command_args: dict = None):
         credentials = get_sso_credentials(user_id=self.user_id)
         agixt_server = getenv("AGIXT_URI")
+        # Use hash-based agent workspace (matches Agent.working_directory)
+        agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
+        agent_workspace = os.path.join(os.getcwd(), "WORKSPACE", f"agent_{agent_hash}")
         injection_variables = {
             "user": self.user,
             "user_id": self.user_id,
@@ -456,7 +461,7 @@ class Extensions:
             "ApiClient": self.ApiClient,
             "api_key": self.api_key,
             "conversation_directory": os.path.join(
-                os.getcwd(), "WORKSPACE", self.agent_id, self.conversation_id
+                agent_workspace, self.conversation_id
             ),
             "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}/",
             **self.agent_config["settings"],

@@ -1322,6 +1322,50 @@ class MagicalAuth:
                 return True
         return False
 
+    def check_billing_balance(self):
+        """
+        Pre-check if the user has sufficient token balance before running inference.
+        Raises HTTPException 402 if billing is enabled and balance is insufficient.
+        Should be called before any billable operation (inference, etc).
+        """
+        # Check if billing is enabled
+        price_service = PriceService()
+        token_price = price_service.get_token_price()
+        billing_enabled = token_price > 0
+
+        if not billing_enabled:
+            # Billing is disabled, allow all operations
+            return True
+
+        # Get wallet address for the 402 response
+        wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+
+        session = get_session()
+        try:
+            # Get user's companies
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+
+            # Check if any company has sufficient balance
+            if self._has_sufficient_token_balance(session, user_companies):
+                return True
+
+            # No sufficient balance found - raise 402
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "message": "Insufficient token balance. Please top up your tokens to continue.",
+                    "customer_session": {"client_secret": None},
+                    "wallet_address": wallet_address,
+                    "token_price_per_million_usd": float(token_price),
+                },
+            )
+        finally:
+            session.close()
+
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
@@ -1342,23 +1386,24 @@ class MagicalAuth:
             )
 
             # Determine if paywall is enabled for this instance
-            # Paywall is only enabled if price > 0 AND either Stripe or wallet is configured
-            price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
+            # Paywall is enabled if token billing is configured (TOKEN_PRICE_PER_MILLION_USD > 0)
+            price_service = PriceService()
             try:
-                price_value = float(str(price_env))
-            except (TypeError, ValueError):
-                price_value = 0.0
+                token_price = price_service.get_token_price()
+            except Exception:
+                token_price = Decimal("0")
+            token_billing_enabled = token_price > 0
 
             stripe_configured = (
                 getenv("STRIPE_API_KEY")
                 and str(getenv("STRIPE_API_KEY")).lower() != "none"
-                and price_value > 0
+                and token_billing_enabled
             )
             wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
             wallet_paywall_enabled = (
                 bool(wallet_address)
                 and str(wallet_address).lower() != "none"
-                and price_value > 0
+                and token_billing_enabled
             )
             paywall_enabled = stripe_configured or wallet_paywall_enabled
 
@@ -1731,14 +1776,15 @@ class MagicalAuth:
             token_price = 1
         billing_enabled = token_price > 0
 
-        # Separate subscription billing from token billing
-        subscription_billing_enabled = price_value > 0
+        # Token billing is the primary billing model
         token_billing_enabled = token_price > 0
+        # Subscription billing is deprecated but kept for backwards compatibility
+        subscription_billing_enabled = price_value > 0
 
+        # Wallet paywall is enabled when token billing is enabled and wallet address is set
         wallet_paywall_enabled = (
             bool(wallet_address)
             and str(wallet_address).lower() != "none"
-            and price_value > 0
             and token_billing_enabled
         )
         has_active_subscription = False
@@ -1750,20 +1796,34 @@ class MagicalAuth:
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
 
-        # If user is already marked as active (e.g., by webhook), trust that status
-        # This prevents race conditions where webhook sets is_active=True but we override it
-        if user.is_active:
-            has_active_subscription = True
-
-        # Early check: If any associated company has available token credit, skip Stripe checks entirely
-        # This prevents unnecessary Stripe API calls on every /v1/user request
-        if not has_active_subscription and self._has_sufficient_token_balance(
-            session, user_companies
-        ):
-            has_active_subscription = True
-            logging.info(
-                f"User {self.user_id} has sufficient token balance, skipping Stripe checks"
+        # Check if user has sufficient token balance when token billing is enabled
+        # This is the primary billing check - don't skip it based on is_active
+        has_sufficient_balance = False
+        if wallet_paywall_enabled:
+            has_sufficient_balance = self._has_sufficient_token_balance(
+                session, user_companies
             )
+            if not has_sufficient_balance:
+                # User has no token balance and billing is enabled - enforce paywall
+                user.is_active = False
+                session.commit()
+                session.close()
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "message": "Insufficient token balance. Please top up your tokens.",
+                        "customer_session": {"client_secret": None},
+                        "wallet_address": wallet_address,
+                        "token_price_per_million_usd": float(token_price),
+                    },
+                )
+
+        # If user has sufficient token balance, mark as active
+        has_active_subscription = has_sufficient_balance
+
+        # Legacy: If user is already marked as active and we're not doing token billing, trust that status
+        if not wallet_paywall_enabled and user.is_active:
+            has_active_subscription = True
 
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
@@ -1895,24 +1955,6 @@ class MagicalAuth:
                                         logging.info(
                                             f"Subscription billing disabled; skipping subscription enforcement for user {self.user_id}"
                                         )
-            if not has_active_subscription and not user.email.endswith(".xt"):
-                # For token-based billing, check if company has sufficient token balance
-                if wallet_paywall_enabled and not self._has_sufficient_token_balance(
-                    session, user_companies
-                ):
-                    # wallet_paywall_enabled already considers billing_enabled; enforce only when billing is enabled
-                    user.is_active = False
-                    session.commit()
-                    session.close()
-                    raise HTTPException(
-                        status_code=402,
-                        detail={
-                            "message": "Insufficient token balance. Please top up your tokens.",
-                            "customer_session": {"client_secret": None},
-                            "wallet_address": wallet_address,
-                            "monthly_price_usd": price_value,
-                        },
-                    )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
@@ -1939,7 +1981,9 @@ class MagicalAuth:
             user_preferences["missing_requirements"] = missing_requirements
         if wallet_paywall_enabled:
             user_preferences.setdefault("wallet_address", wallet_address)
-            user_preferences.setdefault("monthly_price_usd", price_value)
+            user_preferences.setdefault(
+                "token_price_per_million_usd", float(token_price)
+            )
         session.close()
         return user_preferences
 

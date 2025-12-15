@@ -123,6 +123,7 @@ class InternalClient:
         agent_name: str = None,
         prompt_name: str = "Think About It",
         prompt_args: dict = None,
+        parent_activity_id: str = None,
     ) -> str:
         """
         Send a prompt to an agent directly without HTTP round-trip.
@@ -132,6 +133,7 @@ class InternalClient:
             agent_name: The agent's name (fallback)
             prompt_name: Name of the prompt to use
             prompt_args: Arguments to pass to the prompt
+            parent_activity_id: Optional ID of parent thinking activity to nest under
 
         Returns:
             The agent's response as a string
@@ -182,14 +184,16 @@ class InternalClient:
             prompt_args["prompt_category"] = "Default"
 
         # Build messages
-        messages = [
-            {
-                "role": "user",
-                **{k: v for k, v in prompt_args.items() if k != "user_input"},
-                "prompt_args": prompt_args,
-                "content": user_input,
-            }
-        ]
+        message_data = {
+            "role": "user",
+            **{k: v for k, v in prompt_args.items() if k != "user_input"},
+            "prompt_args": prompt_args,
+            "content": user_input,
+        }
+        # Pass parent_activity_id to keep subactivities within the parent's thinking activity
+        if parent_activity_id:
+            message_data["parent_activity_id"] = parent_activity_id
+        messages = [message_data]
 
         # Run the prompt
         try:
@@ -366,6 +370,13 @@ class InternalClient:
         # Get conversation name from chain args
         conversation_name = chain_args.get("conversation_name", "-")
 
+        # Extract log_output from chain_args if present (defaults to True)
+        # This is important when chains are executed as commands - the caller
+        # sets log_output=False to avoid double-logging
+        log_output = chain_args.pop("log_output", True)
+        if isinstance(log_output, str):
+            log_output = log_output.lower() not in ["false", "0", "no"]
+
         # Create AGiXT instance
         AGiXT = self._get_agixt_class()
         agixt = AGiXT(
@@ -394,6 +405,7 @@ class InternalClient:
                         agent_override=agent_name,
                         from_step=from_step,
                         chain_args=chain_args,
+                        log_output=log_output,
                     ),
                 )
                 response = future.result()
@@ -405,6 +417,7 @@ class InternalClient:
                     agent_override=agent_name,
                     from_step=from_step,
                     chain_args=chain_args,
+                    log_output=log_output,
                 )
             )
 
@@ -564,3 +577,45 @@ class InternalClient:
             return token
         finally:
             session.close()
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str = "dall-e-3",
+        n: int = 1,
+        size: str = "1024x1024",
+        response_format: str = "url",
+    ) -> Dict[str, Any]:
+        """
+        Generate an image from a text prompt.
+
+        Args:
+            prompt: The text prompt to generate an image from
+            model: The model to use (defaults to dall-e-3, but AGiXT uses this as agent name)
+            n: Number of images to generate
+            size: Size of the generated image
+            response_format: Format of the response (url or b64_json)
+
+        Returns:
+            Dict containing the generated image URL(s)
+        """
+        import time
+
+        Agent = self._get_agent_class()
+        agent = Agent(agent_name=model, user=self.user, ApiClient=self)
+
+        images = []
+        if int(n) > 1:
+            for i in range(n):
+                image = await agent.generate_image(prompt=prompt)
+                images.append({"url": image})
+            return {
+                "created": int(time.time()),
+                "data": images,
+            }
+
+        image = await agent.generate_image(prompt=prompt)
+        return {
+            "created": int(time.time()),
+            "data": [{"url": image}],
+        }

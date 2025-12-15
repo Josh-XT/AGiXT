@@ -432,7 +432,8 @@ def find_extension_files(
     if excluded_dirs is None:
         excluded_dirs = ["__pycache__", "tests", ".git"]
 
-    extension_files = []
+    # Use a set to track unique file paths and avoid duplicates
+    extension_files_set = set()
 
     # Get all extension search paths from ExtensionsHub
     try:
@@ -448,22 +449,51 @@ def find_extension_files(
                 search_paths.append(os.path.abspath(search_path))
                 break
 
+    # Normalize all search paths to absolute paths for comparison
+    normalized_search_paths = [os.path.abspath(p) for p in search_paths]
+
+    # Identify which paths are subdirectories of other paths in the list
+    # to avoid walking them twice
+    subdirs_to_skip = set()
+    for i, path1 in enumerate(normalized_search_paths):
+        for j, path2 in enumerate(normalized_search_paths):
+            if i != j:
+                # Check if path2 is a subdirectory of path1
+                try:
+                    rel = os.path.relpath(path2, path1)
+                    if not rel.startswith(".."):
+                        # path2 is inside path1, so when walking path1 we should skip path2
+                        subdirs_to_skip.add(path2)
+                except ValueError:
+                    # On Windows, relpath can fail for paths on different drives
+                    pass
+
     # Search all paths for extension files
-    for search_path in search_paths:
+    for search_path in normalized_search_paths:
         if not os.path.exists(search_path):
             continue
 
+        # Calculate which subdirectories to exclude for this search path
+        # Include standard excluded dirs plus any search paths that are subdirs of this path
+        dirs_to_exclude_for_path = set(excluded_dirs)
+        for subdir_path in subdirs_to_skip:
+            if subdir_path.startswith(search_path + os.sep):
+                # Get the immediate subdirectory name to exclude
+                rel_path = os.path.relpath(subdir_path, search_path)
+                immediate_subdir = rel_path.split(os.sep)[0]
+                dirs_to_exclude_for_path.add(immediate_subdir)
+
         for root, dirs, files in os.walk(search_path):
-            # Exclude specified directories
-            dirs[:] = [d for d in dirs if d not in excluded_dirs]
+            # Exclude specified directories and nested search paths
+            dirs[:] = [d for d in dirs if d not in dirs_to_exclude_for_path]
 
             for file in files:
                 if file.endswith(".py") and not file.startswith("__"):
-                    # Get the full path
-                    full_path = os.path.join(root, file)
-                    extension_files.append(full_path)
+                    # Get the full path and normalize it
+                    full_path = os.path.normpath(os.path.join(root, file))
+                    extension_files_set.add(full_path)
 
-    return extension_files
+    return list(extension_files_set)
 
 
 def import_extension_module(file_path: str, base_dir: str = "extensions"):

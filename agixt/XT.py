@@ -196,6 +196,8 @@ class AGiXT:
         This runs asynchronously and should be called right after user input is logged.
         The WebSocket will notify the frontend when the rename completes.
 
+        Uses a direct LLM call (bypassing full inference pipeline) for speed.
+
         Args:
             user_input (str): The user's first message in the conversation
         """
@@ -213,22 +215,40 @@ class AGiXT:
             # Get list of existing conversations to avoid duplicates
             conversation_list = c.get_conversations()
 
-            # Use LLM to generate a meaningful name based on user input
-            new_convo = await self.inference(
-                user_input=f"Rename conversation based on: {user_input[:500]}",  # Limit context
-                prompt_name="Name Conversation",
-                conversation_list="\n".join(conversation_list),
-                conversation_results=5,  # Reduced from 10 for speed
-                websearch=False,
-                browse_links=False,
-                voice_response=False,
-                log_user_input=False,
-                log_output=False,
-                conversation_name=self.conversation_name,
+            # Build a simple, direct prompt for naming (bypasses Think About It pattern)
+            naming_prompt = f"""Based on the user's message below, suggest a short, descriptive name for this conversation.
+
+**User's message:**
+{user_input[:500]}
+
+**Existing conversation names to NOT use:**
+{chr(10).join(conversation_list[:20])}
+
+Respond with ONLY a JSON object in this exact format:
+{{"suggested_conversation_name": "Your Suggested Name Here"}}
+
+Rules:
+- Use spaces in the name, not underscores
+- Keep the name short (3-6 words)
+- Make it descriptive of the topic
+- Do not use any name from the existing list above
+- Respond with ONLY the JSON, no explanation"""
+
+            # Direct LLM call - bypasses full inference pipeline for speed
+            new_convo = await self.agent.inference(
+                prompt=naming_prompt,
+                use_smartest=False,
+                stream=False,
             )
 
             # Extract JSON from the response
             try:
+                # Handle potential thinking tags in response (strip them out)
+                if "<answer>" in new_convo:
+                    new_convo = (
+                        new_convo.split("<answer>")[-1].split("</answer>")[0].strip()
+                    )
+
                 if "```json" in new_convo:
                     json_text = new_convo.split("```json")[1].split("```")[0].strip()
                 elif "```" in new_convo:
@@ -244,37 +264,48 @@ class AGiXT:
                 parsed_json = json.loads(json_text)
                 new_name = parsed_json.get("suggested_conversation_name", new_name)
 
-                # Handle duplicate names
+                # Handle duplicate names with a simpler retry
                 if new_name in conversation_list:
-                    new_convo = await self.inference(
-                        user_input=f"**Do not use {new_name}!**",
-                        prompt_name="Name Conversation",
-                        conversation_list="\n".join(conversation_list),
-                        conversation_results=5,
-                        websearch=False,
-                        browse_links=False,
-                        voice_response=False,
-                        log_user_input=False,
-                        log_output=False,
+                    retry_prompt = f"""The name "{new_name}" is already taken. Suggest a DIFFERENT name.
+
+**User's message:**
+{user_input[:300]}
+
+Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
+
+                    retry_response = await self.agent.inference(
+                        prompt=retry_prompt,
+                        use_smartest=False,
+                        stream=False,
                     )
 
-                    if "```json" in new_convo:
-                        json_text = (
-                            new_convo.split("```json")[1].split("```")[0].strip()
+                    # Handle potential thinking tags
+                    if "<answer>" in retry_response:
+                        retry_response = (
+                            retry_response.split("<answer>")[-1]
+                            .split("</answer>")[0]
+                            .strip()
                         )
-                    elif "```" in new_convo:
-                        json_text = new_convo.split("```")[1].split("```")[0].strip()
+
+                    if "```json" in retry_response:
+                        json_text = (
+                            retry_response.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in retry_response:
+                        json_text = (
+                            retry_response.split("```")[1].split("```")[0].strip()
+                        )
                     else:
-                        json_start = new_convo.find("{")
-                        json_end = new_convo.rfind("}")
+                        json_start = retry_response.find("{")
+                        json_end = retry_response.rfind("}")
                         if (
                             json_start != -1
                             and json_end != -1
                             and json_end > json_start
                         ):
-                            json_text = new_convo[json_start : json_end + 1]
+                            json_text = retry_response[json_start : json_end + 1]
                         else:
-                            raise ValueError("No valid JSON found in second response")
+                            raise ValueError("No valid JSON found in retry response")
 
                     parsed_json = json.loads(json_text)
                     new_name = parsed_json.get("suggested_conversation_name", new_name)
@@ -287,7 +318,10 @@ class AGiXT:
             except Exception as e:
                 logging.error(f"Error parsing conversation name: {e}")
                 if new_convo and isinstance(new_convo, str) and len(new_convo) < 100:
-                    new_name = str(new_convo)
+                    # Try to use as name if it looks reasonable
+                    clean_name = new_convo.strip().strip('"').strip("'")
+                    if len(clean_name) > 3 and len(clean_name) < 80:
+                        new_name = clean_name
 
             # Apply the rename
             c.set_conversation_summary(summary=new_name)
@@ -925,7 +959,9 @@ Your response (true or false):"""
                         step_summaries.append(f"{step_label} Output:\n{task}")
         if step_responses:
             response = step_responses[-1]
-            if step_summaries:
+            # Only include step labels/summaries if there are multiple steps
+            # For single-step chains (like commands), just return the clean output
+            if step_summaries and len(step_summaries) > 1:
                 response = "\n\n".join(step_summaries)
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
@@ -966,19 +1002,212 @@ Your response (true or false):"""
             summarize_content=summarize_content,
             conversation_name=self.conversation_name,
         )
-        return "I have read the information from the websites into my memory."
+        return (
+            "I have scraped the information from the websites and saved it to memory."
+        )
 
-    async def learn_spreadsheet(self, user_input, file_path, thinking_id):
+    def _get_large_file_instructions(
+        self,
+        file_name: str,
+        file_path: str,
+        file_size_bytes: int,
+        converted_file_name: str = None,
+        file_type: str = None,
+    ) -> str:
+        """
+        Generate instructions for the LLM to read a large file that exceeds the token limit.
+
+        Args:
+            file_name: Original uploaded file name
+            file_path: Path to the file in workspace
+            file_size_bytes: Size of the file in bytes
+            converted_file_name: Name of converted file if applicable (e.g., CSV from Excel)
+            file_type: Type of file for specific instructions
+
+        Returns:
+            str: Instructions for the LLM on how to work with the file
+        """
+        file_size_mb = round(file_size_bytes / (1024 * 1024), 2)
+        actual_file = converted_file_name if converted_file_name else file_name
+
+        # Build the instruction based on file type
+        if file_type and file_type.lower() in ["csv", "xlsx", "xls"]:
+            return (
+                f"The user uploaded a file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"The file has been converted to CSV format and saved as `{actual_file}` in the workspace. "
+                f"Since this file is too large to include in context, use the **Search Files** command "
+                f"to search for specific data patterns or column names, or use the **Read File Lines** command "
+                f"to read specific line ranges from `{actual_file}`. Start by reading the first 50 lines "
+                f"to understand the file structure and column headers."
+            )
+        elif file_type and file_type.lower() in [
+            "md",
+            "txt",
+            "json",
+            "py",
+            "js",
+            "ts",
+            "html",
+            "css",
+            "yaml",
+            "yml",
+        ]:
+            return (
+                f"The user uploaded a file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"Since this file is too large to include in context, use the **Search Files** command "
+                f"to search for specific content, or use the **Read File Lines** command to read specific "
+                f"line ranges from `{actual_file}`. The file is a text-based file that can be read directly."
+            )
+        elif file_type and file_type.lower() == "pdf":
+            return (
+                f"The user uploaded a PDF file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"The PDF content has been extracted and saved to the workspace. Since the full content is too large to include "
+                f"in context, use the **Search Files** command to search for specific content, or use the **Read File Lines** command "
+                f"to read specific line ranges from the file."
+            )
+        else:
+            return (
+                f"The user uploaded a file called `{file_name}` which is {file_size_mb}MB in size. "
+                f"Since this file is too large to include in context, use the **Search Files** command "
+                f"to search for specific content, or use the **Read File Lines** command to read specific "
+                f"line ranges from the file."
+            )
+
+    def _get_file_access_instructions(
+        self,
+        file_name: str,
+        file_url: str,
+        file_path: str,
+        file_size_bytes: int,
+        file_tokens: int,
+        converted_file_name: str = None,
+        file_type: str = None,
+    ) -> str:
+        """
+        Generate instructions for the LLM to access an uploaded file using commands.
+        This is used instead of including file content directly in context.
+
+        Args:
+            file_name: Original uploaded file name
+            file_url: URL where the file can be accessed
+            file_path: Path to the file in workspace
+            file_size_bytes: Size of the file in bytes
+            file_tokens: Number of tokens the file content would take
+            converted_file_name: Name of converted file if applicable (e.g., CSV from Excel)
+            file_type: Type of file for specific instructions
+
+        Returns:
+            str: Metadata and instructions for accessing the file
+        """
+        file_size_kb = round(file_size_bytes / 1024, 1)
+
+        # Get the relative path from the conversation directory for use in commands
+        # The file_path is an absolute path like: agent_workspace/conversation_id/filename
+        # Commands run with WORKING_DIRECTORY = agent_workspace/conversation_id
+        # So we need just the filename, not the conversation_id prefix
+        conversation_dir = os.path.join(self.agent_workspace, self.conversation_id)
+        if file_path.startswith(conversation_dir):
+            # File is in the conversation directory - use path relative to it
+            relative_path = file_path[len(conversation_dir) :].lstrip("/\\")
+        elif file_path.startswith(self.agent_workspace):
+            # File is in agent workspace but not conversation dir - use path relative to agent workspace
+            relative_path = file_path[len(self.agent_workspace) :].lstrip("/\\")
+        else:
+            # Fallback to just the filename
+            relative_path = file_name
+
+        # Use converted file name if available, but with correct path
+        if converted_file_name and converted_file_name != file_name:
+            # Replace the filename in the relative path with the converted filename
+            dir_path = os.path.dirname(relative_path)
+            actual_path = (
+                os.path.join(dir_path, converted_file_name)
+                if dir_path
+                else converted_file_name
+            )
+        else:
+            actual_path = relative_path
+
+        # If actual_path is empty, fall back to filename
+        if not actual_path:
+            actual_path = converted_file_name if converted_file_name else file_name
+
+        # Base info about the file
+        # For xlsx/xls files that were converted, emphasize the CSV as the primary file to use
+        if (
+            converted_file_name
+            and converted_file_name != file_name
+            and file_type
+            and file_type.lower() in ["xlsx", "xls"]
+        ):
+            info = f"## File Available: `{converted_file_name}` (converted from `{file_name}`)\n"
+            info += f"- **Original file:** `{file_name}` (Excel format - do NOT read this directly)\n"
+            info += f"- **Use this file:** `{actual_path}` (CSV format - use this for all commands)\n"
+            info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
+            info += f"- **URL:** [{file_name}]({file_url})\n"
+            info += "\n**IMPORTANT:** The Excel file has been converted to CSV. Always use the CSV file (`{actual_path}`) for Read File and pandas operations.\n"
+        else:
+            info = f"## Uploaded File: `{file_name}`\n"
+            info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
+            info += f"- **Path for commands:** `{actual_path}`\n"
+            info += f"- **URL:** [{file_name}]({file_url})\n"
+
+            if converted_file_name and converted_file_name != file_name:
+                info += f"- **Converted to:** `{converted_file_name}` (CSV format)\n"
+
+        info += "\n"
+
+        # Type-specific instructions
+        if file_type and file_type.lower() in ["csv", "xlsx", "xls"]:
+            info += "### How to Access This Data:\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}` to see the full content\n"
+            info += "2. **Analyze with Python** using `Execute Python Code` to load with pandas and perform analysis:\n"
+            info += f"   ```python\n   import pandas as pd\n   df = pd.read_csv('{actual_path}')\n   print(df.head())\n   print(df.describe())\n   ```\n"
+            info += "3. **Search for specific data** using `Search File Content` to find particular values\n"
+        elif file_type and file_type.lower() in [
+            "py",
+            "js",
+            "ts",
+            "json",
+            "yaml",
+            "yml",
+            "md",
+            "txt",
+            "html",
+            "css",
+        ]:
+            info += "### How to Access This File:\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}`\n"
+            info += "2. **Search for patterns** using `Search File Content` to find specific code or text\n"
+            if file_type.lower() == "py":
+                info += f"3. **Execute the code** using `Execute Python File` with path `{actual_path}`\n"
+        elif file_type and file_type.lower() == "pdf":
+            info += "### How to Access This PDF:\n"
+            info += "The PDF content has been extracted and is available in the workspace.\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}`\n"
+            info += "2. **Search for patterns** using `Search File Content` to find specific text\n"
+        else:
+            info += "### How to Access This File:\n"
+            info += f"1. **Read the file** using `Read File` command with filename `{actual_path}`\n"
+            info += "2. **Search for content** using `Search File Content`\n"
+
+        return info
+
+    async def learn_spreadsheet(
+        self, user_input, file_path, thinking_id, save_to_memory: bool = False
+    ):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
         string_file_content = ""
+        action_verb = "Learned" if save_to_memory else "Saved"
+        action_location = "to memory" if save_to_memory else "to workspace"
         try:
             if file_type.lower() == "csv":
                 df = pd.read_csv(file_path)
                 csv = df.to_csv(index=False)
                 string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{csv}```\n"
                 return (
-                    f"Read [{file_name}]({file_path}) into memory.",
+                    f"{action_verb} [{file_name}]({file_path}) {action_location}.",
                     string_file_content,
                 )
             else:  # Excel file
@@ -992,19 +1221,12 @@ Your response (true or false):"""
                                 f".{file_type}", f"_{i}.csv"
                             )
                             csv_file_name = os.path.basename(csv_file_path)
-                            self.conversation.log_interaction(
-                                role=self.agent_name,
-                                message=f"[SUBACTIVITY][{thinking_id}] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
-                            )
                             df.to_csv(csv_file_path, index=False)
                             message, file_content = await self.learn_spreadsheet(
                                 user_input=user_input,
                                 file_path=csv_file_path,
                                 thinking_id=thinking_id,
-                            )
-                            self.conversation.log_interaction(
-                                role=self.agent_name,
-                                message=f"[SUBACTIVITY][{thinking_id}] {message}",
+                                save_to_memory=save_to_memory,
                             )
                             string_file_content += file_content
                         return (
@@ -1012,11 +1234,15 @@ Your response (true or false):"""
                             string_file_content,
                         )
                     else:
+                        # Single sheet - also save as CSV for easier access
                         df = pd.read_excel(file_path)
                         csv = df.to_csv(index=False)
-                        string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{csv}```\n"
+                        csv_file_path = file_path.replace(f".{file_type}", ".csv")
+                        csv_file_name = os.path.basename(csv_file_path)
+                        df.to_csv(csv_file_path, index=False)
+                        string_file_content += f"Content from uploaded Excel file `{file_name}` (converted and saved as `{csv_file_name}` - use this CSV file for all Read File and pandas operations):\n```csv\n{csv}```\n"
                         return (
-                            f"Read [{file_name}]({file_path}) into memory.",
+                            f"Converted [{file_name}]({file_path}) to CSV format at [{csv_file_name}]({csv_file_path}). Use `{csv_file_name}` for file operations.",
                             string_file_content,
                         )
                 except Exception as e:
@@ -1039,6 +1265,7 @@ Your response (true or false):"""
         user_input: str = "",
         collection_id: str = "0",
         thinking_id: str = "",
+        save_to_memory: bool = False,
     ):
         """
         Learn from a file
@@ -1048,10 +1275,16 @@ Your response (true or false):"""
             file_name (str): Name of the file
             user_input (str): User input to the agent
             collection_id (str): Collection ID to save the file to
+            thinking_id (str): Thinking ID for activity logging
+            save_to_memory (bool): Whether to save file content to agent memories for RAG.
+                                   Set to True for learn endpoints, False for chat completions.
 
         Returns:
             str: Response from the agent
         """
+        logging.info(
+            f"learn_from_file called: file_url={file_url}, file_name={file_name}"
+        )
         file_content = ""
         if file_name == "":
             file_name = file_url.split("/")[-1]
@@ -1060,6 +1293,14 @@ Your response (true or false):"""
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, folder_path)
             )
+            abs_workspace = os.path.abspath(self.agent_workspace)
+            abs_file_path = os.path.abspath(file_path)
+            # Ensure file path stays within the workspace directory
+            if not abs_file_path.startswith(abs_workspace + os.sep):
+                raise Exception(
+                    "Invalid file path: attempt to access outside of the workspace."
+                )
+            file_path = abs_file_path
         else:
             file_data = await self.download_file_to_workspace(
                 url=file_url, file_name=file_name
@@ -1075,21 +1316,27 @@ Your response (true or false):"""
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, collection_id, file_name)
             )
-        if not file_path.startswith(self.agent_workspace):
-            file_path = os.path.normpath(
-                os.path.join(self.agent_workspace, collection_id, file_name)
-            )
+            abs_workspace = os.path.abspath(self.agent_workspace)
+            abs_file_path = os.path.abspath(file_path)
+            # Ensure file path stays within the workspace directory
+            if not abs_file_path.startswith(abs_workspace + os.sep):
+                raise Exception(
+                    "Invalid file path: attempt to access outside of the workspace."
+                )
+            file_path = abs_file_path
         file_type = file_name.split(".")[-1]
+        action_verb = "Learning" if save_to_memory else "Saving"
+        action_location = "to memory" if save_to_memory else "to workspace"
         if file_type not in ["jpg", "jpeg", "png", "gif"]:
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Reading [{file_name}]({file_url}) into memory.",
+                message=f"[SUBACTIVITY][{thinking_id}] {action_verb} [{file_name}]({file_url}) {action_location}.",
             )
         if file_type in ["ppt", "pptx"]:
             # Extract text directly from PowerPoint using python-pptx
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Reading PowerPoint file [{file_name}]({file_url}) into memory.",
+                message=f"[SUBACTIVITY][{thinking_id}] {action_verb} PowerPoint file [{file_name}]({file_url}) {action_location}.",
             )
             try:
                 prs = Presentation(file_path)
@@ -1109,13 +1356,14 @@ Your response (true or false):"""
                 )
                 file_content += pptx_content_str
                 self.input_tokens += get_tokens(content)
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                await self.file_reader.write_text_to_memory(
-                    user_input=user_input,
-                    text=f"Content from PowerPoint uploaded at {timestamp} named `{file_name}`:\n{content}",
-                    external_source=f"file {file_path}",
-                )
-                response = f"Read [{file_name}]({file_url}) into memory."
+                if save_to_memory:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    await self.file_reader.write_text_to_memory(
+                        user_input=user_input,
+                        text=f"Content from PowerPoint uploaded at {timestamp} named `{file_name}`:\n{content}",
+                        external_source=f"file {file_path}",
+                    )
+                response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             except Exception as e:
                 logging.error(f"Error reading PowerPoint file: {e}")
                 return f"Failed to read PowerPoint file [{file_name}]({file_url}). Error: {str(e)}"
@@ -1149,19 +1397,27 @@ Your response (true or false):"""
                                 f"{file_path.replace('.pdf', f'_page_{i}.png')}"
                             )
                             page_image.save(image_path)
+                            # Read image and encode as base64 for vision inference
+                            with open(image_path, "rb") as img_file:
+                                image_data = img_file.read()
+                                base64_image = base64.b64encode(image_data).decode(
+                                    "utf-8"
+                                )
+                            base64_image = f"data:image/png;base64,{base64_image}"
                             vision_response = await self.agent.vision_inference(
-                                prompt=content, images=[image_path]
+                                prompt=content, images=[base64_image]
                             )
                         file_content += f"Visual description from viewing uploaded PDF called `{file_name}` from page {i} with OCR:\n"
                         file_content += vision_response
             self.input_tokens += get_tokens(content)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
-                external_source=f"file {file_path}",
-            )
-            response = f"Read [{file_name}]({file_url}) into memory."
+            if save_to_memory:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
+                    external_source=f"file {file_path}",
+                )
+            response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
         elif file_path.endswith(".zip"):
             extracted_zip_folder_name = f"extracted_{file_name.replace('.zip', '_zip')}"
             new_folder = os.path.normpath(
@@ -1185,8 +1441,9 @@ Your response (true or false):"""
                             user_input=user_input,
                             collection_id=collection_id,
                             thinking_id=thinking_id,
+                            save_to_memory=save_to_memory,
                         )
-                response = f"Extracted the content of the zip file [{file_name}]({file_url}) and read them into memory."
+                response = f"Extracted the content of the zip file [{file_name}]({file_url}) and {'learned them to memory' if save_to_memory else 'saved them to workspace'}."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
@@ -1198,24 +1455,27 @@ Your response (true or false):"""
             )
             file_content += docx_content
             self.input_tokens += get_tokens(content)
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=docx_content,
-                external_source=f"file {file_path}",
-            )
-            response = f"Read [{file_name}]({file_url}) into memory."
+            if save_to_memory:
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=docx_content,
+                    external_source=f"file {file_path}",
+                )
+            response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
         elif file_type == "xlsx" or file_type == "xls" or file_type == "csv":
             response, content = await self.learn_spreadsheet(
                 user_input=user_input,
                 file_path=file_path,
                 thinking_id=thinking_id,
+                save_to_memory=save_to_memory,
             )
             file_content += content
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=content,
-                external_source=f"file {file_path}",
-            )
+            if save_to_memory:
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=content,
+                    external_source=f"file {file_path}",
+                )
         elif (
             file_type == "wav"
             or file_type == "mp3"
@@ -1229,7 +1489,7 @@ Your response (true or false):"""
             audio.export(file_path, format="wav")
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
+                message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}).",
             )
             audio_response = await self.audio_to_text(audio_path=file_path)
             file_content += (
@@ -1237,15 +1497,14 @@ Your response (true or false):"""
             )
             file_content += audio_response
             self.input_tokens += get_tokens(audio_response)
-            await self.file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
-                external_source=f"audio {file_name}",
-            )
-            response = (
-                f"Transcribed the audio from [{file_name}]({file_url}) into memory."
-            )
-        # If it is an image, generate a description then save to memory
+            if save_to_memory:
+                await self.file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
+                    external_source=f"audio {file_name}",
+                )
+            response = f"Transcribed audio from [{file_name}]({file_url}) and {'saved to memory' if save_to_memory else 'saved to workspace'}."
+        # If it is an image, generate a description
         elif file_type in [
             "jpg",
             "jpeg",
@@ -1263,23 +1522,29 @@ Your response (true or false):"""
             ):
                 self.conversation.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
+                    message=f"[SUBACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
                 )
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
                     self.input_tokens += get_tokens(vision_prompt)
+                    # Read image and encode as base64 for vision inference
+                    with open(file_path, "rb") as img_file:
+                        image_data = img_file.read()
+                        base64_image = base64.b64encode(image_data).decode("utf-8")
+                    base64_image = f"data:image/{file_type};base64,{base64_image}"
                     vision_response = await self.agent.vision_inference(
-                        prompt=vision_prompt, images=[file_url]
+                        prompt=vision_prompt, images=[base64_image]
                     )
                     file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
                     file_content += vision_response
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    await self.file_reader.write_text_to_memory(
-                        user_input=user_input,
-                        text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
-                        external_source=f"image {file_name}",
-                    )
-                    response = f"Read [{file_name}]({file_url}) into memory."
+                    if save_to_memory:
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        await self.file_reader.write_text_to_memory(
+                            user_input=user_input,
+                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
+                            external_source=f"image {file_name}",
+                        )
+                    response = f"{'Learned' if save_to_memory else 'Processed'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
                 except Exception as e:
                     logging.error(f"Error getting vision response: {e}")
                     response = (
@@ -1291,8 +1556,9 @@ Your response (true or false):"""
                 )
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            fp = os.path.normpath(file_path)
-            if fp.startswith(self.agent_workspace):
+            abs_workspace = os.path.abspath(self.agent_workspace)
+            fp = os.path.abspath(os.path.normpath(file_path))
+            if fp.startswith(abs_workspace + os.sep):
                 try:
                     with open(fp, "r") as f:
                         content = f.read()
@@ -1306,21 +1572,22 @@ Your response (true or false):"""
                 file_content += content
                 self.input_tokens += get_tokens(content)
                 # Check how many lines are in the file content
-                lines = content.split("\n")
-                if len(lines) > 1:
-                    for line_number, line in enumerate(lines):
+                if save_to_memory:
+                    lines = content.split("\n")
+                    if len(lines) > 1:
+                        for line_number, line in enumerate(lines):
+                            await self.file_reader.write_text_to_memory(
+                                user_input=user_input,
+                                text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
+                                external_source=f"file {fp}",
+                            )
+                    else:
                         await self.file_reader.write_text_to_memory(
                             user_input=user_input,
-                            text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
+                            text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{content}",
                             external_source=f"file {fp}",
                         )
-                else:
-                    await self.file_reader.write_text_to_memory(
-                        user_input=user_input,
-                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{content}",
-                        external_source=f"file {fp}",
-                    )
-                response = f"Read [{file_name}]({file_url}) into memory."
+                response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
@@ -1333,7 +1600,104 @@ Your response (true or false):"""
                 else f"[ACTIVITY]{response}"
             ),
         )
+
+        # For learn endpoints (save_to_memory=True), return the simple response message
+        # For chat completions (save_to_memory=False), return metadata and instructions
+        if save_to_memory:
+            # Learning to memory - return simple success message
+            return response
+
+        # For images with vision content, return the vision description (it's already concise)
+        # The vision response is essential context for the agent to respond about the image
+        image_types = ["jpg", "jpeg", "png", "gif", "webp", "tiff", "bmp", "svg"]
+        if file_type in image_types and file_content:
+            logging.info(
+                f"Image {file_name} - returning vision response content ({get_tokens(file_content)} tokens)"
+            )
+            return file_content
+
+        # Chat completions - return metadata and instructions instead of full file content
+        # This keeps context manageable and the agent can use commands to access files
+        if file_content:
+            file_tokens = get_tokens(file_content)
+            logging.info(f"learn_from_file: file={file_name}, tokens={file_tokens}")
+
+            # Get file size
+            try:
+                file_size = os.path.getsize(file_path)
+            except:
+                file_size = len(file_content.encode("utf-8"))
+
+            # Determine the converted file name for spreadsheets
+            converted_file = None
+            if file_type in ["xlsx", "xls"]:
+                base_name = file_name.rsplit(".", 1)[0]
+                try:
+                    # Securely determine the directory for file_path
+                    dir_path = os.path.normpath(os.path.dirname(file_path))
+                    if not dir_path.startswith(self.agent_workspace):
+                        raise Exception(
+                            "Access to directory outside agent workspace is not allowed."
+                        )
+                    csv_files = [
+                        f
+                        for f in os.listdir(dir_path)
+                        if f.startswith(base_name) and f.endswith(".csv")
+                    ]
+                    if csv_files:
+                        converted_file = (
+                            csv_files[0]
+                            if len(csv_files) == 1
+                            else f"{base_name}_*.csv (multiple sheets)"
+                        )
+                except:
+                    pass
+
+            # Return only metadata and instructions - not the actual content
+            instructions = self._get_file_access_instructions(
+                file_name=file_name,
+                file_url=file_url,
+                file_path=file_path,
+                file_size_bytes=file_size,
+                file_tokens=file_tokens,
+                converted_file_name=converted_file,
+                file_type=file_type,
+            )
+
+            logging.info(
+                f"File {file_name} - returning metadata only ({file_tokens} tokens content not included in context)"
+            )
+            return instructions
+
         return file_content
+
+    async def _process_file_type_message(self, msg: dict, files: list) -> None:
+        """
+        Process a message content item with type "file" and nested file object.
+
+        Handles the OpenAI-style file upload format:
+        {"type": "file", "file": {"filename": "...", "file_data": "data:..."}}
+
+        Args:
+            msg: Message content item dictionary
+            files: List to append downloaded file info to
+        """
+        if not (isinstance(msg, dict) and msg.get("type") == "file" and "file" in msg):
+            return
+
+        file_info = msg["file"]
+        file_name = file_info.get("filename", f"{uuid.uuid4().hex}.txt")
+        file_data_str = file_info.get("file_data", "")
+
+        if file_data_str:
+            # Download the file to workspace and add to files list
+            downloaded_file = await self.download_file_to_workspace(
+                url=file_data_str,
+                file_name=file_name,
+            )
+            if downloaded_file != {}:
+                files.append(downloaded_file)
+                logging.info(f"Processed file upload: {file_name}")
 
     async def download_file_to_workspace(
         self, url: str, file_name: str = "", download_headers={}
@@ -1348,53 +1712,70 @@ Your response (true or false):"""
         Returns:
             str: URL of the downloaded file
         """
-        if url.startswith("data:"):
-            file_type = url.split(",")[0].split("/")[1].split(";")[0]
-        else:
-            if "?" in url:
-                file_type = url.split("?")[0]
-                file_type = file_type.split(".")[-1]
+        try:
+            # Check if URL already points to the same conversation workspace - skip re-downloading
+            if self.outputs and self.conversation_id:
+                workspace_prefix = f"{self.outputs}/{self.conversation_id}/"
+                if url.startswith(workspace_prefix):
+                    # File already exists in this conversation's workspace, no need to re-download
+                    existing_file_name = url[len(workspace_prefix) :]
+                    logging.info(
+                        f"File already in workspace, skipping download: {existing_file_name}"
+                    )
+                    return {"file_name": existing_file_name, "file_url": url}
+
+            if url.startswith("data:"):
+                file_type = url.split(",")[0].split("/")[1].split(";")[0]
             else:
-                file_type = url.split(".")[-1]
-        if not file_type:
-            file_type = "txt"
-        self.conversation_id
-        if not self.conversation_id:
-            self.conversation_id = self.conversation.get_conversation_id()
-        file_name = f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
-        file_name = "".join(c if c.isalnum() else "_" for c in file_name)
-        file_extension = file_name.split("_")[-1]
-        file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
-        full_path = os.path.normpath(
-            os.path.join(self.conversation_workspace, file_name)
-        )
-        if not full_path.startswith(self.conversation_workspace):
-            raise Exception("Path given not allowed")
-        if "," in url:
-            file_type = url.split(",")[0].split("/")[1].split(";")[0]
-            file_data = base64.b64decode(url.split(",")[1])
-        else:
-            file_type = file_name.split(".")[-1]
-            # Download the file
-            try:
-                if not url.startswith("http"):
+                if "?" in url:
+                    file_type = url.split("?")[0]
+                    file_type = file_type.split(".")[-1]
+                else:
+                    file_type = url.split(".")[-1]
+            if not file_type:
+                file_type = "txt"
+            self.conversation_id
+            if not self.conversation_id:
+                self.conversation_id = self.conversation.get_conversation_id()
+            file_name = (
+                f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
+            )
+            file_name = "".join(c if c.isalnum() else "_" for c in file_name)
+            file_extension = file_name.split("_")[-1]
+            file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
+            full_path = os.path.normpath(
+                os.path.join(self.conversation_workspace, file_name)
+            )
+            if not full_path.startswith(self.conversation_workspace):
+                raise Exception("Path given not allowed")
+            if "," in url:
+                file_type = url.split(",")[0].split("/")[1].split(";")[0]
+                file_data = base64.b64decode(url.split(",")[1])
+            else:
+                file_type = file_name.split(".")[-1]
+                # Download the file
+                try:
+                    if not url.startswith("http"):
+                        return {}
+                    if url in ["", None]:
+                        return {}
+                    file_download = requests.get(url)
+                    file_data = file_download.content
+                except Exception as e:
+                    logging.error(f"Error downloading file: {e}")
                     return {}
-                if url in ["", None]:
-                    return {}
-                file_download = requests.get(url)
-                file_data = file_download.content
-            except Exception as e:
-                logging.error(f"Error downloading file: {e}")
-                return {}
-        full_path = os.path.normpath(
-            os.path.join(self.conversation_workspace, file_name)
-        )
-        if not full_path.startswith(self.conversation_workspace):
-            raise Exception("Path given not allowed")
-        with open(full_path, "wb") as f:
-            f.write(file_data)
-        url = f"{self.outputs}/{self.conversation_id}/{file_name}"
-        return {"file_name": file_name, "file_url": url}
+            full_path = os.path.normpath(
+                os.path.join(self.conversation_workspace, file_name)
+            )
+            if not full_path.startswith(self.conversation_workspace):
+                raise Exception("Path given not allowed")
+            with open(full_path, "wb") as f:
+                f.write(file_data)
+            url = f"{self.outputs}/{self.conversation_id}/{file_name}"
+            return {"file_name": file_name, "file_url": url}
+        except Exception as e:
+            logging.error(f"Error in download_file_to_workspace: {e}")
+            return {}
 
     async def plan_task(
         self,
@@ -1651,6 +2032,11 @@ Your response (true or false):"""
         """
         Internal method that does the actual chat completion processing
         """
+        # Validate that messages is provided and not empty
+        if not prompt.messages:
+            raise ValueError(
+                "The 'messages' field is required and must contain at least one message."
+            )
         c = self.conversation
         conversation_id = self.conversation_id
         urls = []
@@ -1747,6 +2133,9 @@ Your response (true or false):"""
         disable_commands = False
         running_command = None
         additional_context = ""
+        parent_activity_id = None
+        has_tool_result = False  # Track if this is a tool result continuation
+        tool_result_text = ""  # Store tool result text separately
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -1757,6 +2146,8 @@ Your response (true or false):"""
                 log_user_input = str(message["log_user_input"]).lower() == "true"
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
+            if "parent_activity_id" in message:
+                parent_activity_id = message["parent_activity_id"]
             if "language" in message:
                 language = message["language"]
             if "conversation_results" in message:
@@ -1816,8 +2207,75 @@ Your response (true or false):"""
                 running_command = message["running_command"]
             if "content" not in message:
                 continue
+            role = message["role"] if "role" in message else "User"
+            # Handle tool result messages - treat as context for continuing conversation
+            if role.lower() == "tool":
+                has_tool_result = True  # Mark that this conversation has tool results
+                tool_call_id = message.get("tool_call_id", "unknown")
+                tool_content = message["content"]
+                if isinstance(tool_content, str):
+                    # Add tool result as prompt content - agent should respond based on this
+                    new_prompt += f"{tool_content}\n\n"
+                    tool_result_text = tool_content  # Store for logging
+                elif isinstance(tool_content, list):
+                    # Handle multipart tool results (text + images)
+                    for part in tool_content:
+                        if isinstance(part, dict):
+                            if "text" in part:
+                                new_prompt += f"{part['text']}\n\n"
+                            # Process file type parts
+                            await self._process_file_type_message(part, files)
+                            # Process image_url type parts (from ESP32 camera, etc)
+                            if part.get("type") == "image_url" and "image_url" in part:
+                                img_url_data = part["image_url"]
+                                url = (
+                                    img_url_data.get("url", "")
+                                    if isinstance(img_url_data, dict)
+                                    else str(img_url_data)
+                                )
+                                if url:
+                                    agent_id = (
+                                        self.agent.agent_id if self.agent else None
+                                    )
+                                    # Check if this is a workspace URL missing agent_id
+                                    # Pattern: /outputs/{conversation_id}/{filename} -> needs agent_id
+                                    if "/outputs/" in url and agent_id:
+                                        # Extract path after /outputs/
+                                        outputs_idx = url.find("/outputs/")
+                                        path_after_outputs = url[
+                                            outputs_idx + 9 :
+                                        ]  # After "/outputs/"
+                                        parts = path_after_outputs.split("/")
+                                        # If only 2 parts (conversation_id/filename), insert agent_id
+                                        if (
+                                            len(parts) == 2
+                                            and parts[0] == self.conversation_id
+                                        ):
+                                            # Reconstruct with agent_id
+                                            base_url = url[:outputs_idx]
+                                            url = f"{base_url}/outputs/{agent_id}/{path_after_outputs}"
+                                            logging.info(
+                                                f"[chat_completions] Fixed workspace URL: {url}"
+                                            )
+                                    # Download to workspace
+                                    file_name = (
+                                        url.split("/")[-1]
+                                        if "/" in url
+                                        else f"{uuid.uuid4().hex}.jpg"
+                                    )
+                                    downloaded = await self.download_file_to_workspace(
+                                        url=url, file_name=file_name
+                                    )
+                                    if downloaded and downloaded != {}:
+                                        files.append(downloaded)
+                                        logging.info(
+                                            f"[chat_completions] Downloaded tool image: {file_name}"
+                                        )
+                logging.info(
+                    f"[chat_completions] Processed tool result for {tool_call_id}"
+                )
+                continue
             if isinstance(message["content"], str):
-                role = message["role"] if "role" in message else "User"
                 if role.lower() == "system":
                     if "/" in message["content"]:
                         new_prompt += f"{message['content']}\n\n"
@@ -1826,9 +2284,10 @@ Your response (true or false):"""
             if isinstance(message["content"], list):
                 for msg in message["content"]:
                     if "text" in msg:
-                        role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
+                    # Process file type messages (non-streaming)
+                    await self._process_file_type_message(msg, files)
                     # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
                     if isinstance(msg, dict):
                         for key, value in msg.items():
@@ -1974,8 +2433,23 @@ Your response (true or false):"""
                                 else:
                                     # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
                                     audio_file_info = (
-                                        await self.download_file_to_workspace(url=url)
+                                        await self.download_file_to_workspace(
+                                            url=url,
+                                            file_name=(
+                                                file_name
+                                                if file_name
+                                                else "recording.wav"
+                                            ),
+                                        )
                                     )
+                                    if (
+                                        not audio_file_info
+                                        or "file_name" not in audio_file_info
+                                    ):
+                                        logging.error(
+                                            f"Failed to download audio file from URL (length: {len(url) if url else 0})"
+                                        )
+                                        continue
                                     full_path = os.path.normpath(
                                         os.path.join(
                                             self.agent_workspace,
@@ -2030,7 +2504,9 @@ Your response (true or false):"""
                                                 },
                                             }
                                         new_prompt += transcribed_audio
-        # Add user input to conversation
+        # Save the original user prompt before adding file info (for logging)
+        original_user_prompt = new_prompt.strip()
+        # Add file info to the prompt (for context to the agent)
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
         if "log_output" in prompt_args:
@@ -2039,11 +2515,19 @@ Your response (true or false):"""
         if "log_user_input" in prompt_args:
             log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
             del prompt_args["log_user_input"]
-        if log_user_input:
-            c.log_interaction(role="USER", message=new_prompt)
+        if log_user_input and not has_tool_result:
+            # Log the original user input, not the modified one with file names appended
+            # Don't log tool results as USER - they should be logged as TOOL subactivity
+            c.log_interaction(role="USER", message=original_user_prompt)
         thinking_id = ""
         if log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        # Log tool result as a subactivity under the thinking_id, not as a user message
+        if has_tool_result and tool_result_text and thinking_id:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{thinking_id}] Received tool result: {tool_result_text[:200]}{'...' if len(tool_result_text) > 200 else ''}",
+            )
         file_contents = []
         current_input_tokens = get_tokens(new_prompt)
         for file in files:
@@ -2163,11 +2647,13 @@ Your response (true or false):"""
                 voice_response=tts,
                 log_user_input=False,
                 log_output=False,
+                enable_command_selection=True,  # Enable intelligent command selection for main user interactions
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
                 context=additional_context,
                 command_overrides=command_overrides,
+                parent_activity_id=parent_activity_id,
                 **prompt_args,
             )
             if response.startswith(f"{self.agent_name}:"):
@@ -2250,6 +2736,56 @@ Your response (true or false):"""
                 logging.error(f"Error getting response: {response}")
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
+
+        # Check if there are pending remote commands (client-defined tools)
+        pending_commands = getattr(
+            self.agent_interactions, "_pending_remote_commands", []
+        )
+        if pending_commands:
+            # Build tool_calls response for client-defined tools
+            tool_calls = []
+            for idx, cmd in enumerate(pending_commands):
+                tool_call = {
+                    "id": cmd.get("request_id", f"call_{idx}"),
+                    "type": "function",
+                    "function": {
+                        "name": cmd.get("tool_name", "unknown"),
+                        "arguments": json.dumps(cmd.get("tool_args", {})),
+                    },
+                }
+                tool_calls.append(tool_call)
+
+            logging.info(
+                f"[chat_completions] Returning {len(tool_calls)} tool_calls for client-defined tools"
+            )
+
+            res_model = {
+                "id": self.conversation_id,
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": self.agent_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": tool_calls,
+                        },
+                        "finish_reason": "tool_calls",
+                        "logprobs": None,
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                },
+            }
+            # Clear the pending commands
+            self.agent_interactions._pending_remote_commands = []
+            return res_model
+
         res_model = {
             "id": self.conversation_id,
             "object": "chat.completion",
@@ -2287,6 +2823,12 @@ Your response (true or false):"""
         import json
         import time
         import asyncio
+
+        # Validate that messages is provided and not empty
+        if not prompt.messages:
+            raise ValueError(
+                "The 'messages' field is required and must contain at least one message."
+            )
 
         conversation_id = self.conversation_id
         chunk_id = conversation_id  # Use conversation_id as the chunk ID
@@ -2454,6 +2996,7 @@ Your response (true or false):"""
             )
 
         # Extract user message content from the prompt (same as non-streaming)
+        parent_activity_id = None
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -2464,6 +3007,8 @@ Your response (true or false):"""
                 log_user_input = str(message["log_user_input"]).lower() == "true"
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
+            if "parent_activity_id" in message:
+                parent_activity_id = message["parent_activity_id"]
             if "language" in message:
                 language = message["language"]
             if "conversation_results" in message:
@@ -2536,6 +3081,8 @@ Your response (true or false):"""
                         role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
+                    # Process file type messages (streaming)
+                    await self._process_file_type_message(msg, files)
                     # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
                     if isinstance(msg, dict):
                         for key, value in msg.items():
@@ -2720,13 +3267,15 @@ Your response (true or false):"""
                                                     if transcribed_audio:
                                                         new_prompt += transcribed_audio
 
-        # Add user input to conversation
+        # Save the original user prompt before adding file info (for logging)
+        original_user_prompt = new_prompt.strip()
+        # Add file info to the prompt (for context to the agent)
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
 
-        # Log user input
+        # Log user input (log original prompt without file names appended)
         if log_user_input:
-            c.log_interaction(role="USER", message=new_prompt)
+            c.log_interaction(role="USER", message=original_user_prompt)
 
         # Get thinking_id for activity logging
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
@@ -2840,6 +3389,9 @@ Your response (true or false):"""
             # This properly handles thinking/reflection tags and streams answer content
             final_answer = ""
 
+            # Track if we've streamed any answer content progressively
+            has_streamed_progressively = False
+
             async for event in self.agent_interactions.run_stream(
                 user_input=new_prompt,
                 prompt_category=prompt_category,
@@ -2865,10 +3417,28 @@ Your response (true or false):"""
                 # Stream answer tokens to the frontend via SSE
                 if event_type == "answer" and content:
                     if is_complete:
-                        # Final answer - we've already streamed it progressively
+                        # Final answer received - store it
                         final_answer = content
+                        # Only send if we haven't been streaming progressively
+                        # This handles command results that return in one shot
+                        if not has_streamed_progressively:
+                            chunk = {
+                                "id": chunk_id,
+                                "object": "chat.completion.chunk",
+                                "created": created_time,
+                                "model": self.agent_name,
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "delta": {"content": content},
+                                        "finish_reason": None,
+                                    }
+                                ],
+                            }
+                            yield f"data: {json.dumps(chunk)}\n\n"
                     else:
                         # Progressive answer streaming - send each token
+                        has_streamed_progressively = True
                         chunk = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",

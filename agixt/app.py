@@ -7,8 +7,12 @@ import mimetypes
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from middleware import CriticalEndpointProtectionMiddleware, UsageTrackingMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+from middleware import (
+    CriticalEndpointProtectionMiddleware,
+    UsageTrackingMiddleware,
+    DiscordErrorMiddleware,
+)
 from endpoints.Agent import app as agent_endpoints
 from endpoints.Chain import app as chain_endpoints
 from endpoints.Completions import app as completions_endpoints
@@ -20,7 +24,6 @@ from endpoints.Provider import app as provider_endpoints
 from endpoints.Auth import app as auth_endpoints
 from endpoints.Health import app as health_endpoints
 from endpoints.Tasks import app as tasks_endpoints
-from endpoints.Legacy import app as legacy_endpoints
 from endpoints.TeslaIntegration import register_tesla_routes
 from endpoints.Webhook import app as webhook_endpoints
 from endpoints.Billing import app as billing_endpoints
@@ -137,6 +140,36 @@ app.add_middleware(CriticalEndpointProtectionMiddleware)
 # Add usage tracking middleware (tracks response size for billing)
 app.add_middleware(UsageTrackingMiddleware)
 
+# Add Discord error notification middleware (sends errors to Discord webhook if configured)
+app.add_middleware(DiscordErrorMiddleware)
+
+
+# Global exception handler to send errors to Discord
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Handle all unhandled exceptions and send to Discord if configured"""
+    from middleware import send_discord_error
+    import traceback
+
+    # Log the error
+    logging.error(f"Unhandled exception: {exc}")
+    logging.error(traceback.format_exc())
+
+    # Send to Discord (the function checks if webhook is configured)
+    await send_discord_error(exc, request)
+
+    # Return a generic error response
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
 
 app.include_router(agent_endpoints)
 app.include_router(tasks_endpoints)
@@ -149,7 +182,6 @@ app.include_router(prompt_endpoints)
 app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
 app.include_router(health_endpoints)
-app.include_router(legacy_endpoints)
 app.include_router(webhook_endpoints)
 app.include_router(billing_endpoints)
 
@@ -403,13 +435,3 @@ async def serve_file(
 
 
 register_tesla_routes(app)
-
-from strawberry.fastapi import GraphQLRouter
-from endpoints.GQL import schema
-
-graphql_app = GraphQLRouter(
-    schema=schema,
-    subscription_protocols=["graphql-ws", "graphql-transport-ws"],
-    graphiql=str(getenv("GRAPHIQL")).lower() == "true",
-)
-app.include_router(graphql_app, prefix="/graphql")

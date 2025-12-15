@@ -42,23 +42,98 @@ logging.basicConfig(
 webhook_emitter = WebhookEventEmitter()
 
 
+def is_real_answer_tag(response: str, match_start: int) -> bool:
+    """
+    Determine if an <answer> tag at the given position is a real XML tag
+    or just a mention in natural language (e.g., "I'll respond in the <answer> block").
+
+    A real answer tag is typically:
+    1. At the start of the string, OR
+    2. Preceded by a newline (possibly with whitespace), OR
+    3. Preceded by a closing tag like </thinking> or </reflection>
+
+    This is much stricter than trying to detect fake tags by context after the tag.
+
+    Args:
+        response: The full response text
+        match_start: The position where <answer> starts
+
+    Returns:
+        bool: True if this appears to be a real XML tag, False if it's just a mention
+    """
+    # At start of string - real tag
+    if match_start == 0:
+        return True
+
+    # Get text before the tag
+    text_before = response[:match_start]
+
+    # Check if preceded by newline (with optional whitespace)
+    # This matches: \n<answer>, \n  <answer>, etc.
+    stripped_before = text_before.rstrip(" \t")
+    if stripped_before.endswith("\n") or stripped_before.endswith("\r"):
+        return True
+
+    # Check if preceded by a closing tag (like </thinking> or </reflection>)
+    # Allow optional whitespace between closing tag and <answer>
+    closing_tag_pattern = r"</(thinking|reflection|step|execute|output)>\s*$"
+    if re.search(closing_tag_pattern, text_before, re.IGNORECASE):
+        return True
+
+    # Check if preceded by just ">" (end of some other tag)
+    if stripped_before.endswith(">"):
+        return True
+
+    # Otherwise, it's likely just mentioned in text
+    return False
+
+
+def find_real_answer_tags(response: str, tag_type: str = "open") -> list:
+    """
+    Find all real <answer> or </answer> tags in the response,
+    filtering out mentions in natural language.
+
+    Args:
+        response: The full response text
+        tag_type: "open" for <answer>, "close" for </answer>
+
+    Returns:
+        list: List of match positions for real tags
+    """
+    if tag_type == "open":
+        pattern = r"<answer>"
+    else:
+        pattern = r"</answer>"
+
+    positions = []
+    for match in re.finditer(pattern, response, re.IGNORECASE):
+        if tag_type == "close" or is_real_answer_tag(response, match.start()):
+            positions.append(match.start())
+
+    return positions
+
+
 def has_complete_answer(response: str) -> bool:
     """
-    Check if the response contains a complete <answer>...</answer> block at the top level.
+    Check if the response contains a complete <answer>...</answer> block at the top level
+    with meaningful content (not just step/thinking tags).
 
     A complete answer means:
-    1. There is an <answer> tag
+    1. There is an <answer> tag (that's a real XML tag, not just mentioned in text)
     2. There is a matching </answer> tag
     3. The </answer> is NOT inside a <thinking> or <reflection> block
+    4. The content inside has actual text after removing step/reward/count tags
 
     This handles edge cases like:
     - <answer>Some text <thinking>thoughts</thinking> more text</answer> - COMPLETE (thinking is inside answer)
     - <answer>Some text</answer> - COMPLETE
     - <answer>Some text <thinking>thoughts</thinking> - INCOMPLETE (no closing answer after thinking)
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
+    - <answer><step>plan step</step></answer> - NOT COMPLETE (only contains step tags)
+    - <thinking>I'll put my response in the <answer> block</thinking> - NOT an answer (just mentioned in text)
 
     Returns:
-        bool: True if there's a complete top-level answer block
+        bool: True if there's a complete top-level answer block with meaningful content
     """
     # First, quick check - if no </answer> at all, definitely incomplete
     if "</answer>" not in response.lower():
@@ -68,13 +143,9 @@ def has_complete_answer(response: str) -> bool:
     if "<answer>" not in response.lower():
         return False
 
-    # Find all answer open/close positions
-    answer_opens = [
-        m.start() for m in re.finditer(r"<answer>", response, re.IGNORECASE)
-    ]
-    answer_closes = [
-        m.start() for m in re.finditer(r"</answer>", response, re.IGNORECASE)
-    ]
+    # Find real answer tags (not just mentions in natural language)
+    answer_opens = find_real_answer_tags(response, "open")
+    answer_closes = find_real_answer_tags(response, "close")
 
     if not answer_opens or not answer_closes:
         return False
@@ -140,7 +211,48 @@ def has_complete_answer(response: str) -> bool:
                 answer_depth -= 1
                 if answer_depth == 0:
                     # This is the matching close for our top-level answer
-                    return True
+                    # Extract the answer content and check if it has meaningful text
+                    answer_content = text_after_open[:next_close]
+
+                    # Clean out step/reward/count/thinking/reflection tags
+                    cleaned_content = re.sub(
+                        r"<step>.*?</step>",
+                        "",
+                        answer_content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    cleaned_content = re.sub(
+                        r"<reward>.*?</reward>",
+                        "",
+                        cleaned_content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    cleaned_content = re.sub(
+                        r"<count>.*?</count>",
+                        "",
+                        cleaned_content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    cleaned_content = re.sub(
+                        r"<thinking>.*?</thinking>",
+                        "",
+                        cleaned_content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    cleaned_content = re.sub(
+                        r"<reflection>.*?</reflection>",
+                        "",
+                        cleaned_content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    cleaned_content = cleaned_content.strip()
+
+                    # Only consider it complete if there's actual content
+                    if cleaned_content:
+                        return True
+                    else:
+                        # Answer only contained step/thinking tags, not a real answer
+                        continue
                 pos = next_close + len("</answer>")
 
     return False
@@ -154,6 +266,7 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
     - <answer>Text <thinking>thought</thinking> more</answer> - position after <thinking> IS inside answer
     - <thinking>thoughts</thinking><answer>text - position at end IS inside answer
     - <thinking><answer>text</answer></thinking> - the answer is NOT top-level
+    - <thinking>I'll put response in the <answer> block</thinking> - NOT an answer (just mentioned)
 
     Args:
         response: The full response text
@@ -167,10 +280,15 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
     text_to_check = response[:position]
 
-    # Find all top-level answer opens before this position
+    # Find all top-level answer opens before this position (using real tag detection)
     answer_open_positions = []
     for match in re.finditer(r"<answer>", text_to_check, re.IGNORECASE):
         open_pos = match.start()
+
+        # First check if this is a real tag (not just mentioned in text)
+        if not is_real_answer_tag(response, open_pos):
+            continue
+
         # Check if this answer open is at top level (not inside thinking/reflection)
         text_before = text_to_check[:open_pos]
         thinking_depth = len(
@@ -204,7 +322,6 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
             if next_open == float("inf") and next_close == float("inf"):
                 break
-
             if next_open < next_close:
                 answer_depth += 1
                 pos = next_open + len("<answer>")
@@ -299,8 +416,14 @@ class Interactions:
         prompt="",
         conversation_name="",
         vision_response: str = "",
+        selected_commands: list = None,
+        max_context_tokens: int = None,
         **kwargs,
     ):
+        # Use agent's max_input_tokens as default for context limit
+        # Reserve some tokens for the response (about 25% of max)
+        if max_context_tokens is None:
+            max_context_tokens = int(self.agent.max_input_tokens * 0.75)
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
@@ -650,7 +773,50 @@ class Interactions:
             agent_commands = self.agent.get_commands_prompt(
                 conversation_id=conversation_id,
                 running_command=kwargs.get("running_command", None),
+                selected_commands=selected_commands,
             )
+
+        # Check if context needs reduction before building final prompt
+        # Estimate tokens from variable-size context components
+        context_str = "\n".join(context) if isinstance(context, list) else str(context)
+        estimated_context_tokens = get_tokens(
+            f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
+        )
+
+        if estimated_context_tokens > max_context_tokens:
+            logging.info(
+                f"[format_prompt] Context exceeds max_context_tokens ({estimated_context_tokens} > {max_context_tokens}), reducing context..."
+            )
+            # Build context sections dict for reduce_context
+            context_sections = {
+                "memories": context_str,  # Already retrieved memories as string
+                "conversation_history": conversation_history,
+                "file_contents": file_contents,
+            }
+
+            # Reduce context using intelligent selection
+            reduced = await self.reduce_context(
+                user_input=user_input,
+                context_sections=context_sections,
+                target_tokens=max_context_tokens,
+                conversation_name=conversation_name,
+            )
+
+            # Apply reduced context
+            if "memories" in reduced:
+                context = [reduced["memories"]] if reduced["memories"] else []
+            if "conversation_history" in reduced:
+                conversation_history = reduced["conversation_history"]
+            if "file_contents" in reduced:
+                file_contents = reduced["file_contents"]
+
+            new_tokens = get_tokens(
+                f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
+            )
+            logging.info(
+                f"[format_prompt] Context reduced. New estimated tokens: {new_tokens}"
+            )
+
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -677,6 +843,7 @@ class Interactions:
     ) -> str:
         """
         Process thinking and reflection tags in the response and log them as subactivities.
+        Also processes <step>, <reward>, and <count> tags that appear outside of thinking tags.
         Only processes new, unprocessed tags.
 
         Args:
@@ -737,8 +904,138 @@ class Interactions:
                     "content": cleaned_content,
                 }
 
-        # Log only unique thoughts
-        for thought in unique_thoughts.values():
+        # Process <step> tags that appear outside of thinking/reflection tags
+        # These should be treated as thinking steps
+        step_pattern = r"<step>(.*?)</step>"
+        for step_match in re.finditer(
+            step_pattern, response, re.DOTALL | re.IGNORECASE
+        ):
+            step_content = step_match.group(1).strip()
+            step_start = step_match.start()
+
+            # Check if this step is inside a thinking or reflection tag
+            is_inside_thinking = False
+            for thinking_match in re.finditer(
+                r"<(thinking|reflection)>.*?</\1>", response, re.DOTALL | re.IGNORECASE
+            ):
+                if thinking_match.start() < step_start < thinking_match.end():
+                    is_inside_thinking = True
+                    break
+
+            # Also check for unclosed thinking tags
+            if not is_inside_thinking:
+                text_before = response[:step_start]
+                thinking_opens = len(
+                    re.findall(r"<thinking>", text_before, re.IGNORECASE)
+                )
+                thinking_closes = len(
+                    re.findall(r"</thinking>", text_before, re.IGNORECASE)
+                )
+                reflection_opens = len(
+                    re.findall(r"<reflection>", text_before, re.IGNORECASE)
+                )
+                reflection_closes = len(
+                    re.findall(r"</reflection>", text_before, re.IGNORECASE)
+                )
+                if (
+                    thinking_opens > thinking_closes
+                    or reflection_opens > reflection_closes
+                ):
+                    is_inside_thinking = True
+
+            # Only process if outside thinking tags and not inside answer
+            if not is_inside_thinking:
+                # Check if inside answer block
+                answer_opens = len(
+                    re.findall(r"<answer>", response[:step_start], re.IGNORECASE)
+                )
+                answer_closes = len(
+                    re.findall(r"</answer>", response[:step_start], re.IGNORECASE)
+                )
+                if answer_opens > answer_closes:
+                    continue  # Skip steps inside answer blocks
+
+                # Clean the step content
+                cleaned_step = re.sub(
+                    r"<reward>.*?</reward>", "", step_content, flags=re.DOTALL
+                )
+                cleaned_step = re.sub(
+                    r"<count>.*?</count>", "", cleaned_step, flags=re.DOTALL
+                )
+                cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
+
+                if cleaned_step and cleaned_step not in unique_thoughts:
+                    unique_thoughts[cleaned_step] = {
+                        "tag_name": "step",
+                        "content": cleaned_step,
+                    }
+
+        # Process standalone <reward> tags outside thinking/reflection (log as reflection score)
+        reward_pattern = r"<reward>(.*?)</reward>"
+        for reward_match in re.finditer(
+            reward_pattern, response, re.DOTALL | re.IGNORECASE
+        ):
+            reward_content = reward_match.group(1).strip()
+            reward_start = reward_match.start()
+
+            # Check if inside thinking, reflection, or step tag
+            is_inside_container = False
+            for container_match in re.finditer(
+                r"<(thinking|reflection|step)>.*?</\1>",
+                response,
+                re.DOTALL | re.IGNORECASE,
+            ):
+                if container_match.start() < reward_start < container_match.end():
+                    is_inside_container = True
+                    break
+
+            # Check for unclosed tags
+            if not is_inside_container:
+                text_before = response[:reward_start]
+                for tag in ["thinking", "reflection", "step"]:
+                    opens = len(re.findall(f"<{tag}>", text_before, re.IGNORECASE))
+                    closes = len(re.findall(f"</{tag}>", text_before, re.IGNORECASE))
+                    if opens > closes:
+                        is_inside_container = True
+                        break
+
+            if not is_inside_container:
+                # Check if inside answer block
+                answer_opens = len(
+                    re.findall(r"<answer>", response[:reward_start], re.IGNORECASE)
+                )
+                answer_closes = len(
+                    re.findall(r"</answer>", response[:reward_start], re.IGNORECASE)
+                )
+                if answer_opens > answer_closes:
+                    continue
+
+                reward_key = f"reward:{reward_content}"
+                if reward_key not in unique_thoughts:
+                    unique_thoughts[reward_key] = {
+                        "tag_name": "reward",
+                        "content": reward_content,
+                    }
+
+        # Combine all step tags into a single thought
+        step_contents = []
+        non_step_thoughts = {}
+        for key, thought in unique_thoughts.items():
+            if thought["tag_name"] == "step":
+                step_contents.append(thought["content"])
+            else:
+                non_step_thoughts[key] = thought
+
+        # If we have steps, combine them into a single thinking entry
+        if step_contents:
+            combined_steps = "\n".join(f"- {step}" for step in step_contents)
+            non_step_thoughts["combined_steps"] = {
+                "tag_name": "thinking",
+                "content": combined_steps,
+            }
+
+        # Log only unique thoughts (now with combined steps)
+        for thought in non_step_thoughts.values():
             tag_name = str(thought["tag_name"]).lower()
             content = thought["content"]
             content = re.sub(r"\. ", ".\n", content, count=1)
@@ -752,17 +1049,485 @@ class Interactions:
 
             # Only log if we haven't seen this exact thought before
             if tag_identifier not in self._processed_tags:
-                # log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
                 if tag_name == "thinking":
                     log_message = f"[SUBACTIVITY][{thinking_id}][THOUGHT] {content}"
                 elif tag_name == "reflection":
                     log_message = f"[SUBACTIVITY][{thinking_id}][REFLECTION] {content}"
+                elif tag_name == "step":
+                    log_message = f"[SUBACTIVITY][{thinking_id}][STEP] {content}"
+                elif tag_name == "reward":
+                    log_message = f"[SUBACTIVITY][{thinking_id}][SCORE] {content}"
                 else:
                     log_message = f"[SUBACTIVITY][{thinking_id}] {content}"
                 c.log_interaction(role=self.agent_name, message=log_message)
                 self._processed_tags.add(tag_identifier)
 
         return response
+
+    def compress_response_for_continuation(
+        self,
+        response: str,
+        max_output_lines: int = 20,
+        max_thinking_chars: int = 500,
+    ) -> str:
+        """
+        Compress a response for continuation prompts to prevent context explosion.
+
+        This function:
+        1. Summarizes long <output> blocks (keep first/last lines)
+        2. Truncates verbose thinking/reflection blocks
+        3. Preserves <execute> blocks intact (needed for tracking what was executed)
+        4. Preserves answer content intact
+
+        Args:
+            response: The full response to compress
+            max_output_lines: Maximum lines to keep per output block
+            max_thinking_chars: Maximum characters to keep per thinking block
+
+        Returns:
+            Compressed response suitable for continuation context
+        """
+        compressed = response
+
+        # 1. Compress <output> blocks - these tend to be the biggest culprits
+        output_pattern = r"<output>(.*?)</output>"
+
+        def compress_output(match):
+            content = match.group(1).strip()
+            lines = content.split("\n")
+
+            if len(lines) <= max_output_lines:
+                return match.group(0)  # Keep as-is if short enough
+
+            # Keep first few and last few lines with a summary in between
+            keep_start = max_output_lines // 2
+            keep_end = max_output_lines // 2
+
+            compressed_lines = lines[:keep_start]
+            compressed_lines.append(
+                f"\n... [{len(lines) - max_output_lines} lines omitted for brevity] ...\n"
+            )
+            compressed_lines.extend(lines[-keep_end:])
+
+            return f"<output>{chr(10).join(compressed_lines)}</output>"
+
+        compressed = re.sub(
+            output_pattern, compress_output, compressed, flags=re.DOTALL | re.IGNORECASE
+        )
+
+        # 2. Compress <thinking> blocks - keep the essence but not verbose detail
+        thinking_pattern = r"<thinking>(.*?)</thinking>"
+
+        def compress_thinking(match):
+            content = match.group(1).strip()
+
+            if len(content) <= max_thinking_chars:
+                return match.group(0)
+
+            # Keep first part and note that it was truncated
+            truncated = content[:max_thinking_chars]
+            # Try to cut at a sentence boundary
+            last_period = truncated.rfind(".")
+            if last_period > max_thinking_chars * 0.7:
+                truncated = truncated[: last_period + 1]
+
+            return f"<thinking>{truncated} [thinking truncated for brevity]</thinking>"
+
+        compressed = re.sub(
+            thinking_pattern,
+            compress_thinking,
+            compressed,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+
+        # 3. Compress <reflection> blocks similarly
+        reflection_pattern = r"<reflection>(.*?)</reflection>"
+
+        def compress_reflection(match):
+            content = match.group(1).strip()
+
+            if len(content) <= max_thinking_chars:
+                return match.group(0)
+
+            truncated = content[:max_thinking_chars]
+            last_period = truncated.rfind(".")
+            if last_period > max_thinking_chars * 0.7:
+                truncated = truncated[: last_period + 1]
+
+            return f"<reflection>{truncated} [reflection truncated]</reflection>"
+
+        compressed = re.sub(
+            reflection_pattern,
+            compress_reflection,
+            compressed,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+
+        # 4. Remove <step> tags entirely from continuation context - they're internal
+        compressed = re.sub(
+            r"<step>.*?</step>", "", compressed, flags=re.DOTALL | re.IGNORECASE
+        )
+
+        # 5. Remove <reward> and <count> tags
+        compressed = re.sub(
+            r"<reward>.*?</reward>", "", compressed, flags=re.DOTALL | re.IGNORECASE
+        )
+        compressed = re.sub(
+            r"<count>.*?</count>", "", compressed, flags=re.DOTALL | re.IGNORECASE
+        )
+
+        # Clean up any excessive whitespace left behind
+        compressed = re.sub(r"\n{3,}", "\n\n", compressed)
+
+        return compressed.strip()
+
+    async def reduce_context(
+        self,
+        user_input: str,
+        context_sections: dict,
+        target_tokens: int = 16000,
+        conversation_name: str = "",
+    ) -> dict:
+        """
+        Intelligently reduce context by having the LLM select which sections are needed.
+        This runs multiple lightweight inferences to prune unnecessary context.
+
+        Args:
+            user_input: The user's current request
+            context_sections: Dict of context sections with their content:
+                - "memories": List of memory items
+                - "activities": List of recent activities
+                - "conversation": List of conversation messages
+                - "files": List of file metadata
+                - "persona": Persona string
+                - "tasks": Current tasks
+            target_tokens: Target token count to reduce to
+            conversation_name: Name of conversation for logging
+
+        Returns:
+            dict: Reduced context sections
+        """
+        # Calculate current token counts per section
+        section_tokens = {}
+        total_tokens = 0
+        for section_name, content in context_sections.items():
+            if isinstance(content, list):
+                section_text = "\n".join(str(item) for item in content)
+            else:
+                section_text = str(content) if content else ""
+            tokens = get_tokens(section_text)
+            section_tokens[section_name] = tokens
+            total_tokens += tokens
+
+        logging.info(
+            f"[reduce_context] Total context tokens: {total_tokens}, target: {target_tokens}"
+        )
+
+        # If already under target, no reduction needed
+        if total_tokens <= target_tokens:
+            logging.info(
+                f"[reduce_context] Context already under target, no reduction needed"
+            )
+            return context_sections
+
+        # Build a summary of sections for the selector
+        section_summaries = []
+        for section_name, content in context_sections.items():
+            tokens = section_tokens[section_name]
+            if tokens == 0:
+                continue
+
+            # Create a brief summary/preview of each section
+            if isinstance(content, list) and len(content) > 0:
+                preview = (
+                    str(content[0])[:200] + "..."
+                    if len(str(content[0])) > 200
+                    else str(content[0])
+                )
+                item_count = len(content)
+                section_summaries.append(
+                    f"**{section_name}** ({tokens} tokens, {item_count} items)\nPreview: {preview}"
+                )
+            elif content:
+                preview = (
+                    str(content)[:200] + "..."
+                    if len(str(content)) > 200
+                    else str(content)
+                )
+                section_summaries.append(
+                    f"**{section_name}** ({tokens} tokens)\nPreview: {preview}"
+                )
+
+        # Step 1: Ask which sections are needed
+        section_selection_prompt = f"""You are helping optimize context for an AI assistant. The user's request is:
+
+"{user_input}"
+
+The following context sections are available. Select which ones are ESSENTIAL for answering this request.
+Total tokens: {total_tokens}, Target: {target_tokens} tokens.
+
+## Available Sections:
+{chr(10).join(section_summaries)}
+
+## Instructions:
+- Select ONLY sections that are directly relevant to the user's request
+- The user's input is always included (not optional)
+- Persona is usually needed for consistent responses
+- Activities/conversation history may not be needed for simple questions
+- Memories are useful for context but can be pruned for simple requests
+
+Respond with ONLY a comma-separated list of section names to KEEP, or "all" if all are needed.
+Example: memories, persona, files"""
+
+        try:
+            selection_response = await self.agent.inference(
+                prompt=section_selection_prompt
+            )
+
+            if selection_response.strip().lower() == "all":
+                # Need all sections, but may need to prune within sections
+                sections_to_keep = list(context_sections.keys())
+            else:
+                sections_to_keep = [
+                    s.strip().lower() for s in selection_response.split(",")
+                ]
+
+            logging.info(f"[reduce_context] Sections to keep: {sections_to_keep}")
+
+        except Exception as e:
+            logging.error(f"[reduce_context] Error in section selection: {e}")
+            sections_to_keep = list(context_sections.keys())
+
+        # Step 2: Build reduced context, pruning unneeded sections
+        reduced_context = {}
+        reduced_tokens = 0
+
+        for section_name, content in context_sections.items():
+            if (
+                section_name.lower() in sections_to_keep
+                or section_name.lower() == "persona"
+            ):
+                reduced_context[section_name] = content
+                reduced_tokens += section_tokens[section_name]
+            else:
+                reduced_context[section_name] = [] if isinstance(content, list) else ""
+
+        logging.info(f"[reduce_context] After section pruning: {reduced_tokens} tokens")
+
+        # Step 3: If still over target, prune within large sections
+        if reduced_tokens > target_tokens:
+            # Find the largest list-based sections and prune them
+            for section_name in ["memories", "activities", "conversation"]:
+                if section_name in reduced_context and isinstance(
+                    reduced_context[section_name], list
+                ):
+                    items = reduced_context[section_name]
+                    if len(items) > 3:
+                        # Keep only the most recent/relevant items
+                        # For activities and conversation, keep most recent
+                        if section_name in ["activities", "conversation"]:
+                            reduced_context[section_name] = items[-5:]  # Keep last 5
+                        else:
+                            # For memories, keep first few (most relevant by score)
+                            reduced_context[section_name] = items[:5]
+
+                        new_tokens = get_tokens(
+                            "\n".join(
+                                str(item) for item in reduced_context[section_name]
+                            )
+                        )
+                        reduced_tokens -= section_tokens[section_name] - new_tokens
+                        logging.info(
+                            f"[reduce_context] Pruned {section_name} from {len(items)} to {len(reduced_context[section_name])} items"
+                        )
+
+        logging.info(
+            f"[reduce_context] Final context: {reduced_tokens} tokens (target: {target_tokens})"
+        )
+        return reduced_context
+
+    async def select_commands_for_task(
+        self,
+        user_input: str,
+        conversation_name: str,
+        file_context: str = "",
+        has_uploaded_files: bool = False,
+        log_output: bool = True,
+        thinking_id: str = "",
+    ) -> list:
+        """
+        Intelligently select which commands should be available for this task.
+        This is called at the start of inference to optimize the command set.
+        Splits commands into two batches to reduce token count per selection call.
+
+        Args:
+            user_input: The user's input/request
+            conversation_name: Name of the conversation
+            file_context: Description of files in workspace (not content, just names/types)
+            has_uploaded_files: Whether the user uploaded files with this request
+            log_output: Whether to log the selection as a subactivity
+            thinking_id: Optional thinking_id for logging subactivities
+
+        Returns:
+            list: List of command friendly names that should be enabled
+        """
+        # Get all available commands with descriptions
+        commands_prompt, all_command_names = self.agent.get_commands_for_selection()
+
+        if not all_command_names:
+            return []
+
+        # Build context about files
+        context_parts = []
+        if file_context:
+            context_parts.append(f"Files in workspace: {file_context}")
+        if has_uploaded_files:
+            context_parts.append("The user has uploaded file(s) with this request.")
+
+        context = "\n".join(context_parts) if context_parts else "No files in context."
+
+        # File-related commands that should always be included if files are involved
+        file_commands = [
+            "Read File",
+            "Write to File",
+            "Search Files",
+            "Search File Content",
+            "Modify File",
+            "Delete File",
+            "Execute Python File",
+            "Run Data Analysis",
+        ]
+
+        # Commands that should always be available
+        always_include = ["Get Datetime"]
+
+        # Split commands into two batches to reduce token count per call
+        # Parse the commands_prompt into individual command entries
+        command_lines = commands_prompt.strip().split("\n")
+        mid_point = len(command_lines) // 2
+        batch1_lines = command_lines[:mid_point]
+        batch2_lines = command_lines[mid_point:]
+
+        batch1_prompt = "\n".join(batch1_lines)
+        batch2_prompt = "\n".join(batch2_lines)
+
+        # Get conversation for logging
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+        )
+
+        if not thinking_id and log_output:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        valid_commands = []
+
+        # Process both batches in parallel for speed using DIRECT inference (not run())
+        # This avoids pulling in all memories/context which bloats token count
+        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
+            try:
+                # Build a lightweight prompt directly without format_prompt overhead
+                selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
+
+## User's Request
+{user_input}
+
+## Context
+{context}
+
+{batch_prompt}
+
+## Your Task
+Based on the user's request and context above, select which commands would be most helpful for the assistant to have available when responding to this request.
+
+**Important Guidelines:**
+- Select commands that are directly relevant to what the user is asking for
+- Include commands that might be needed for related tasks (e.g., if reading a file, include file writing commands too in case modifications are needed)
+- **Include commands whose descriptions contain useful context** - some commands have descriptions that provide helpful information about available integrations, services, or capabilities that would help the assistant answer questions even if the command itself isn't executed
+- Be inclusive rather than exclusive - it's better to include a potentially useful command than to miss one that's needed
+- If the user uploaded files or there are files in context, always include file-related commands (Read File, Write to File, Search Files, etc.)
+- If no commands seem relevant for a simple greeting or conversational message, respond with "None"
+
+## Response Format
+Respond with ONLY a comma-separated list of the exact command names that should be available, or "None" if no commands are needed.
+Do not include any other text, explanation, or formatting.
+
+Example response format:
+Web Search, Read File, Write to File, Execute Python Code"""
+
+                # Direct inference call - bypasses format_prompt and all its context loading
+                selection_response = await self.agent.inference(
+                    prompt=selection_prompt,
+                )
+
+                # Handle "None" or empty responses
+                if (
+                    not selection_response
+                    or selection_response.strip().lower() == "none"
+                ):
+                    return []
+
+                # Parse the response - should be comma-separated command names
+                selected = [
+                    cmd.strip()
+                    for cmd in selection_response.split(",")
+                    if cmd.strip() and cmd.strip().lower() != "none"
+                ]
+
+                # Validate against actual command names
+                return [cmd for cmd in selected if cmd in all_command_names]
+
+            except Exception as e:
+                logging.error(
+                    f"[select_commands_for_task] Error in batch {batch_num}: {e}"
+                )
+                return []
+
+        # Run both batches in parallel
+        try:
+            batch1_results, batch2_results = await asyncio.gather(
+                select_from_batch(batch1_prompt, 1),
+                select_from_batch(batch2_prompt, 2),
+            )
+            valid_commands = batch1_results + batch2_results
+        except Exception as e:
+            logging.error(
+                f"[select_commands_for_task] Error in parallel selection: {e}"
+            )
+            # Fallback to all commands on error
+            return all_command_names
+
+        # Always add file commands if files are involved
+        if has_uploaded_files or file_context:
+            for fc in file_commands:
+                if fc in all_command_names and fc not in valid_commands:
+                    valid_commands.append(fc)
+
+        # Always include certain commands
+        for cmd in always_include:
+            if cmd in all_command_names and cmd not in valid_commands:
+                valid_commands.append(cmd)
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_commands = []
+        for cmd in valid_commands:
+            if cmd not in seen:
+                seen.add(cmd)
+                unique_commands.append(cmd)
+        valid_commands = unique_commands
+
+        # Log the selection
+        if log_output and thinking_id and valid_commands:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{thinking_id}] Selected {len(valid_commands)} abilities: {', '.join(valid_commands)}",
+            )
+
+        logging.info(
+            f"[select_commands_for_task] Selected {len(valid_commands)} commands: {valid_commands}"
+        )
+        return valid_commands
 
     async def run(
         self,
@@ -779,43 +1544,55 @@ class Interactions:
         log_user_input: bool = True,
         log_output: bool = True,
         command_overrides: list = None,
+        parent_activity_id: str = None,
         **kwargs,
     ):
+        """
+        Non-streaming version of run that internally uses run_stream() for all inference.
+        This ensures consistent behavior between streaming and non-streaming paths.
+
+        Returns the final answer as a string after all inference and command execution completes.
+        """
         global AGIXT_URI
+
         # Store conversation_id in kwargs for downstream use
         if conversation_id:
             kwargs["conversation_id"] = conversation_id
-        for setting in self.agent.AGENT_CONFIG["settings"]:
-            if setting not in kwargs:
-                kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
+        # Store parent_activity_id in kwargs for downstream use (e.g., nested prompt_agent calls)
+        if parent_activity_id:
+            kwargs["parent_activity_id"] = parent_activity_id
+
+        # Handle shots parameter (multiple response generations)
         if shots == 0:
             shots = 1
         shots = int(shots)
-        context_results = 5 if not context_results else int(context_results)
+
+        # Process prompt parameters
         prompt = "Think About It"
         prompt_category = "Default"
         if "prompt_category" in kwargs:
             prompt_category = kwargs["prompt_category"]
-            del kwargs["prompt_category"]
         if "prompt_name" in kwargs:
             prompt = kwargs["prompt_name"]
-            del kwargs["prompt_name"]
         if "prompt" in kwargs:
             prompt = kwargs["prompt"]
-            del kwargs["prompt"]
+
+        # Handle disable_memory
         disable_memory = False if str(disable_memory).lower() == "false" else True
-        kwargs["72"] = self.agent_name.lower().startswith("nu") == True
         if "disable_memory" in kwargs:
             disable_memory = (
                 False if str(kwargs["disable_memory"]).lower() == "false" else True
             )
-            del kwargs["disable_memory"]
+            kwargs["disable_memory"] = disable_memory
+
+        # Handle browse_links
         browse_links = True if str(browse_links).lower() == "true" else False
         if "browse_links" in kwargs:
             browse_links = (
                 True if str(kwargs["browse_links"]).lower() == "true" else False
             )
-            del kwargs["browse_links"]
+
+        # Handle collection_number for websearch
         if "collection_number" in kwargs:
             collection_number = str(kwargs["collection_number"])
             self.websearch = Websearch(
@@ -824,809 +1601,113 @@ class Interactions:
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
-            del kwargs["collection_number"]
+
+        # Handle use_smartest
         use_smartest = False
         if "use_smartest" in kwargs:
             use_smartest = (
                 True if str(kwargs["use_smartest"]).lower() == "true" else False
             )
-            del kwargs["use_smartest"]
 
         # Extract complexity score from kwargs if provided
         complexity_score = None
         if "complexity_score" in kwargs:
             complexity_score = kwargs["complexity_score"]
-            del kwargs["complexity_score"]
             # Override use_smartest based on complexity scoring
             if complexity_score and complexity_score.route_to_smartest:
                 use_smartest = True
 
+        # Handle websearch
         websearch = False
-        websearch_depth = 3
-        conversation_results = 5
-        kwargs["42"] = self.agent_name[-3:].lower() == "pt"
-
-        if "conversation_results" in kwargs:
-            try:
-                conversation_results = int(kwargs["conversation_results"])
-            except:
-                conversation_results = 5
-            del kwargs["conversation_results"]
         if "websearch" in self.agent.AGENT_CONFIG["settings"]:
             websearch = (
                 str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower() == "true"
             )
-        if "websearch_depth" in self.agent.AGENT_CONFIG["settings"]:
-            websearch_depth = int(
-                self.agent.AGENT_CONFIG["settings"]["websearch_depth"]
-            )
-        if "browse_links" in self.agent.AGENT_CONFIG["settings"]:
-            browse_links = (
-                str(self.agent.AGENT_CONFIG["settings"]["browse_links"]).lower()
-                == "true"
-            )
         if "websearch" in kwargs:
             websearch = True if str(kwargs["websearch"]).lower() == "true" else False
-            del kwargs["websearch"]
-        if "websearch_depth" in kwargs:
-            try:
-                websearch_depth = int(kwargs["websearch_depth"])
-            except:
-                websearch_depth = 3
-            del kwargs["websearch_depth"]
-        if "WEBSEARCH_TIMEOUT" in kwargs:
-            try:
-                websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
-            except:
-                websearch_timeout = 0
-        else:
-            websearch_timeout = 0
-        if "conversation_name" in kwargs:
-            conversation_name = kwargs["conversation_name"]
-        if conversation_name == "":
-            conversation_name = "-"
-        # Use conversation_id if provided - it's more stable than name during renames
-        conversation_id = kwargs.get("conversation_id")
-        c = Conversations(
-            conversation_name=conversation_name,
-            user=self.user,
-            conversation_id=conversation_id,
-        )
-        async_tasks = []
-        vision_response = ""
-        if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
-            if (
-                images != []
-                and self.agent.VISION_PROVIDER != "None"
-                and self.agent.VISION_PROVIDER != ""
-                and self.agent.VISION_PROVIDER != None
-            ):
-                message = "Viewing images." if len(images) > 1 else "Viewing image."
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] {message}",
-                )
-                try:
-                    vision_response = await self.agent.vision_inference(
-                        prompt=user_input, images=images, use_smartest=use_smartest
-                    )
-                except Exception as e:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY][ERROR] Unable to view image.",
-                    )
-                    logging.error(f"Error getting vision response: {e}")
-        if browse_links != False and websearch == False and searching == False:
-            task = asyncio.create_task(
-                self.websearch.scrape_websites(
-                    user_input=user_input,
-                    summarize_content=False,
-                    conversation_name=conversation_name,
-                )
-            )
-            async_tasks.append(task)
-        # Any other research prompt and action can be added here on bool toggle such as `websearch` and `browse_links`
-        # Add them as asyncio tasks to the async_tasks list
-        if websearch and searching == False:
-            if browse_links != False and searching == False:
-                task = asyncio.create_task(
-                    self.websearch.scrape_websites(
-                        user_input=user_input,
-                        summarize_content=False,
-                        conversation_name=conversation_name,
-                    )
-                )
-                async_tasks.append(task)
-            if user_input == "":
-                if "primary_objective" in kwargs and "task" in kwargs:
-                    user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
-                else:
-                    user_input = ""
-            if user_input != "":
-                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                searching_activity_id = c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{thinking_id}] Searching for information.",
-                )
-                to_search_or_not_to_search = await self.run(
-                    prompt_name="WebSearch Decision",
-                    prompt_category="Default",
-                    user_input=user_input,
-                    context_results=context_results,
-                    conversation_results=4,
-                    conversation_name=conversation_name,
-                    log_user_input=False,
-                    log_output=False,
-                    browse_links=False,
-                    websearch=False,
-                    tts=False,
-                    searching=True,
-                )
-                to_search = re.search(
-                    r"\byes\b", str(to_search_or_not_to_search).lower()
-                )
-                if to_search:
-                    search_strings = await self.run(
-                        prompt_name="WebSearch",
-                        prompt_category="Default",
-                        user_input=user_input,
-                        context_results=context_results,
-                        conversation_results=10,
-                        conversation_name=conversation_name,
-                        log_user_input=False,
-                        log_output=False,
-                        browse_links=False,
-                        websearch=False,
-                        tts=False,
-                        searching=True,
-                    )
-                    if "```json" in search_strings:
-                        search_strings = (
-                            search_strings.split("```json")[1].split("```")[0].strip()
-                        )
-                    elif "```" in search_strings:
-                        search_strings = search_strings.split("```")[1].strip()
-                    try:
-                        search_suggestions = json.loads(search_strings)
-                    except:
-                        keywords = extract_keywords(text=str(search_strings), limit=5)
-                        if keywords:
-                            search_string = " ".join(keywords)
-                            # add month and year to the end of the search string
-                            search_string += f" {datetime.now().strftime('%B %Y')}"
-                        search_suggestions = [
-                            {"search_string_suggestion_1": search_string}
-                        ]
-                    search_strings = []
-                    if search_suggestions != []:
-                        for i in range(1, int(websearch_depth) + 1):
-                            if f"search_string_suggestion_{i}" in search_suggestions:
-                                search_string = search_suggestions[
-                                    f"search_string_suggestion_{i}"
-                                ]
-                                search_strings.append(search_string)
-                                search_task = asyncio.create_task(
-                                    self.websearch.websearch_agent(
-                                        user_input=user_input,
-                                        search_string=search_string,
-                                        websearch_depth=websearch_depth,
-                                        websearch_timeout=websearch_timeout,
-                                        conversation_name=conversation_name,
-                                        activity_id=searching_activity_id,
-                                    )
-                                )
-                                async_tasks.append(search_task)
-        await asyncio.gather(*async_tasks)
 
-        # Process command_overrides BEFORE format_prompt so enabled state is correct
-        # Initialize client_tools to store OpenAI-format function definitions for client-side execution
-        self._client_tools = {}
+        # Clean up kwargs to remove keys that are explicitly passed to run_stream
+        # to avoid "got multiple values for keyword argument" errors
+        stream_explicit_keys = [
+            # Explicitly passed positional/keyword args to run_stream
+            "user_input",
+            "context_results",
+            "conversation_name",
+            "conversation_id",
+            "browse_links",
+            "websearch",
+            "images",
+            "log_user_input",
+            "log_output",
+            "complexity_score",
+            "use_smartest",
+            "thinking_id",
+            "searching",
+            "command_overrides",
+            # Additional keys processed in run()
+            "disable_memory",
+            "prompt_category",
+            "prompt_name",
+            "prompt",
+            "collection_number",
+            "parent_activity_id",
+        ]
+        stream_kwargs = {
+            k: v for k, v in kwargs.items() if k not in stream_explicit_keys
+        }
 
-        if command_overrides:
-            # Check if any tool requests exclusive mode (disable all other commands)
-            exclusive_mode = any(
-                tool.get("exclusive", False) for tool in command_overrides
-            )
-
-            if exclusive_mode:
-                # Disable ALL commands first, then enable only the requested ones
-                for cmd in self.agent.available_commands:
-                    cmd["enabled"] = False
-
-            for tool in command_overrides:
-                # Handle OpenAI-format tools (type: "function" with function object)
-                if tool.get("type") == "function" and "function" in tool:
-                    func_def = tool["function"]
-                    func_name = func_def.get("name", "")
-                    if func_name:
-                        self._client_tools[func_name] = func_def
-                        description = func_def.get(
-                            "description", f"Client-defined tool: {func_name}"
-                        )
-                        parameters = func_def.get("parameters", {})
-                        args = {}
-                        for param_name, param_def in parameters.get(
-                            "properties", {}
-                        ).items():
-                            args[param_name] = param_def.get(
-                                "description", f"Parameter: {param_name}"
-                            )
-                        client_command = {
-                            "friendly_name": func_name,
-                            "name": func_name,
-                            "description": description,
-                            "enabled": True,
-                            "args": args,
-                            "extension_name": "__client__",
-                        }
-                        self.agent.available_commands.append(client_command)
-                    continue
-
-                # Handle legacy format
-                tool_type = tool.get("type")
-                # Find the command in available_commands list and enable it
-                # This allows CLI/API to enable specific commands for this request
-                for available_command in self.agent.available_commands:
-                    if available_command["friendly_name"] == tool_type:
-                        # Always enable when specified in tools (not toggle)
-                        available_command["enabled"] = True
-                        # If enabling Execute Terminal Command, disable Execute Shell
-                        # to ensure the agent uses the remote terminal instead
-                        if tool_type == "Execute Terminal Command":
-                            for cmd in self.agent.available_commands:
-                                if cmd["friendly_name"] == "Execute Shell":
-                                    cmd["enabled"] = False
-                                    break
-                        break
-
-        formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
+        # Run single shot using run_stream and collect final answer
+        final_answer = ""
+        # Capture any remote command requests for client-defined tools
+        self._pending_remote_commands = []
+        async for chunk in self.run_stream(
             user_input=user_input,
-            top_results=int(context_results),
-            conversation_results=conversation_results,
-            prompt=prompt,
-            prompt_category=prompt_category,
+            context_results=context_results,
             conversation_name=conversation_name,
+            conversation_id=conversation_id,
+            browse_links=browse_links,
             websearch=websearch,
+            images=images,
+            log_user_input=log_user_input,
+            log_output=log_output,
+            complexity_score=complexity_score,
+            use_smartest=use_smartest,
             searching=searching,
-            vision_response=vision_response,
-            **kwargs,
-        )
-        if self.outputs in formatted_prompt:
-            # Anonymize AGiXT server URL to LLM
-            formatted_prompt = formatted_prompt.replace(
-                self.outputs, f"http://localhost:7437/outputs/{self.agent.agent_id}"
-            )
-        # logging.info(f"Formatted Prompt: {formatted_prompt}")
-        log_message = (
-            user_input
-            if user_input != "" and persist_context_in_history == False
-            else formatted_prompt
-        )
-        if log_user_input:
-            c.log_interaction(
-                role="USER",
-                message=log_message,
-            )
-            # Emit webhook event for user message
-            await webhook_emitter.emit_event(
-                event_type="conversation.message.received",
-                data={
-                    "conversation_id": c.get_conversation_id(),
-                    "conversation_name": conversation_name,
-                    "agent_name": self.agent_name,
-                    "user": self.user,
-                    "message": log_message,
-                    "role": "USER",
-                    "timestamp": datetime.now().isoformat(),
-                },
-                user_id=self.user,
-                agent_id=self.agent.agent_id,
-                agent_name=self.agent_name,
-                company_id=self.agent.company_id,
-            )
+            command_overrides=command_overrides,
+            **stream_kwargs,
+        ):
+            # Collect only complete answer chunks
+            if chunk.get("type") == "answer" and chunk.get("complete"):
+                final_answer = chunk.get("content", "")
+            # Also capture remote command requests for client-defined tools
+            elif chunk.get("type") == "remote_command_request":
+                self._pending_remote_commands.append(chunk.get("content", {}))
 
-        # Inject planning phase prompt for multi-step tasks before initial inference
-        # Note: complexity_score.planning_required already checks both is_multi_step AND planning_phase_enabled
-        if complexity_score and complexity_score.planning_required:
-            planning_prompt = get_planning_phase_prompt(user_input)
-            formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
-            logging.info(
-                f"Planning phase injected for multi-step task (score: {complexity_score.total_score})"
-            )
+        self.response = final_answer
 
-        try:
-            self.response = await self.agent.inference(
-                prompt=formatted_prompt, use_smartest=use_smartest
-            )
-        except Exception as e:
-            # Log the error with the full traceback for the provider
-            error = ""
-            for err in e:
-                error += f"{err.args}\n{err.name}\n{err.msg}\n"
-            # logging.warning(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
-            logging.error(f"{self.agent.PROVIDER} Error: {error} TOKENS: {tokens}")
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY][ERROR] Unable to generate response.",
-            )
-            return f"Unable to retrieve response."
-        # Deanonymize AGiXT server URL to send back to the user
-        self.response = self.response.replace(
-            f"http://localhost:7437/outputs/{self.agent.agent_id}", self.outputs
-        )
-        if self.outputs in self.response:
-            output_url_pattern = re.escape(self.outputs) + r"/\d+/([^\"'\s]+)"
-            links = re.findall(output_url_pattern, self.response)
-            if links:
-                for file_ref in links:
-                    # Construct the file path based on working directory and conversation ID
-                    conversation_id = c.get_conversation_id() if "c" in locals() else ""
-                    file_path = (
-                        f"{self.agent.working_directory}/{conversation_id}/{file_ref}"
-                    )
-
-                    # If the file doesn't exist, look for similar files
-                    if not os.path.exists(file_path):
-                        # Get the directory and filename parts
-                        dir_path = os.path.dirname(file_path)
-                        file_name = os.path.basename(file_ref)
-                        extension = os.path.splitext(file_name)[1]
-
-                        # If the directory exists, look for alternative files
-                        if os.path.exists(dir_path):
-                            best_match = None
-                            highest_similarity = 0
-                            most_recent_match = None
-                            most_recent_time = 0
-
-                            # Look for files with the same extension
-                            for candidate in os.listdir(dir_path):
-                                candidate_path = os.path.join(dir_path, candidate)
-                                if os.path.isfile(
-                                    candidate_path
-                                ) and candidate.endswith(extension):
-                                    # Check file creation/modification time
-                                    file_time = os.path.getmtime(candidate_path)
-
-                                    # Calculate similarity between filenames
-                                    from difflib import SequenceMatcher
-
-                                    similarity = SequenceMatcher(
-                                        None, file_name, candidate
-                                    ).ratio()
-
-                                    # Track the most similar file
-                                    if similarity > highest_similarity:
-                                        highest_similarity = similarity
-                                        best_match = candidate
-
-                                    # Track the most recently modified file with same extension
-                                    if file_time > most_recent_time:
-                                        most_recent_time = file_time
-                                        most_recent_match = candidate
-
-                            # Prefer recently created files (within last 5 minutes) over similar names
-                            if most_recent_match and (
-                                time.time() - most_recent_time < 300
-                            ):
-                                replacement = most_recent_match
-                            # Fall back to the most similar filename if similarity is reasonable
-                            elif best_match and highest_similarity > 0.6:
-                                replacement = best_match
-                            else:
-                                # No good replacement found
-                                continue
-
-                            # Replace the broken link with the found file
-                            orig_url = f"{self.outputs}/{conversation_id}/{file_ref}"
-                            new_url = f"{self.outputs}/{conversation_id}/{replacement}"
-                            self.response = self.response.replace(orig_url, new_url)
-
-        # Handle commands if the prompt contains the {COMMANDS} placeholder
-        # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
-        thinking_id = None  # Initialize to avoid UnboundLocalError
-        if "<think>" in self.response:
-            self.response.replace("<think>", "<thinking>")
-            self.response.replace("</think>", "</thinking>")
-        if "<thinking>" in self.response:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-            # Iterate over each thinking tag to the end of the </thinking> or next <thinking> or <answer> tag or <reflection> tag
-            # There may or may not be a closing tag.
-            # We want to do a log interaction per <thinking> and <reflection> tag until the next `<` in this format:
-            # [SUBACTIVITY][{thinking_id}] **{tag_name}** {tag_content}
-            self.response = self.process_thinking_tags(
-                response=self.response, thinking_id=thinking_id, c=c
-            )
-
-        # Complexity-aware thinking budget enforcement
-        planning_phase_complete = False
-        todo_list_created = False
-
-        if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
-            self._processed_commands = set()
-            processed_length = 0
-            no_changes = 0
-            intervention_count = 0  # Track interventions to prevent infinite loops
-            max_interventions = 3  # Maximum number of thinking budget interventions
-
-            # Then enter the main processing loop
-            while True:
-                if "<think>" in self.response:
-                    self.response.replace("<think>", "<thinking>")
-                    self.response.replace("</think>", "</thinking>")
-                if "<thinking>" in self.response:
-                    thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                    self.response = self.process_thinking_tags(
-                        response=self.response, thinking_id=thinking_id, c=c
-                    )
-
-                # Check for to-do list creation (for multi-step planning phase)
-                if (
-                    complexity_score
-                    and complexity_score.planning_required
-                    and not todo_list_created
-                ):
-                    todo_list_created = check_todo_list_exists(self.response)
-                    if todo_list_created:
-                        logging.info("Planning phase complete: to-do list created")
-
-                # Thinking budget enforcement for medium/high complexity tasks
-                if (
-                    complexity_score
-                    and complexity_score.thinking_budget > 0
-                    and intervention_count < max_interventions
-                ):
-                    needs_intervention, intervention_prompt = should_intervene(
-                        self.response, complexity_score
-                    )
-                    if needs_intervention:
-                        intervention_count += 1
-                        logging.info(
-                            f"Thinking budget intervention {intervention_count}/{max_interventions}: "
-                            f"Current steps: {count_thinking_steps(self.response)}, "
-                            f"Required: {complexity_score.min_thinking_steps}"
-                        )
-                        # Inject intervention prompt to encourage more thinking
-                        intervention_full = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\n{intervention_prompt}"
-                        intervention_response = await self.agent.inference(
-                            prompt=intervention_full, use_smartest=use_smartest
-                        )
-                        self.response = f"{self.response}{intervention_response}"
-                        continue
-
-                # First handle any initial commands
-                if "<execute>" in self.response:
-                    await self.execution_agent(
-                        conversation_name=conversation_name,
-                        conversation_id=conversation_id,
-                        thinking_id=thinking_id,
-                    )
-                    new_processed_length = len(self.response)
-                    if new_processed_length > processed_length:
-                        # Get continuation only if we got new content
-                        # Make the context about command execution clearer
-                        command_output = self.response[processed_length:].strip()
-                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response[:processed_length]}\n\nCommand executed with output: {command_output}\n\nThe assistant should continue its thought process based on this command output..."
-                        command_response = await self.agent.inference(
-                            prompt=new_prompt, use_smartest=use_smartest
-                        )
-                        self.response = f"{self.response}{command_response}"
-                        processed_length = new_processed_length
-                    else:
-                        if "<execute>" not in self.response[processed_length:]:
-                            break
-                if "<think>" in self.response:
-                    self.response.replace("<think>", "<thinking>")
-                    self.response.replace("</think>", "</thinking>")
-                if "<thinking>" in self.response:
-                    thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                    self.response = self.process_thinking_tags(
-                        response=self.response, thinking_id=thinking_id, c=c
-                    )
-                # Check if we have new commands to process
-                if (
-                    "</output>" in self.response[processed_length:]
-                    or "<execute>" in self.response[processed_length:]
-                ):
-                    if "<think>" in self.response:
-                        self.response.replace("<think>", "<thinking>")
-                        self.response.replace("</think>", "</thinking>")
-                    if "<thinking>" in self.response:
-                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                        self.response = self.process_thinking_tags(
-                            response=self.response, thinking_id=thinking_id, c=c
-                        )
-                    await self.execution_agent(
-                        conversation_name=conversation_name,
-                        conversation_id=conversation_id,
-                        thinking_id=thinking_id,
-                    )
-                    new_processed_length = len(self.response)
-
-                    if new_processed_length > processed_length:
-                        # Only continue if we actually got new content
-                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
-                        command_response = await self.agent.inference(
-                            prompt=new_prompt, use_smartest=use_smartest
-                        )
-                        self.response = f"{self.response}{command_response}"
-                        processed_length = new_processed_length
-                        # Check for new thinking tags after getting new content
-                        if "<think>" in self.response:
-                            self.response.replace("<think>", "<thinking>")
-                            self.response.replace("</think>", "</thinking>")
-                        if "<thinking>" in self.response:
-                            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                            self.response = self.process_thinking_tags(
-                                response=self.response, thinking_id=thinking_id, c=c
-                            )
-                    else:
-                        break  # No new content, stop processing
-                # If no complete answer block yet, try to get it
-                # Use has_complete_answer() to properly detect complete answers
-                # This handles edge cases like <thinking> inside <answer> tags
-                elif not has_complete_answer(self.response):
-                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>' as long as there is a <answer> block present, otherwise, the final answer to the user should be within the <answer> block. to send the message to the user. Ensure the <answer> block does not contain <thinking>, <reflection>, <execute>, or <output> tags, those should only exist before and after the <answer> block. The <answer> block should only contain the final, well reasoned response to the user."
-                    response = await self.agent.inference(
-                        prompt=new_prompt, use_smartest=use_smartest
-                    )
-                    self.response = f"{self.response}{response}"
-                    continue
-                else:
-                    # We have an answer block - check if there are unprocessed commands before it
-                    pre_answer = self.response.split("<answer>")[0]
-                    if (
-                        "<execute>" in pre_answer
-                        and "</output>" not in pre_answer.split("<execute>")[-1]
-                    ):
-                        # There's an unprocessed command before the answer block
-                        await self.execution_agent(
-                            conversation_name=conversation_name,
-                            conversation_id=conversation_id,
-                            thinking_id=thinking_id,
-                        )
-                        new_processed_length = len(self.response)
-                        if new_processed_length > processed_length:
-                            # Continue processing if we got new content
-                            continue
-
-                    answer_block = self.response.split("</answer>")[0].split(
-                        "<answer>"
-                    )[-1]
-                    if "<thinking>" in answer_block:
-                        self.response = self.response.replace("</answer>", "").replace(
-                            "<answer>", ""
-                        )
-                    elif "<execute>" in answer_block:
-                        self.response = self.response.replace("</answer>", "").replace(
-                            "<answer>", ""
-                        )
-                    else:
-                        # Answer review phase for high complexity tasks
-                        if complexity_score and complexity_score.answer_review_enabled:
-                            # Check if to-do list exists and needs review
-                            if complexity_score.planning_required and todo_list_created:
-                                todo_review = get_todo_review_prompt()
-                                review_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\n{todo_review}"
-                                review_response = await self.agent.inference(
-                                    prompt=review_prompt, use_smartest=use_smartest
-                                )
-                                # Check if agent wants to continue working
-                                if "<execute>" in review_response:
-                                    self.response = f"{self.response}{review_response}"
-                                    # Reset answer - agent wants to do more work
-                                    self.response = self.response.replace(
-                                        "</answer>", ""
-                                    ).replace("<answer>", "")
-                                    continue
-
-                            # High complexity answer review
-                            answer_review = get_answer_review_prompt()
-                            review_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\n{answer_review}"
-                            review_response = await self.agent.inference(
-                                prompt=review_prompt, use_smartest=use_smartest
-                            )
-                            # Check if agent wants to revise or execute more
-                            if (
-                                "<execute>" in review_response
-                                or "<answer>" in review_response
-                            ):
-                                self.response = f"{self.response}{review_response}"
-                                if "<answer>" in review_response:
-                                    # Agent revised the answer, we're done
-                                    break
-                                # Agent wants to execute more commands
-                                self.response = self.response.replace(
-                                    "</answer>", ""
-                                ).replace("<answer>", "")
-                                continue
-                            logging.info("High complexity answer review complete")
-                        break
-                no_changes += 1
-                if no_changes > 5:
-                    last_closed_tag = self.response.rfind(">")
-                    self.response = (
-                        self.response[: last_closed_tag + 1]
-                        + "<answer>"
-                        + self.response[last_closed_tag + 1 :]
-                    )
-                    self.response += "</answer>"
-        if "<think>" in self.response:
-            self.response.replace("<think>", "<thinking>")
-            self.response.replace("</think>", "</thinking>")
-        if "<thinking>" in self.response:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-            self.response = self.process_thinking_tags(
-                response=self.response, thinking_id=thinking_id, c=c
-            )
-        if self.response != "" and self.response != None:
-            agent_settings = self.agent.AGENT_CONFIG["settings"]
-            if "<audio controls>" in self.response:
-                self.response = re.sub(
-                    r"<audio controls>(.*?)</audio>", "", self.response, flags=re.DOTALL
-                )
-            if "<image src=" in self.response:
-                self.response = re.sub(
-                    r"<image src=(.*?)>", "", self.response, flags=re.DOTALL
-                )
-
-            tts = False
-            if "tts" in kwargs:
-                tts = str(kwargs["tts"]).lower() == "true"
-            if "tts_provider" in agent_settings and tts == True:
-                if (
-                    agent_settings["tts_provider"] != "None"
-                    and agent_settings["tts_provider"] != ""
-                    and agent_settings["tts_provider"] != None
-                ):
-                    try:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating audio response.",
-                        )
-                        answer = self.response.split("</answer>")[0].split("<answer>")[
-                            -1
-                        ]
-                        tts_response = await self.agent.text_to_speech(text=answer)
-                        if str(tts_response).startswith("http"):
-                            # Wrap the URL in an audio tag
-                            tts_response = f'<audio controls><source src="{tts_response}" type="audio/wav"></audio>'
-                        elif not str(tts_response).startswith("<audio"):
-                            # Handle base64 response (legacy)
-                            file_type = "wav"
-                            file_name = f"{uuid.uuid4().hex}.{file_type}"
-                            audio_path = os.path.join(
-                                self.agent.working_directory, file_name
-                            )
-                            audio_data = base64.b64decode(tts_response)
-                            with open(audio_path, "wb") as f:
-                                f.write(audio_data)
-                            tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{self.conversation_id}/{file_name}" type="audio/wav"></audio>'
-                        self.response = f"{self.response}\n\n{tts_response}"
-                        if "</answer>" in self.response:
-                            self.response = self.response.replace("</answer>", "")
-                            self.response += "</answer>"
-                    except Exception as e:
-                        logging.warning(f"Failed to get TTS response: {e}")
-            if disable_memory != True:
-                try:
-                    await self.agent_memory.write_text_to_memory(
-                        user_input=user_input,
-                        text=self.response,
-                        external_source="user input",
-                    )
-                except:
-                    pass
-            if "image_provider" in agent_settings:
-                if (
-                    agent_settings["image_provider"] != "None"
-                    and agent_settings["image_provider"] != ""
-                    and agent_settings["image_provider"] != None
-                    and agent_settings["image_provider"] != "default"
-                ):
-                    img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like a creative generated image to be generated by AI in their request. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
-                    create_img = await self.agent.inference(prompt=img_gen_prompt)
-                    create_img = str(create_img).lower()
-                    to_create_image = re.search(r"\byes\b", str(create_img).lower())
-                    if to_create_image:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating image.",
-                        )
-                        img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {self.response} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
-                        image_generation_prompt = await self.agent.inference(
-                            prompt=img_prompt
-                        )
-                        image_generation_prompt = str(image_generation_prompt)
-                        if "```markdown" in image_generation_prompt:
-                            image_generation_prompt = image_generation_prompt.split(
-                                "```markdown"
-                            )[1]
-                            image_generation_prompt = image_generation_prompt.split(
-                                "```"
-                            )[0]
-                        try:
-                            generated_image = await self.agent.generate_image(
-                                prompt=image_generation_prompt
-                            )
-                            self.response = f"{self.response}\n![Image generated by {self.agent_name}]({generated_image})"
-                            if "</answer>" in self.response:
-                                self.response = self.response.replace("</answer>", "")
-                                self.response += "</answer>"
-                        except:
-                            logging.warning(
-                                f"Failed to generate image for prompt: {image_generation_prompt}"
-                            )
-            if "<thinking>" in self.response:
-                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-                self.response = self.process_thinking_tags(
-                    response=self.response, thinking_id=thinking_id, c=c
-                )
-            if log_output:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=self.response,
-                )
-                # Emit webhook event for agent response
-                await webhook_emitter.emit_event(
-                    event_type="conversation.message.sent",
-                    data={
-                        "conversation_id": c.get_conversation_id(),
-                        "conversation_name": conversation_name,
-                        "agent_name": self.agent_name,
-                        "user": self.user,
-                        "message": self.response,
-                        "role": self.agent_name,
-                        "timestamp": datetime.now().isoformat(),
-                        "prompt_tokens": tokens if "tokens" in locals() else 0,
-                    },
-                    user_id=self.user,
-                    agent_id=self.agent.agent_id,
-                    agent_name=self.agent_name,
-                    company_id=self.agent.company_id,
-                )
-
-                # Also emit chat completion event
-                await webhook_emitter.emit_event(
-                    event_type="chat.completion.completed",
-                    data={
-                        "conversation_id": c.get_conversation_id(),
-                        "conversation_name": conversation_name,
-                        "agent_name": self.agent_name,
-                        "user": self.user,
-                        "user_input": user_input,
-                        "response": self.response,
-                        "timestamp": datetime.now().isoformat(),
-                        "prompt_tokens": tokens if "tokens" in locals() else 0,
-                    },
-                    user_id=self.user,
-                    agent_id=self.agent.agent_id,
-                    agent_name=self.agent_name,
-                    company_id=self.agent.company_id,
-                )
+        # Handle multiple shots if requested
         if shots > 1:
-            responses = [self.response]
+            responses = [final_answer]
+            conversation_results = kwargs.get("conversation_results", 5)
             for shot in range(shots - 1):
-                prompt_args = {
+                shot_kwargs = {
                     "user_input": user_input,
                     "context_results": context_results,
                     "conversation_results": conversation_results,
                     "conversation_name": conversation_name,
                     "disable_memory": disable_memory,
-                    **kwargs,
                 }
-                if "images" in prompt_args:
-                    del prompt_args["images"]
-                if "searching" in prompt_args:
-                    del prompt_args["searching"]
-                if "tts" in prompt_args:
-                    del prompt_args["tts"]
-                if "websearch" in prompt_args:
-                    del prompt_args["websearch"]
-                if "websearch_depth" in prompt_args:
-                    del prompt_args["websearch_depth"]
-                if "browse_links" in prompt_args:
-                    del prompt_args["browse_links"]
+                # Copy non-conflicting kwargs
+                for k, v in kwargs.items():
+                    if k not in [
+                        "images",
+                        "searching",
+                        "tts",
+                        "websearch",
+                        "websearch_depth",
+                        "browse_links",
+                    ]:
+                        shot_kwargs[k] = v
 
                 shot_response = await self.run(
                     agent_name=self.agent_name,
@@ -1638,7 +1719,7 @@ class Interactions:
                     browse_links=False,
                     searching=True,
                     tts=False,
-                    **prompt_args,
+                    **shot_kwargs,
                 )
                 time.sleep(1)
                 responses.append(shot_response)
@@ -1648,7 +1729,7 @@ class Interactions:
                     for shot, response in enumerate(responses)
                 ]
             )
-        return self.response
+        return final_answer
 
     async def run_stream(
         self,
@@ -1999,6 +2080,62 @@ class Interactions:
                                     break
                         break
 
+        # Intelligent command selection - select relevant commands before building prompt
+        selected_commands = None
+        prompt_content = self.cp.get_prompt(
+            prompt_name=prompt, prompt_category=prompt_category
+        )
+        has_commands_placeholder = (
+            "{COMMANDS}" in prompt_content if prompt_content else False
+        )
+
+        # Enable command selection if commands are available and this is the main user interaction
+        enable_command_selection = kwargs.get("enable_command_selection", log_output)
+
+        logging.info(
+            f"[run_stream] Command selection check: disable_commands={'disable_commands' in kwargs}, searching={searching}, enable_command_selection={enable_command_selection}, has_commands_placeholder={has_commands_placeholder}"
+        )
+
+        if (
+            "disable_commands" not in kwargs
+            and not searching
+            and enable_command_selection
+            and has_commands_placeholder
+        ):
+            # Build file context for selection
+            file_context = ""
+            has_uploaded_files = False
+            if "uploaded_file_data" in kwargs:
+                has_uploaded_files = True
+                uploaded_data = kwargs.get("uploaded_file_data", "")
+                if (
+                    "file uploaded named" in uploaded_data.lower()
+                    or "Content from" in uploaded_data
+                ):
+                    file_matches = re.findall(r"`([^`]+\.[a-zA-Z0-9]+)`", uploaded_data)
+                    if file_matches:
+                        file_context = f"Uploaded files: {', '.join(file_matches)}"
+
+            # Do intelligent command selection
+            try:
+                selected_commands = await self.select_commands_for_task(
+                    user_input=user_input,
+                    conversation_name=conversation_name,
+                    file_context=file_context,
+                    has_uploaded_files=has_uploaded_files,
+                    log_output=log_output,
+                    thinking_id=thinking_id,
+                )
+            except Exception as e:
+                logging.error(f"[run_stream] Error in command selection: {e}")
+                selected_commands = None
+
+        # Store selected_commands as instance variable to persist across continuation loops
+        self._selected_commands = selected_commands
+
+        # Remove selected_commands from kwargs if present to avoid duplicate parameter
+        kwargs.pop("selected_commands", None)
+
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -2009,6 +2146,7 @@ class Interactions:
             conversation_name=conversation_name,
             websearch=websearch,
             vision_response=vision_response,
+            selected_commands=selected_commands,
             **kwargs,
         )
 
@@ -2107,6 +2245,8 @@ Example: If user says "list my files", use:
         processed_thinking_ids = set()
         in_answer = False
         answer_content = ""
+        thinking_content = ""  # Track streamed thinking content
+        reflection_content = ""  # Track streamed reflection content
         is_executing = False  # Flag to pause streaming during command execution
         remote_command_yielded = (
             False  # Flag to track if remote command was yielded (skip continuation)
@@ -2217,8 +2357,8 @@ Example: If user says "list my files", use:
                 # This handles cases where <thinking> appears INSIDE <answer> blocks
                 in_answer = is_inside_top_level_answer(full_response)
 
-                # Check for execute tag completion - only at top level
-                # Find </execute> that's NOT inside thinking/reflection AND not inside answer
+                # Check for execute tag completion - allow commands inside answer blocks
+                # Find </execute> that's NOT inside thinking/reflection (but allow inside answer)
                 execute_pattern = r"<execute>.*?</execute>"
                 for match in re.finditer(
                     execute_pattern, full_response, re.DOTALL | re.IGNORECASE
@@ -2231,6 +2371,18 @@ Example: If user says "list my files", use:
                         or get_tag_depth(text_before, "reflection") > 0
                     ):
                         continue  # This execute is inside thinking/reflection, skip
+
+                    # Check if inside answer block - if so, strip answer tags first
+                    is_inside_answer = is_inside_top_level_answer(
+                        full_response, match.start()
+                    )
+                    if is_inside_answer:
+                        # Strip answer tags to allow command execution within answer phase
+                        full_response = full_response.replace("</answer>", "").replace(
+                            "<answer>", ""
+                        )
+                        in_answer = False
+                        answer_content = ""
 
                     # This is a top-level execute - check if we've processed it
                     execute_content = match.group(0)
@@ -2301,7 +2453,15 @@ Example: If user says "list my files", use:
 
                         # Clean content - remove any tag mentions
                         content = re.sub(
-                            r"</?(?:answer|execute|output|step)>", "", content
+                            r"</?(?:answer|execute|output|step|reward|count)>",
+                            "",
+                            content,
+                        )
+                        content = re.sub(
+                            r"<reward>.*?</reward>", "", content, flags=re.DOTALL
+                        )
+                        content = re.sub(
+                            r"<count>.*?</count>", "", content, flags=re.DOTALL
                         )
                         content = re.sub(r"\n\s*\n\s*\n", "\n\n", content).strip()
 
@@ -2320,13 +2480,217 @@ Example: If user says "list my files", use:
                                 "complete": True,
                             }
 
+                # Process standalone <step> tags outside thinking/reflection (treat as thinking steps)
+                # Collect all steps to combine them into a single thought
+                step_pattern = r"<step>(.*?)</step>"
+                collected_steps = []
+                for match in re.finditer(
+                    step_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    step_content = match.group(1).strip()
+                    step_start = match.start()
+                    step_id = f"step:{hash(step_content)}"
+
+                    if step_id in processed_thinking_ids or not step_content:
+                        continue
+
+                    # Check if this step is inside thinking/reflection
+                    text_before = full_response[:step_start]
+                    if (
+                        get_tag_depth(text_before, "thinking") > 0
+                        or get_tag_depth(text_before, "reflection") > 0
+                    ):
+                        continue  # Skip steps inside thinking/reflection
+
+                    # Check if inside answer block
+                    if is_inside_top_level_answer(full_response, step_start):
+                        continue  # Skip steps inside answer
+
+                    processed_thinking_ids.add(step_id)
+
+                    # Clean content
+                    cleaned_step = re.sub(
+                        r"<reward>.*?</reward>", "", step_content, flags=re.DOTALL
+                    )
+                    cleaned_step = re.sub(
+                        r"<count>.*?</count>", "", cleaned_step, flags=re.DOTALL
+                    )
+                    cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
+
+                    if cleaned_step:
+                        collected_steps.append(cleaned_step)
+
+                # Log all collected steps as a single combined thought
+                if collected_steps and not is_executing:
+                    combined_steps = "\n".join(f"- {step}" for step in collected_steps)
+                    log_msg = f"[SUBACTIVITY][THOUGHT] {combined_steps}"
+                    c.log_interaction(role=self.agent_name, message=log_msg)
+
+                    yield {
+                        "type": "thinking",
+                        "content": combined_steps,
+                        "complete": True,
+                    }
+
+                # Process standalone <reward> tags outside containers (log as score)
+                reward_pattern = r"<reward>(.*?)</reward>"
+                for match in re.finditer(
+                    reward_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    reward_content = match.group(1).strip()
+                    reward_start = match.start()
+                    reward_id = f"reward:{hash(reward_content)}"
+
+                    if reward_id in processed_thinking_ids or not reward_content:
+                        continue
+
+                    # Check if this reward is inside thinking/reflection/step
+                    text_before = full_response[:reward_start]
+                    if (
+                        get_tag_depth(text_before, "thinking") > 0
+                        or get_tag_depth(text_before, "reflection") > 0
+                        or get_tag_depth(text_before, "step") > 0
+                    ):
+                        continue  # Skip rewards inside containers
+
+                    # Check if inside answer block
+                    if is_inside_top_level_answer(full_response, reward_start):
+                        continue
+
+                    processed_thinking_ids.add(reward_id)
+
+                    if not is_executing:
+                        log_msg = f"[SUBACTIVITY][SCORE] {reward_content}"
+                        c.log_interaction(role=self.agent_name, message=log_msg)
+
+                        yield {
+                            "type": "reward",
+                            "content": reward_content,
+                            "complete": True,
+                        }
+
+                # Progressive streaming of thinking content (stream as it's generated)
+                if thinking_depth > 0 and not is_executing:
+                    # Find the currently open (incomplete) thinking tag
+                    # Look for the last <thinking> that doesn't have a matching </thinking>
+                    thinking_start = None
+                    for match in re.finditer(
+                        r"<thinking>", full_response, re.IGNORECASE
+                    ):
+                        open_pos = match.end()
+                        text_after = full_response[open_pos:]
+                        # Count opens and closes after this position
+                        opens_after = len(
+                            re.findall(r"<thinking>", text_after, re.IGNORECASE)
+                        )
+                        closes_after = len(
+                            re.findall(r"</thinking>", text_after, re.IGNORECASE)
+                        )
+                        # If there are fewer closes than opens+1, this tag is still open
+                        if closes_after <= opens_after:
+                            thinking_start = open_pos
+                            # Don't break - we want the LAST unclosed one
+
+                    if thinking_start is not None:
+                        new_thinking = full_response[thinking_start:]
+                        # Truncate at </thinking> if present
+                        close_match = re.search(
+                            r"</thinking>", new_thinking, re.IGNORECASE
+                        )
+                        if close_match:
+                            new_thinking = new_thinking[: close_match.start()]
+                        # Also handle partial closing tags
+                        partial_close = re.search(
+                            r"</?t?h?i?n?k?i?n?g?>?$", new_thinking, re.IGNORECASE
+                        )
+                        if partial_close and partial_close.group().startswith("<"):
+                            new_thinking = new_thinking[: partial_close.start()]
+                        # Clean up
+                        if new_thinking.startswith(">"):
+                            new_thinking = new_thinking[1:]
+
+                        # Stream the delta
+                        if len(new_thinking) > len(thinking_content):
+                            delta = new_thinking[len(thinking_content) :]
+                            if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
+                                yield {
+                                    "type": "thinking_stream",
+                                    "content": delta,
+                                    "complete": False,
+                                }
+                            thinking_content = new_thinking
+                    else:
+                        # Reset tracking when we exit thinking
+                        thinking_content = ""
+
+                # Progressive streaming of reflection content (stream as it's generated)
+                if reflection_depth > 0 and not is_executing:
+                    # Find the currently open (incomplete) reflection tag
+                    reflection_start = None
+                    for match in re.finditer(
+                        r"<reflection>", full_response, re.IGNORECASE
+                    ):
+                        open_pos = match.end()
+                        text_after = full_response[open_pos:]
+                        opens_after = len(
+                            re.findall(r"<reflection>", text_after, re.IGNORECASE)
+                        )
+                        closes_after = len(
+                            re.findall(r"</reflection>", text_after, re.IGNORECASE)
+                        )
+                        if closes_after <= opens_after:
+                            reflection_start = open_pos
+
+                    if reflection_start is not None:
+                        new_reflection = full_response[reflection_start:]
+                        # Truncate at </reflection> if present
+                        close_match = re.search(
+                            r"</reflection>", new_reflection, re.IGNORECASE
+                        )
+                        if close_match:
+                            new_reflection = new_reflection[: close_match.start()]
+                        # Handle partial closing tags
+                        partial_close = re.search(
+                            r"</?r?e?f?l?e?c?t?i?o?n?>?$", new_reflection, re.IGNORECASE
+                        )
+                        if partial_close and partial_close.group().startswith("<"):
+                            new_reflection = new_reflection[: partial_close.start()]
+                        # Clean up
+                        if new_reflection.startswith(">"):
+                            new_reflection = new_reflection[1:]
+
+                        # Stream the delta
+                        if len(new_reflection) > len(reflection_content):
+                            delta = new_reflection[len(reflection_content) :]
+                            if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
+                                yield {
+                                    "type": "reflection_stream",
+                                    "content": delta,
+                                    "complete": False,
+                                }
+                            reflection_content = new_reflection
+                    else:
+                        # Reset tracking when we exit reflection
+                        reflection_content = ""
+
+                # Reset thinking/reflection content tracking when tags close
+                if thinking_depth == 0 and thinking_content:
+                    thinking_content = ""
+                if reflection_depth == 0 and reflection_content:
+                    reflection_content = ""
+
                 # Yield answer tokens for streaming
                 if in_answer and not is_executing:
                     # Find the TOP-LEVEL answer tag (not inside thinking/reflection)
-                    # Use a helper to find the start of the top-level answer
+                    # Use real tag detection to avoid false positives from mentions in text
                     answer_start = None
                     for match in re.finditer(r"<answer>", full_response, re.IGNORECASE):
                         open_pos = match.start()
+
+                        # Skip if this is not a real tag (just mentioned in text)
+                        if not is_real_answer_tag(full_response, open_pos):
+                            continue
+
                         text_before = full_response[:open_pos]
                         thinking_depth = len(
                             re.findall(r"<thinking>", text_before, re.IGNORECASE)
@@ -2343,6 +2707,12 @@ Example: If user says "list my files", use:
                     if answer_start is not None:
                         new_answer = full_response[answer_start:]
 
+                        # Debug: log what we're extracting
+                        if len(new_answer) < 100:
+                            logging.debug(
+                                f"[answer_extract] raw new_answer: {repr(new_answer)}"
+                            )
+
                         # Check if </answer> appears - if so, truncate before it
                         close_tag_match = re.search(
                             r"</answer>", new_answer, re.IGNORECASE
@@ -2351,6 +2721,7 @@ Example: If user says "list my files", use:
                             new_answer = new_answer[: close_tag_match.start()]
                         else:
                             # Also check for partial closing tags at the end (e.g., "</", "</ans", etc.)
+                            # Match any partial </answer> pattern
                             partial_close_match = re.search(
                                 r"</?a?n?s?w?e?r?>?$", new_answer, re.IGNORECASE
                             )
@@ -2360,8 +2731,117 @@ Example: If user says "list my files", use:
                             ):
                                 new_answer = new_answer[: partial_close_match.start()]
 
-                        if len(new_answer) > len(answer_content):
-                            delta = new_answer[len(answer_content) :]
+                        # Clean any leading ">" that might be from the opening <answer> tag
+                        # This can happen if we start extracting mid-tag
+                        if new_answer.startswith(">"):
+                            new_answer = new_answer[1:]
+                        # Also strip leading whitespace after tag cleanup
+                        new_answer = new_answer.lstrip()
+
+                        # Clean any trailing partial tag fragments like "answer>" or just ">"
+                        new_answer = re.sub(
+                            r"a?n?s?w?e?r?>$", "", new_answer, flags=re.IGNORECASE
+                        )
+                        # Also strip trailing ">" that might be from partial tag
+                        if new_answer.endswith(">"):
+                            new_answer = new_answer[:-1]
+
+                        # Clean all internal tags from answer content before yielding
+                        # Complete tags
+                        cleaned_new_answer = re.sub(
+                            r"<thinking>.*?</thinking>",
+                            "",
+                            new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
+                        cleaned_new_answer = re.sub(
+                            r"<reflection>.*?</reflection>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
+                        cleaned_new_answer = re.sub(
+                            r"<step>.*?</step>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
+                        cleaned_new_answer = re.sub(
+                            r"<reward>.*?</reward>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
+                        cleaned_new_answer = re.sub(
+                            r"<count>.*?</count>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
+                        # Partial/unclosed opening tags at end (tag started but not closed)
+                        cleaned_new_answer = re.sub(
+                            r"<(thinking|reflection|step|reward|count)>[^<]*$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Partial opening tags at end (tag not fully written yet)
+                        cleaned_new_answer = re.sub(
+                            r"<(thinking|reflection|step|reward|count|/thinking|/reflection|/step|/reward|/count)?$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Orphaned closing tags (closing tag without opening)
+                        cleaned_new_answer = re.sub(
+                            r"</(thinking|reflection|step|reward|count)>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Partial closing tags at start (leftover from previous chunk)
+                        cleaned_new_answer = re.sub(
+                            r"^[^<]*</(thinking|reflection|step|reward|count)>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Clean any remaining partial tag fragments at start
+                        cleaned_new_answer = re.sub(
+                            r"^(thinking|reflection|step|reward|count)?>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Clean answer tag fragments at start (e.g., ">" or "nswer>" leftover)
+                        cleaned_new_answer = re.sub(
+                            r"^a?n?s?w?e?r?>[\s]*",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Clean lone ">" at start (leftover from answer tag)
+                        if cleaned_new_answer.startswith(">"):
+                            cleaned_new_answer = cleaned_new_answer[1:].lstrip()
+                        # Clean answer tag fragments at end (e.g., "</ans" or "answer>")
+                        cleaned_new_answer = re.sub(
+                            r"</?a?n?s?w?e?r?>?[\s]*$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Also clean just "answer>" at end (without the </)
+                        cleaned_new_answer = re.sub(
+                            r"a?n?s?w?e?r?>[\s]*$",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Strip any remaining whitespace
+                        cleaned_new_answer = cleaned_new_answer.strip()
+
+                        if len(cleaned_new_answer) > len(answer_content):
+                            delta = cleaned_new_answer[len(answer_content) :]
                             # Skip if it looks like an opening tag pattern (thinking, reflection, etc.)
                             if not re.match(r"^\s*<[a-zA-Z]", delta):
                                 if delta:
@@ -2370,7 +2850,16 @@ Example: If user says "list my files", use:
                                         "content": delta,
                                         "complete": False,
                                     }
-                            answer_content = new_answer
+                            answer_content = cleaned_new_answer
+
+                # Check for complete answer - stop streaming early if we have a full answer
+                # This prevents the model from continuing to think after providing the answer
+                # IMPORTANT: This check must be AFTER the streaming logic so the final answer content is yielded
+                if has_complete_answer(full_response):
+                    logging.info(
+                        "[run_stream] Complete answer detected - stopping stream early"
+                    )
+                    break
 
         except Exception as e:
             logging.error(f"Error during streaming: {e}")
@@ -2422,12 +2911,45 @@ Example: If user says "list my files", use:
                 "<answer>" in self.response.lower()
                 and not has_complete_answer(self.response)
             )
+            # Also check if there's NO answer at all - we need to prompt for one
+            has_no_answer = "<answer>" not in self.response.lower()
 
-            if not has_new_execution and not has_incomplete_answer:
-                # No execution and no incomplete answer - agent didn't finish properly or gave up
+            logging.info(
+                f"[continuation_loop] count={continuation_count}, has_new_execution={has_new_execution}, has_incomplete_answer={has_incomplete_answer}, has_no_answer={has_no_answer}, has_complete={has_complete_answer(self.response)}"
+            )
+
+            # Continue if: new execution, incomplete answer, OR no answer at all (need to prompt for one)
+            should_continue = (
+                has_new_execution or has_incomplete_answer or has_no_answer
+            )
+
+            if not should_continue:
+                # Has a complete answer or nothing more to do
+                logging.info(
+                    "[continuation_loop] Breaking: has complete answer or nothing to continue"
+                )
                 break
 
             continuation_count += 1
+            logging.info(
+                f"[continuation_loop] Continuing iteration {continuation_count}"
+            )
+
+            # Compress the response to prevent context explosion
+            # This summarizes long outputs and truncates verbose thinking
+            compressed_response = self.compress_response_for_continuation(
+                self.response,
+                max_output_lines=20,  # Keep 20 lines max per output
+                max_thinking_chars=500,  # Keep 500 chars max per thinking block
+            )
+
+            # Log compression stats
+            original_tokens = get_tokens(self.response)
+            compressed_tokens = get_tokens(compressed_response)
+            if original_tokens > compressed_tokens:
+                logging.info(
+                    f"[continuation_loop] Compressed response: {original_tokens} -> {compressed_tokens} tokens ({100 - (compressed_tokens * 100 // original_tokens)}% reduction)"
+                )
 
             if has_new_execution:
 
@@ -2436,6 +2958,7 @@ Example: If user says "list my files", use:
                 # - Updated conversation history
                 # - Any new memories or context
                 # This mirrors how run() would work if we started a new inference
+                # IMPORTANT: Pass selected_commands to maintain the filtered command set
                 fresh_formatted_prompt, _, _ = await self.format_prompt(
                     user_input=user_input,
                     top_results=int(context_results),
@@ -2445,6 +2968,7 @@ Example: If user says "list my files", use:
                     conversation_name=conversation_name,
                     websearch=websearch,
                     vision_response=vision_response,
+                    selected_commands=self._selected_commands,
                     **kwargs,
                 )
 
@@ -2458,6 +2982,7 @@ Example: If user says "list my files", use:
                 # The response now has real command output in <output> tags
                 # CRITICAL: Tell the model this is a NEW inference turn where it should
                 # analyze the actual command output, NOT continue generating from before
+                # Use COMPRESSED response to prevent context explosion
                 continuation_prompt = f"""{fresh_formatted_prompt}
 
 ## Command Execution Complete
@@ -2467,7 +2992,7 @@ DO NOT hallucinate or make up what the command output should be - the real outpu
 Analyze the actual output shown and continue with your response.
 
 ### Previous Assistant Response (with real command outputs):
-{self.response}
+{compressed_response}
 
 ### Instructions:
 1. READ the actual <output> content above - this is the REAL command result
@@ -2476,7 +3001,8 @@ Analyze the actual output shown and continue with your response.
 4. If you need to execute more commands, you may do so
 """
             else:
-                # Incomplete answer - prompt to continue (also get fresh context)
+                # Incomplete answer or no answer - prompt to continue/provide answer
+                # IMPORTANT: Pass selected_commands to maintain the filtered command set
                 fresh_formatted_prompt, _, _ = await self.format_prompt(
                     user_input=user_input,
                     top_results=int(context_results),
@@ -2486,6 +3012,7 @@ Analyze the actual output shown and continue with your response.
                     conversation_name=conversation_name,
                     websearch=websearch,
                     vision_response=vision_response,
+                    selected_commands=self._selected_commands,
                     **kwargs,
                 )
                 if self.outputs in fresh_formatted_prompt:
@@ -2493,7 +3020,15 @@ Analyze the actual output shown and continue with your response.
                         self.outputs,
                         f"http://localhost:7437/outputs/{self.agent.agent_id}",
                     )
-                continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+
+                if has_no_answer:
+                    # No answer block at all - prompt to provide one
+                    # Use compressed response to prevent context explosion
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant has completed thinking and command execution but has not yet provided a final answer to the user. Now provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
+                else:
+                    # Incomplete answer - prompt to continue
+                    # Use compressed response to prevent context explosion
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
 
             try:
                 # Run FRESH inference with stream=True
@@ -2641,6 +3176,10 @@ Analyze the actual output shown and continue with your response.
                             continuation_current_tag_content = ""
                             continuation_current_tag_message_id = None  # Reset
 
+                    # Break out of stream loop if we're breaking for execution
+                    if broke_for_execution:
+                        break
+
                     # Stream progressive content for current tag
                     if continuation_current_tag and continuation_current_tag in (
                         "thinking",
@@ -2710,13 +3249,28 @@ Analyze the actual output shown and continue with your response.
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
 
+                logging.info(
+                    f"[continuation_loop] After iteration {continuation_count}: continuation_response length={len(continuation_response)}, total response length={len(self.response)}, has_complete={has_complete_answer(self.response)}, has_answer_tag={'<answer>' in self.response.lower()}"
+                )
+
                 # If we got a COMPLETE answer (properly closed, not inside thinking), we're done
                 # Use has_complete_answer to handle edge cases like <thinking> inside <answer>
                 if has_complete_answer(self.response):
+                    logging.info("[continuation_loop] Breaking: got complete answer")
                     break
 
                 # If we hit an execute tag, continue loop to handle it
                 if "</execute>" in continuation_response:
+                    logging.info(
+                        "[continuation_loop] Continuing: new execute tag found"
+                    )
+                    continue
+
+                # If we still don't have an answer, continue to prompt for one
+                if "<answer>" not in self.response.lower():
+                    logging.info(
+                        "[continuation_loop] Continuing: still no answer tag in response"
+                    )
                     continue
 
             except Exception as e:
@@ -2725,6 +3279,11 @@ Analyze the actual output shown and continue with your response.
 
                 logging.error(traceback.format_exc())
                 break
+
+        # Log why we exited the loop
+        logging.info(
+            f"[continuation_loop] Exited loop: count={continuation_count}, max={max_continuation_loops}, has_complete={has_complete_answer(self.response)}, has_answer={'<answer>' in self.response.lower()}"
+        )
 
         # Extract final answer
         final_answer = ""
@@ -2758,6 +3317,17 @@ Analyze the actual output shown and continue with your response.
         )
         final_answer = re.sub(
             r"<output>.*?</output>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove <step> tags from answer - these are thinking artifacts
+        final_answer = re.sub(
+            r"<step>.*?</step>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove <reward> and <count> tags
+        final_answer = re.sub(
+            r"<reward>.*?</reward>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        final_answer = re.sub(
+            r"<count>.*?</count>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
         final_answer = final_answer.strip()
 

@@ -73,7 +73,8 @@ class OpenrouterProvider:
             self.AI_MODEL = "openai/gpt-4o"
         if use_smartest:
             self.AI_MODEL = self.OPENROUTER_CODING_MODEL
-        max_tokens = int(self.MAX_TOKENS) if tokens == 0 else tokens
+        # Always use MAX_TOKENS for output limit - 'tokens' param is input count for budgeting
+        max_tokens = int(self.MAX_TOKENS)
 
         import httpx
         from openai import OpenAI
