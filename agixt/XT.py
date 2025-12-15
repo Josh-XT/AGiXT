@@ -2032,6 +2032,11 @@ Your response (true or false):"""
         """
         Internal method that does the actual chat completion processing
         """
+        # Validate that messages is provided and not empty
+        if not prompt.messages:
+            raise ValueError(
+                "The 'messages' field is required and must contain at least one message."
+            )
         c = self.conversation
         conversation_id = self.conversation_id
         urls = []
@@ -2818,6 +2823,12 @@ Your response (true or false):"""
         import json
         import time
         import asyncio
+
+        # Validate that messages is provided and not empty
+        if not prompt.messages:
+            raise ValueError(
+                "The 'messages' field is required and must contain at least one message."
+            )
 
         conversation_id = self.conversation_id
         chunk_id = conversation_id  # Use conversation_id as the chunk ID

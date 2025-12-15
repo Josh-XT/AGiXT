@@ -1,6 +1,7 @@
 import time
 import uuid
 import logging
+import traceback
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from Globals import get_tokens
@@ -39,17 +40,34 @@ async def safe_stream_wrapper(stream_generator):
     except asyncio.CancelledError:
         # Re-raise cancellation to allow proper cleanup
         raise
-    except Exception:
+    except Exception as e:
         # Log the error internally but don't expose details to client
-        logging.error("Error during streaming response")
-        # Yield a generic error message in SSE format
-        error_response = {
-            "error": {
-                "message": "An error occurred during streaming",
-                "type": "server_error",
-            }
+        logging.error(f"Error during streaming response: {e}")
+        logging.error(traceback.format_exc())
+        # Send error to Discord if configured
+        try:
+            from middleware import send_discord_error
+
+            await send_discord_error(e)
+        except Exception:
+            pass
+        # Yield an error chunk in OpenAI-compatible format so clients can parse it
+        import time
+
+        error_chunk = {
+            "id": "error",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "error",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": "[Error: An error occurred during streaming]"},
+                    "finish_reason": "stop",
+                }
+            ],
         }
-        yield f"data: {json.dumps(error_response)}\n\n"
+        yield f"data: {json.dumps(error_chunk)}\n\n"
         yield "data: [DONE]\n\n"
 
 
@@ -111,9 +129,21 @@ async def chat_completion(
             )
         else:
             return await agixt.chat_completions(prompt=prompt)
-    except Exception:
+    except ValueError as e:
+        # Return 400 for validation errors (bad request)
+        logging.warning(f"Validation error in chat_completion endpoint: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
         # Log error internally but don't expose details to client
-        logging.error("Error in chat_completion endpoint")
+        logging.error(f"Error in chat_completion endpoint: {e}")
+        logging.error(traceback.format_exc())
+        # Send error to Discord if configured (fire and forget)
+        try:
+            from middleware import send_discord_error
+
+            await send_discord_error(e)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -132,6 +162,11 @@ async def mcp_chat_completion(
     authorization: str = Header(None),
 ):
     try:
+        # Validate that messages is provided
+        if not prompt.messages:
+            raise ValueError(
+                "The 'messages' field is required and must contain at least one message."
+            )
         # prompt.model is the agent name
         # prompt.user is the conversation name
         # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
@@ -176,9 +211,21 @@ async def mcp_chat_completion(
             )
         else:
             return await agixt.chat_completions(prompt=prompt)
-    except Exception:
+    except ValueError as e:
+        # Return 400 for validation errors (bad request)
+        logging.warning(f"Validation error in mcp_chat_completion endpoint: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
         # Log error internally but don't expose details to client
-        logging.error("Error in mcp_chat_completion endpoint")
+        logging.error(f"Error in mcp_chat_completion endpoint: {e}")
+        logging.error(traceback.format_exc())
+        # Send error to Discord if configured
+        try:
+            from middleware import send_discord_error
+
+            await send_discord_error(e)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
