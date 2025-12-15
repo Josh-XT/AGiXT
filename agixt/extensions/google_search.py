@@ -8,6 +8,7 @@ class google_search(Extensions):
     """
 
     CATEGORY = "Productivity"
+    friendly_name = "Google Search"
 
     def __init__(
         self,

@@ -22,6 +22,7 @@ class graphql_server(Extensions):
     """
 
     CATEGORY = "Development & Code"
+    friendly_name = "GraphQL Server"
 
     def __init__(
         self,

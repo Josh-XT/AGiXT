@@ -20,6 +20,7 @@ class mssql_database(Extensions):
     """
 
     CATEGORY = "Data & Databases"
+    friendly_name = "MSSQL Database"
 
     def __init__(
         self,

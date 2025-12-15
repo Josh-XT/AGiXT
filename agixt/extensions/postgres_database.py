@@ -17,10 +17,11 @@ from datetime import datetime
 
 class postgres_database(Extensions):
     """
-    The PostgreSQL Database extension for AGiXT enables you to interact with a PostgreSQL database.
+    The Postgres Database extension for AGiXT enables you to interact with a Postgres database.
     """
 
     CATEGORY = "Data & Databases"
+    friendly_name = "PostgreSQL Database"
 
     def __init__(
         self,

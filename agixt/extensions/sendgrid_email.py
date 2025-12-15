@@ -18,6 +18,7 @@ class sendgrid_email(Extensions):
     """
 
     CATEGORY = "Social & Communication"
+    friendly_name = "SendGrid Email"
 
     def __init__(self, SENDGRID_API_KEY: str = "", SENDGRID_EMAIL: str = "", **kwargs):
         self.SENDGRID_API_KEY = SENDGRID_API_KEY

@@ -69,6 +69,7 @@ class solana_wallet(Extensions):
     """
 
     CATEGORY = "Finance & Crypto"
+    friendly_name = "Solana Wallet"
 
     JUPITER_API_BASE_URL = "https://quote-api.jup.ag/v6"
     JUPITER_PROGRAM_ID = Pubkey.from_string(

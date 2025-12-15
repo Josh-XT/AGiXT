@@ -189,6 +189,7 @@ class linkedin(Extensions):
     """
 
     CATEGORY = "Social & Communication"
+    friendly_name = "LinkedIn"
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key", None)

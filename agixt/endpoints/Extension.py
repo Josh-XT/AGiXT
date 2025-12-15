@@ -313,7 +313,10 @@ async def get_extension_categories_v1(
                         category_extensions.append(
                             {
                                 "name": extension["extension_name"],
-                                "description": extension["description"],
+                                "friendly_name": extension.get("friendly_name"),
+                                "description": extension.get("description", ""),
+                                "settings": extension.get("settings", []),
+                                "commands": extension.get("commands", []),
                             }
                         )
 
