@@ -892,6 +892,12 @@ def import_providers():
     session = get_session()
     providers = get_providers()
 
+    # Ensure built-in providers always exist
+    builtin_providers = ["rotation", "default"]
+    for builtin in builtin_providers:
+        if builtin not in providers:
+            providers.append(builtin)
+
     for provider_name in providers:
         provider_options = get_provider_options(provider_name)
 

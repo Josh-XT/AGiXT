@@ -417,6 +417,11 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         .filter_by(name=provider_settings["provider"])
         .first()
     )
+    # If provider not found, create it (for built-in providers like "rotation")
+    if provider is None:
+        provider = ProviderModel(name=provider_settings["provider"])
+        session.add(provider)
+        session.commit()
     agent = AgentModel(name=agent_name, user_id=user_id, provider_id=provider.id)
     session.add(agent)
     session.commit()
