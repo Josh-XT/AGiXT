@@ -839,6 +839,12 @@ class Extensions:
 
                     extension_name = os.path.basename(command_file).split(".")[0]
                     extension_name = extension_name.replace("_", " ").title()
+                    
+                    # Get friendly_name from the extension class if it has one
+                    friendly_name = None
+                    if hasattr(command_class, "friendly_name"):
+                        friendly_name = command_class.friendly_name
+                    
                     try:
                         extension_description = inspect.getdoc(command_class)
                     except:
@@ -903,6 +909,7 @@ class Extensions:
                         commands.append(
                             {
                                 "extension_name": extension_name,
+                                "friendly_name": friendly_name,  # Will be None if not defined
                                 "description": extension_description,
                                 "settings": extension_settings,
                                 "commands": extension_commands,
@@ -948,6 +955,7 @@ class Extensions:
             commands.append(
                 {
                     "extension_name": "Custom Automation",
+                    "friendly_name": "Custom Automation",
                     "description": "Execute a custom automation workflow.",
                     "settings": [],
                     "commands": chain_commands,
