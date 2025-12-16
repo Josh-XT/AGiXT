@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import inspect
 from collections import defaultdict
 from DB import (
     get_session,
@@ -533,13 +534,15 @@ def create_extension_tables():
             class_name = get_extension_class_name(os.path.basename(extension_file))
 
             # Check if the class exists and inherits from both Extensions and ExtensionDatabaseMixin
+            attr = getattr(module, class_name, None)
             if (
-                hasattr(module, class_name)
-                and issubclass(getattr(module, class_name), Extensions)
-                and issubclass(getattr(module, class_name), ExtensionDatabaseMixin)
+                attr is not None
+                and inspect.isclass(attr)
+                and issubclass(attr, Extensions)
+                and issubclass(attr, ExtensionDatabaseMixin)
             ):
 
-                extension_class = getattr(module, class_name)
+                extension_class = attr
 
                 # Check if the extension has database models
                 if (
