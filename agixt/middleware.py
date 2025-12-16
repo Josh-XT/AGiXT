@@ -97,10 +97,6 @@ class DiscordErrorMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.logger = logging.getLogger(__name__)
         self.webhook_url = getenv("DISCORD_ERROR_WEBHOOK")
-        if self.webhook_url:
-            self.logger.info(
-                "Discord error webhook is configured - errors will be sent to Discord"
-            )
 
     async def dispatch(self, request: Request, call_next):
         try:
