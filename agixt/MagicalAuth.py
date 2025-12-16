@@ -1808,11 +1808,17 @@ class MagicalAuth:
                 user.is_active = False
                 session.commit()
                 session.close()
+                logging.info(
+                    f"{self.email} has insufficient token balance at {self.company_id}"
+                )
                 raise HTTPException(
                     status_code=402,
                     detail={
-                        "message": "Insufficient token balance. Please top up your tokens.",
-                        "customer_session": {"client_secret": None},
+                        "message": f"Insufficient token balance. Please top up your tokens.",
+                        "customer_session": {
+                            "client_secret": None,
+                            "company_id": self.company_id,
+                        },
                         "wallet_address": wallet_address,
                         "token_price_per_million_usd": float(token_price),
                     },
