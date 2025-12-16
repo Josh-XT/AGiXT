@@ -123,13 +123,6 @@ def get_data_size_kb(data) -> int:
 
 def get_default_agent_settings():
     agent_settings = {
-        "provider": "rotation",
-        "vision_provider": "rotation",
-        "tts_provider": ("ezlocalai" if getenv("EZLOCALAI_API_KEY") != "" else "None"),
-        "transcription_provider": "default",
-        "translation_provider": "default",
-        "embeddings_provider": "default",
-        "image_provider": "None",
         "ANTHROPIC_API_KEY": getenv("ANTHROPIC_API_KEY"),
         "ANTHROPIC_MODEL": getenv("ANTHROPIC_MODEL"),
         "AZURE_MODEL": getenv("AZURE_MODEL"),

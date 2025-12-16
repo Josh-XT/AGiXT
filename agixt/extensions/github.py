@@ -241,6 +241,7 @@ class github(Extensions):
     """
 
     CATEGORY = "Development & Code"
+    friendly_name = "GitHub"
 
     def __init__(
         self,

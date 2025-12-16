@@ -10,6 +10,7 @@ class mysql_database(Extensions):
     """
 
     CATEGORY = "Data & Databases"
+    friendly_name = "MySQL Database"
 
     def __init__(
         self,

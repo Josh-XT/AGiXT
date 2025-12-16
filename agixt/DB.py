@@ -1319,6 +1319,10 @@ default_roles = [
 
 default_extension_categories = [
     {
+        "name": "AI Provider",
+        "description": "AI inference providers for text generation, image generation, text-to-speech, transcription, and other AI capabilities. These extensions provide the underlying AI services used by agents.",
+    },
+    {
         "name": "Core Abilities",
         "description": "Essential artificial intelligence abilities like workspace file management, data analysis, note taking, and more",
     },

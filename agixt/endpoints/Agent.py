@@ -43,7 +43,6 @@ import logging
 import base64
 import uuid
 import os
-from providers.default import DefaultProvider
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from MagicalAuth import MagicalAuth
 import traceback
@@ -820,7 +819,7 @@ async def text_to_speech_v1(
     if agent.TTS_PROVIDER != None:
         tts_response = await agent.text_to_speech(text=text.text)
     else:
-        tts_response = await DefaultProvider().text_to_speech(text=text.text)
+        raise HTTPException(status_code=400, detail="No TTS provider available")
     if not str(tts_response).startswith("http"):
         import tempfile
         import shutil

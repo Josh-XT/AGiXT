@@ -158,11 +158,14 @@ class WebhookEventEmitter:
                     company_id = agent_company_id
 
         # Ensure company_id is a string if provided (handle case where UUID object is passed)
-        if company_id:
+        # Also ensure we don't convert None to string "None"
+        if company_id is not None and company_id != "None":
             logger.debug(
                 f"Converting initial company_id (type: {type(company_id).__name__}) to string"
             )
             company_id = str(company_id)
+        else:
+            company_id = None
 
         # Resolve company_id if not provided
         if not company_id:
@@ -171,11 +174,14 @@ class WebhookEventEmitter:
                 logger.debug(f"Resolved company_id for user")
 
         # Ensure company_id is a string (convert UUID objects to string)
-        if company_id:
+        # Also ensure we don't convert None to string "None"
+        if company_id is not None and company_id != "None":
             logger.debug(
                 f"Converting company_id (type: {type(company_id).__name__}) to string"
             )
             company_id = str(company_id)
+        else:
+            company_id = None
 
         event_payload = WebhookEventPayload(
             event_id=event_id,
@@ -341,9 +347,10 @@ class WebhookEventEmitter:
 
         try:
             # If no company_id in the event, log warning and skip webhook processing
-            if not event.company_id:
+            # Also check for string "None" which can happen if str(None) was called
+            if not event.company_id or event.company_id == "None":
                 logger.warning(
-                    f"Event {event.event_type} has no company_id, skipping webhook processing"
+                    f"Event {event.event_type} has no valid company_id (got: {event.company_id!r}), skipping webhook processing"
                 )
                 return
 

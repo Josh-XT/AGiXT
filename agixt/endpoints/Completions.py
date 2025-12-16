@@ -8,7 +8,6 @@ from Globals import get_tokens
 from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
 from Conversations import get_conversation_name_by_id
-from providers.default import DefaultProvider
 from Memories import embed
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
@@ -343,7 +342,7 @@ async def text_to_speech(
     if agent.TTS_PROVIDER != None:
         audio_data = await agent.text_to_speech(text=tts.input)
     else:
-        audio_data = await DefaultProvider().text_to_speech(text=tts.input)
+        raise HTTPException(status_code=400, detail="No TTS provider available")
     return {"url": audio_data}
 
 

@@ -164,6 +164,80 @@ async def run_command_v1(
     }
 
 
+# V1 Extension Categories Lightweight endpoint for staged loading
+@app.get(
+    "/v1/extension/categories/summary",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=List[Dict[str, Any]],
+    summary="Get Extension Categories Summary",
+    description="Get lightweight summary of extension categories. Returns only category names, descriptions and counts - no extension data. Use /v1/extension/category/{id} to load full extension data on demand.",
+)
+async def get_extension_categories_summary(
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Lightweight endpoint for staged extension loading.
+    Returns only category metadata without extension details.
+    Use GET /v1/extension/category/{id} to load full extension data when user expands a category.
+    """
+    try:
+        ApiClient = get_api_client(authorization=authorization)
+        with get_db_session() as session:
+            categories = session.query(ExtensionCategory).all()
+
+            # Get all extensions to count them per category
+            extensions_obj = Extensions(ApiClient=ApiClient, user=user)
+            all_extensions = extensions_obj.get_extensions()
+
+            # Build a quick lookup of extension counts per category
+            category_counts = {}
+            for extension in all_extensions:
+                # Special handling for Custom Automation
+                if extension["extension_name"] == "Custom Automation":
+                    core_abilities = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name="Core Abilities")
+                        .first()
+                    )
+                    if core_abilities:
+                        cat_id = str(core_abilities.id)
+                        category_counts[cat_id] = category_counts.get(cat_id, 0) + 1
+                    continue
+
+                ext_db = (
+                    session.query(Extension)
+                    .filter_by(name=extension["extension_name"])
+                    .first()
+                )
+                if ext_db and ext_db.category_id:
+                    cat_id = str(ext_db.category_id)
+                    category_counts[cat_id] = category_counts.get(cat_id, 0) + 1
+
+            result = []
+            for category in categories:
+                cat_id = str(category.id)
+                count = category_counts.get(cat_id, 0)
+                # Only include categories that have extensions
+                if count > 0:
+                    result.append(
+                        {
+                            "id": cat_id,
+                            "name": category.name,
+                            "description": category.description or "",
+                            "extension_count": count,
+                        }
+                    )
+
+            return result
+    except Exception as e:
+        logging.error(f"Error getting extension categories summary: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error retrieving extension categories: {str(e)}"
+        )
+
+
 # V1 Extension Categories endpoints (ID-based)
 @app.get(
     "/v1/extension/categories",
@@ -239,7 +313,10 @@ async def get_extension_categories_v1(
                         category_extensions.append(
                             {
                                 "name": extension["extension_name"],
-                                "description": extension["description"],
+                                "friendly_name": extension.get("friendly_name"),
+                                "description": extension.get("description", ""),
+                                "settings": extension.get("settings", []),
+                                "commands": extension.get("commands", []),
                             }
                         )
 
@@ -269,14 +346,14 @@ async def get_extension_categories_v1(
     dependencies=[Depends(verify_api_key)],
     response_model=Dict[str, Any],
     summary="Get Extension Category by ID",
-    description="Get a specific extension category by ID.",
+    description="Get a specific extension category by ID with full extension data including commands and settings.",
 )
 async def get_extension_category_v1(
     category_id: str,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    """Get a specific extension category by ID with its extensions"""
+    """Get a specific extension category by ID with its full extension data"""
     try:
         ApiClient = get_api_client(authorization=authorization)
         with get_db_session() as session:
@@ -292,13 +369,55 @@ async def get_extension_category_v1(
             extensions_obj = Extensions(ApiClient=ApiClient, user=user)
             all_extensions = extensions_obj.get_extensions()
 
+            # First enrich all extensions with category_info
+            for extension in all_extensions:
+                # Special handling for Custom Automation
+                if extension["extension_name"] == "Custom Automation":
+                    core_abilities = (
+                        session.query(ExtensionCategory)
+                        .filter_by(name="Core Abilities")
+                        .first()
+                    )
+                    if core_abilities:
+                        extension["category_info"] = {
+                            "id": str(core_abilities.id),
+                            "name": core_abilities.name,
+                            "description": core_abilities.description,
+                        }
+                    else:
+                        extension["category_info"] = None
+                    continue
+
+                ext_db = (
+                    session.query(Extension)
+                    .filter_by(name=extension["extension_name"])
+                    .first()
+                )
+                if ext_db and ext_db.category_id:
+                    ext_category = (
+                        session.query(ExtensionCategory)
+                        .filter_by(id=ext_db.category_id)
+                        .first()
+                    )
+                    if ext_category:
+                        extension["category_info"] = {
+                            "id": str(ext_category.id),
+                            "name": ext_category.name,
+                            "description": ext_category.description,
+                        }
+                    else:
+                        extension["category_info"] = None
+                else:
+                    extension["category_info"] = None
+
             category_extensions = []
             for extension in all_extensions:
                 if extension.get("category_info", {}).get("id") == str(category.id):
                     category_extensions.append(
                         {
                             "name": extension["extension_name"],
-                            "description": extension["description"],
+                            "friendly_name": extension.get("friendly_name"),
+                            "description": extension.get("description", ""),
                             "settings": extension.get("settings", []),
                             "commands": extension.get("commands", []),
                         }

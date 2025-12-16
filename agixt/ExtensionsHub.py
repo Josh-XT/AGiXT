@@ -55,9 +55,6 @@ class ExtensionsHub:
                 abs_path = os.path.abspath(os.path.expanduser(source))
                 if os.path.exists(abs_path) and os.path.isdir(abs_path):
                     search_paths.append(abs_path)
-                    logging.info(f"Added local extension path: {abs_path}")
-                else:
-                    logging.warning(f"Local extension path does not exist: {abs_path}")
             else:
                 # For GitHub URLs, add the cloned directory to search paths
                 if self._validate_github_url(source):

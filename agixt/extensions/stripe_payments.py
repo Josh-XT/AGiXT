@@ -153,6 +153,7 @@ class stripe_payments(Extensions):
     """
 
     CATEGORY = "Finance & Crypto"
+    friendly_name = "Stripe Payments"
 
     def __init__(self, **kwargs):
         """

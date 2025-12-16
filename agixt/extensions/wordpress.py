@@ -31,6 +31,7 @@ class wordpress(Extensions):
     """
 
     CATEGORY = "Productivity"
+    friendly_name = "WordPress"
 
     def __init__(
         self,

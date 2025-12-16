@@ -2618,10 +2618,14 @@ class MagicalAuth:
                             company_dict[key] = value
 
                     company_dict["role_id"] = uc.role_id
+                    # Remove sensitive/large fields from response to reduce payload
                     if "encryption_key" in company_dict:
                         company_dict.pop("encryption_key")
                     if "token" in company_dict:
                         company_dict.pop("token")
+                    # Remove training_data to reduce payload size - use persona endpoint instead
+                    if "training_data" in company_dict:
+                        company_dict.pop("training_data")
                     if str(company_dict["id"]) == str(self.company_id):
                         company_dict["primary"] = True
                     else:
