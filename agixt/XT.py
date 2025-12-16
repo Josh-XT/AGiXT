@@ -41,6 +41,222 @@ import json
 import time
 import os
 import re
+import socket
+import ipaddress
+from urllib.parse import urlparse
+
+# Allowed ports for localhost/loopback connections
+# 7437 = AGiXT backend, 3437 = Web frontend, 8091 = ezlocalai
+ALLOWED_LOCALHOST_PORTS = {7437, 3437, 8091}
+
+
+def is_safe_url(url: str) -> tuple[bool, str]:
+    """
+    Validate that a URL is safe to request (not targeting internal/private networks).
+
+    This prevents SSRF attacks by:
+    1. Only allowing http/https schemes
+    2. Resolving the hostname and checking if it's a private/internal IP
+    3. Blocking localhost (except on allowed ports), link-local, private ranges, etc.
+
+    Localhost is allowed on ports 7437 (AGiXT), 3437 (web frontend), and 8091 (ezlocalai)
+    to support open-source users running services locally.
+
+    Args:
+        url: The URL to validate
+
+    Returns:
+        tuple[bool, str]: (is_safe, error_message)
+    """
+    if not url or not isinstance(url, str):
+        return False, "URL is empty or invalid"
+
+    # Parse the URL
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        return False, f"Failed to parse URL: {e}"
+
+    # Only allow http and https schemes
+    if parsed.scheme not in ("http", "https"):
+        return (
+            False,
+            f"Invalid URL scheme: {parsed.scheme}. Only http and https are allowed.",
+        )
+
+    # Extract hostname and port
+    hostname = parsed.hostname
+    port = parsed.port
+    if not hostname:
+        return False, "URL has no hostname"
+
+    # Default ports if not specified
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+
+    # Check if this is a localhost/loopback request
+    localhost_names = {
+        "localhost",
+        "localhost.localdomain",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+        "[::1]",
+    }
+    is_localhost_name = hostname.lower() in localhost_names
+
+    # For localhost hostnames, check if port is allowed
+    if is_localhost_name:
+        if port not in ALLOWED_LOCALHOST_PORTS:
+            return (
+                False,
+                f"Requests to localhost are only allowed on ports {sorted(ALLOWED_LOCALHOST_PORTS)}. Port {port} is not allowed.",
+            )
+        # Localhost on allowed port is safe
+        return True, ""
+
+    # Resolve the hostname to IP addresses
+    try:
+        # Get all IP addresses for the hostname
+        addr_info = socket.getaddrinfo(
+            hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+        ip_addresses = set()
+        for info in addr_info:
+            ip_str = info[4][0]
+            ip_addresses.add(ip_str)
+    except socket.gaierror as e:
+        return False, f"Failed to resolve hostname '{hostname}': {e}"
+    except Exception as e:
+        return False, f"Error resolving hostname: {e}"
+
+    if not ip_addresses:
+        return False, f"Hostname '{hostname}' did not resolve to any IP addresses"
+
+    # Check each resolved IP address
+    for ip_str in ip_addresses:
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False, f"Invalid IP address resolved: {ip_str}"
+
+        # Check for loopback (127.x.x.x, ::1) - allow only on specific ports
+        if ip.is_loopback:
+            if port not in ALLOWED_LOCALHOST_PORTS:
+                return (
+                    False,
+                    f"Requests to loopback addresses are only allowed on ports {sorted(ALLOWED_LOCALHOST_PORTS)}. Port {port} is not allowed.",
+                )
+            # Loopback on allowed port is safe, continue checking other IPs
+            continue
+
+        # Block private addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
+        if ip.is_private:
+            return False, f"Requests to private IP addresses are not allowed: {ip_str}"
+
+        # Block link-local (169.254.x.x, fe80::/10)
+        if ip.is_link_local:
+            return False, f"Requests to link-local addresses are not allowed: {ip_str}"
+
+        # Block multicast
+        if ip.is_multicast:
+            return False, f"Requests to multicast addresses are not allowed: {ip_str}"
+
+        # Block reserved addresses
+        if ip.is_reserved:
+            return False, f"Requests to reserved addresses are not allowed: {ip_str}"
+
+        # Block unspecified (0.0.0.0, ::)
+        if ip.is_unspecified:
+            return False, f"Requests to unspecified addresses are not allowed: {ip_str}"
+
+        # For IPv6, also block site-local (deprecated but still used)
+        if isinstance(ip, ipaddress.IPv6Address):
+            # Site-local addresses (fec0::/10) - deprecated but block anyway
+            if ip.is_site_local:
+                return (
+                    False,
+                    f"Requests to site-local addresses are not allowed: {ip_str}",
+                )
+
+    return True, ""
+
+
+def safe_request_get(
+    url: str, headers: dict = None, timeout: int = 30, allow_redirects: bool = True
+) -> requests.Response:
+    """
+    Perform a GET request with SSRF protection.
+
+    Validates the URL before making the request and handles redirects safely
+    by validating each redirect destination.
+
+    Args:
+        url: The URL to request
+        headers: Optional headers to include
+        timeout: Request timeout in seconds
+        allow_redirects: Whether to follow redirects (each redirect is validated)
+
+    Returns:
+        requests.Response object
+
+    Raises:
+        ValueError: If the URL is not safe to request
+        requests.RequestException: For network errors
+    """
+    # Validate the initial URL
+    is_safe, error_msg = is_safe_url(url)
+    if not is_safe:
+        raise ValueError(f"SSRF protection: {error_msg}")
+
+    if not allow_redirects:
+        # Simple case - just make the request
+        return requests.get(
+            url, headers=headers, timeout=timeout, allow_redirects=False
+        )
+
+    # Handle redirects manually to validate each one
+    session = requests.Session()
+    max_redirects = 10
+    current_url = url
+
+    for redirect_count in range(max_redirects + 1):
+        # Validate current URL
+        is_safe, error_msg = is_safe_url(current_url)
+        if not is_safe:
+            raise ValueError(
+                f"SSRF protection (redirect {redirect_count}): {error_msg}"
+            )
+
+        response = session.get(
+            current_url, headers=headers, timeout=timeout, allow_redirects=False
+        )
+
+        # Check if this is a redirect
+        if response.status_code in (301, 302, 303, 307, 308):
+            if redirect_count >= max_redirects:
+                raise ValueError(f"Too many redirects (max {max_redirects})")
+
+            # Get the redirect location
+            redirect_url = response.headers.get("Location")
+            if not redirect_url:
+                # No location header, return this response
+                return response
+
+            # Handle relative redirects
+            if not redirect_url.startswith(("http://", "https://")):
+                from urllib.parse import urljoin
+
+                redirect_url = urljoin(current_url, redirect_url)
+
+            current_url = redirect_url
+            continue
+
+        # Not a redirect, return the response
+        return response
+
+    # Should not reach here, but just in case
+    raise ValueError(f"Too many redirects (max {max_redirects})")
 
 
 class AGiXT:
@@ -1753,14 +1969,18 @@ Your response (true or false):"""
                 file_data = base64.b64decode(url.split(",")[1])
             else:
                 file_type = file_name.split(".")[-1]
-                # Download the file
+                # Download the file with SSRF protection
                 try:
                     if not url.startswith("http"):
                         return {}
                     if url in ["", None]:
                         return {}
-                    file_download = requests.get(url)
+                    file_download = safe_request_get(url)
                     file_data = file_download.content
+                except ValueError as e:
+                    # SSRF protection blocked the request
+                    logging.warning(f"SSRF protection blocked download: {e}")
+                    return {}
                 except Exception as e:
                     logging.error(f"Error downloading file: {e}")
                     return {}
