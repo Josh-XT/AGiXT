@@ -26,6 +26,9 @@ from WorkerRegistry import worker_registry
 from enum import Enum
 from pydantic import BaseModel
 from pptx import Presentation
+from urllib.parse import urlparse
+import ipaddress
+import socket
 import pdfplumber
 import docx2txt
 import zipfile
@@ -41,6 +44,143 @@ import json
 import time
 import os
 import re
+
+
+def is_safe_url(url: str) -> bool:
+    """
+    Validate a URL to prevent SSRF attacks.
+    Blocks requests to internal networks, localhost, and cloud metadata endpoints,
+    while allowing configured trusted local services (like ezlocalai).
+
+    Args:
+        url: The URL to validate
+
+    Returns:
+        bool: True if the URL is safe to request, False otherwise
+    """
+    try:
+        parsed = urlparse(url)
+
+        # Only allow http and https schemes
+        if parsed.scheme not in ("http", "https"):
+            logging.warning(f"SSRF protection: blocked non-http(s) scheme: {url}")
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            logging.warning(f"SSRF protection: no hostname in URL: {url}")
+            return False
+
+        port = parsed.port
+
+        # Build list of trusted local URLs from environment configuration
+        # These are internal services that AGiXT needs to communicate with
+        trusted_local_urls = []
+
+        # Check EZLOCALAI_URI / EZLOCALAI_API_URI for ezlocalai service
+        ezlocalai_uri = getenv("EZLOCALAI_API_URI") or getenv("EZLOCALAI_URI")
+        if ezlocalai_uri:
+            trusted_local_urls.append(ezlocalai_uri)
+
+        # Check AGIXT_URI for self-references
+        agixt_uri = getenv("AGIXT_URI")
+        if agixt_uri:
+            trusted_local_urls.append(agixt_uri)
+
+        # Check if the URL matches a trusted local service
+        for trusted_url in trusted_local_urls:
+            if trusted_url:
+                try:
+                    trusted_parsed = urlparse(trusted_url)
+                    trusted_host = trusted_parsed.hostname
+                    trusted_port = trusted_parsed.port
+
+                    # Match if hostname and port match a trusted service
+                    if hostname == trusted_host:
+                        # If ports match (or trusted has no port and we're on default)
+                        if port == trusted_port:
+                            return True
+                        # Also allow if trusted URL didn't specify a port
+                        if trusted_port is None and port in (80, 443, None):
+                            return True
+                except Exception:
+                    continue
+
+        # Block cloud metadata endpoints (AWS, GCP, Azure, etc.)
+        blocked_hosts = [
+            "169.254.169.254",  # AWS/GCP metadata
+            "metadata.google.internal",  # GCP metadata
+            "metadata.google.com",
+            "100.100.100.200",  # Alibaba Cloud metadata
+            "169.254.170.2",  # AWS ECS task metadata
+        ]
+        if hostname in blocked_hosts:
+            logging.warning(f"SSRF protection: blocked cloud metadata endpoint: {url}")
+            return False
+
+        # Resolve hostname to IP address(es)
+        try:
+            # Use getaddrinfo for both IPv4 and IPv6
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+            ip_addresses = set()
+            for info in addr_info:
+                ip_str = info[4][0]
+                ip_addresses.add(ip_str)
+        except socket.gaierror:
+            # DNS resolution failed - could be an invalid domain
+            logging.warning(f"SSRF protection: DNS resolution failed for: {hostname}")
+            return False
+
+        # Check each resolved IP against blocked ranges
+        for ip_str in ip_addresses:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+
+                # Block private networks
+                if ip.is_private:
+                    logging.warning(
+                        f"SSRF protection: blocked private IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block loopback addresses (127.0.0.0/8, ::1)
+                if ip.is_loopback:
+                    logging.warning(
+                        f"SSRF protection: blocked loopback IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block link-local addresses (169.254.0.0/16, fe80::/10)
+                if ip.is_link_local:
+                    logging.warning(
+                        f"SSRF protection: blocked link-local IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block multicast addresses
+                if ip.is_multicast:
+                    logging.warning(
+                        f"SSRF protection: blocked multicast IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block reserved addresses
+                if ip.is_reserved:
+                    logging.warning(
+                        f"SSRF protection: blocked reserved IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+            except ValueError:
+                # Invalid IP address format
+                logging.warning(f"SSRF protection: invalid IP address format: {ip_str}")
+                return False
+
+        return True
+
+    except Exception as e:
+        logging.error(f"SSRF protection: error validating URL {url}: {e}")
+        return False
 
 
 class AGiXT:
@@ -1759,7 +1899,11 @@ Your response (true or false):"""
                         return {}
                     if url in ["", None]:
                         return {}
-                    file_download = requests.get(url)
+                    # SSRF protection: validate URL before making request
+                    if not is_safe_url(url):
+                        logging.error(f"SSRF protection blocked download from: {url}")
+                        return {}
+                    file_download = requests.get(url, timeout=30)
                     file_data = file_download.content
                 except Exception as e:
                     logging.error(f"Error downloading file: {e}")
