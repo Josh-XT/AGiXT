@@ -986,3 +986,429 @@ async def issue_company_credits(
         )
     finally:
         session.close()
+
+
+# Admin endpoints (role 0 only)
+
+
+class AdminCompanySearchResponse(BaseModel):
+    """Response model for admin company search"""
+
+    companies: List[dict]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminCreditRequest(BaseModel):
+    """Request model for admin credit issuance"""
+
+    company_id: str
+    amount_usd: float
+
+
+@app.get(
+    "/v1/admin/companies",
+    tags=["Admin"],
+    summary="Get all companies (super admin only)",
+    description="Super admin endpoint to retrieve all companies on the server with search, filter, and sort capability.",
+    response_model=AdminCompanySearchResponse,
+)
+async def admin_get_all_companies(
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    sort_by: Optional[str] = None,
+    sort_direction: Optional[str] = "asc",
+    filter_balance: Optional[str] = None,
+    filter_users: Optional[str] = None,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Get all companies on the server (super admin only).
+
+    Args:
+        search: Optional search string (company name, ID, or user email)
+        limit: Maximum number of results (default 100)
+        offset: Number of results to skip for pagination
+        sort_by: Field to sort by (name, token_balance, token_balance_usd, user_count)
+        sort_direction: Sort direction (asc or desc)
+        filter_balance: Filter by balance (no_balance, has_balance)
+        filter_users: Filter by user count (single_user, multiple_users)
+        authorization: JWT token (required)
+
+    Returns:
+        List of companies with pagination info
+    """
+    auth = MagicalAuth(token=authorization)
+    return auth.get_all_server_companies(
+        search=search,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
+        filter_balance=filter_balance,
+        filter_users=filter_users,
+    )
+
+
+@app.post(
+    "/v1/admin/credit",
+    tags=["Admin"],
+    summary="Issue credits to any company (super admin only)",
+    description="Super admin endpoint to manually issue credits to any company.",
+)
+async def admin_issue_credits(
+    request: AdminCreditRequest,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Issue credits to any company (super admin only).
+
+    Args:
+        request: Contains company_id and amount_usd
+        authorization: JWT token (required)
+
+    Returns:
+        Success message with credited amount and token count
+    """
+    from decimal import Decimal
+
+    auth = MagicalAuth(token=authorization)
+
+    # Verify super admin access
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super admin role required.",
+        )
+
+    # Validate amount
+    try:
+        amount_decimal = Decimal(str(request.amount_usd))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid amount format")
+
+    if amount_decimal <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+
+    # Get company
+    session = get_session()
+    try:
+        company_record = (
+            session.query(Company).filter(Company.id == request.company_id).first()
+        )
+        if not company_record:
+            raise HTTPException(
+                status_code=404, detail=f"Company {request.company_id} not found"
+            )
+
+        # Calculate tokens based on current pricing
+        price_service = PriceService()
+        token_price = price_service.get_token_price()
+
+        if token_price <= 0:
+            # If billing is disabled, default to $0.50 per million tokens
+            token_price = Decimal("0.50")
+        else:
+            token_price = Decimal(str(token_price))
+
+        # Calculate how many tokens this amount buys
+        token_millions = amount_decimal / token_price
+        tokens = int(token_millions * 1_000_000)
+
+        # Add tokens to company balance
+        company_record.token_balance = (company_record.token_balance or 0) + tokens
+        company_record.token_balance_usd = (
+            company_record.token_balance_usd or 0
+        ) + float(amount_decimal)
+
+        # Create a payment transaction record for audit trail
+        transaction = PaymentTransaction(
+            user_id=auth.user_id,  # Track which admin issued the credit
+            company_id=request.company_id,
+            seat_count=0,
+            token_amount=tokens,
+            payment_method="admin_credit",
+            currency="USD",
+            network=None,
+            amount_usd=float(amount_decimal),
+            amount_currency=float(amount_decimal),
+            exchange_rate=1.0,
+            status="completed",
+            reference_code=f"ADMIN_CREDIT_{request.company_id}_{int(datetime.now().timestamp())}",
+        )
+        session.add(transaction)
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": request.company_id,
+            "company_name": company_record.name,
+            "amount_usd": float(amount_decimal),
+            "tokens_credited": tokens,
+            "token_millions": float(token_millions),
+            "new_balance_tokens": company_record.token_balance,
+            "new_balance_usd": company_record.token_balance_usd,
+            "transaction_id": str(transaction.id),
+            "reference_code": transaction.reference_code,
+            "issued_by": auth.email,
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error issuing admin credits: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to issue credits: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+@app.post(
+    "/v1/admin/set-super-admin",
+    tags=["Admin"],
+    summary="Set a user as super admin (AGiXT API Key or existing super admin required)",
+    description="Promotes a user to super admin (role 0) in their primary company. Requires AGiXT API Key or existing super admin permissions.",
+)
+async def set_super_admin(
+    email: str,
+    authorization: str = Header(None),
+):
+    """
+    Set a user as super admin (role 0).
+
+    This endpoint can be called with either:
+    1. The AGiXT API Key for initial setup
+    2. A JWT from an existing super admin
+
+    Args:
+        email: The email of the user to promote to super admin
+        authorization: AGiXT API Key or super admin JWT
+
+    Returns:
+        Success message with user details
+    """
+    from Globals import getenv
+
+    agixt_api_key = getenv("AGIXT_API_KEY")
+    provided_key = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+
+    is_api_key_auth = agixt_api_key and provided_key == agixt_api_key
+    is_super_admin_auth = False
+
+    # Check if it's a JWT from a super admin
+    if not is_api_key_auth:
+        try:
+            auth = MagicalAuth(token=authorization)
+            is_super_admin_auth = auth.is_super_admin()
+        except:
+            pass
+
+    if not is_api_key_auth and not is_super_admin_auth:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. This endpoint requires the AGiXT API Key or super admin permissions.",
+        )
+
+    session = get_session()
+    try:
+        # Find the user by email
+        user = session.query(User).filter(User.email == email.lower()).first()
+        if not user:
+            raise HTTPException(status_code=404, detail=f"User {email} not found")
+
+        # Get the user's primary company
+        user_company = (
+            session.query(UserCompany).filter(UserCompany.user_id == user.id).first()
+        )
+
+        if not user_company:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User {email} is not a member of any company",
+            )
+
+        # Set role to 0 (super_admin)
+        old_role = user_company.role_id
+        user_company.role_id = 0
+        session.commit()
+
+        return {
+            "success": True,
+            "user_id": str(user.id),
+            "email": user.email,
+            "company_id": str(user_company.company_id),
+            "old_role_id": old_role,
+            "new_role_id": 0,
+            "message": f"User {email} has been promoted to super admin (role 0)",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error setting super admin: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to set super admin: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# Protected company names that cannot be deleted
+PROTECTED_COMPANIES = ["DevXT", "Josh's Team"]
+
+
+@app.delete(
+    "/v1/admin/companies/{company_id}",
+    tags=["Admin"],
+    summary="Delete a company (super admin only)",
+    description="Permanently deletes a company and removes all user associations. Requires super admin permissions. Protected companies cannot be deleted.",
+)
+async def admin_delete_company(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Delete a company (super admin only).
+
+    This endpoint permanently removes a company and all associated user memberships.
+    Protected companies (DevXT, Josh's Team) cannot be deleted.
+
+    Args:
+        company_id: The UUID of the company to delete
+        authorization: Super admin JWT
+
+    Returns:
+        Success message with company details
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Check if company is protected
+        if company.name in PROTECTED_COMPANIES:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot delete protected company: {company.name}",
+            )
+
+        company_name = company.name
+
+        # Get count of users that will be affected
+        user_count = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id == company_id)
+            .count()
+        )
+
+        # Delete all user associations
+        session.query(UserCompany).filter(UserCompany.company_id == company_id).delete()
+
+        # Delete the company
+        session.delete(company)
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": company_id,
+            "company_name": company_name,
+            "users_removed": user_count,
+            "message": f"Company '{company_name}' has been deleted",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error deleting company: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete company: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+@app.delete(
+    "/v1/admin/users/{user_id}",
+    tags=["Admin"],
+    summary="Deactivate a user (super admin only)",
+    description="Deactivates a user account. Requires super admin permissions. Protected users cannot be deactivated.",
+)
+async def admin_delete_user(
+    user_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Deactivate a user (super admin only).
+
+    This endpoint deactivates a user account (sets is_active to False).
+    Protected users (josh@devxt.com) cannot be deactivated.
+
+    Args:
+        user_id: The UUID of the user to deactivate
+        authorization: Super admin JWT
+
+    Returns:
+        Success message with user details
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Check if user is protected
+        protected_emails = ["josh@devxt.com"]
+        if user.email.lower() in protected_emails:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot deactivate protected user: {user.email}",
+            )
+
+        user_email = user.email
+        user.is_active = False
+        session.commit()
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "email": user_email,
+            "message": f"User '{user_email}' has been deactivated",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error deactivating user: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to deactivate user: {str(e)}"
+        )
+    finally:
+        session.close()

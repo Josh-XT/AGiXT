@@ -1310,6 +1310,7 @@ def get_similar_memories(
 
 
 default_roles = [
+    {"id": 0, "name": "super_admin", "friendly_name": "Super Admin"},
     {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
     {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
     {"id": 3, "name": "user", "friendly_name": "User"},

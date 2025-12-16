@@ -554,6 +554,27 @@ class MagicalAuth:
             raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
         return True
 
+    def is_super_admin(self) -> bool:
+        """
+        Check if the current user has role 0 (super_admin) in any company.
+        Super admins have server-wide access to all companies.
+
+        Returns:
+            bool: True if user is a super admin, False otherwise
+        """
+        if self.user_id is None:
+            return False
+        with get_session() as db:
+            user_company = (
+                db.query(UserCompany)
+                .filter(
+                    UserCompany.user_id == self.user_id,
+                    UserCompany.role_id == 0,
+                )
+                .first()
+            )
+            return user_company is not None
+
     def user_exists(self, email: str = None):
         self.email = (
             str(email)
@@ -3247,6 +3268,206 @@ class MagicalAuth:
 
             except Exception as e:
                 logging.error(f"Error in get_all_companies: {str(e)}")
+                logging.error(traceback.format_exc())
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"An error occurred while fetching companies: {str(e)}",
+                )
+
+    def get_all_server_companies(
+        self,
+        search: str = None,
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: str = None,
+        sort_direction: str = "asc",
+        filter_balance: str = None,
+        filter_users: str = None,
+    ) -> dict:
+        """
+        Get all companies on the server (super admin only).
+        Supports search by company name, company ID, or user email.
+
+        Args:
+            search: Optional search string (company name, ID, or user email)
+            limit: Maximum number of results to return (default 100)
+            offset: Number of results to skip for pagination (default 0)
+            sort_by: Field to sort by (name, token_balance, token_balance_usd, user_count)
+            sort_direction: Sort direction (asc or desc)
+            filter_balance: Filter by balance (no_balance, has_balance)
+            filter_users: Filter by user count (single_user, multiple_users)
+
+        Returns:
+            dict: Contains companies list and total count
+        """
+        self.validate_user()
+
+        if not self.is_super_admin():
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. Super admin role required.",
+            )
+
+        with get_session() as db:
+            try:
+                from sqlalchemy import or_, func, cast, String, desc, asc
+
+                # Base query for all companies
+                query = db.query(Company).options(
+                    joinedload(Company.users).joinedload(UserCompany.user),
+                    joinedload(Company.users).joinedload(UserCompany.role),
+                )
+
+                # If search is provided, filter by name, ID, or user email
+                if search and search.strip():
+                    search_term = f"%{search.strip().lower()}%"
+
+                    # Find company IDs that have users matching the email search
+                    user_company_ids = (
+                        db.query(UserCompany.company_id)
+                        .join(User)
+                        .filter(func.lower(User.email).like(search_term))
+                        .distinct()
+                        .all()
+                    )
+                    user_company_ids = [uc[0] for uc in user_company_ids]
+
+                    # Build search conditions
+                    search_conditions = [
+                        func.lower(Company.name).like(search_term),
+                        func.lower(cast(Company.id, String)).like(search_term),
+                    ]
+                    if user_company_ids:
+                        search_conditions.append(Company.id.in_(user_company_ids))
+
+                    query = query.filter(or_(*search_conditions))
+
+                # Apply balance filter
+                if filter_balance == "no_balance":
+                    query = query.filter(
+                        or_(
+                            Company.token_balance == None,
+                            Company.token_balance == 0,
+                            Company.token_balance_usd == None,
+                            Company.token_balance_usd == 0,
+                        )
+                    )
+                elif filter_balance == "has_balance":
+                    query = query.filter(
+                        Company.token_balance > 0,
+                        Company.token_balance_usd > 0,
+                    )
+
+                # For user count filtering and sorting, we need a subquery
+                user_count_subquery = (
+                    db.query(
+                        UserCompany.company_id,
+                        func.count(UserCompany.user_id).label("user_count"),
+                    )
+                    .group_by(UserCompany.company_id)
+                    .subquery()
+                )
+
+                # Apply user count filter if specified
+                if filter_users in ["single_user", "multiple_users"]:
+                    query = query.outerjoin(
+                        user_count_subquery,
+                        Company.id == user_count_subquery.c.company_id,
+                    )
+                    if filter_users == "single_user":
+                        query = query.filter(
+                            or_(
+                                user_count_subquery.c.user_count == 1,
+                                user_count_subquery.c.user_count == None,
+                            )
+                        )
+                    elif filter_users == "multiple_users":
+                        query = query.filter(user_count_subquery.c.user_count > 1)
+
+                # Get total count before pagination
+                total_count = query.count()
+
+                # Determine sort order
+                sort_func = desc if sort_direction == "desc" else asc
+                if sort_by == "token_balance":
+                    query = query.order_by(sort_func(Company.token_balance))
+                elif sort_by == "token_balance_usd":
+                    query = query.order_by(sort_func(Company.token_balance_usd))
+                elif sort_by == "user_count":
+                    # Join user count subquery if not already joined
+                    if filter_users not in ["single_user", "multiple_users"]:
+                        query = query.outerjoin(
+                            user_count_subquery,
+                            Company.id == user_count_subquery.c.company_id,
+                        )
+                    query = query.order_by(
+                        sort_func(func.coalesce(user_count_subquery.c.user_count, 0))
+                    )
+                else:
+                    # Default sort by name
+                    query = query.order_by(sort_func(Company.name))
+
+                # Apply pagination
+                companies = query.offset(offset).limit(limit).all()
+
+                result = []
+                for company in companies:
+                    # Collect users for this company
+                    unique_users = {}
+                    for user_company in company.users:
+                        role_name = None
+                        for role in default_roles:
+                            if role["id"] == user_company.role_id:
+                                role_name = role["name"]
+                                break
+                        if role_name is None:
+                            role_name = "user"
+                        user = user_company.user
+                        user_id = str(user.id)
+                        if user_id not in unique_users:
+                            unique_users[user_id] = UserResponse(
+                                id=user_id,
+                                email=user.email,
+                                first_name=user.first_name,
+                                last_name=user.last_name,
+                                role=role_name,
+                                role_id=user_company.role_id,
+                            )
+
+                    company_data = {
+                        "id": str(company.id),
+                        "name": company.name,
+                        "company_id": (
+                            str(company.company_id) if company.company_id else None
+                        ),
+                        "status": getattr(company, "status", True),
+                        "address": getattr(company, "address", None),
+                        "phone_number": getattr(company, "phone_number", None),
+                        "email": getattr(company, "email", None),
+                        "website": getattr(company, "website", None),
+                        "city": getattr(company, "city", None),
+                        "state": getattr(company, "state", None),
+                        "zip_code": getattr(company, "zip_code", None),
+                        "country": getattr(company, "country", None),
+                        "notes": getattr(company, "notes", None),
+                        "token_balance": getattr(company, "token_balance", 0),
+                        "token_balance_usd": getattr(company, "token_balance_usd", 0),
+                        "users": list(unique_users.values()),
+                        "children": [],
+                    }
+                    result.append(company_data)
+
+                return {
+                    "companies": self.convert_uuid_to_str(result),
+                    "total": total_count,
+                    "limit": limit,
+                    "offset": offset,
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.error(f"Error in get_all_server_companies: {str(e)}")
                 logging.error(traceback.format_exc())
                 raise HTTPException(
                     status_code=500,
