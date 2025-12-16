@@ -186,6 +186,15 @@ class AIProviderManager:
         else:
             self.intelligence_tiers = [smartest] if smartest else ["ezlocalai"]
 
+        # Excluded providers that shouldn't be part of rotation
+        self.excluded_providers = {"rotation", "gpt4free", "default"}
+        rotation_exclusions = agent_settings.get(
+            "ROTATION_EXCLUSIONS", getenv("ROTATION_EXCLUSIONS", "")
+        )
+        if rotation_exclusions:
+            for exclusion in rotation_exclusions.split(","):
+                self.excluded_providers.add(exclusion.strip().lower())
+
         # Discover and load AI Provider extensions
         self._discover_providers()
 
@@ -210,6 +219,11 @@ class AIProviderManager:
             if not hasattr(module, class_name):
                 continue
 
+            # Skip excluded providers
+            provider_name = class_name.lower()
+            if provider_name in self.excluded_providers:
+                continue
+
             try:
                 provider_class = getattr(module, class_name)
 
@@ -228,9 +242,6 @@ class AIProviderManager:
                     hasattr(provider_instance, "configured")
                     and provider_instance.configured
                 ):
-                    # Use class name without prefix as provider name (e.g., "ezlocalai")
-                    provider_name = class_name.lower()
-
                     self.providers[provider_name] = {
                         "instance": provider_instance,
                         "max_tokens": (
@@ -244,7 +255,7 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
-                    logging.debug(
+                    logging.info(
                         f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']})"
                     )
 
@@ -254,7 +265,7 @@ class AIProviderManager:
                 )
 
         if not self.providers:
-            logging.debug(
+            logging.warning(
                 "[AIProviderManager] No AI Provider extensions configured. Will fall back to legacy providers."
             )
 
@@ -262,48 +273,80 @@ class AIProviderManager:
         self, service: str = "llm", tokens: int = 0, use_smartest: bool = False
     ):
         """
-        Select the best available provider for a service.
+        Select the best available provider for a service based on token limits.
+
+        The selection strategy is:
+        1. Filter out providers that don't support the requested service
+        2. Filter out providers that can't handle the required token count
+        3. If use_smartest=True, prefer providers in intelligence_tiers order
+        4. Otherwise, select the provider with the lowest max_tokens that can handle the request
+           (this ensures we use the cheapest/smallest provider for smaller requests)
 
         Args:
             service: The service type needed (llm, tts, image, transcription, etc.)
-            tokens: Required token count (0 if unknown)
+            tokens: Required token count (0 if unknown - all providers considered suitable)
             use_smartest: Whether to prefer the smartest provider
 
         Returns:
             Provider instance or None if no suitable provider found
         """
+        # Build a dict of provider token limits for logging
+        provider_token_limits = {
+            name: provider["max_tokens"] for name, provider in self.providers.items()
+        }
+        logging.info(
+            f"[AIProviderManager] Provider token limits: {provider_token_limits}"
+        )
+        logging.info(
+            f"[AIProviderManager] Request requires {tokens} tokens for service '{service}'"
+        )
+
         # Filter providers that support the service and have sufficient token limits
         suitable = {}
         for name, provider in self.providers.items():
             if name in self.failed_providers:
+                logging.info(f"[AIProviderManager] Skipping failed provider: {name}")
                 continue
             if service not in provider["services"]:
                 continue
             if tokens > 0 and provider["max_tokens"] < tokens:
+                logging.info(
+                    f"[AIProviderManager] Provider {name} filtered out: max_tokens={provider['max_tokens']} < required={tokens}"
+                )
                 continue
             suitable[name] = provider
 
         if not suitable:
+            logging.warning(
+                f"[AIProviderManager] No providers can handle {tokens} tokens for service '{service}'"
+            )
             # Reset failed providers and try again
             if self.failed_providers:
                 self.failed_providers.clear()
                 return self.get_provider_for_service(service, tokens, use_smartest)
             return None
 
+        suitable_with_tokens = {
+            name: provider["max_tokens"] for name, provider in suitable.items()
+        }
+        logging.info(
+            f"[AIProviderManager] Suitable providers for {tokens} tokens: {suitable_with_tokens}"
+        )
+
         # If use_smartest, try intelligence tiers in order
         if use_smartest:
             for tier in self.intelligence_tiers:
                 if tier in suitable:
-                    logging.debug(
-                        f"[AIProviderManager] Selected smartest provider: {tier}"
+                    logging.info(
+                        f"[AIProviderManager] Selected smartest provider: {tier} (max_tokens: {suitable[tier]['max_tokens']})"
                     )
                     return suitable[tier]["instance"]
 
         # Otherwise, select provider with lowest max_tokens that can handle the request
         # (prefer to use smaller/cheaper providers for smaller requests)
         selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
-        logging.debug(
-            f"[AIProviderManager] Selected provider: {selected_name} for {tokens} tokens"
+        logging.info(
+            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens"
         )
         return suitable[selected_name]["instance"]
 
