@@ -1655,64 +1655,33 @@ Your response (true or false):"""
             "bmp",
             "svg",
         ]:
-            if (
-                self.agent.VISION_PROVIDER != "None"
-                and self.agent.VISION_PROVIDER != ""
-                and self.agent.VISION_PROVIDER != None
-            ):
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
-                )
-                # Separate vision inference from memory writing to avoid false errors
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
+            )
+            # Separate vision inference from memory writing to avoid false errors
+            vision_response = None
+            vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
+            self.input_tokens += get_tokens(vision_prompt)
+            # Read image and encode as base64 for vision inference
+            with open(file_path, "rb") as img_file:
+                image_data = img_file.read()
+                base64_image = base64.b64encode(image_data).decode("utf-8")
+            base64_image = f"data:image/{file_type};base64,{base64_image}"
+            vision_response = await self.agent.vision_inference(
+                prompt=vision_prompt, images=[base64_image]
+            )
+            # Check if vision_inference returned an error response
+            if vision_response and "Unable to process request" in vision_response:
+                logging.error(f"Vision inference returned error for {file_name}")
                 vision_response = None
-                try:
-                    vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
-                    self.input_tokens += get_tokens(vision_prompt)
-                    # Read image and encode as base64 for vision inference
-                    with open(file_path, "rb") as img_file:
-                        image_data = img_file.read()
-                        base64_image = base64.b64encode(image_data).decode("utf-8")
-                    base64_image = f"data:image/{file_type};base64,{base64_image}"
-                    vision_response = await self.agent.vision_inference(
-                        prompt=vision_prompt, images=[base64_image]
-                    )
-                    # Check if vision_inference returned an error response
-                    if (
-                        vision_response
-                        and "Unable to process request" in vision_response
-                    ):
-                        logging.error(
-                            f"Vision inference returned error for {file_name}"
-                        )
-                        vision_response = None
-                except Exception as e:
-                    logging.error(f"Error getting vision response: {e}")
 
-                if vision_response:
-                    file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
-                    file_content += vision_response
-                    if save_to_memory:
-                        try:
-                            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            await self.file_reader.write_text_to_memory(
-                                user_input=user_input,
-                                text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
-                                external_source=f"image {file_name}",
-                            )
-                        except Exception as e:
-                            logging.warning(
-                                f"Failed to save vision response to memory: {e}"
-                            )
-                    response = f"{'Learned' if save_to_memory else 'Processed'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
-                else:
-                    response = (
-                        f"[ERROR] I was unable to view the image called `{file_name}`."
-                    )
+            if vision_response:
+                file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
+                file_content += vision_response
+                response = f"{'Learned' if save_to_memory else 'Processed'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             else:
-                response = (
-                    f"[ERROR] I was unable to view the image called `{file_name}`."
-                )
+                response = f"I was unable to view the image called `{file_name}`. I will need to try the `View Image` ability."
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             abs_workspace = os.path.abspath(self.agent_workspace)
