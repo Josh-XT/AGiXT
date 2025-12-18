@@ -2251,6 +2251,9 @@ Example: If user says "list my files", use:
         remote_command_yielded = (
             False  # Flag to track if remote command was yielded (skip continuation)
         )
+        # Track standalone steps message ID for updating in place
+        standalone_steps_message_id = None
+        standalone_steps_logged_ids = set()  # Track which step IDs have been logged
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -2439,12 +2442,15 @@ Example: If user says "list my files", use:
                         break  # Break to continuation loop
 
                 # Process completed thinking/reflection tags for logging
+                # This also consolidates any adjacent <step>, <count>, <reward> tags
+                # that appear between thinking/reflection blocks
                 for tag_name in ["thinking", "reflection"]:
                     tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
                     for match in re.finditer(
                         tag_pattern, full_response, re.DOTALL | re.IGNORECASE
                     ):
                         content = match.group(1).strip()
+                        tag_end_pos = match.end()
                         tag_id = f"{tag_name}:{hash(content)}"
                         if tag_id in processed_thinking_ids or not content:
                             continue
@@ -2465,6 +2471,72 @@ Example: If user says "list my files", use:
                         )
                         content = re.sub(r"\n\s*\n\s*\n", "\n\n", content).strip()
 
+                        # Now look for any <step>, <reward>, <count> tags that come AFTER this
+                        # thinking/reflection block but BEFORE the next thought, reflection, execute, or answer
+                        trailing_content = full_response[tag_end_pos:]
+
+                        # Find where the next major tag starts (thinking, reflection, execute, answer)
+                        next_major_tag = re.search(
+                            r"<(thinking|reflection|execute|answer)>",
+                            trailing_content,
+                            re.IGNORECASE,
+                        )
+                        trailing_section = (
+                            trailing_content[: next_major_tag.start()]
+                            if next_major_tag
+                            else trailing_content
+                        )
+
+                        # Collect any standalone step content from the trailing section
+                        step_additions = []
+                        for step_match in re.finditer(
+                            r"<step>(.*?)</step>",
+                            trailing_section,
+                            re.DOTALL | re.IGNORECASE,
+                        ):
+                            step_content = step_match.group(1).strip()
+                            step_id = f"step:{hash(step_content)}"
+                            if step_id not in processed_thinking_ids and step_content:
+                                processed_thinking_ids.add(step_id)
+                                # Clean step content
+                                cleaned_step = re.sub(
+                                    r"<reward>.*?</reward>",
+                                    "",
+                                    step_content,
+                                    flags=re.DOTALL,
+                                )
+                                cleaned_step = re.sub(
+                                    r"<count>.*?</count>",
+                                    "",
+                                    cleaned_step,
+                                    flags=re.DOTALL,
+                                )
+                                cleaned_step = cleaned_step.strip()
+                                if cleaned_step:
+                                    step_additions.append(cleaned_step)
+
+                        # Collect any standalone reward/count content (just mark as processed, don't add to content)
+                        for reward_match in re.finditer(
+                            r"<reward>(.*?)</reward>",
+                            trailing_section,
+                            re.DOTALL | re.IGNORECASE,
+                        ):
+                            reward_id = f"reward:{hash(reward_match.group(1).strip())}"
+                            processed_thinking_ids.add(reward_id)
+
+                        for count_match in re.finditer(
+                            r"<count>(.*?)</count>",
+                            trailing_section,
+                            re.DOTALL | re.IGNORECASE,
+                        ):
+                            count_id = f"count:{hash(count_match.group(1).strip())}"
+                            processed_thinking_ids.add(count_id)
+
+                        # Append step content to the thinking/reflection content
+                        if step_additions:
+                            step_text = "\n".join(f"- {s}" for s in step_additions)
+                            content = f"{content}\n\n**Steps:**\n{step_text}"
+
                         if content:
                             if tag_name == "thinking":
                                 log_msg = f"[SUBACTIVITY][THOUGHT] {content}"
@@ -2480,10 +2552,11 @@ Example: If user says "list my files", use:
                                 "complete": True,
                             }
 
-                # Process standalone <step> tags outside thinking/reflection (treat as thinking steps)
-                # Collect all steps to combine them into a single thought
+                # Process standalone <step> tags that appear OUTSIDE any thinking/reflection block
+                # These should be accumulated and logged as a SINGLE combined message
+                # Use update-in-place to consolidate as steps arrive
                 step_pattern = r"<step>(.*?)</step>"
-                collected_steps = []
+                all_standalone_steps = []
                 for match in re.finditer(
                     step_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
@@ -2491,7 +2564,7 @@ Example: If user says "list my files", use:
                     step_start = match.start()
                     step_id = f"step:{hash(step_content)}"
 
-                    if step_id in processed_thinking_ids or not step_content:
+                    if not step_content:
                         continue
 
                     # Check if this step is inside thinking/reflection
@@ -2506,8 +2579,6 @@ Example: If user says "list my files", use:
                     if is_inside_top_level_answer(full_response, step_start):
                         continue  # Skip steps inside answer
 
-                    processed_thinking_ids.add(step_id)
-
                     # Clean content
                     cleaned_step = re.sub(
                         r"<reward>.*?</reward>", "", step_content, flags=re.DOTALL
@@ -2518,56 +2589,61 @@ Example: If user says "list my files", use:
                     cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
 
                     if cleaned_step:
-                        collected_steps.append(cleaned_step)
+                        all_standalone_steps.append((step_id, cleaned_step))
 
-                # Log all collected steps as a single combined thought
-                if collected_steps and not is_executing:
-                    combined_steps = "\n".join(f"- {step}" for step in collected_steps)
-                    log_msg = f"[SUBACTIVITY][THOUGHT] {combined_steps}"
-                    c.log_interaction(role=self.agent_name, message=log_msg)
+                # If we have standalone steps, log/update as a single combined message
+                if all_standalone_steps and not is_executing:
+                    # Check if we have NEW steps to add (not already in logged set)
+                    new_step_ids = set(s[0] for s in all_standalone_steps)
+                    if new_step_ids != standalone_steps_logged_ids:
+                        # Build combined message from ALL steps
+                        combined_steps = "\n".join(
+                            f"- {step[1]}" for step in all_standalone_steps
+                        )
+                        log_msg = f"[SUBACTIVITY][THOUGHT] {combined_steps}"
 
-                    yield {
-                        "type": "thinking",
-                        "content": combined_steps,
-                        "complete": True,
-                    }
+                        if standalone_steps_message_id is None:
+                            # Create new message
+                            standalone_steps_message_id = c.log_interaction(
+                                role=self.agent_name, message=log_msg
+                            )
+                        else:
+                            # Update existing message
+                            c.update_message_by_id(standalone_steps_message_id, log_msg)
 
-                # Process standalone <reward> tags outside containers (log as score)
+                        # Update tracking set
+                        standalone_steps_logged_ids = new_step_ids.copy()
+
+                        # Mark all step IDs as processed
+                        for step_id, _ in all_standalone_steps:
+                            processed_thinking_ids.add(step_id)
+
+                        yield {
+                            "type": "thinking",
+                            "content": combined_steps,
+                            "complete": True,
+                        }
+
+                # Mark any remaining standalone <reward> and <count> tags as processed
+                # but don't create separate subactivities for them
                 reward_pattern = r"<reward>(.*?)</reward>"
                 for match in re.finditer(
                     reward_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
                     reward_content = match.group(1).strip()
-                    reward_start = match.start()
                     reward_id = f"reward:{hash(reward_content)}"
+                    if reward_id not in processed_thinking_ids:
+                        processed_thinking_ids.add(reward_id)
+                        # Don't yield or log - these are metadata, not separate activities
 
-                    if reward_id in processed_thinking_ids or not reward_content:
-                        continue
-
-                    # Check if this reward is inside thinking/reflection/step
-                    text_before = full_response[:reward_start]
-                    if (
-                        get_tag_depth(text_before, "thinking") > 0
-                        or get_tag_depth(text_before, "reflection") > 0
-                        or get_tag_depth(text_before, "step") > 0
-                    ):
-                        continue  # Skip rewards inside containers
-
-                    # Check if inside answer block
-                    if is_inside_top_level_answer(full_response, reward_start):
-                        continue
-
-                    processed_thinking_ids.add(reward_id)
-
-                    if not is_executing:
-                        log_msg = f"[SUBACTIVITY][SCORE] {reward_content}"
-                        c.log_interaction(role=self.agent_name, message=log_msg)
-
-                        yield {
-                            "type": "reward",
-                            "content": reward_content,
-                            "complete": True,
-                        }
+                count_pattern = r"<count>(.*?)</count>"
+                for match in re.finditer(
+                    count_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    count_content = match.group(1).strip()
+                    count_id = f"count:{hash(count_content)}"
+                    if count_id not in processed_thinking_ids:
+                        processed_thinking_ids.add(count_id)
 
                 # Progressive streaming of thinking content (stream as it's generated)
                 if thinking_depth > 0 and not is_executing:
