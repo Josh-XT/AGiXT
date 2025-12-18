@@ -1664,6 +1664,8 @@ Your response (true or false):"""
                     role=self.agent_name,
                     message=f"[SUBACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
                 )
+                # Separate vision inference from memory writing to avoid false errors
+                vision_response = None
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
                     self.input_tokens += get_tokens(vision_prompt)
@@ -1675,18 +1677,35 @@ Your response (true or false):"""
                     vision_response = await self.agent.vision_inference(
                         prompt=vision_prompt, images=[base64_image]
                     )
+                    # Check if vision_inference returned an error response
+                    if (
+                        vision_response
+                        and "Unable to process request" in vision_response
+                    ):
+                        logging.error(
+                            f"Vision inference returned error for {file_name}"
+                        )
+                        vision_response = None
+                except Exception as e:
+                    logging.error(f"Error getting vision response: {e}")
+
+                if vision_response:
                     file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
                     file_content += vision_response
                     if save_to_memory:
-                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        await self.file_reader.write_text_to_memory(
-                            user_input=user_input,
-                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
-                            external_source=f"image {file_name}",
-                        )
+                        try:
+                            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            await self.file_reader.write_text_to_memory(
+                                user_input=user_input,
+                                text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
+                                external_source=f"image {file_name}",
+                            )
+                        except Exception as e:
+                            logging.warning(
+                                f"Failed to save vision response to memory: {e}"
+                            )
                     response = f"{'Learned' if save_to_memory else 'Processed'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
-                except Exception as e:
-                    logging.error(f"Error getting vision response: {e}")
+                else:
                     response = (
                         f"[ERROR] I was unable to view the image called `{file_name}`."
                     )
