@@ -149,6 +149,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self.commands = {
             "Write to File": self.write_to_file,
             "Read File": self.read_file,
+            "List Directory": self.list_directory,
             "Search Files": self.search_files,
             "Search File Content": self.search_file_content,
             "Modify File": self.modify_file,
@@ -584,71 +585,190 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     async def search_files(self, query: str) -> str:
         """
-        Search for files in the workspace that match a pattern
+        Search for files in the workspace that match a pattern, or list files in a directory path.
 
         Args:
-        query (str): The search pattern or filename
+        query (str): The search pattern, filename, or directory path to search/list.
+                     Examples:
+                     - "*.ir" - find all .ir files
+                     - "Samsung" - find files with Samsung in the name
+                     - "TVs/Samsung/" - list all files in TVs/Samsung/ folder
+                     - "power" - find files with "power" in the name
 
         Returns:
-        str: List of matching files
+        str: List of matching files with their paths
 
-        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
+        Note: This command searches the agent's workspace. For searching within file contents, use "Search File Content" instead.
         """
         import fnmatch
 
         matches = []
         try:
+            # Check if query looks like a directory path (ends with / or contains /)
+            if query.endswith('/') or '/' in query:
+                # Try to list the directory
+                dir_path = os.path.join(self.WORKING_DIRECTORY, query.rstrip('/'))
+                if os.path.isdir(dir_path):
+                    # List contents of this directory
+                    for root, dirnames, filenames in os.walk(dir_path):
+                        # Get relative path from workspace root
+                        rel_root = os.path.relpath(root, self.WORKING_DIRECTORY)
+                        for dirname in dirnames[:20]:  # Limit subdirs shown
+                            matches.append(f"📁 {rel_root}/{dirname}/")
+                        for filename in filenames[:50]:  # Limit files shown
+                            matches.append(f"📄 {rel_root}/{filename}")
+                        # Only show first level if there are many items
+                        if len(dirnames) + len(filenames) > 30:
+                            break
+                    
+                    if matches:
+                        total_files = sum(len(f) for _, _, f in os.walk(dir_path))
+                        return f"Contents of `{query}` ({total_files} total files):\n" + "\n".join(matches[:100])
+                    else:
+                        return f"Directory `{query}` is empty."
+                else:
+                    # Path doesn't exist as directory, search for it in filenames
+                    pass
+            
+            # Standard filename pattern search
             for root, dirnames, filenames in os.walk(self.WORKING_DIRECTORY):
-                for filename in fnmatch.filter(filenames, f"*{query}*"):
-                    relative_path = os.path.relpath(
-                        os.path.join(root, filename), self.WORKING_DIRECTORY
-                    )
-                    matches.append(relative_path)
+                for filename in filenames:
+                    # Match if query is in filename OR matches fnmatch pattern
+                    if query.lower() in filename.lower() or fnmatch.fnmatch(filename.lower(), f"*{query.lower()}*"):
+                        relative_path = os.path.relpath(
+                            os.path.join(root, filename), self.WORKING_DIRECTORY
+                        )
+                        matches.append(relative_path)
 
             if matches:
-                return f"Found {len(matches)} matching files:\\n" + "\\n".join(matches)
+                return f"Found {len(matches)} matching files:\n" + "\n".join(matches[:100])
             else:
-                return f"No files found matching pattern: {query}"
+                # Provide helpful guidance
+                return f"No files found matching pattern: {query}\n\nTips:\n- Use 'TVs/Samsung/' to list a directory\n- Use '*.ir' to find IR files\n- Use 'Search File Content' to search inside files"
         except Exception as e:
             return f"Error searching files: {str(e)}"
+
+    async def list_directory(self, path: str = "") -> str:
+        """
+        List the contents of a directory in the workspace.
+
+        Args:
+        path (str): The directory path relative to workspace root. Use "" or "." for root.
+                    Examples: "TVs/Samsung/", "extracted_folder/", "subfolder"
+
+        Returns:
+        str: List of files and subdirectories in the specified path
+
+        Note: This is useful for browsing the workspace structure to find specific files.
+        """
+        try:
+            # Normalize the path
+            if not path or path == ".":
+                dir_path = self.WORKING_DIRECTORY
+                display_path = "workspace root"
+            else:
+                dir_path = self.safe_join(path.rstrip('/'))
+                display_path = path
+
+            if not os.path.exists(dir_path):
+                return f"Directory not found: {path}\n\nTip: Use 'Search Files' to find files by name pattern."
+            
+            if not os.path.isdir(dir_path):
+                return f"{path} is a file, not a directory. Use 'Read File' to view its contents."
+
+            # List contents
+            items = []
+            dirs = []
+            files = []
+            
+            for item in sorted(os.listdir(dir_path)):
+                item_path = os.path.join(dir_path, item)
+                if os.path.isdir(item_path):
+                    # Count items in subdirectory
+                    try:
+                        subitem_count = len(os.listdir(item_path))
+                        dirs.append(f"📁 {item}/ ({subitem_count} items)")
+                    except:
+                        dirs.append(f"📁 {item}/")
+                else:
+                    # Get file size
+                    try:
+                        size = os.path.getsize(item_path)
+                        if size < 1024:
+                            size_str = f"{size} B"
+                        elif size < 1024 * 1024:
+                            size_str = f"{size/1024:.1f} KB"
+                        else:
+                            size_str = f"{size/(1024*1024):.1f} MB"
+                        files.append(f"📄 {item} ({size_str})")
+                    except:
+                        files.append(f"📄 {item}")
+
+            items = dirs + files
+            
+            if not items:
+                return f"Directory `{display_path}` is empty."
+            
+            # Limit output
+            total = len(items)
+            if total > 100:
+                items = items[:100]
+                items.append(f"\n... and {total - 100} more items")
+            
+            return f"Contents of `{display_path}` ({len(dirs)} folders, {len(files)} files):\n\n" + "\n".join(items)
+        except Exception as e:
+            return f"Error listing directory: {str(e)}"
 
     async def search_file_content(self, query: str, filename: str = "") -> str:
         """
         Search for content within files in the workspace
 
         Args:
-        query (str): The text to search for
-        filename (str): Optional specific file to search in
+        query (str): The text to search for (case-insensitive)
+        filename (str): Optional specific file or folder to search in (e.g., "TVs/Samsung/")
 
         Returns:
-        str: Search results showing matching lines
+        str: Search results showing matching lines with file paths and line numbers
 
-        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
+        Note: Searches all text-based files. For binary files, use other tools.
         """
-        import re
+        # Binary file extensions to skip
+        BINARY_EXTENSIONS = {
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico', '.webp', '.svg',
+            '.mp3', '.mp4', '.wav', '.avi', '.mov', '.mkv', '.flac',
+            '.zip', '.tar', '.gz', '.rar', '.7z',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.exe', '.dll', '.so', '.dylib', '.bin',
+            '.pyc', '.pyo', '.class', '.o', '.obj',
+            '.db', '.sqlite', '.sqlite3',
+        }
 
         matches = []
         try:
             if filename:
-                # Search in specific file
-                files_to_search = [filename]
+                # Check if it's a directory path
+                check_path = self.safe_join(filename.rstrip('/'))
+                if os.path.isdir(check_path):
+                    # Search in all files within this directory
+                    files_to_search = []
+                    for root, dirs, files in os.walk(check_path):
+                        for file in files:
+                            ext = os.path.splitext(file)[1].lower()
+                            if ext not in BINARY_EXTENSIONS:
+                                relative_path = os.path.relpath(
+                                    os.path.join(root, file), self.WORKING_DIRECTORY
+                                )
+                                files_to_search.append(relative_path)
+                else:
+                    # Search in specific file
+                    files_to_search = [filename]
             else:
-                # Search in all text files
+                # Search in all text-based files
                 files_to_search = []
                 for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
                     for file in files:
-                        if file.endswith(
-                            (
-                                ".txt",
-                                ".py",
-                                ".md",
-                                ".json",
-                                ".yaml",
-                                ".yml",
-                                ".ini",
-                                ".cfg",
-                            )
-                        ):
+                        ext = os.path.splitext(file)[1].lower()
+                        if ext not in BINARY_EXTENSIONS:
                             relative_path = os.path.relpath(
                                 os.path.join(root, file), self.WORKING_DIRECTORY
                             )
@@ -667,11 +787,13 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                     continue
 
             if matches:
-                return f"Found {len(matches)} matches:\\n" + "\\n".join(
-                    matches[:20]
-                )  # Limit to first 20 matches
+                result = f"Found {len(matches)} matches for '{query}':\n\n"
+                result += "\n".join(matches[:50])  # Show up to 50 matches
+                if len(matches) > 50:
+                    result += f"\n\n... and {len(matches) - 50} more matches"
+                return result
             else:
-                return f"No matches found for: {query}"
+                return f"No matches found for: {query}\n\nTips:\n- Check spelling and try variations\n- Use 'List Directory' to browse folder structure\n- Use 'Read File' to view a specific file"
         except Exception as e:
             return f"Error searching file content: {str(e)}"
 

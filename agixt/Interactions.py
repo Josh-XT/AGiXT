@@ -123,6 +123,7 @@ def has_complete_answer(response: str) -> bool:
     2. There is a matching </answer> tag
     3. The </answer> is NOT inside a <thinking> or <reflection> block
     4. The content inside has actual text after removing step/reward/count tags
+    5. There are no pending tool calls (execute blocks, name tags) that haven't been executed
 
     This handles edge cases like:
     - <answer>Some text <thinking>thoughts</thinking> more text</answer> - COMPLETE (thinking is inside answer)
@@ -131,10 +132,21 @@ def has_complete_answer(response: str) -> bool:
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
     - <answer><step>plan step</step></answer> - NOT COMPLETE (only contains step tags)
     - <thinking>I'll put my response in the <answer> block</thinking> - NOT an answer (just mentioned in text)
+    - <thinking><name>tool_name</name></thinking><answer>...</answer> - NOT COMPLETE (has unexecuted tool call)
 
     Returns:
         bool: True if there's a complete top-level answer block with meaningful content
     """
+    # Check for pending tool calls - if there's a <name>...</name> that looks like a tool call
+    # and no corresponding execute output, don't consider the answer complete
+    # Pattern: <name>word</name> where word looks like a command name (no spaces, alphanumeric + underscore)
+    tool_call_pattern = r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>"
+    if re.search(tool_call_pattern, response, re.IGNORECASE):
+        # Check if this tool call has been executed (would have <output> after it)
+        # or is inside an <execute>...</execute> block that has output
+        if "<output>" not in response.lower():
+            return False  # Tool call pending, not complete
+
     # First, quick check - if no </answer> at all, definitely incomplete
     if "</answer>" not in response.lower():
         return False
@@ -3580,6 +3592,45 @@ Analyze the actual output shown and continue with your response.
                 for arg_name, arg_value in arg_matches:
                     args[arg_name] = arg_value.strip()
                 extracted_commands.append((command_block, command_name, args))
+
+        # Also extract standalone <name>...</name> tool calls not wrapped in <execute>
+        # This handles cases where the model outputs tool calls in thinking blocks
+        # Pattern: <name>command_name</name> followed by optional argument tags
+        standalone_pattern = r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>"
+        for match in re.finditer(standalone_pattern, response, re.IGNORECASE):
+            command_name = match.group(1).strip()
+            # Check if this name tag is inside an <execute> block (already handled above)
+            start_pos = match.start()
+            text_before = response[:start_pos]
+            # Count open <execute> and </execute> to see if we're inside one
+            execute_depth = len(
+                re.findall(r"<execute>", text_before, re.IGNORECASE)
+            ) - len(re.findall(r"</execute>", text_before, re.IGNORECASE))
+            if execute_depth > 0:
+                continue  # Skip, already handled by <execute> block extraction
+
+            # This is a standalone tool call - wrap it as an execute block for consistency
+            # Extract any adjacent argument-like tags after the name tag
+            remaining = response[match.end() :]
+            args = {}
+            # Look for tags that look like arguments (up to next </thinking>, </answer>, or <name>)
+            arg_section_match = re.match(
+                r"(.*?)(?=<(?:/thinking|/answer|name|execute))",
+                remaining,
+                re.DOTALL | re.IGNORECASE,
+            )
+            if arg_section_match:
+                arg_section = arg_section_match.group(1)
+                arg_matches = re.findall(
+                    r"<([a-zA-Z_][a-zA-Z0-9_]*)>(.*?)</\1>", arg_section, re.DOTALL
+                )
+                for arg_name, arg_value in arg_matches:
+                    args[arg_name.lower()] = arg_value.strip()
+
+            # Create a synthetic execute block for tracking
+            synthetic_block = f"<execute><name>{command_name}</name></execute>"
+            extracted_commands.append((synthetic_block, command_name, args))
+
         return extracted_commands
 
     def _is_remote_command(self, command_output: str) -> dict:
