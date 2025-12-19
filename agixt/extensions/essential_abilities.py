@@ -152,6 +152,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "List Directory": self.list_directory,
             "Search Files": self.search_files,
             "Search File Content": self.search_file_content,
+            "Glob File Search": self.glob_file_search,
+            "Grep Search": self.grep_search,
             "Modify File": self.modify_file,
             "Execute Python File": self.execute_python_file,
             "Delete File": self.delete_file,
@@ -188,6 +190,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Update Todo Item": self.update_todo_item,
             "Delete Todo Item": self.delete_todo_item,
             "Gather information from website URLs": self.browse_links,
+            "Fetch Webpage Content": self.fetch_webpage_content,
             "Download File from URL": self.download_file_from_url,
             "View Image": self.view_image,
             "Get Web UI Tips": self.get_webui_tips,
@@ -605,9 +608,9 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         matches = []
         try:
             # Check if query looks like a directory path (ends with / or contains /)
-            if query.endswith('/') or '/' in query:
+            if query.endswith("/") or "/" in query:
                 # Try to list the directory
-                dir_path = os.path.join(self.WORKING_DIRECTORY, query.rstrip('/'))
+                dir_path = os.path.join(self.WORKING_DIRECTORY, query.rstrip("/"))
                 if os.path.isdir(dir_path):
                     # List contents of this directory
                     for root, dirnames, filenames in os.walk(dir_path):
@@ -620,28 +623,35 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                         # Only show first level if there are many items
                         if len(dirnames) + len(filenames) > 30:
                             break
-                    
+
                     if matches:
                         total_files = sum(len(f) for _, _, f in os.walk(dir_path))
-                        return f"Contents of `{query}` ({total_files} total files):\n" + "\n".join(matches[:100])
+                        return (
+                            f"Contents of `{query}` ({total_files} total files):\n"
+                            + "\n".join(matches[:100])
+                        )
                     else:
                         return f"Directory `{query}` is empty."
                 else:
                     # Path doesn't exist as directory, search for it in filenames
                     pass
-            
+
             # Standard filename pattern search
             for root, dirnames, filenames in os.walk(self.WORKING_DIRECTORY):
                 for filename in filenames:
                     # Match if query is in filename OR matches fnmatch pattern
-                    if query.lower() in filename.lower() or fnmatch.fnmatch(filename.lower(), f"*{query.lower()}*"):
+                    if query.lower() in filename.lower() or fnmatch.fnmatch(
+                        filename.lower(), f"*{query.lower()}*"
+                    ):
                         relative_path = os.path.relpath(
                             os.path.join(root, filename), self.WORKING_DIRECTORY
                         )
                         matches.append(relative_path)
 
             if matches:
-                return f"Found {len(matches)} matching files:\n" + "\n".join(matches[:100])
+                return f"Found {len(matches)} matching files:\n" + "\n".join(
+                    matches[:100]
+                )
             else:
                 # Provide helpful guidance
                 return f"No files found matching pattern: {query}\n\nTips:\n- Use 'TVs/Samsung/' to list a directory\n- Use '*.ir' to find IR files\n- Use 'Search File Content' to search inside files"
@@ -667,12 +677,12 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                 dir_path = self.WORKING_DIRECTORY
                 display_path = "workspace root"
             else:
-                dir_path = self.safe_join(path.rstrip('/'))
+                dir_path = self.safe_join(path.rstrip("/"))
                 display_path = path
 
             if not os.path.exists(dir_path):
                 return f"Directory not found: {path}\n\nTip: Use 'Search Files' to find files by name pattern."
-            
+
             if not os.path.isdir(dir_path):
                 return f"{path} is a file, not a directory. Use 'Read File' to view its contents."
 
@@ -680,7 +690,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             items = []
             dirs = []
             files = []
-            
+
             for item in sorted(os.listdir(dir_path)):
                 item_path = os.path.join(dir_path, item)
                 if os.path.isdir(item_path):
@@ -705,17 +715,20 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                         files.append(f"📄 {item}")
 
             items = dirs + files
-            
+
             if not items:
                 return f"Directory `{display_path}` is empty."
-            
+
             # Limit output
             total = len(items)
             if total > 100:
                 items = items[:100]
                 items.append(f"\n... and {total - 100} more items")
-            
-            return f"Contents of `{display_path}` ({len(dirs)} folders, {len(files)} files):\n\n" + "\n".join(items)
+
+            return (
+                f"Contents of `{display_path}` ({len(dirs)} folders, {len(files)} files):\n\n"
+                + "\n".join(items)
+            )
         except Exception as e:
             return f"Error listing directory: {str(e)}"
 
@@ -734,20 +747,53 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         """
         # Binary file extensions to skip
         BINARY_EXTENSIONS = {
-            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico', '.webp', '.svg',
-            '.mp3', '.mp4', '.wav', '.avi', '.mov', '.mkv', '.flac',
-            '.zip', '.tar', '.gz', '.rar', '.7z',
-            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-            '.exe', '.dll', '.so', '.dylib', '.bin',
-            '.pyc', '.pyo', '.class', '.o', '.obj',
-            '.db', '.sqlite', '.sqlite3',
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".ico",
+            ".webp",
+            ".svg",
+            ".mp3",
+            ".mp4",
+            ".wav",
+            ".avi",
+            ".mov",
+            ".mkv",
+            ".flac",
+            ".zip",
+            ".tar",
+            ".gz",
+            ".rar",
+            ".7z",
+            ".pdf",
+            ".doc",
+            ".docx",
+            ".xls",
+            ".xlsx",
+            ".ppt",
+            ".pptx",
+            ".exe",
+            ".dll",
+            ".so",
+            ".dylib",
+            ".bin",
+            ".pyc",
+            ".pyo",
+            ".class",
+            ".o",
+            ".obj",
+            ".db",
+            ".sqlite",
+            ".sqlite3",
         }
 
         matches = []
         try:
             if filename:
                 # Check if it's a directory path
-                check_path = self.safe_join(filename.rstrip('/'))
+                check_path = self.safe_join(filename.rstrip("/"))
                 if os.path.isdir(check_path):
                     # Search in all files within this directory
                     files_to_search = []
@@ -796,6 +842,291 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                 return f"No matches found for: {query}\n\nTips:\n- Check spelling and try variations\n- Use 'List Directory' to browse folder structure\n- Use 'Read File' to view a specific file"
         except Exception as e:
             return f"Error searching file content: {str(e)}"
+
+    async def glob_file_search(
+        self, pattern: str, directory: str = "", max_results: int = 100
+    ) -> str:
+        """
+        Search for files in the workspace using glob patterns. Useful for finding files by extension or name pattern.
+
+        Args:
+        pattern (str): The glob pattern to search for (e.g., "**/*.ir", "TVs/**/*.ir", "*.py", "**/Samsung*")
+        directory (str): Optional subdirectory to search within. Defaults to workspace root.
+        max_results (int): Maximum number of results to return. Default 100.
+
+        Returns:
+        str: List of matching file paths
+
+        Examples:
+        - "**/*.ir" - Find all .ir files recursively
+        - "TVs/**/*.ir" - Find all .ir files in TVs folder and subfolders
+        - "**/Samsung*" - Find all files/folders containing "Samsung"
+        - "*.py" - Find all Python files in the root directory only
+        """
+        import fnmatch
+
+        try:
+            search_dir = self.WORKING_DIRECTORY
+            if directory:
+                search_dir = self.safe_join(directory)
+                if not os.path.exists(search_dir):
+                    return f"Directory not found: {directory}"
+
+            matches = []
+            # Handle recursive patterns with **
+            if "**" in pattern:
+                for root, dirs, files in os.walk(search_dir):
+                    rel_root = os.path.relpath(root, search_dir)
+                    if rel_root == ".":
+                        rel_root = ""
+
+                    for filename in files:
+                        if rel_root:
+                            rel_path = f"{rel_root}/{filename}"
+                        else:
+                            rel_path = filename
+
+                        # Match against the full relative path
+                        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(
+                            filename,
+                            pattern.split("/")[-1] if "/" in pattern else pattern,
+                        ):
+                            matches.append(rel_path)
+
+                        if len(matches) >= max_results:
+                            break
+                    if len(matches) >= max_results:
+                        break
+            else:
+                # Non-recursive pattern
+                for item in os.listdir(search_dir):
+                    if fnmatch.fnmatch(item, pattern):
+                        matches.append(item)
+                        if len(matches) >= max_results:
+                            break
+
+            if matches:
+                result = f"Found {len(matches)} files matching '{pattern}':\n\n"
+                result += "\n".join(sorted(matches))
+                if len(matches) >= max_results:
+                    result += f"\n\n(Results limited to {max_results})"
+                return result
+            else:
+                return f"No files found matching pattern: {pattern}"
+
+        except Exception as e:
+            return f"Error in glob search: {str(e)}"
+
+    async def grep_search(
+        self,
+        query: str,
+        pattern: str = "**/*",
+        is_regex: bool = False,
+        context_lines: int = 0,
+        max_results: int = 50,
+    ) -> str:
+        """
+        Fast text search across files using grep-style matching. Supports regex and context lines.
+
+        Args:
+        query (str): The text or regex pattern to search for
+        pattern (str): Glob pattern to filter which files to search (e.g., "**/*.ir", "**/*.py"). Default: all files
+        is_regex (bool): Whether the query is a regex pattern. Default: False (plain text search)
+        context_lines (int): Number of lines of context to show before and after each match. Default: 0
+        max_results (int): Maximum number of matches to return. Default: 50
+
+        Returns:
+        str: Matching lines with file paths and line numbers, optionally with context
+
+        Examples:
+        - query="Samsung", pattern="**/*.ir" - Find "Samsung" in all .ir files
+        - query="power|off|on", is_regex=True - Find power, off, or on using regex alternation
+        - query="def ", pattern="**/*.py", context_lines=2 - Find function definitions with 2 lines context
+        """
+        import fnmatch
+        import re
+
+        try:
+            if is_regex:
+                try:
+                    search_pattern = re.compile(query, re.IGNORECASE)
+                except re.error as e:
+                    return f"Invalid regex pattern: {e}"
+            else:
+                search_pattern = None
+
+            matches = []
+            files_searched = 0
+
+            for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
+                for filename in files:
+                    # Check if file matches the glob pattern
+                    rel_root = os.path.relpath(root, self.WORKING_DIRECTORY)
+                    if rel_root == ".":
+                        rel_path = filename
+                    else:
+                        rel_path = f"{rel_root}/{filename}"
+
+                    # Match file against pattern
+                    if not fnmatch.fnmatch(rel_path, pattern) and not fnmatch.fnmatch(
+                        filename, pattern.split("/")[-1] if "/" in pattern else pattern
+                    ):
+                        continue
+
+                    # Skip binary files
+                    ext = os.path.splitext(filename)[1].lower()
+                    if ext in BINARY_EXTENSIONS:
+                        continue
+
+                    file_path = os.path.join(root, filename)
+                    try:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            lines = f.readlines()
+
+                        for line_num, line in enumerate(lines, 1):
+                            # Check for match
+                            if is_regex:
+                                if search_pattern.search(line):
+                                    found = True
+                                else:
+                                    found = False
+                            else:
+                                found = query.lower() in line.lower()
+
+                            if found:
+                                if context_lines > 0:
+                                    # Include context
+                                    start = max(0, line_num - 1 - context_lines)
+                                    end = min(len(lines), line_num + context_lines)
+                                    context = []
+                                    for i in range(start, end):
+                                        prefix = ">" if i == line_num - 1 else " "
+                                        context.append(
+                                            f"  {prefix} {i+1}: {lines[i].rstrip()}"
+                                        )
+                                    matches.append(
+                                        f"{rel_path}:\n" + "\n".join(context)
+                                    )
+                                else:
+                                    matches.append(
+                                        f"{rel_path}:{line_num}: {line.strip()}"
+                                    )
+
+                                if len(matches) >= max_results:
+                                    break
+
+                        files_searched += 1
+                    except:
+                        continue
+
+                    if len(matches) >= max_results:
+                        break
+                if len(matches) >= max_results:
+                    break
+
+            if matches:
+                result = f"Found {len(matches)} matches for '{query}' in {files_searched} files:\n\n"
+                result += "\n\n".join(matches)
+                if len(matches) >= max_results:
+                    result += f"\n\n(Results limited to {max_results})"
+                return result
+            else:
+                return f"No matches found for: {query} in files matching {pattern}"
+
+        except Exception as e:
+            return f"Error in grep search: {str(e)}"
+
+    async def fetch_webpage_content(self, url: str, query: str = "") -> str:
+        """
+        Fetch and extract the main content from a webpage. Useful for retrieving information from websites.
+
+        Args:
+        url (str): The URL of the webpage to fetch
+        query (str): Optional query to focus the extraction on relevant content
+
+        Returns:
+        str: The extracted content from the webpage
+
+        Note: This extracts readable text content, not raw HTML. Good for documentation, articles, and reference pages.
+        """
+        import aiohttp
+        from bs4 import BeautifulSoup
+
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, timeout=30) as response:
+                    if response.status != 200:
+                        return f"Error fetching URL: HTTP {response.status}"
+
+                    html = await response.text()
+
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "footer", "header", "aside"]):
+                script.decompose()
+
+            # Try to find main content area
+            main_content = None
+            for selector in [
+                "main",
+                "article",
+                '[role="main"]',
+                ".content",
+                "#content",
+                ".post",
+                ".article",
+            ]:
+                main_content = soup.select_one(selector)
+                if main_content:
+                    break
+
+            if not main_content:
+                main_content = soup.body if soup.body else soup
+
+            # Get text content
+            text = main_content.get_text(separator="\n", strip=True)
+
+            # Clean up whitespace
+            lines = [line.strip() for line in text.split("\n") if line.strip()]
+            text = "\n".join(lines)
+
+            # Truncate if too long
+            max_length = 10000
+            if len(text) > max_length:
+                text = text[:max_length] + "\n\n... [Content truncated]"
+
+            # If query provided, try to extract most relevant sections
+            if query:
+                query_lower = query.lower()
+                relevant_lines = []
+                for i, line in enumerate(lines):
+                    if query_lower in line.lower():
+                        # Include some context around matches
+                        start = max(0, i - 2)
+                        end = min(len(lines), i + 3)
+                        for j in range(start, end):
+                            if lines[j] not in relevant_lines:
+                                relevant_lines.append(lines[j])
+                        relevant_lines.append("---")
+
+                if relevant_lines:
+                    text = f"Relevant content for '{query}':\n\n" + "\n".join(
+                        relevant_lines
+                    )
+
+            return f"Content from {url}:\n\n{text}"
+
+        except aiohttp.ClientError as e:
+            return f"Error fetching webpage: {str(e)}"
+        except Exception as e:
+            return f"Error processing webpage: {str(e)}"
 
     async def modify_file(self, filename: str, old_text: str, new_text: str) -> str:
         """
