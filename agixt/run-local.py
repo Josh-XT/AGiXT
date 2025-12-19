@@ -31,6 +31,7 @@ async def initialize_database(is_restart=False):
         DB.migrate_extension_table()
         DB.migrate_webhook_outgoing_table()
         DB.migrate_user_table()
+        DB.migrate_discarded_context_table()
         DB.migrate_cleanup_duplicate_wallet_settings()
 
         # Initialize extension tables

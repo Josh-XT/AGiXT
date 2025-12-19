@@ -650,6 +650,41 @@ class Message(Base):
     notify = Column(Boolean, default=False, nullable=False)
 
 
+class DiscardedContext(Base):
+    """
+    Stores discarded context items that can be retrieved later if needed.
+    When a message/activity is discarded, the original content is stored here
+    and a summary replaces it in the context for token optimization.
+    """
+
+    __tablename__ = "discarded_context"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    message_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("message.id"),
+        nullable=False,
+        index=True,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=False,
+        index=True,
+    )
+    reason = Column(Text, nullable=False)  # Short reason for discarding
+    original_content = Column(Text, nullable=False)  # Full original content
+    discarded_at = Column(DateTime, server_default=func.now())
+    retrieved_at = Column(DateTime, nullable=True)  # Set when retrieved back
+    is_active = Column(Boolean, default=True)  # False when retrieved
+
+    message = relationship("Message", foreign_keys=[message_id])
+    conversation = relationship("Conversation", foreign_keys=[conversation_id])
+
+
 class Setting(Base):
     __tablename__ = "setting"
     id = Column(
@@ -1832,6 +1867,99 @@ def migrate_user_table():
         logging.error(f"Error migrating user table: {e}")
 
 
+def migrate_discarded_context_table():
+    """
+    Migration function to create the discarded_context table if it doesn't exist.
+    This table stores discarded context items for token optimization with the ability
+    to retrieve them later if needed.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Check if table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='discarded_context'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE discarded_context (
+                                id TEXT PRIMARY KEY,
+                                message_id TEXT NOT NULL,
+                                conversation_id TEXT NOT NULL,
+                                reason TEXT NOT NULL,
+                                original_content TEXT NOT NULL,
+                                discarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                retrieved_at TIMESTAMP,
+                                is_active BOOLEAN DEFAULT 1,
+                                FOREIGN KEY (message_id) REFERENCES message(id),
+                                FOREIGN KEY (conversation_id) REFERENCES conversation(id)
+                            )
+                            """
+                        )
+                    )
+                    # Create indexes
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_message_id ON discarded_context(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_conversation_id ON discarded_context(conversation_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created discarded_context table")
+            else:
+                # PostgreSQL
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'discarded_context'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE discarded_context (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                message_id UUID NOT NULL REFERENCES message(id),
+                                conversation_id UUID NOT NULL REFERENCES conversation(id),
+                                reason TEXT NOT NULL,
+                                original_content TEXT NOT NULL,
+                                discarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                retrieved_at TIMESTAMP,
+                                is_active BOOLEAN DEFAULT TRUE
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_message_id ON discarded_context(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_conversation_id ON discarded_context(conversation_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created discarded_context table")
+    except Exception as e:
+        logging.error(f"Error creating discarded_context table: {e}")
+
+
 def migrate_cleanup_duplicate_wallet_settings():
     """
     Migration function to clean up duplicate Solana wallet settings per agent.
@@ -1948,6 +2076,7 @@ if __name__ == "__main__":
     migrate_extension_table()
     migrate_webhook_outgoing_table()
     migrate_user_table()
+    migrate_discarded_context_table()
     migrate_cleanup_duplicate_wallet_settings()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()

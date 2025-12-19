@@ -640,33 +640,32 @@ class Interactions:
             if company_id:
                 company_training = self.auth.get_training_data(company_id=company_id)
                 persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
-                cs = self.auth.get_company_agent_session(company_id=company_id)
-                company_memories = cs.get_agent_memories(
-                    agent_name="AGiXT", user_input=user_input
-                )
-                if company_memories:
-                    for result in company_memories:
-                        metadata = (
-                            result["additional_metadata"]
-                            if "additional_metadata" in result
-                            else ""
+                # Get company memories using the agent's company_agent if available
+                try:
+                    company_agent = self.agent.company_agent if self.agent else None
+                    if company_agent:
+                        company_memories_obj = Memories(
+                            agent_name=company_agent.agent_name,
+                            agent_config=company_agent.AGENT_CONFIG,
+                            collection_number="0",
+                            ApiClient=self.ApiClient,
+                            user=self.user,
                         )
-                        external_source = (
-                            result["external_source_name"]
-                            if "external_source_name" in result
-                            else None
+                        company_memories = await company_memories_obj.get_memories(
+                            user_input=user_input,
+                            limit=5,
+                            min_relevance_score=0.3,
                         )
-                        timestamp = (
-                            result["timestamp"]
-                            if "timestamp" in result
-                            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        )
-                        if external_source:
-                            metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
-                        if metadata not in context and metadata != "":
-                            context.append(metadata)
+                        if company_memories:
+                            for metadata in company_memories:
+                                if metadata not in context and metadata != "":
+                                    context.append(metadata)
+                except Exception as mem_e:
+                    log_silenced_exception(
+                        mem_e, "format_prompt: getting company agent memories"
+                    )
         except Exception as e:
-            log_silenced_exception(e, "format_prompt: getting company memories")
+            log_silenced_exception(e, "format_prompt: getting company training data")
         context.append(self.auth.get_markdown_companies())
         if persona != "":
             context.append(
@@ -849,6 +848,35 @@ class Interactions:
             **args,
         )
         tokens = get_tokens(formatted_prompt)
+
+        # Add context management guidance when approaching high token counts
+        # Ideal context is under 32k tokens for best quality responses
+        OPTIMAL_TOKEN_THRESHOLD = 30000
+        HIGH_TOKEN_WARNING_THRESHOLD = 32000
+
+        if tokens >= OPTIMAL_TOKEN_THRESHOLD:
+            context_guidance = f"""
+
+## ⚠️ Context Management Advisory
+Current context size: **{tokens:,} tokens** (target: under 32,000 for optimal quality)
+
+You have access to context management commands to reduce token usage:
+- **Discard Context**: After reading files or noting important information, discard activities you no longer need in full detail. Provide the message_id and a brief reason (e.g., "noted key functions", "empty file", "not relevant to current task").
+- **Retrieve Context**: If you need full details from something you previously discarded, retrieve it by message_id.
+- **List Discarded Context**: See what you've discarded and their reasons.
+
+**Guidelines:**
+- Look for activities in your recent history that you've already processed and taken notes on
+- File reads, searches, and informational outputs are good candidates for discarding once noted
+- Keep conversation messages and important decision points
+- Each discarded activity shows a brief summary instead of full content
+"""
+            if tokens >= HIGH_TOKEN_WARNING_THRESHOLD:
+                context_guidance += f"""
+**CRITICAL:** Context is at {tokens:,} tokens. Response quality may degrade. Consider discarding older activities to reduce context size.
+"""
+            formatted_prompt = formatted_prompt + context_guidance
+
         return formatted_prompt, prompt, tokens
 
     def process_thinking_tags(

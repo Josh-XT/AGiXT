@@ -341,6 +341,11 @@ async def send_discord_new_user_notification(email: str):
     Args:
         email: The email of the newly registered user
     """
+    # Skip test/example emails to avoid spamming Discord
+    if email and email.lower().endswith("@example.com"):
+        logging.debug(f"Skipping Discord notification for test email: {email}")
+        return
+
     agixt_server = getenv("AGIXT_URI", "Unknown Server")
     app_name = getenv("APP_NAME", "AGiXT")
 

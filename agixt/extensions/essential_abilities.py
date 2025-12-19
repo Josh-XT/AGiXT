@@ -315,6 +315,10 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Get File Hash": self.get_file_hash,
             "Truncate File": self.truncate_file,
             "Find Large Files": self.find_large_files,
+            # Context Management Commands
+            "Discard Context": self.discard_context,
+            "Retrieve Context": self.retrieve_context,
+            "List Discarded Context": self.list_discarded_context,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -3375,6 +3379,267 @@ Execute this task thoroughly and report on the completion."""
             )
 
         except Exception as e:
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    # ==================== Context Management Commands ====================
+    # These commands help manage context window size by allowing the agent to
+    # discard detailed context that has been noted/summarized, and retrieve it
+    # later if needed. This helps keep context under 32k tokens for best quality.
+
+    async def discard_context(self, message_id: str, reason: str) -> str:
+        """
+        Discard a message/activity from context to reduce token usage.
+
+        Use this when you've read a file or activity and taken notes about what's important,
+        or when content wasn't valuable enough to keep in full context. The original content
+        is stored and can be retrieved later if needed.
+
+        **WHEN TO USE:**
+        - After reading a file and noting the important parts
+        - When a file/activity content wasn't valuable for the current task
+        - When approaching high token counts (~30k+) and need to free up context space
+        - To keep context focused on relevant information only
+
+        Args:
+            message_id (str): The ID of the message/activity to discard from context
+            reason (str): Brief reason for discarding (e.g., "noted key functions", "empty config file", "irrelevant to task")
+
+        Returns:
+            str: JSON response confirming the discard with the message ID for later retrieval
+
+        Usage Guidelines:
+        - Keep reasons concise (under 50 chars ideally)
+        - The reason becomes the summary shown in context
+        - Original content can be retrieved with "Retrieve Context" command
+        - Consider discarding older activities when context grows large
+        """
+        from DB import get_session, Message, DiscardedContext, Conversation
+
+        session = get_session()
+        try:
+            # Validate the message exists and belongs to this conversation
+            message = session.query(Message).filter(Message.id == message_id).first()
+
+            if not message:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Message with ID {message_id} not found",
+                    }
+                )
+
+            # Check if already discarded
+            existing = (
+                session.query(DiscardedContext)
+                .filter(
+                    DiscardedContext.message_id == message_id,
+                    DiscardedContext.is_active == True,
+                )
+                .first()
+            )
+
+            if existing:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Message {message_id} is already discarded",
+                        "discarded_at": (
+                            existing.discarded_at.isoformat()
+                            if existing.discarded_at
+                            else None
+                        ),
+                        "reason": existing.reason,
+                    }
+                )
+
+            # Store the original content and create discard record
+            discarded = DiscardedContext(
+                message_id=message_id,
+                conversation_id=message.conversation_id,
+                reason=reason[:500],  # Limit reason length
+                original_content=message.content,
+            )
+            session.add(discarded)
+
+            # Update the message content to show it was discarded with reason
+            # Format: [DISCARDED:{id}] {reason}
+            original_prefix = ""
+            if message.content.startswith("[ACTIVITY]"):
+                original_prefix = "[ACTIVITY] "
+            elif message.content.startswith("[SUBACTIVITY]"):
+                # Preserve the subactivity ID format
+                parts = message.content.split("]", 2)
+                if len(parts) >= 2:
+                    original_prefix = f"{parts[0]}]{parts[1]}] "
+
+            message.content = f"{original_prefix}[DISCARDED:{message_id}] {reason}"
+            session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": f"Context discarded successfully",
+                    "message_id": str(message_id),
+                    "reason": reason,
+                    "retrieval_hint": f"Use 'Retrieve Context' with message_id '{message_id}' to restore if needed",
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error discarding context: {e}")
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def retrieve_context(self, message_id: str) -> str:
+        """
+        Retrieve previously discarded context back into the conversation.
+
+        Use this when you need to see the full content of something you previously
+        discarded. The original content will be restored to the message.
+
+        **WHEN TO USE:**
+        - When you need details from something you previously summarized
+        - When the user asks about something you discarded
+        - When you realize discarded content is actually relevant
+
+        Args:
+            message_id (str): The ID of the discarded message to retrieve
+
+        Returns:
+            str: JSON response with the original content and restoration status
+
+        Usage Guidelines:
+        - Only retrieve what you actually need
+        - Content is fully restored to the conversation
+        - The discard record is marked inactive but kept for history
+        """
+        from DB import get_session, Message, DiscardedContext
+
+        session = get_session()
+        try:
+            # Find the discard record
+            discarded = (
+                session.query(DiscardedContext)
+                .filter(
+                    DiscardedContext.message_id == message_id,
+                    DiscardedContext.is_active == True,
+                )
+                .first()
+            )
+
+            if not discarded:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": f"No active discarded context found for message ID {message_id}. It may have already been retrieved or was never discarded.",
+                    }
+                )
+
+            # Restore the original content
+            message = session.query(Message).filter(Message.id == message_id).first()
+            if message:
+                message.content = discarded.original_content
+
+            # Mark the discard as retrieved
+            discarded.is_active = False
+            discarded.retrieved_at = datetime.datetime.utcnow()
+            session.commit()
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "message": "Context retrieved and restored successfully",
+                    "message_id": str(message_id),
+                    "original_content": discarded.original_content,
+                    "was_discarded_at": (
+                        discarded.discarded_at.isoformat()
+                        if discarded.discarded_at
+                        else None
+                    ),
+                    "original_reason": discarded.reason,
+                }
+            )
+
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error retrieving context: {e}")
+            return json.dumps({"success": False, "error": str(e)})
+        finally:
+            session.close()
+
+    async def list_discarded_context(self, include_retrieved: bool = False) -> str:
+        """
+        List all discarded context items for the current conversation.
+
+        Use this to see what has been discarded and decide if anything needs
+        to be retrieved back.
+
+        Args:
+            include_retrieved (bool): Whether to include items that were already retrieved back
+
+        Returns:
+            str: JSON response with list of discarded items and their reasons
+
+        Usage Guidelines:
+        - Review periodically to ensure nothing important was discarded
+        - Check before asking user for information you might have discarded
+        - Use message_id from results to retrieve specific items
+        """
+        from DB import get_session, DiscardedContext
+
+        session = get_session()
+        try:
+            query = session.query(DiscardedContext).filter(
+                DiscardedContext.conversation_id == self.conversation_id
+            )
+
+            if not include_retrieved:
+                query = query.filter(DiscardedContext.is_active == True)
+
+            discarded_items = query.order_by(DiscardedContext.discarded_at.desc()).all()
+
+            items = []
+            for item in discarded_items:
+                items.append(
+                    {
+                        "message_id": str(item.message_id),
+                        "reason": item.reason,
+                        "discarded_at": (
+                            item.discarded_at.isoformat() if item.discarded_at else None
+                        ),
+                        "is_active": item.is_active,
+                        "retrieved_at": (
+                            item.retrieved_at.isoformat() if item.retrieved_at else None
+                        ),
+                        "content_preview": (
+                            item.original_content[:200] + "..."
+                            if len(item.original_content) > 200
+                            else item.original_content
+                        ),
+                    }
+                )
+
+            active_count = sum(1 for i in items if i["is_active"])
+            retrieved_count = sum(1 for i in items if not i["is_active"])
+
+            return json.dumps(
+                {
+                    "success": True,
+                    "discarded_items": items,
+                    "summary": {
+                        "active_discards": active_count,
+                        "retrieved": retrieved_count,
+                        "total": len(items),
+                    },
+                }
+            )
+
+        except Exception as e:
+            logging.error(f"Error listing discarded context: {e}")
             return json.dumps({"success": False, "error": str(e)})
         finally:
             session.close()
