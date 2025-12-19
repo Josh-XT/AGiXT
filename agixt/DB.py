@@ -16,6 +16,7 @@ from sqlalchemy import (
     or_,
     func,
     text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
@@ -544,6 +545,189 @@ class OAuthProvider(Base):
         default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(String, default="", nullable=False)
+
+
+class ServerConfig(Base):
+    """
+    Server-level configuration stored in the database.
+    Replaces hardcoded .env values for runtime-configurable settings.
+    Sensitive values (API keys, secrets) are encrypted at rest.
+    """
+
+    __tablename__ = "server_config"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Config key name (e.g., "OPENAI_API_KEY", "GOOGLE_CLIENT_ID")
+    name = Column(String, nullable=False, unique=True, index=True)
+    # The value (encrypted for sensitive settings)
+    value = Column(Text, nullable=True)
+    # Category for UI grouping: 'ai_providers', 'oauth', 'app_settings', 'uris', 'storage', 'billing'
+    category = Column(String, nullable=False, default="general")
+    # Whether this is a sensitive value that should be encrypted and masked in UI
+    is_sensitive = Column(Boolean, default=False)
+    # Whether this config is required for the server to function
+    is_required = Column(Boolean, default=False)
+    # Human-readable description for the UI
+    description = Column(Text, nullable=True)
+    # Data type hint: 'string', 'integer', 'boolean', 'url', 'secret'
+    value_type = Column(String, default="string")
+    # Default value if not set (for display purposes)
+    default_value = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ServerExtensionSetting(Base):
+    """
+    Server-level extension settings that serve as defaults for all companies.
+    These are configured by super admins and cascade down:
+    Server → Company → User (each level can override the previous).
+
+    Sensitive values (API keys, secrets) are encrypted at rest.
+    """
+
+    __tablename__ = "server_extension_setting"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Extension name (e.g., "stripe_payments", "openai", "anthropic")
+    extension_name = Column(String, nullable=False, index=True)
+    # Setting key name (e.g., "STRIPE_API_KEY", "OPENAI_API_KEY")
+    setting_key = Column(String, nullable=False)
+    # The value (encrypted for sensitive settings)
+    setting_value = Column(Text, nullable=True)
+    # Whether this is a sensitive value that should be encrypted
+    is_sensitive = Column(Boolean, default=False)
+    # Human-readable description
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "extension_name", "setting_key", name="uix_server_ext_setting"
+        ),
+    )
+
+
+class ServerExtensionCommand(Base):
+    """
+    Server-level extension command defaults that serve as defaults for all companies.
+    These are configured by super admins and cascade down:
+    Server → Company → User (each level can override the previous).
+
+    When enabled=True, the command is enabled by default for all new agents.
+    """
+
+    __tablename__ = "server_extension_command"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Extension name (e.g., "web_search", "file_system")
+    extension_name = Column(String, nullable=False, index=True)
+    # Command name (e.g., "Search the Web", "Read File")
+    command_name = Column(String, nullable=False)
+    # Whether this command is enabled by default at server level
+    enabled = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "extension_name", "command_name", name="uix_server_ext_command"
+        ),
+    )
+
+
+class CompanyExtensionCommand(Base):
+    """
+    Company-level extension command defaults that override server defaults.
+    Configured by company admins, these cascade down to users/agents.
+    """
+
+    __tablename__ = "company_extension_command"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Company this command belongs to
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+        index=True,
+    )
+    company = relationship("Company")
+    # Extension name (e.g., "web_search", "file_system")
+    extension_name = Column(String, nullable=False, index=True)
+    # Command name (e.g., "Search the Web", "Read File")
+    command_name = Column(String, nullable=False)
+    # Whether this command is enabled at company level
+    enabled = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "extension_name",
+            "command_name",
+            name="uix_company_ext_command",
+        ),
+    )
+
+
+class CompanyExtensionSetting(Base):
+    """
+    Company-level extension settings that override server defaults.
+    Configured by company admins, these cascade down to users.
+
+    Sensitive values (API keys, secrets) are encrypted at rest.
+    """
+
+    __tablename__ = "company_extension_setting"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Company this setting belongs to
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+        index=True,
+    )
+    company = relationship("Company")
+    # Extension name (e.g., "stripe_payments", "openai", "anthropic")
+    extension_name = Column(String, nullable=False, index=True)
+    # Setting key name (e.g., "STRIPE_API_KEY", "OPENAI_API_KEY")
+    setting_key = Column(String, nullable=False)
+    # The value (encrypted for sensitive settings)
+    setting_value = Column(Text, nullable=True)
+    # Whether this is a sensitive value that should be encrypted
+    is_sensitive = Column(Boolean, default=False)
+    # Human-readable description
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "extension_name",
+            "setting_key",
+            name="uix_company_ext_setting",
+        ),
+    )
 
 
 class FailedLogins(Base):
@@ -3074,6 +3258,306 @@ def migrate_cleanup_duplicate_wallet_settings():
         logging.error(f"Error cleaning up duplicate wallet settings: {e}")
 
 
+def migrate_extension_settings_tables():
+    """
+    Migration function to create the server_extension_setting and company_extension_setting
+    tables if they don't exist. These tables store hierarchical extension settings that
+    cascade: Server → Company → User.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Check if server_extension_setting table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='server_extension_setting'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_setting (
+                                id TEXT PRIMARY KEY,
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT 0,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE(extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_setting_name ON server_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_setting table")
+
+                # Check if company_extension_setting table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='company_extension_setting'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_setting (
+                                id TEXT PRIMARY KEY,
+                                company_id TEXT NOT NULL,
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT 0,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (company_id) REFERENCES company(id),
+                                UNIQUE(company_id, extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_company ON company_extension_setting(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_name ON company_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_setting table")
+
+                # Check if server_extension_command table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='server_extension_command'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_command (
+                                id TEXT PRIMARY KEY,
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT 0,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE(extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_command_name ON server_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_command table")
+
+                # Check if company_extension_command table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='company_extension_command'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_command (
+                                id TEXT PRIMARY KEY,
+                                company_id TEXT NOT NULL,
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT 0,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (company_id) REFERENCES company(id),
+                                UNIQUE(company_id, extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_company ON company_extension_command(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_name ON company_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_command table")
+            else:
+                # PostgreSQL
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'server_extension_setting'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_setting (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT FALSE,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_server_ext_setting UNIQUE(extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_setting_name ON server_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_setting table")
+
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'company_extension_setting'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_setting (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                company_id UUID NOT NULL REFERENCES company(id),
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT FALSE,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_company_ext_setting UNIQUE(company_id, extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_company ON company_extension_setting(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_name ON company_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_setting table")
+
+                # Check if server_extension_command table exists
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'server_extension_command'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_command (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT FALSE,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_server_ext_command UNIQUE(extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_command_name ON server_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_command table")
+
+                # Check if company_extension_command table exists
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'company_extension_command'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_command (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                company_id UUID NOT NULL REFERENCES company(id),
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT FALSE,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_company_ext_command UNIQUE(company_id, extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_company ON company_extension_command(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_name ON company_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_command table")
+    except Exception as e:
+        logging.error(f"Error creating extension settings tables: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -3181,6 +3665,1209 @@ def setup_default_role_scopes():
         logging.info("Set up default role scope mappings")
 
 
+# Server configuration definitions
+# These define all configurable settings and their metadata
+SERVER_CONFIG_DEFINITIONS = [
+    # ========================================
+    # App Settings (includes URIs and general app config)
+    # ========================================
+    {
+        "name": "APP_NAME",
+        "category": "app_settings",
+        "description": "Application name displayed in the UI",
+        "value_type": "string",
+        "default_value": "AGiXT",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "APP_DESCRIPTION",
+        "category": "app_settings",
+        "description": "Application description for SEO and UI",
+        "value_type": "string",
+        "default_value": "AGiXT is an advanced artificial intelligence agent orchestration platform.",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_FOOTER_MESSAGE",
+        "category": "app_settings",
+        "description": "Footer message displayed in the UI",
+        "value_type": "string",
+        "default_value": "AGiXT 2025",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_URI",
+        "category": "app_settings",
+        "description": "Backend API server URI (internal)",
+        "value_type": "url",
+        "default_value": "http://localhost:7437",
+        "is_sensitive": False,
+        "is_required": True,
+    },
+    {
+        "name": "APP_URI",
+        "category": "app_settings",
+        "description": "Frontend application URI (public facing)",
+        "value_type": "url",
+        "default_value": "http://localhost:3437",
+        "is_sensitive": False,
+        "is_required": True,
+    },
+    {
+        "name": "AGIXT_SERVER",
+        "category": "app_settings",
+        "description": "Backend server URL for frontend to connect to",
+        "value_type": "url",
+        "default_value": "http://localhost:7437",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "REGISTRATION_DISABLED",
+        "category": "app_settings",
+        "description": "Disable new user registration",
+        "value_type": "boolean",
+        "default_value": "false",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ALLOW_EMAIL_SIGN_IN",
+        "category": "app_settings",
+        "description": "Allow users to sign in with email magic links",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # AI Provider Settings
+    # ========================================
+    # OpenAI
+    {
+        "name": "OPENAI_API_KEY",
+        "category": "ai_providers",
+        "description": "OpenAI API Key for GPT models. Get at https://platform.openai.com/api-keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "OPENAI_MODEL",
+        "category": "ai_providers",
+        "description": "Default OpenAI model to use",
+        "value_type": "string",
+        "default_value": "chatgpt-4o-latest",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "OPENAI_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for OpenAI responses",
+        "value_type": "integer",
+        "default_value": "128000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Anthropic
+    {
+        "name": "ANTHROPIC_API_KEY",
+        "category": "ai_providers",
+        "description": "Anthropic API Key for Claude models. Get at https://console.anthropic.com/",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "ANTHROPIC_MODEL",
+        "category": "ai_providers",
+        "description": "Default Anthropic model to use",
+        "value_type": "string",
+        "default_value": "claude-sonnet-4-20250514",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ANTHROPIC_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Anthropic responses",
+        "value_type": "integer",
+        "default_value": "140000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Google Gemini
+    {
+        "name": "GOOGLE_API_KEY",
+        "category": "ai_providers",
+        "description": "Google AI API Key for Gemini models. Get at https://aistudio.google.com/apikey",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "GOOGLE_MODEL",
+        "category": "ai_providers",
+        "description": "Default Google Gemini model to use",
+        "value_type": "string",
+        "default_value": "gemini-2.0-flash-exp",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GOOGLE_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Google Gemini responses",
+        "value_type": "integer",
+        "default_value": "1048000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # xAI (Grok)
+    {
+        "name": "XAI_API_KEY",
+        "category": "ai_providers",
+        "description": "xAI API Key for Grok models. Get at https://console.x.ai/",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "XAI_MODEL",
+        "category": "ai_providers",
+        "description": "Default xAI Grok model to use",
+        "value_type": "string",
+        "default_value": "grok-beta",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "XAI_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for xAI responses",
+        "value_type": "integer",
+        "default_value": "120000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # DeepSeek
+    {
+        "name": "DEEPSEEK_API_KEY",
+        "category": "ai_providers",
+        "description": "DeepSeek API Key. Get at https://platform.deepseek.com/",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPSEEK_MODEL",
+        "category": "ai_providers",
+        "description": "Default DeepSeek model to use",
+        "value_type": "string",
+        "default_value": "deepseek-chat",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPSEEK_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for DeepSeek responses",
+        "value_type": "integer",
+        "default_value": "60000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Azure OpenAI
+    {
+        "name": "AZURE_API_KEY",
+        "category": "ai_providers",
+        "description": "Azure OpenAI API Key",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_OPENAI_ENDPOINT",
+        "category": "ai_providers",
+        "description": "Azure OpenAI endpoint URL",
+        "value_type": "url",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_MODEL",
+        "category": "ai_providers",
+        "description": "Default Azure OpenAI model/deployment name",
+        "value_type": "string",
+        "default_value": "gpt-4o",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Azure OpenAI responses",
+        "value_type": "integer",
+        "default_value": "100000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # OpenRouter
+    {
+        "name": "OPENROUTER_API_KEY",
+        "category": "ai_providers",
+        "description": "OpenRouter API Key for multi-model access. Get at https://openrouter.ai/keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "OPENROUTER_MODEL",
+        "category": "ai_providers",
+        "description": "Default OpenRouter model to use",
+        "value_type": "string",
+        "default_value": "openai/gpt-4o",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "OPENROUTER_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for OpenRouter responses",
+        "value_type": "integer",
+        "default_value": "16384",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # DeepInfra
+    {
+        "name": "DEEPINFRA_API_KEY",
+        "category": "ai_providers",
+        "description": "DeepInfra API Key. Get at https://deepinfra.com",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPINFRA_MODEL",
+        "category": "ai_providers",
+        "description": "Default DeepInfra model to use",
+        "value_type": "string",
+        "default_value": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPINFRA_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for DeepInfra responses",
+        "value_type": "integer",
+        "default_value": "128000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Chutes.ai
+    {
+        "name": "CHUTES_API_KEY",
+        "category": "ai_providers",
+        "description": "Chutes.ai API Key. Get at https://chutes.ai/app",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "CHUTES_MODEL",
+        "category": "ai_providers",
+        "description": "Default Chutes.ai model to use",
+        "value_type": "string",
+        "default_value": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "CHUTES_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Chutes.ai responses",
+        "value_type": "integer",
+        "default_value": "128000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Hugging Face
+    {
+        "name": "HUGGINGFACE_API_KEY",
+        "category": "ai_providers",
+        "description": "Hugging Face API Key. Get at https://huggingface.co/settings/tokens",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "HUGGINGFACE_MODEL",
+        "category": "ai_providers",
+        "description": "Default Hugging Face model to use",
+        "value_type": "string",
+        "default_value": "HuggingFaceH4/zephyr-7b-beta",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "HUGGINGFACE_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Hugging Face responses",
+        "value_type": "integer",
+        "default_value": "1024",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ElevenLabs (TTS)
+    {
+        "name": "ELEVENLABS_API_KEY",
+        "category": "ai_providers",
+        "description": "ElevenLabs API Key for text-to-speech. Get at https://elevenlabs.io",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "ELEVENLABS_VOICE",
+        "category": "ai_providers",
+        "description": "Default ElevenLabs voice ID",
+        "value_type": "string",
+        "default_value": "ErXwobaYiN019PkySvjV",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ezLocalai (Local AI)
+    {
+        "name": "EZLOCALAI_URI",
+        "category": "ai_providers",
+        "description": "ezLocalai server URI for local AI inference",
+        "value_type": "url",
+        "default_value": "http://localhost:8091/v1/",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "EZLOCALAI_API_KEY",
+        "category": "ai_providers",
+        "description": "ezLocalai API Key (if required)",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "EZLOCALAI_VOICE",
+        "category": "ai_providers",
+        "description": "Default voice for ezLocalai TTS",
+        "value_type": "string",
+        "default_value": "DukeNukem",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "EZLOCALAI_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for ezLocalai responses",
+        "value_type": "integer",
+        "default_value": "16000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # General AI Settings
+    {
+        "name": "SMARTEST_PROVIDER",
+        "category": "ai_providers",
+        "description": "The AI provider to use for complex reasoning tasks",
+        "value_type": "string",
+        "default_value": "anthropic",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # OAuth Providers
+    # ========================================
+    # Google OAuth
+    {
+        "name": "GOOGLE_CLIENT_ID",
+        "category": "oauth",
+        "description": "Google OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GOOGLE_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Google OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # Microsoft OAuth
+    {
+        "name": "MICROSOFT_CLIENT_ID",
+        "category": "oauth",
+        "description": "Microsoft OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "MICROSOFT_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Microsoft OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # GitHub OAuth
+    {
+        "name": "GITHUB_CLIENT_ID",
+        "category": "oauth",
+        "description": "GitHub OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GITHUB_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "GitHub OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Discord
+    {
+        "name": "DISCORD_CLIENT_ID",
+        "category": "oauth",
+        "description": "Discord OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "DISCORD_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Discord OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - X (Twitter)
+    {
+        "name": "X_CLIENT_ID",
+        "category": "oauth",
+        "description": "X (Twitter) OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "X_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "X (Twitter) OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Tesla
+    {
+        "name": "TESLA_CLIENT_ID",
+        "category": "oauth",
+        "description": "Tesla OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "TESLA_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Tesla OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Amazon/Alexa
+    {
+        "name": "ALEXA_CLIENT_ID",
+        "category": "oauth",
+        "description": "Amazon Alexa OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ALEXA_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Amazon Alexa OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Fitbit
+    {
+        "name": "FITBIT_CLIENT_ID",
+        "category": "oauth",
+        "description": "Fitbit OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "FITBIT_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Fitbit OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Garmin
+    {
+        "name": "GARMIN_CLIENT_ID",
+        "category": "oauth",
+        "description": "Garmin OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GARMIN_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Garmin OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Meta/Facebook
+    {
+        "name": "META_APP_ID",
+        "category": "oauth",
+        "description": "Meta (Facebook) App ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "META_APP_SECRET",
+        "category": "oauth",
+        "description": "Meta (Facebook) App Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "META_BUSINESS_ID",
+        "category": "oauth",
+        "description": "Meta Business ID for WhatsApp integration",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # OAuth - Walmart
+    {
+        "name": "WALMART_CLIENT_ID",
+        "category": "oauth",
+        "description": "Walmart Marketplace Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "WALMART_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Walmart Marketplace Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "WALMART_MARKETPLACE_ID",
+        "category": "oauth",
+        "description": "Walmart Marketplace ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # AWS Settings
+    {
+        "name": "AWS_CLIENT_ID",
+        "category": "oauth",
+        "description": "AWS Cognito Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "AWS Cognito Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_REGION",
+        "category": "oauth",
+        "description": "AWS Region for Cognito",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_USER_POOL_ID",
+        "category": "oauth",
+        "description": "AWS Cognito User Pool ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - General
+    # ========================================
+    {
+        "name": "STORAGE_BACKEND",
+        "category": "storage",
+        "description": "Storage backend type: s3, azure, b2, or local",
+        "value_type": "string",
+        "default_value": "s3",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "STORAGE_CONTAINER",
+        "category": "storage",
+        "description": "Storage container/bucket name",
+        "value_type": "string",
+        "default_value": "agixt-workspace",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - AWS S3 / MinIO
+    # ========================================
+    {
+        "name": "S3_BUCKET",
+        "category": "storage_aws",
+        "description": "S3 bucket name",
+        "value_type": "string",
+        "default_value": "agixt-workspace",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "S3_ENDPOINT",
+        "category": "storage_aws",
+        "description": "S3 endpoint URL (for MinIO or compatible)",
+        "value_type": "url",
+        "default_value": "http://minio:9000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_ACCESS_KEY_ID",
+        "category": "storage_aws",
+        "description": "AWS Access Key ID for S3",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "category": "storage_aws",
+        "description": "AWS Secret Access Key for S3",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_STORAGE_REGION",
+        "category": "storage_aws",
+        "description": "AWS Region for S3 storage",
+        "value_type": "string",
+        "default_value": "us-east-1",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - Azure Blob
+    # ========================================
+    {
+        "name": "AZURE_STORAGE_ACCOUNT_NAME",
+        "category": "storage_azure",
+        "description": "Azure Storage Account Name",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_STORAGE_KEY",
+        "category": "storage_azure",
+        "description": "Azure Storage Account Key",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - Backblaze B2
+    # ========================================
+    {
+        "name": "B2_KEY_ID",
+        "category": "storage_b2",
+        "description": "Backblaze B2 Key ID",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "B2_APPLICATION_KEY",
+        "category": "storage_b2",
+        "description": "Backblaze B2 Application Key",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "B2_REGION",
+        "category": "storage_b2",
+        "description": "Backblaze B2 Region",
+        "value_type": "string",
+        "default_value": "us-west-002",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Billing Settings
+    # ========================================
+    {
+        "name": "STRIPE_API_KEY",
+        "category": "billing",
+        "description": "Stripe secret API key (starts with sk_). Get at https://dashboard.stripe.com/apikeys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "STRIPE_PUBLISHABLE_KEY",
+        "category": "billing",
+        "description": "Stripe publishable API key (starts with pk_). Get at https://dashboard.stripe.com/apikeys",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "STRIPE_WEBHOOK_SECRET",
+        "category": "billing",
+        "description": "Stripe webhook signing secret for verifying webhook events",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "TOKEN_PRICE_PER_MILLION_USD",
+        "category": "billing",
+        "description": "Price per million tokens in USD (0 for free)",
+        "value_type": "string",
+        "default_value": "0.00",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "MIN_TOKEN_TOPUP_USD",
+        "category": "billing",
+        "description": "Minimum token top-up amount in USD",
+        "value_type": "string",
+        "default_value": "10.00",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "LOW_BALANCE_WARNING_THRESHOLD",
+        "category": "billing",
+        "description": "Token balance at which to warn users",
+        "value_type": "integer",
+        "default_value": "10000000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "PAYMENT_WALLET_ADDRESS",
+        "category": "billing",
+        "description": "Solana wallet address for crypto payments",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "PAYMENT_SOLANA_RPC_URL",
+        "category": "billing",
+        "description": "Solana RPC URL for payment verification",
+        "value_type": "url",
+        "default_value": "https://api.mainnet-beta.solana.com",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Extensions Hub
+    # ========================================
+    {
+        "name": "EXTENSIONS_HUB",
+        "category": "extensions",
+        "description": "GitHub repository URL for extensions hub (e.g., owner/repo)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "EXTENSIONS_HUB_TOKEN",
+        "category": "extensions",
+        "description": "GitHub token for private extensions hub access",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # Notifications
+    {
+        "name": "DISCORD_WEBHOOK",
+        "category": "notifications",
+        "description": "Discord webhook URL for notifications",
+        "value_type": "url",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # Default Agent Settings
+    {
+        "name": "AGENT_NAME",
+        "category": "agent_defaults",
+        "description": "Default agent name for new users",
+        "value_type": "string",
+        "default_value": "XT",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGENT_PERSONA",
+        "category": "agent_defaults",
+        "description": "Default persona for the agent",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "TRAINING_URLS",
+        "category": "agent_defaults",
+        "description": "Comma-separated list of URLs for agent training",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ENABLED_COMMANDS",
+        "category": "agent_defaults",
+        "description": "Comma-separated list of enabled agent commands",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Frontend Feature Flags
+    {
+        "name": "AGIXT_FILE_UPLOAD_ENABLED",
+        "category": "features",
+        "description": "Enable file upload in chat",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_VOICE_INPUT_ENABLED",
+        "category": "features",
+        "description": "Enable voice input in chat",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_RLHF",
+        "category": "features",
+        "description": "Enable RLHF feedback buttons",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_ALLOW_MESSAGE_EDITING",
+        "category": "features",
+        "description": "Allow users to edit their messages",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_ALLOW_MESSAGE_DELETION",
+        "category": "features",
+        "description": "Allow users to delete their messages",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_SHOW_OVERRIDE_SWITCHES",
+        "category": "features",
+        "description": "Comma-separated list of override switches to show",
+        "value_type": "string",
+        "default_value": "tts,websearch,analyze-user-input",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+]
+
+
+def get_server_config_encryption_key():
+    """
+    Get or generate a server-wide encryption key for sensitive config values.
+    This is stored in the filesystem as it's needed before the database is accessible.
+    """
+    key_file = os.path.join(os.path.dirname(__file__), ".server_config_key")
+    if os.path.exists(key_file):
+        with open(key_file, "rb") as f:
+            return f.read()
+    else:
+        key = Fernet.generate_key()
+        with open(key_file, "wb") as f:
+            f.write(key)
+        return key
+
+
+def encrypt_config_value(value: str) -> str:
+    """Encrypt a sensitive configuration value."""
+    if not value:
+        return ""
+    key = get_server_config_encryption_key()
+    f = Fernet(key)
+    return f.encrypt(value.encode()).decode()
+
+
+def decrypt_config_value(encrypted_value: str) -> str:
+    """Decrypt a sensitive configuration value."""
+    if not encrypted_value:
+        return ""
+    try:
+        key = get_server_config_encryption_key()
+        f = Fernet(key)
+        return f.decrypt(encrypted_value.encode()).decode()
+    except Exception:
+        # If decryption fails, return empty string (value may not be encrypted)
+        return encrypted_value
+
+
+def get_server_config(name: str, default: str = None) -> str:
+    """
+    Get a server configuration value from the database.
+    Decrypts sensitive values automatically.
+
+    Args:
+        name: The configuration key name
+        default: Default value if not found in database
+
+    Returns:
+        The configuration value, or default if not found
+    """
+    try:
+        with get_session() as db:
+            config = db.query(ServerConfig).filter_by(name=name).first()
+            if config and config.value:
+                if config.is_sensitive:
+                    return decrypt_config_value(config.value)
+                return config.value
+    except Exception as e:
+        logging.debug(f"Could not get server config {name}: {e}")
+    return default
+
+
+def set_server_config(name: str, value: str, category: str = None) -> bool:
+    """
+    Set a server configuration value in the database.
+    Encrypts sensitive values automatically.
+
+    Args:
+        name: The configuration key name
+        value: The value to set
+        category: Optional category override
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_session() as db:
+            config = db.query(ServerConfig).filter_by(name=name).first()
+            if config:
+                # Check if this is a sensitive value
+                if config.is_sensitive and value:
+                    config.value = encrypt_config_value(value)
+                else:
+                    config.value = value
+                if category:
+                    config.category = category
+            else:
+                # Find definition to get metadata
+                definition = next(
+                    (d for d in SERVER_CONFIG_DEFINITIONS if d["name"] == name), None
+                )
+                is_sensitive = (
+                    definition.get("is_sensitive", False) if definition else False
+                )
+
+                new_config = ServerConfig(
+                    name=name,
+                    value=(
+                        encrypt_config_value(value) if is_sensitive and value else value
+                    ),
+                    category=category
+                    or (
+                        definition.get("category", "general")
+                        if definition
+                        else "general"
+                    ),
+                    is_sensitive=is_sensitive,
+                    is_required=(
+                        definition.get("is_required", False) if definition else False
+                    ),
+                    description=definition.get("description") if definition else None,
+                    value_type=(
+                        definition.get("value_type", "string")
+                        if definition
+                        else "string"
+                    ),
+                    default_value=(
+                        definition.get("default_value") if definition else None
+                    ),
+                )
+                db.add(new_config)
+            db.commit()
+            return True
+    except Exception as e:
+        logging.error(f"Could not set server config {name}: {e}")
+        return False
+
+
+def seed_server_config_from_env():
+    """
+    Seed server configuration from environment variables.
+    Only sets values that are not already in the database.
+    """
+    logging.info("Seeding server configuration from environment variables...")
+    seeded_count = 0
+
+    with get_session() as db:
+        for definition in SERVER_CONFIG_DEFINITIONS:
+            name = definition["name"]
+
+            # Check if already exists in database
+            existing = db.query(ServerConfig).filter_by(name=name).first()
+
+            if not existing:
+                # Get value from environment
+                env_value = os.getenv(name, "")
+
+                # Create config entry with definition metadata
+                is_sensitive = definition.get("is_sensitive", False)
+                new_config = ServerConfig(
+                    name=name,
+                    value=(
+                        encrypt_config_value(env_value)
+                        if is_sensitive and env_value
+                        else env_value
+                    ),
+                    category=definition.get("category", "general"),
+                    is_sensitive=is_sensitive,
+                    is_required=definition.get("is_required", False),
+                    description=definition.get("description"),
+                    value_type=definition.get("value_type", "string"),
+                    default_value=definition.get("default_value"),
+                )
+                db.add(new_config)
+                seeded_count += 1
+
+        db.commit()
+
+    logging.info(f"Seeded {seeded_count} server configuration values from environment")
+
+    # Load the config cache after seeding
+    try:
+        from Globals import load_server_config_cache
+
+        load_server_config_cache()
+    except Exception as e:
+        logging.debug(f"Could not load server config cache: {e}")
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -3209,6 +4896,7 @@ if __name__ == "__main__":
     setup_default_roles()
     setup_default_scopes()
     setup_default_role_scopes()
+    seed_server_config_from_env()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:
         # Import seed data
