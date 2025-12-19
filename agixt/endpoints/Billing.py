@@ -1469,7 +1469,9 @@ async def admin_remove_user_from_company(
         # Find the user-company association
         user_company = (
             session.query(UserCompany)
-            .filter(UserCompany.user_id == user_id, UserCompany.company_id == company_id)
+            .filter(
+                UserCompany.user_id == user_id, UserCompany.company_id == company_id
+            )
             .first()
         )
         if not user_company:
@@ -1512,7 +1514,10 @@ async def admin_remove_user_from_company(
 async def admin_assign_user_to_company(
     company_id: str,
     user_email: str = Query(..., description="Email address of the user to assign"),
-    role_id: int = Query(3, description="Role ID for the user (0=Super Admin, 1=Admin, 2=Manager, 3=User)"),
+    role_id: int = Query(
+        3,
+        description="Role ID for the user (0=Super Admin, 1=Admin, 2=Manager, 3=User)",
+    ),
     authorization: str = Header(None),
 ):
     """
@@ -1547,7 +1552,9 @@ async def admin_assign_user_to_company(
         # Find user by email
         user = session.query(User).filter(User.email == user_email.lower()).first()
         if not user:
-            raise HTTPException(status_code=404, detail=f"User with email '{user_email}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"User with email '{user_email}' not found"
+            )
 
         # Validate role_id
         if role_id < 0 or role_id > 3:
@@ -1561,7 +1568,9 @@ async def admin_assign_user_to_company(
         # Check if user is already in the company
         existing = (
             session.query(UserCompany)
-            .filter(UserCompany.user_id == user.id, UserCompany.company_id == company_id)
+            .filter(
+                UserCompany.user_id == user.id, UserCompany.company_id == company_id
+            )
             .first()
         )
 
@@ -1937,7 +1946,9 @@ async def admin_update_company(
 async def admin_change_user_role(
     company_id: str,
     user_id: str,
-    role_id: int = Query(..., description="New role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)"),
+    role_id: int = Query(
+        ..., description="New role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)"
+    ),
     authorization: str = Header(None),
 ):
     """
@@ -1971,7 +1982,9 @@ async def admin_change_user_role(
         # Find user-company relationship
         user_company = (
             session.query(UserCompany)
-            .filter(UserCompany.user_id == user_id, UserCompany.company_id == company_id)
+            .filter(
+                UserCompany.user_id == user_id, UserCompany.company_id == company_id
+            )
             .first()
         )
         if not user_company:
@@ -2070,7 +2083,8 @@ async def admin_impersonate_user(
             "success": True,
             "user_id": str(user.id),
             "user_email": user.email,
-            "user_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email,
+            "user_name": f"{user.first_name or ''} {user.last_name or ''}".strip()
+            or user.email,
             "jwt": token,
             "companies": companies,
             "message": f"Generated login token for user '{user.email}'",
@@ -2131,31 +2145,8 @@ async def admin_export_companies(
         for company in companies:
             if not company.users:
                 # Company with no users
-                rows.append({
-                    "company_id": str(company.id),
-                    "company_name": company.name,
-                    "company_email": company.email or "",
-                    "company_phone": company.phone_number or "",
-                    "company_website": company.website or "",
-                    "company_address": company.address or "",
-                    "company_city": company.city or "",
-                    "company_state": company.state or "",
-                    "company_zip": company.zip_code or "",
-                    "company_country": company.country or "",
-                    "company_notes": company.notes or "",
-                    "company_status": "Active" if getattr(company, "status", True) else "Suspended",
-                    "token_balance": getattr(company, "token_balance", 0) or 0,
-                    "token_balance_usd": getattr(company, "token_balance_usd", 0) or 0,
-                    "user_id": "",
-                    "user_email": "",
-                    "user_first_name": "",
-                    "user_last_name": "",
-                    "user_role": "",
-                })
-            else:
-                for uc in company.users:
-                    user = uc.user
-                    rows.append({
+                rows.append(
+                    {
                         "company_id": str(company.id),
                         "company_name": company.name,
                         "company_email": company.email or "",
@@ -2167,23 +2158,76 @@ async def admin_export_companies(
                         "company_zip": company.zip_code or "",
                         "company_country": company.country or "",
                         "company_notes": company.notes or "",
-                        "company_status": "Active" if getattr(company, "status", True) else "Suspended",
+                        "company_status": (
+                            "Active"
+                            if getattr(company, "status", True)
+                            else "Suspended"
+                        ),
                         "token_balance": getattr(company, "token_balance", 0) or 0,
-                        "token_balance_usd": getattr(company, "token_balance_usd", 0) or 0,
-                        "user_id": str(user.id),
-                        "user_email": user.email,
-                        "user_first_name": user.first_name or "",
-                        "user_last_name": user.last_name or "",
-                        "user_role": role_names.get(uc.role_id, "User"),
-                    })
+                        "token_balance_usd": getattr(company, "token_balance_usd", 0)
+                        or 0,
+                        "user_id": "",
+                        "user_email": "",
+                        "user_first_name": "",
+                        "user_last_name": "",
+                        "user_role": "",
+                    }
+                )
+            else:
+                for uc in company.users:
+                    user = uc.user
+                    rows.append(
+                        {
+                            "company_id": str(company.id),
+                            "company_name": company.name,
+                            "company_email": company.email or "",
+                            "company_phone": company.phone_number or "",
+                            "company_website": company.website or "",
+                            "company_address": company.address or "",
+                            "company_city": company.city or "",
+                            "company_state": company.state or "",
+                            "company_zip": company.zip_code or "",
+                            "company_country": company.country or "",
+                            "company_notes": company.notes or "",
+                            "company_status": (
+                                "Active"
+                                if getattr(company, "status", True)
+                                else "Suspended"
+                            ),
+                            "token_balance": getattr(company, "token_balance", 0) or 0,
+                            "token_balance_usd": getattr(
+                                company, "token_balance_usd", 0
+                            )
+                            or 0,
+                            "user_id": str(user.id),
+                            "user_email": user.email,
+                            "user_first_name": user.first_name or "",
+                            "user_last_name": user.last_name or "",
+                            "user_role": role_names.get(uc.role_id, "User"),
+                        }
+                    )
 
         return {
             "columns": [
-                "company_id", "company_name", "company_email", "company_phone",
-                "company_website", "company_address", "company_city", "company_state",
-                "company_zip", "company_country", "company_notes", "company_status",
-                "token_balance", "token_balance_usd",
-                "user_id", "user_email", "user_first_name", "user_last_name", "user_role"
+                "company_id",
+                "company_name",
+                "company_email",
+                "company_phone",
+                "company_website",
+                "company_address",
+                "company_city",
+                "company_state",
+                "company_zip",
+                "company_country",
+                "company_notes",
+                "company_status",
+                "token_balance",
+                "token_balance_usd",
+                "user_id",
+                "user_email",
+                "user_first_name",
+                "user_last_name",
+                "user_role",
             ],
             "rows": rows,
             "total_rows": len(rows),
@@ -2337,8 +2381,12 @@ async def admin_unsuspend_company(
     description="Moves all users from source company to target company, then deletes source.",
 )
 async def admin_merge_companies(
-    source_company_id: str = Query(..., description="Company to merge FROM (will be deleted)"),
-    target_company_id: str = Query(..., description="Company to merge INTO (will receive users)"),
+    source_company_id: str = Query(
+        ..., description="Company to merge FROM (will be deleted)"
+    ),
+    target_company_id: str = Query(
+        ..., description="Company to merge INTO (will receive users)"
+    ),
     authorization: str = Header(None),
 ):
     """
@@ -2405,8 +2453,12 @@ async def admin_merge_companies(
         # Add source token balance to target
         source_tokens = getattr(source, "token_balance", 0) or 0
         source_usd = getattr(source, "token_balance_usd", 0) or 0
-        target.token_balance = (getattr(target, "token_balance", 0) or 0) + source_tokens
-        target.token_balance_usd = (getattr(target, "token_balance_usd", 0) or 0) + source_usd
+        target.token_balance = (
+            getattr(target, "token_balance", 0) or 0
+        ) + source_tokens
+        target.token_balance_usd = (
+            getattr(target, "token_balance_usd", 0) or 0
+        ) + source_usd
 
         # Delete source company
         source_name = source.name
