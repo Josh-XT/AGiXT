@@ -3448,6 +3448,7 @@ class MagicalAuth:
                             str(company.company_id) if company.company_id else None
                         ),
                         "status": getattr(company, "status", True),
+                        "is_suspended": not getattr(company, "status", True),
                         "address": getattr(company, "address", None),
                         "phone_number": getattr(company, "phone_number", None),
                         "email": getattr(company, "email", None),

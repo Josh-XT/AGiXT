@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi import APIRouter, Header, HTTPException, Depends, Query
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -1417,6 +1417,1028 @@ async def admin_delete_user(
         logging.error(f"Error deactivating user: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to deactivate user: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+@app.delete(
+    "/v1/admin/companies/{company_id}/users/{user_id}",
+    tags=["Admin"],
+    summary="Remove a user from a company (super admin only)",
+    description="Removes a user from a specific company. Requires super admin permissions.",
+)
+async def admin_remove_user_from_company(
+    company_id: str,
+    user_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Remove a user from a company (super admin only).
+
+    This endpoint removes a user's association with a specific company.
+    The user account remains active but is no longer a member of that company.
+
+    Args:
+        company_id: The UUID of the company
+        user_id: The UUID of the user to remove
+        authorization: Super admin JWT
+
+    Returns:
+        Success message with details
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        # Verify company exists
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Verify user exists
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Find the user-company association
+        user_company = (
+            session.query(UserCompany)
+            .filter(UserCompany.user_id == user_id, UserCompany.company_id == company_id)
+            .first()
+        )
+        if not user_company:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User '{user.email}' is not a member of company '{company.name}'",
+            )
+
+        session.delete(user_company)
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": company_id,
+            "company_name": company.name,
+            "user_id": user_id,
+            "user_email": user.email,
+            "message": f"User '{user.email}' has been removed from company '{company.name}'",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error removing user from company: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to remove user from company: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+@app.post(
+    "/v1/admin/companies/{company_id}/users",
+    tags=["Admin"],
+    summary="Assign a user to a company (super admin only)",
+    description="Adds a user to a company with a specified role. Requires super admin permissions.",
+)
+async def admin_assign_user_to_company(
+    company_id: str,
+    user_email: str = Query(..., description="Email address of the user to assign"),
+    role_id: int = Query(3, description="Role ID for the user (0=Super Admin, 1=Admin, 2=Manager, 3=User)"),
+    authorization: str = Header(None),
+):
+    """
+    Assign a user to a company (super admin only).
+
+    This endpoint adds a user to a company with the specified role.
+    If the user is already in the company, their role will be updated.
+
+    Args:
+        company_id: The UUID of the company
+        user_email: Email address of the user to assign
+        role_id: Role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User), defaults to 3
+        authorization: Super admin JWT
+
+    Returns:
+        Success message with details
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        # Verify company exists
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Find user by email
+        user = session.query(User).filter(User.email == user_email.lower()).first()
+        if not user:
+            raise HTTPException(status_code=404, detail=f"User with email '{user_email}' not found")
+
+        # Validate role_id
+        if role_id < 0 or role_id > 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid role_id. Must be 0 (Super Admin), 1 (Admin), 2 (Manager), or 3 (User)",
+            )
+
+        role_names = {0: "Super Admin", 1: "Admin", 2: "Manager", 3: "User"}
+
+        # Check if user is already in the company
+        existing = (
+            session.query(UserCompany)
+            .filter(UserCompany.user_id == user.id, UserCompany.company_id == company_id)
+            .first()
+        )
+
+        if existing:
+            # Update the role
+            old_role = existing.role_id
+            existing.role_id = role_id
+            session.commit()
+            return {
+                "success": True,
+                "company_id": company_id,
+                "company_name": company.name,
+                "user_id": str(user.id),
+                "user_email": user.email,
+                "role_id": role_id,
+                "role_name": role_names[role_id],
+                "updated": True,
+                "message": f"User '{user.email}' role updated from {role_names.get(old_role, 'Unknown')} to {role_names[role_id]} in company '{company.name}'",
+            }
+
+        # Create new user-company association
+        user_company = UserCompany(
+            user_id=user.id,
+            company_id=company_id,
+            role_id=role_id,
+        )
+        session.add(user_company)
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": company_id,
+            "company_name": company.name,
+            "user_id": str(user.id),
+            "user_email": user.email,
+            "role_id": role_id,
+            "role_name": role_names[role_id],
+            "updated": False,
+            "message": f"User '{user.email}' has been assigned to company '{company.name}' as {role_names[role_id]}",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error assigning user to company: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to assign user to company: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Server Statistics
+# ============================================
+
+
+@app.get(
+    "/v1/admin/stats",
+    tags=["Admin"],
+    summary="Get server-wide statistics (super admin only)",
+    description="Returns aggregate statistics about all companies and users on the server.",
+)
+async def admin_get_server_stats(
+    authorization: str = Header(None),
+):
+    """
+    Get server-wide statistics for super admin dashboard.
+
+    Returns:
+        - Total companies
+        - Total users
+        - Total token balance (sum across all companies)
+        - Companies with no balance
+        - Companies with single user
+        - Active companies (with balance > 0)
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        from sqlalchemy import func
+
+        # Total companies
+        total_companies = session.query(func.count(Company.id)).scalar() or 0
+
+        # Total users
+        total_users = session.query(func.count(User.id)).scalar() or 0
+
+        # Total token balance
+        total_tokens = session.query(func.sum(Company.token_balance)).scalar() or 0
+        total_usd = session.query(func.sum(Company.token_balance_usd)).scalar() or 0
+
+        # Companies with no balance
+        no_balance_count = (
+            session.query(func.count(Company.id))
+            .filter(
+                (Company.token_balance == None)
+                | (Company.token_balance == 0)
+                | (Company.token_balance_usd == None)
+                | (Company.token_balance_usd == 0)
+            )
+            .scalar()
+            or 0
+        )
+
+        # Companies with balance
+        with_balance_count = total_companies - no_balance_count
+
+        # Companies with single user
+        user_counts = (
+            session.query(
+                UserCompany.company_id, func.count(UserCompany.user_id).label("cnt")
+            )
+            .group_by(UserCompany.company_id)
+            .subquery()
+        )
+        single_user_companies = (
+            session.query(func.count())
+            .select_from(user_counts)
+            .filter(user_counts.c.cnt == 1)
+            .scalar()
+            or 0
+        )
+
+        # Companies with multiple users
+        multi_user_companies = (
+            session.query(func.count())
+            .select_from(user_counts)
+            .filter(user_counts.c.cnt > 1)
+            .scalar()
+            or 0
+        )
+
+        # Suspended companies
+        suspended_count = (
+            session.query(func.count(Company.id))
+            .filter(Company.status == False)
+            .scalar()
+            or 0
+        )
+
+        return {
+            "total_companies": total_companies,
+            "total_users": total_users,
+            "total_token_balance": total_tokens,
+            "total_usd_balance": float(total_usd) if total_usd else 0.0,
+            "companies_with_balance": with_balance_count,
+            "companies_no_balance": no_balance_count,
+            "single_user_companies": single_user_companies,
+            "multi_user_companies": multi_user_companies,
+            "suspended_companies": suspended_count,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting server stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get server stats: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Create Company
+# ============================================
+
+
+@app.post(
+    "/v1/admin/companies",
+    tags=["Admin"],
+    summary="Create a new company (super admin only)",
+    description="Creates a new company on the server.",
+)
+async def admin_create_company(
+    name: str = Query(..., description="Company name"),
+    email: str = Query(None, description="Company contact email"),
+    phone_number: str = Query(None, description="Company phone number"),
+    website: str = Query(None, description="Company website"),
+    address: str = Query(None, description="Company address"),
+    city: str = Query(None, description="City"),
+    state: str = Query(None, description="State/Province"),
+    zip_code: str = Query(None, description="ZIP/Postal code"),
+    country: str = Query(None, description="Country"),
+    notes: str = Query(None, description="Admin notes"),
+    authorization: str = Header(None),
+):
+    """
+    Create a new company (super admin only).
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        # Check if company name already exists
+        existing = session.query(Company).filter(Company.name == name).first()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Company with name '{name}' already exists",
+            )
+
+        # Create new company
+        new_company = Company(
+            name=name,
+            email=email,
+            phone_number=phone_number,
+            website=website,
+            address=address,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            country=country,
+            notes=notes,
+            status=True,
+            token_balance=0,
+            token_balance_usd=0,
+        )
+        session.add(new_company)
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": str(new_company.id),
+            "name": new_company.name,
+            "message": f"Company '{name}' created successfully",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error creating company: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create company: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Edit Company
+# ============================================
+
+
+@app.patch(
+    "/v1/admin/companies/{company_id}",
+    tags=["Admin"],
+    summary="Update company details (super admin only)",
+    description="Updates company information including name, contact details, and admin notes.",
+)
+async def admin_update_company(
+    company_id: str,
+    name: str = Query(None, description="Company name"),
+    email: str = Query(None, description="Company contact email"),
+    phone_number: str = Query(None, description="Company phone number"),
+    website: str = Query(None, description="Company website"),
+    address: str = Query(None, description="Company address"),
+    city: str = Query(None, description="City"),
+    state: str = Query(None, description="State/Province"),
+    zip_code: str = Query(None, description="ZIP/Postal code"),
+    country: str = Query(None, description="Country"),
+    notes: str = Query(None, description="Admin notes"),
+    authorization: str = Header(None),
+):
+    """
+    Update company details (super admin only).
+    Only provided fields will be updated.
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Update only provided fields
+        updated_fields = []
+        if name is not None:
+            # Check name uniqueness if changing
+            if name != company.name:
+                existing = session.query(Company).filter(Company.name == name).first()
+                if existing:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Company with name '{name}' already exists",
+                    )
+            company.name = name
+            updated_fields.append("name")
+        if email is not None:
+            company.email = email
+            updated_fields.append("email")
+        if phone_number is not None:
+            company.phone_number = phone_number
+            updated_fields.append("phone_number")
+        if website is not None:
+            company.website = website
+            updated_fields.append("website")
+        if address is not None:
+            company.address = address
+            updated_fields.append("address")
+        if city is not None:
+            company.city = city
+            updated_fields.append("city")
+        if state is not None:
+            company.state = state
+            updated_fields.append("state")
+        if zip_code is not None:
+            company.zip_code = zip_code
+            updated_fields.append("zip_code")
+        if country is not None:
+            company.country = country
+            updated_fields.append("country")
+        if notes is not None:
+            company.notes = notes
+            updated_fields.append("notes")
+
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": str(company.id),
+            "name": company.name,
+            "updated_fields": updated_fields,
+            "message": f"Company '{company.name}' updated successfully",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error updating company: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update company: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Change User Role
+# ============================================
+
+
+@app.patch(
+    "/v1/admin/companies/{company_id}/users/{user_id}/role",
+    tags=["Admin"],
+    summary="Change a user's role in a company (super admin only)",
+    description="Updates a user's role within a specific company.",
+)
+async def admin_change_user_role(
+    company_id: str,
+    user_id: str,
+    role_id: int = Query(..., description="New role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)"),
+    authorization: str = Header(None),
+):
+    """
+    Change a user's role in a company (super admin only).
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    if role_id < 0 or role_id > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid role_id. Must be 0 (Super Admin), 1 (Admin), 2 (Manager), or 3 (User)",
+        )
+
+    session = get_session()
+    try:
+        # Verify company exists
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Verify user exists
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Find user-company relationship
+        user_company = (
+            session.query(UserCompany)
+            .filter(UserCompany.user_id == user_id, UserCompany.company_id == company_id)
+            .first()
+        )
+        if not user_company:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User is not a member of company '{company.name}'",
+            )
+
+        role_names = {0: "Super Admin", 1: "Admin", 2: "Manager", 3: "User"}
+        old_role_id = user_company.role_id
+        old_role_name = role_names.get(old_role_id, "Unknown")
+
+        user_company.role_id = role_id
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": company_id,
+            "company_name": company.name,
+            "user_id": user_id,
+            "user_email": user.email,
+            "old_role_id": old_role_id,
+            "old_role_name": old_role_name,
+            "new_role_id": role_id,
+            "new_role_name": role_names[role_id],
+            "message": f"User '{user.email}' role changed from {old_role_name} to {role_names[role_id]} in company '{company.name}'",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error changing user role: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to change user role: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Impersonate User
+# ============================================
+
+
+@app.post(
+    "/v1/admin/impersonate",
+    tags=["Admin"],
+    summary="Get a login token for any user (super admin only)",
+    description="Generates a JWT token to log in as any user for support purposes.",
+)
+async def admin_impersonate_user(
+    user_email: str = Query(..., description="Email of the user to impersonate"),
+    authorization: str = Header(None),
+):
+    """
+    Generate a login JWT for any user (super admin only).
+    Used for support and debugging purposes.
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        from MagicalAuth import impersonate_user
+
+        # Verify user exists
+        user = session.query(User).filter(User.email == user_email.lower()).first()
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User with email '{user_email}' not found",
+            )
+
+        # Generate token
+        token = impersonate_user(user_email.lower())
+
+        # Get user's companies
+        user_companies = (
+            session.query(UserCompany, Company)
+            .join(Company)
+            .filter(UserCompany.user_id == user.id)
+            .all()
+        )
+        companies = [
+            {"id": str(c.id), "name": c.name, "role_id": uc.role_id}
+            for uc, c in user_companies
+        ]
+
+        return {
+            "success": True,
+            "user_id": str(user.id),
+            "user_email": user.email,
+            "user_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email,
+            "jwt": token,
+            "companies": companies,
+            "message": f"Generated login token for user '{user.email}'",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error impersonating user: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate impersonation token: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Export Data
+# ============================================
+
+
+@app.get(
+    "/v1/admin/export/companies",
+    tags=["Admin"],
+    summary="Export all companies data (super admin only)",
+    description="Returns all companies with their users in a format suitable for CSV export.",
+)
+async def admin_export_companies(
+    authorization: str = Header(None),
+):
+    """
+    Export all companies and users for reporting.
+    Returns data in a flat structure suitable for CSV.
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        from sqlalchemy.orm import joinedload
+
+        companies = (
+            session.query(Company)
+            .options(
+                joinedload(Company.users).joinedload(UserCompany.user),
+                joinedload(Company.users).joinedload(UserCompany.role),
+            )
+            .all()
+        )
+
+        rows = []
+        role_names = {0: "Super Admin", 1: "Admin", 2: "Manager", 3: "User"}
+
+        for company in companies:
+            if not company.users:
+                # Company with no users
+                rows.append({
+                    "company_id": str(company.id),
+                    "company_name": company.name,
+                    "company_email": company.email or "",
+                    "company_phone": company.phone_number or "",
+                    "company_website": company.website or "",
+                    "company_address": company.address or "",
+                    "company_city": company.city or "",
+                    "company_state": company.state or "",
+                    "company_zip": company.zip_code or "",
+                    "company_country": company.country or "",
+                    "company_notes": company.notes or "",
+                    "company_status": "Active" if getattr(company, "status", True) else "Suspended",
+                    "token_balance": getattr(company, "token_balance", 0) or 0,
+                    "token_balance_usd": getattr(company, "token_balance_usd", 0) or 0,
+                    "user_id": "",
+                    "user_email": "",
+                    "user_first_name": "",
+                    "user_last_name": "",
+                    "user_role": "",
+                })
+            else:
+                for uc in company.users:
+                    user = uc.user
+                    rows.append({
+                        "company_id": str(company.id),
+                        "company_name": company.name,
+                        "company_email": company.email or "",
+                        "company_phone": company.phone_number or "",
+                        "company_website": company.website or "",
+                        "company_address": company.address or "",
+                        "company_city": company.city or "",
+                        "company_state": company.state or "",
+                        "company_zip": company.zip_code or "",
+                        "company_country": company.country or "",
+                        "company_notes": company.notes or "",
+                        "company_status": "Active" if getattr(company, "status", True) else "Suspended",
+                        "token_balance": getattr(company, "token_balance", 0) or 0,
+                        "token_balance_usd": getattr(company, "token_balance_usd", 0) or 0,
+                        "user_id": str(user.id),
+                        "user_email": user.email,
+                        "user_first_name": user.first_name or "",
+                        "user_last_name": user.last_name or "",
+                        "user_role": role_names.get(uc.role_id, "User"),
+                    })
+
+        return {
+            "columns": [
+                "company_id", "company_name", "company_email", "company_phone",
+                "company_website", "company_address", "company_city", "company_state",
+                "company_zip", "company_country", "company_notes", "company_status",
+                "token_balance", "token_balance_usd",
+                "user_id", "user_email", "user_first_name", "user_last_name", "user_role"
+            ],
+            "rows": rows,
+            "total_rows": len(rows),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error exporting companies: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to export companies: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Suspend/Unsuspend Company
+# ============================================
+
+
+@app.post(
+    "/v1/admin/companies/{company_id}/suspend",
+    tags=["Admin"],
+    summary="Suspend a company (super admin only)",
+    description="Temporarily disables access to a company without deleting it.",
+)
+async def admin_suspend_company(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Suspend a company (super admin only).
+    Sets company status to False, preventing user access.
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        if not getattr(company, "status", True):
+            return {
+                "success": True,
+                "company_id": str(company.id),
+                "company_name": company.name,
+                "status": "suspended",
+                "message": f"Company '{company.name}' is already suspended",
+            }
+
+        company.status = False
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": str(company.id),
+            "company_name": company.name,
+            "status": "suspended",
+            "message": f"Company '{company.name}' has been suspended",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error suspending company: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to suspend company: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+@app.post(
+    "/v1/admin/companies/{company_id}/unsuspend",
+    tags=["Admin"],
+    summary="Unsuspend a company (super admin only)",
+    description="Re-enables access to a suspended company.",
+)
+async def admin_unsuspend_company(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Unsuspend a company (super admin only).
+    Sets company status to True, restoring user access.
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        if getattr(company, "status", True):
+            return {
+                "success": True,
+                "company_id": str(company.id),
+                "company_name": company.name,
+                "status": "active",
+                "message": f"Company '{company.name}' is already active",
+            }
+
+        company.status = True
+        session.commit()
+
+        return {
+            "success": True,
+            "company_id": str(company.id),
+            "company_name": company.name,
+            "status": "active",
+            "message": f"Company '{company.name}' has been unsuspended",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error unsuspending company: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to unsuspend company: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Merge Companies
+# ============================================
+
+
+@app.post(
+    "/v1/admin/companies/merge",
+    tags=["Admin"],
+    summary="Merge two companies (super admin only)",
+    description="Moves all users from source company to target company, then deletes source.",
+)
+async def admin_merge_companies(
+    source_company_id: str = Query(..., description="Company to merge FROM (will be deleted)"),
+    target_company_id: str = Query(..., description="Company to merge INTO (will receive users)"),
+    authorization: str = Header(None),
+):
+    """
+    Merge two companies (super admin only).
+    Moves all users from source to target, then deletes the source company.
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    if source_company_id == target_company_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Source and target companies must be different",
+        )
+
+    session = get_session()
+    try:
+        # Verify both companies exist
+        source = session.query(Company).filter(Company.id == source_company_id).first()
+        if not source:
+            raise HTTPException(status_code=404, detail="Source company not found")
+
+        target = session.query(Company).filter(Company.id == target_company_id).first()
+        if not target:
+            raise HTTPException(status_code=404, detail="Target company not found")
+
+        # Get source company users
+        source_users = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id == source_company_id)
+            .all()
+        )
+
+        moved_users = []
+        skipped_users = []
+
+        for uc in source_users:
+            # Check if user already in target
+            existing = (
+                session.query(UserCompany)
+                .filter(
+                    UserCompany.user_id == uc.user_id,
+                    UserCompany.company_id == target_company_id,
+                )
+                .first()
+            )
+
+            user = session.query(User).filter(User.id == uc.user_id).first()
+            user_email = user.email if user else str(uc.user_id)
+
+            if existing:
+                # User already in target, skip
+                skipped_users.append(user_email)
+                session.delete(uc)
+            else:
+                # Move user to target
+                uc.company_id = target_company_id
+                moved_users.append(user_email)
+
+        # Add source token balance to target
+        source_tokens = getattr(source, "token_balance", 0) or 0
+        source_usd = getattr(source, "token_balance_usd", 0) or 0
+        target.token_balance = (getattr(target, "token_balance", 0) or 0) + source_tokens
+        target.token_balance_usd = (getattr(target, "token_balance_usd", 0) or 0) + source_usd
+
+        # Delete source company
+        source_name = source.name
+        session.delete(source)
+        session.commit()
+
+        return {
+            "success": True,
+            "source_company": {
+                "id": source_company_id,
+                "name": source_name,
+                "deleted": True,
+            },
+            "target_company": {
+                "id": target_company_id,
+                "name": target.name,
+            },
+            "moved_users": moved_users,
+            "skipped_users": skipped_users,
+            "tokens_transferred": source_tokens,
+            "usd_transferred": source_usd,
+            "message": f"Merged '{source_name}' into '{target.name}'. {len(moved_users)} users moved, {len(skipped_users)} skipped (already in target).",
+        }
+
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error merging companies: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to merge companies: {str(e)}"
         )
     finally:
         session.close()
