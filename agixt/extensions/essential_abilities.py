@@ -594,8 +594,10 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         query (str): The search pattern, filename, or directory path to search/list.
                      Examples:
                      - "*.ir" - find all .ir files
+                     - "**/*.ir" - find all .ir files recursively
                      - "Samsung" - find files with Samsung in the name
                      - "TVs/Samsung/" - list all files in TVs/Samsung/ folder
+                     - "TVs/Samsung/*.ir" - find .ir files in TVs/Samsung path
                      - "power" - find files with "power" in the name
 
         Returns:
@@ -604,11 +606,35 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         Note: This command searches the agent's workspace. For searching within file contents, use "Search File Content" instead.
         """
         import fnmatch
+        import glob as glob_module
 
         matches = []
         try:
-            # Check if query looks like a directory path (ends with / or contains /)
-            if query.endswith("/") or "/" in query:
+            # Check if this is a glob pattern (contains *, ?, or [])
+            is_glob_pattern = any(c in query for c in ["*", "?", "["])
+
+            # If it's a glob pattern, use glob for matching
+            if is_glob_pattern:
+                # Use recursive glob to find matching files
+                search_pattern = os.path.join(self.WORKING_DIRECTORY, "**", query)
+                glob_matches = glob_module.glob(search_pattern, recursive=True)
+
+                # Also try without ** prefix for exact path patterns
+                if "/" in query:
+                    exact_pattern = os.path.join(self.WORKING_DIRECTORY, query)
+                    glob_matches.extend(glob_module.glob(exact_pattern, recursive=True))
+
+                # Get unique matches and convert to relative paths
+                seen = set()
+                for match in glob_matches:
+                    if os.path.isfile(match):
+                        relative_path = os.path.relpath(match, self.WORKING_DIRECTORY)
+                        if relative_path not in seen:
+                            seen.add(relative_path)
+                            matches.append(relative_path)
+
+            # Check if query looks like a directory path (ends with / and no glob chars)
+            elif query.endswith("/"):
                 # Try to list the directory
                 dir_path = os.path.join(self.WORKING_DIRECTORY, query.rstrip("/"))
                 if os.path.isdir(dir_path):
@@ -632,29 +658,32 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                         )
                     else:
                         return f"Directory `{query}` is empty."
-                else:
-                    # Path doesn't exist as directory, search for it in filenames
-                    pass
 
-            # Standard filename pattern search
-            for root, dirnames, filenames in os.walk(self.WORKING_DIRECTORY):
-                for filename in filenames:
-                    # Match if query is in filename OR matches fnmatch pattern
-                    if query.lower() in filename.lower() or fnmatch.fnmatch(
-                        filename.lower(), f"*{query.lower()}*"
-                    ):
+            # Standard filename/path substring search
+            if not matches:
+                for root, dirnames, filenames in os.walk(self.WORKING_DIRECTORY):
+                    for filename in filenames:
                         relative_path = os.path.relpath(
                             os.path.join(root, filename), self.WORKING_DIRECTORY
                         )
-                        matches.append(relative_path)
+                        # Match if query is in filename OR in full relative path
+                        if (
+                            query.lower() in filename.lower()
+                            or query.lower() in relative_path.lower()
+                            or fnmatch.fnmatch(filename.lower(), f"*{query.lower()}*")
+                            or fnmatch.fnmatch(
+                                relative_path.lower(), f"*{query.lower()}*"
+                            )
+                        ):
+                            matches.append(relative_path)
 
             if matches:
-                return f"Found {len(matches)} matching files:\n" + "\n".join(
-                    matches[:100]
-                )
+                # Sort matches for easier reading
+                matches = sorted(set(matches))[:100]
+                return f"Found {len(matches)} matching files:\n" + "\n".join(matches)
             else:
                 # Provide helpful guidance
-                return f"No files found matching pattern: {query}\n\nTips:\n- Use 'TVs/Samsung/' to list a directory\n- Use '*.ir' to find IR files\n- Use 'Search File Content' to search inside files"
+                return f"No files found matching pattern: {query}\n\nTips:\n- Use 'TVs/Samsung/' to list a directory\n- Use '*.ir' or '**/*.ir' to find IR files\n- Use 'Search File Content' to search inside files"
         except Exception as e:
             return f"Error searching files: {str(e)}"
 
