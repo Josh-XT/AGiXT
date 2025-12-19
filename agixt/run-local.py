@@ -41,6 +41,8 @@ async def initialize_database(is_restart=False):
         DB.setup_default_extension_categories()
         DB.migrate_extensions_to_new_categories()
         DB.setup_default_roles()
+        DB.setup_default_scopes()
+        DB.setup_default_role_scopes()
 
         # Handle seed data - only on initial boot, not on restarts
         if not is_restart:

@@ -200,6 +200,154 @@ class UserRole(Base):
     friendly_name = Column(String)
 
 
+class Scope(Base):
+    """
+    Defines granular permissions that can be assigned to roles.
+    Scopes follow the pattern: resource:action (e.g., 'agents:read', 'extensions:write')
+    """
+
+    __tablename__ = "Scope"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(String, nullable=False, unique=True)  # e.g., 'agents:read'
+    resource = Column(
+        String, nullable=False
+    )  # e.g., 'agents', 'extensions', 'conversations'
+    action = Column(
+        String, nullable=False
+    )  # e.g., 'read', 'write', 'delete', 'execute'
+    description = Column(String, nullable=True)
+    category = Column(
+        String, nullable=True
+    )  # For grouping in UI: 'Core', 'Extensions', 'Admin', etc.
+    is_system = Column(Boolean, default=True)  # System scopes can't be deleted
+
+
+class CustomRole(Base):
+    """
+    Custom roles created by company admins with specific scope assignments.
+    These extend the default roles with company-specific permissions.
+    """
+
+    __tablename__ = "CustomRole"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+    )
+    name = Column(String, nullable=False)  # Internal name (e.g., 'support_agent')
+    friendly_name = Column(
+        String, nullable=False
+    )  # Display name (e.g., 'Support Agent')
+    description = Column(String, nullable=True)
+    priority = Column(Integer, default=100)  # Lower = more privileged (like role_id)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company", backref="custom_roles")
+    scopes = relationship(
+        "CustomRoleScope", back_populates="custom_role", cascade="all, delete-orphan"
+    )
+
+
+class CustomRoleScope(Base):
+    """
+    Junction table linking custom roles to their assigned scopes.
+    """
+
+    __tablename__ = "CustomRoleScope"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    custom_role_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("CustomRole.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Scope.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    custom_role = relationship("CustomRole", back_populates="scopes")
+    scope = relationship("Scope")
+
+
+class DefaultRoleScope(Base):
+    """
+    Defines which scopes are assigned to default system roles (super_admin, tenant_admin, etc.).
+    This allows the system to know what permissions each default role level has.
+    """
+
+    __tablename__ = "DefaultRoleScope"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    role_id = Column(Integer, ForeignKey("Role.id"), nullable=False)
+    scope_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Scope.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    role = relationship("UserRole")
+    scope = relationship("Scope")
+
+
+class UserCustomRole(Base):
+    """
+    Assigns custom roles to users within a company.
+    Users can have multiple custom roles in addition to their base role_id.
+    """
+
+    __tablename__ = "UserCustomRole"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    custom_role_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("CustomRole.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    assigned_at = Column(DateTime, server_default=func.now())
+    assigned_by = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    company = relationship("Company")
+    custom_role = relationship("CustomRole")
+    assigner = relationship("User", foreign_keys=[assigned_by])
+
+
 class Company(Base):
     __tablename__ = "Company"
     id = Column(
@@ -1353,6 +1501,887 @@ default_roles = [
     {"id": 5, "name": "chat_user", "friendly_name": "Chat User"},
 ]
 
+
+# Keyword mappings for categorizing extension commands into features
+EXTENSION_FEATURE_KEYWORDS = {
+    # Common PSA/Ticketing features
+    "tickets": [
+        "ticket",
+        "tickets",
+        "case",
+        "cases",
+        "incident",
+        "incidents",
+        "support",
+    ],
+    "companies": [
+        "company",
+        "companies",
+        "organization",
+        "organizations",
+        "client",
+        "clients",
+        "customer",
+        "customers",
+    ],
+    "contacts": ["contact", "contacts", "person", "people", "member", "members"],
+    "devices": [
+        "device",
+        "devices",
+        "configuration",
+        "configurations",
+        "asset",
+        "assets",
+        "endpoint",
+        "endpoints",
+        "machine",
+        "machines",
+    ],
+    "agreements": [
+        "agreement",
+        "agreements",
+        "contract",
+        "contracts",
+        "subscription",
+        "subscriptions",
+    ],
+    "warranty": ["warranty", "warranties"],
+    # GitHub/Version Control features
+    "repositories": ["repo", "repos", "repository", "repositories", "codebase"],
+    "issues": ["issue", "issues"],
+    "pull_requests": ["pull", "pr", "prs", "merge"],
+    "commits": ["commit", "commits"],
+    "comments": ["comment", "comments"],
+    "branches": ["branch", "branches"],
+    "files": ["file", "files", "upload", "download"],
+    # RMM/Monitoring features
+    "alerts": ["alert", "alerts", "alarm", "alarms", "warning", "warnings"],
+    "monitoring": ["monitor", "monitoring", "status", "health", "metrics"],
+    "scripts": ["script", "scripts", "command", "commands", "execute", "run"],
+    "patches": ["patch", "patches", "update", "updates"],
+    "backups": ["backup", "backups", "restore", "recovery"],
+    # Security features
+    "threats": ["threat", "threats", "malware", "virus", "detection", "quarantine"],
+    "scans": ["scan", "scans", "scanning"],
+    "policies": ["policy", "policies", "rule", "rules"],
+    "users": ["user", "users", "account", "accounts"],
+    "groups": ["group", "groups"],
+    # General CRUD patterns
+    "search": ["search", "find", "lookup", "query", "filter", "list"],
+    "create": ["create", "add", "new", "insert"],
+    "update": ["update", "modify", "edit", "change", "patch"],
+    "delete": ["delete", "remove", "destroy"],
+}
+
+
+def get_extension_names():
+    """
+    Scan all extension directories (core and hub) to get all extension names.
+    Returns a list of extension names (derived from Python filenames).
+    """
+    extension_names = set()
+
+    # Get all extension search paths from ExtensionsHub
+    try:
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        search_paths = hub.get_extension_search_paths()
+    except Exception as e:
+        logging.debug(f"Could not load ExtensionsHub: {e}")
+        # Fall back to default extensions directory
+        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        search_paths = [extensions_dir] if os.path.exists(extensions_dir) else []
+
+    for ext_dir in search_paths:
+        if os.path.exists(ext_dir) and os.path.isdir(ext_dir):
+            for filename in os.listdir(ext_dir):
+                if filename.endswith(".py") and not filename.startswith("_"):
+                    # Convert filename to extension name (e.g., "github.py" -> "github")
+                    ext_name = filename[:-3]  # Remove .py
+                    extension_names.add(ext_name)
+
+    return sorted(extension_names)
+
+
+def get_extension_path(extension_name: str) -> str:
+    """
+    Find the full path to an extension file.
+    Returns the path if found, None otherwise.
+    """
+    # Get all extension search paths from ExtensionsHub
+    try:
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        search_paths = hub.get_extension_search_paths()
+    except Exception as e:
+        logging.debug(f"Could not load ExtensionsHub: {e}")
+        # Fall back to default extensions directory
+        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        search_paths = [extensions_dir] if os.path.exists(extensions_dir) else []
+
+    for ext_dir in search_paths:
+        potential_path = os.path.join(ext_dir, f"{extension_name}.py")
+        if os.path.exists(potential_path):
+            return potential_path
+
+    return None
+
+
+def parse_extension_commands(extension_path: str) -> list:
+    """
+    Parse an extension file and extract command names from self.commands dict.
+    Returns a list of command names.
+    """
+    commands = []
+    try:
+        with open(extension_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Look for self.commands = { or self.commands = ( patterns
+        import re
+
+        # Find the commands dictionary/dict-like structure
+        # Pattern matches: self.commands = { ... } or self.commands = ( { ... } )
+        commands_pattern = r"self\.commands\s*=\s*[\{\(]([^}]+)[\}\)]"
+        match = re.search(commands_pattern, content, re.DOTALL)
+
+        if match:
+            commands_block = match.group(1)
+            # Extract command names from strings like "Get Companies": self.get_companies,
+            command_pattern = r'"([^"]+)":\s*self\.'
+            commands = re.findall(command_pattern, commands_block)
+
+    except Exception as e:
+        logging.debug(f"Could not parse commands from {extension_path}: {e}")
+
+    return commands
+
+
+def categorize_command(command_name: str) -> tuple:
+    """
+    Categorize a command name into a feature and action type.
+    Returns (feature, action) tuple.
+
+    Example: "Get Companies" -> ("companies", "read")
+             "Create New Ticket" -> ("tickets", "write")
+             "Run Script" -> ("scripts", "execute")
+    """
+    command_lower = command_name.lower()
+
+    # Determine action type from command
+    action = "read"  # default
+    if any(
+        word in command_lower for word in ["create", "add", "new", "insert", "post"]
+    ):
+        action = "write"
+    elif any(
+        word in command_lower
+        for word in ["update", "modify", "edit", "change", "patch", "set"]
+    ):
+        action = "write"
+    elif any(
+        word in command_lower for word in ["delete", "remove", "destroy", "close"]
+    ):
+        action = "delete"
+    elif any(
+        word in command_lower
+        for word in ["execute", "run", "invoke", "trigger", "send", "push"]
+    ):
+        action = "execute"
+    elif any(
+        word in command_lower
+        for word in ["get", "list", "find", "search", "fetch", "retrieve", "view"]
+    ):
+        action = "read"
+
+    # Find the feature category
+    for feature, keywords in EXTENSION_FEATURE_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in command_lower:
+                return (feature, action)
+
+    # Default to "general" if no specific feature matched
+    return ("general", action)
+
+
+def get_extension_features(extension_name: str) -> dict:
+    """
+    Get all features and their actions for a specific extension.
+    Returns a dict of {feature: set(actions)}.
+    """
+    features = {}
+
+    # Find the extension file
+    extension_path = get_extension_path(extension_name)
+
+    if not extension_path:
+        return features
+
+    # Parse commands and categorize them
+    commands = parse_extension_commands(extension_path)
+    for command in commands:
+        feature, action = categorize_command(command)
+        if feature not in features:
+            features[feature] = set()
+        features[feature].add(action)
+
+    return features
+
+
+def generate_extension_scopes():
+    """
+    Generate per-extension scopes dynamically based on discovered extensions.
+    Each extension gets three scopes: read, execute, and configure.
+    """
+    extension_scopes = []
+    extension_names = get_extension_names()
+
+    for ext_name in extension_names:
+        # Make the extension name display-friendly
+        friendly_name = ext_name.replace("_", " ").title()
+
+        # Base extension scopes (read, execute, configure for the whole extension)
+        extension_scopes.append(
+            {
+                "name": f"ext:{ext_name}:read",
+                "resource": f"ext:{ext_name}",
+                "action": "read",
+                "description": f"View {friendly_name} extension and its configuration",
+                "category": "Extensions",
+            }
+        )
+
+        extension_scopes.append(
+            {
+                "name": f"ext:{ext_name}:execute",
+                "resource": f"ext:{ext_name}",
+                "action": "execute",
+                "description": f"Execute all {friendly_name} extension commands",
+                "category": "Extensions",
+            }
+        )
+
+        extension_scopes.append(
+            {
+                "name": f"ext:{ext_name}:configure",
+                "resource": f"ext:{ext_name}",
+                "action": "configure",
+                "description": f"Configure {friendly_name} extension settings",
+                "category": "Extensions",
+            }
+        )
+
+        # Generate deep feature-level scopes by analyzing extension commands
+        features = get_extension_features(ext_name)
+        for feature, actions in features.items():
+            feature_friendly = feature.replace("_", " ").title()
+
+            for action in actions:
+                scope_name = f"ext:{ext_name}:{feature}:{action}"
+
+                # Generate description based on action type
+                if action == "read":
+                    description = f"View {feature_friendly} data in {friendly_name}"
+                elif action == "write":
+                    description = f"Create/modify {feature_friendly} in {friendly_name}"
+                elif action == "delete":
+                    description = f"Delete {feature_friendly} in {friendly_name}"
+                elif action == "execute":
+                    description = (
+                        f"Execute {feature_friendly} commands in {friendly_name}"
+                    )
+                else:
+                    description = (
+                        f"{action.title()} {feature_friendly} in {friendly_name}"
+                    )
+
+                extension_scopes.append(
+                    {
+                        "name": scope_name,
+                        "resource": f"ext:{ext_name}:{feature}",
+                        "action": action,
+                        "description": description,
+                        "category": "Extensions",
+                    }
+                )
+
+    return extension_scopes
+
+
+# Default scopes define granular permissions for the system
+# Format: resource:action
+# Categories help group scopes in the UI for easier management
+default_scopes = [
+    # Core Agent Scopes
+    {
+        "name": "agents:read",
+        "resource": "agents",
+        "action": "read",
+        "description": "View agents and their configurations",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:write",
+        "resource": "agents",
+        "action": "write",
+        "description": "Create and modify agents",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:delete",
+        "resource": "agents",
+        "action": "delete",
+        "description": "Delete agents",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:execute",
+        "resource": "agents",
+        "action": "execute",
+        "description": "Run agent prompts and commands",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:train",
+        "resource": "agents",
+        "action": "train",
+        "description": "Train agents with new data",
+        "category": "Agents",
+    },
+    # Conversation Scopes
+    {
+        "name": "conversations:read",
+        "resource": "conversations",
+        "action": "read",
+        "description": "View conversations and messages",
+        "category": "Conversations",
+    },
+    {
+        "name": "conversations:write",
+        "resource": "conversations",
+        "action": "write",
+        "description": "Create and send messages",
+        "category": "Conversations",
+    },
+    {
+        "name": "conversations:delete",
+        "resource": "conversations",
+        "action": "delete",
+        "description": "Delete conversations",
+        "category": "Conversations",
+    },
+    {
+        "name": "conversations:share",
+        "resource": "conversations",
+        "action": "share",
+        "description": "Share conversations with others",
+        "category": "Conversations",
+    },
+    # Extension Scopes
+    {
+        "name": "extensions:read",
+        "resource": "extensions",
+        "action": "read",
+        "description": "View available extensions",
+        "category": "Extensions",
+    },
+    {
+        "name": "extensions:write",
+        "resource": "extensions",
+        "action": "write",
+        "description": "Configure and enable extensions",
+        "category": "Extensions",
+    },
+    {
+        "name": "extensions:execute",
+        "resource": "extensions",
+        "action": "execute",
+        "description": "Execute extension commands",
+        "category": "Extensions",
+    },
+    {
+        "name": "extensions:install",
+        "resource": "extensions",
+        "action": "install",
+        "description": "Install new extensions from hub",
+        "category": "Extensions",
+    },
+    # Memory/Knowledge Scopes
+    {
+        "name": "memories:read",
+        "resource": "memories",
+        "action": "read",
+        "description": "View agent memories and knowledge",
+        "category": "Knowledge",
+    },
+    {
+        "name": "memories:write",
+        "resource": "memories",
+        "action": "write",
+        "description": "Add memories and knowledge",
+        "category": "Knowledge",
+    },
+    {
+        "name": "memories:delete",
+        "resource": "memories",
+        "action": "delete",
+        "description": "Delete memories and knowledge",
+        "category": "Knowledge",
+    },
+    {
+        "name": "memories:export",
+        "resource": "memories",
+        "action": "export",
+        "description": "Export memories and knowledge",
+        "category": "Knowledge",
+    },
+    # Chain/Workflow Scopes
+    {
+        "name": "chains:read",
+        "resource": "chains",
+        "action": "read",
+        "description": "View chains and workflows",
+        "category": "Automation",
+    },
+    {
+        "name": "chains:write",
+        "resource": "chains",
+        "action": "write",
+        "description": "Create and modify chains",
+        "category": "Automation",
+    },
+    {
+        "name": "chains:delete",
+        "resource": "chains",
+        "action": "delete",
+        "description": "Delete chains",
+        "category": "Automation",
+    },
+    {
+        "name": "chains:execute",
+        "resource": "chains",
+        "action": "execute",
+        "description": "Run chains",
+        "category": "Automation",
+    },
+    # Prompt Scopes
+    {
+        "name": "prompts:read",
+        "resource": "prompts",
+        "action": "read",
+        "description": "View prompts",
+        "category": "Prompts",
+    },
+    {
+        "name": "prompts:write",
+        "resource": "prompts",
+        "action": "write",
+        "description": "Create and modify prompts",
+        "category": "Prompts",
+    },
+    {
+        "name": "prompts:delete",
+        "resource": "prompts",
+        "action": "delete",
+        "description": "Delete prompts",
+        "category": "Prompts",
+    },
+    # Company/Team Management Scopes
+    {
+        "name": "company:read",
+        "resource": "company",
+        "action": "read",
+        "description": "View company details",
+        "category": "Administration",
+    },
+    {
+        "name": "company:write",
+        "resource": "company",
+        "action": "write",
+        "description": "Modify company settings",
+        "category": "Administration",
+    },
+    {
+        "name": "company:billing",
+        "resource": "company",
+        "action": "billing",
+        "description": "Manage billing and subscriptions",
+        "category": "Administration",
+    },
+    # User Management Scopes
+    {
+        "name": "users:read",
+        "resource": "users",
+        "action": "read",
+        "description": "View team members",
+        "category": "Administration",
+    },
+    {
+        "name": "users:write",
+        "resource": "users",
+        "action": "write",
+        "description": "Invite and manage team members",
+        "category": "Administration",
+    },
+    {
+        "name": "users:delete",
+        "resource": "users",
+        "action": "delete",
+        "description": "Remove team members",
+        "category": "Administration",
+    },
+    {
+        "name": "users:roles",
+        "resource": "users",
+        "action": "roles",
+        "description": "Assign and manage user roles",
+        "category": "Administration",
+    },
+    # Role Management Scopes
+    {
+        "name": "roles:read",
+        "resource": "roles",
+        "action": "read",
+        "description": "View custom roles",
+        "category": "Administration",
+    },
+    {
+        "name": "roles:write",
+        "resource": "roles",
+        "action": "write",
+        "description": "Create and modify custom roles",
+        "category": "Administration",
+    },
+    {
+        "name": "roles:delete",
+        "resource": "roles",
+        "action": "delete",
+        "description": "Delete custom roles",
+        "category": "Administration",
+    },
+    # Webhook Scopes
+    {
+        "name": "webhooks:read",
+        "resource": "webhooks",
+        "action": "read",
+        "description": "View webhooks",
+        "category": "Integrations",
+    },
+    {
+        "name": "webhooks:write",
+        "resource": "webhooks",
+        "action": "write",
+        "description": "Create and modify webhooks",
+        "category": "Integrations",
+    },
+    {
+        "name": "webhooks:delete",
+        "resource": "webhooks",
+        "action": "delete",
+        "description": "Delete webhooks",
+        "category": "Integrations",
+    },
+    # Provider/OAuth Scopes
+    {
+        "name": "providers:read",
+        "resource": "providers",
+        "action": "read",
+        "description": "View connected providers",
+        "category": "Integrations",
+    },
+    {
+        "name": "providers:write",
+        "resource": "providers",
+        "action": "write",
+        "description": "Connect and configure providers",
+        "category": "Integrations",
+    },
+    {
+        "name": "providers:delete",
+        "resource": "providers",
+        "action": "delete",
+        "description": "Disconnect providers",
+        "category": "Integrations",
+    },
+    # API Key Scopes
+    {
+        "name": "apikeys:read",
+        "resource": "apikeys",
+        "action": "read",
+        "description": "View API keys",
+        "category": "Security",
+    },
+    {
+        "name": "apikeys:write",
+        "resource": "apikeys",
+        "action": "write",
+        "description": "Create API keys",
+        "category": "Security",
+    },
+    {
+        "name": "apikeys:delete",
+        "resource": "apikeys",
+        "action": "delete",
+        "description": "Revoke API keys",
+        "category": "Security",
+    },
+    # Secret Management Scopes
+    {
+        "name": "secrets:read",
+        "resource": "secrets",
+        "action": "read",
+        "description": "View secrets",
+        "category": "Security",
+    },
+    {
+        "name": "secrets:write",
+        "resource": "secrets",
+        "action": "write",
+        "description": "Create and update secrets",
+        "category": "Security",
+    },
+    {
+        "name": "secrets:delete",
+        "resource": "secrets",
+        "action": "delete",
+        "description": "Delete secrets",
+        "category": "Security",
+    },
+    # Billing Scopes
+    {
+        "name": "billing:read",
+        "resource": "billing",
+        "action": "read",
+        "description": "View billing information",
+        "category": "Billing",
+    },
+    {
+        "name": "billing:write",
+        "resource": "billing",
+        "action": "write",
+        "description": "Update payment methods and subscriptions",
+        "category": "Billing",
+    },
+    {
+        "name": "billing:admin",
+        "resource": "billing",
+        "action": "admin",
+        "description": "Full billing administration access",
+        "category": "Billing",
+    },
+    # Asset Management Scopes
+    {
+        "name": "assets:read",
+        "resource": "assets",
+        "action": "read",
+        "description": "View assets and files",
+        "category": "Assets",
+    },
+    {
+        "name": "assets:write",
+        "resource": "assets",
+        "action": "write",
+        "description": "Upload and modify assets",
+        "category": "Assets",
+    },
+    {
+        "name": "assets:delete",
+        "resource": "assets",
+        "action": "delete",
+        "description": "Delete assets",
+        "category": "Assets",
+    },
+    # Ticket/Support Scopes
+    {
+        "name": "tickets:read",
+        "resource": "tickets",
+        "action": "read",
+        "description": "View support tickets",
+        "category": "Support",
+    },
+    {
+        "name": "tickets:write",
+        "resource": "tickets",
+        "action": "write",
+        "description": "Create and respond to tickets",
+        "category": "Support",
+    },
+    {
+        "name": "tickets:manage",
+        "resource": "tickets",
+        "action": "manage",
+        "description": "Manage all tickets",
+        "category": "Support",
+    },
+    # Activity Scopes
+    {
+        "name": "activity:read",
+        "resource": "activity",
+        "action": "read",
+        "description": "View activity logs",
+        "category": "Monitoring",
+    },
+    {
+        "name": "activity:export",
+        "resource": "activity",
+        "action": "export",
+        "description": "Export activity logs",
+        "category": "Monitoring",
+    },
+    # UI Feature Scopes
+    {
+        "name": "ui:settings",
+        "resource": "ui",
+        "action": "settings",
+        "description": "Access settings panel",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:admin_panel",
+        "resource": "ui",
+        "action": "admin_panel",
+        "description": "Access admin sections",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:voice_only_mode",
+        "resource": "ui",
+        "action": "voice_only_mode",
+        "description": "Restricted voice-only interface",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:full_chat",
+        "resource": "ui",
+        "action": "full_chat",
+        "description": "Full chat interface with all features",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:developer_mode",
+        "resource": "ui",
+        "action": "developer_mode",
+        "description": "Toggle developer mode",
+        "category": "UI Features",
+    },
+    # Super Admin Only Scopes
+    {
+        "name": "server:admin",
+        "resource": "server",
+        "action": "admin",
+        "description": "Full server administration access",
+        "category": "Super Admin",
+    },
+    {
+        "name": "companies:manage",
+        "resource": "companies",
+        "action": "manage",
+        "description": "Manage all companies on server",
+        "category": "Super Admin",
+    },
+    {
+        "name": "users:impersonate",
+        "resource": "users",
+        "action": "impersonate",
+        "description": "Impersonate other users",
+        "category": "Super Admin",
+    },
+]
+
+# Define which scopes each default role has
+# Lower role_id = higher privileges
+default_role_scopes = {
+    0: ["*"],  # super_admin: all scopes (wildcard)
+    1: [  # tenant_admin: full company management
+        "agents:*",
+        "conversations:*",
+        "extensions:*",
+        "memories:*",
+        "chains:*",
+        "prompts:*",
+        "company:*",
+        "users:*",
+        "roles:*",
+        "webhooks:*",
+        "providers:*",
+        "apikeys:*",
+        "secrets:*",
+        "billing:*",
+        "assets:*",
+        "tickets:*",
+        "activity:*",
+        "ui:settings",
+        "ui:admin_panel",
+        "ui:full_chat",
+        "ui:developer_mode",
+        "ext:*",  # All extension-specific scopes
+    ],
+    2: [  # company_admin: company management without some admin features
+        "agents:*",
+        "conversations:*",
+        "extensions:*",
+        "memories:*",
+        "chains:*",
+        "prompts:*",
+        "company:read",
+        "company:write",
+        "users:read",
+        "users:write",
+        "roles:read",
+        "webhooks:*",
+        "providers:*",
+        "secrets:read",
+        "secrets:write",
+        "billing:read",
+        "billing:write",
+        "assets:*",
+        "tickets:*",
+        "activity:read",
+        "ui:settings",
+        "ui:admin_panel",
+        "ui:full_chat",
+        "ui:developer_mode",
+        "ext:*",  # All extension-specific scopes
+    ],
+    3: [  # user: standard access
+        "agents:read",
+        "agents:execute",
+        "conversations:*",
+        "extensions:read",
+        "extensions:execute",
+        "memories:read",
+        "memories:write",
+        "chains:read",
+        "chains:execute",
+        "prompts:read",
+        "assets:read",
+        "assets:write",
+        "tickets:read",
+        "tickets:write",
+        "activity:read",
+        "ui:settings",
+        "ui:full_chat",
+        "ext:*:read",
+        "ext:*:execute",  # Can read and execute all extensions, but not configure
+    ],
+    4: [  # child: restricted voice-only access
+        "agents:execute",
+        "conversations:read",
+        "conversations:write",
+        "ui:voice_only_mode",
+        # No extension access for child users
+    ],
+    5: [  # chat_user: chat only
+        "agents:execute",
+        "conversations:read",
+        "conversations:write",
+        "ui:full_chat",
+        # Limited extension access - only execute through agent
+    ],
+}
+
 default_extension_categories = [
     {
         "name": "AI Provider",
@@ -2055,6 +3084,103 @@ def setup_default_roles():
         db.commit()
 
 
+def setup_default_scopes():
+    """
+    Set up the default scopes in the database.
+    Scopes define granular permissions that can be assigned to roles.
+    Also generates per-extension scopes dynamically.
+    """
+    # Combine static default scopes with dynamically generated extension scopes
+    extension_scopes = generate_extension_scopes()
+    all_scopes = default_scopes + extension_scopes
+
+    with get_session() as db:
+        for scope_data in all_scopes:
+            existing_scope = db.query(Scope).filter_by(name=scope_data["name"]).first()
+            if not existing_scope:
+                new_scope = Scope(
+                    name=scope_data["name"],
+                    resource=scope_data["resource"],
+                    action=scope_data["action"],
+                    description=scope_data.get("description"),
+                    category=scope_data.get("category"),
+                    is_system=True,
+                )
+                db.add(new_scope)
+        db.commit()
+        logging.info(
+            f"Set up {len(default_scopes)} default scopes + {len(extension_scopes)} extension scopes"
+        )
+
+
+def setup_default_role_scopes():
+    """
+    Set up the mapping between default roles and their scopes.
+    This defines what permissions each default role level has.
+    """
+    with get_session() as db:
+        # Get all scopes for pattern matching
+        all_scopes = db.query(Scope).all()
+        scope_map = {s.name: s for s in all_scopes}
+
+        for role_id, scope_patterns in default_role_scopes.items():
+            # Get the role
+            role = db.query(UserRole).filter_by(id=role_id).first()
+            if not role:
+                continue
+
+            # Expand wildcard patterns
+            scopes_to_assign = set()
+            for pattern in scope_patterns:
+                if pattern == "*":
+                    # All scopes
+                    scopes_to_assign.update(scope_map.keys())
+                elif pattern == "ext:*":
+                    # All extension scopes
+                    for scope_name in scope_map.keys():
+                        if scope_name.startswith("ext:"):
+                            scopes_to_assign.add(scope_name)
+                elif pattern.startswith("ext:*:"):
+                    # Action wildcard for all extensions (e.g., "ext:*:read")
+                    action = pattern.split(":")[-1]
+                    for scope_name in scope_map.keys():
+                        if scope_name.startswith("ext:") and scope_name.endswith(
+                            f":{action}"
+                        ):
+                            scopes_to_assign.add(scope_name)
+                elif pattern.endswith(":*"):
+                    # Resource wildcard (e.g., "agents:*", "ext:github:*")
+                    resource = pattern[:-2]
+                    for scope_name in scope_map.keys():
+                        if scope_name.startswith(f"{resource}:"):
+                            scopes_to_assign.add(scope_name)
+                else:
+                    # Exact match
+                    if pattern in scope_map:
+                        scopes_to_assign.add(pattern)
+
+            # Create DefaultRoleScope entries
+            for scope_name in scopes_to_assign:
+                scope = scope_map.get(scope_name)
+                if not scope:
+                    continue
+
+                existing = (
+                    db.query(DefaultRoleScope)
+                    .filter_by(role_id=role_id, scope_id=scope.id)
+                    .first()
+                )
+                if not existing:
+                    role_scope = DefaultRoleScope(
+                        role_id=role_id,
+                        scope_id=scope.id,
+                    )
+                    db.add(role_scope)
+
+        db.commit()
+        logging.info("Set up default role scope mappings")
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -2081,6 +3207,8 @@ if __name__ == "__main__":
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
     setup_default_roles()
+    setup_default_scopes()
+    setup_default_role_scopes()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:
         # Import seed data

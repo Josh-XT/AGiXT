@@ -9,10 +9,16 @@ from DB import (
     UserCompany,
     Invitation,
     default_roles,
+    default_scopes,
     TokenBlacklist,
     PaymentTransaction,
     CompanyTokenUsage,
     ExtensionCategory,
+    Scope,
+    CustomRole,
+    CustomRoleScope,
+    UserCustomRole,
+    DefaultRoleScope,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -306,6 +312,74 @@ def verify_api_key(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="API Key is missing.")
 
 
+def require_scope(*required_scopes):
+    """
+    FastAPI dependency factory to require specific scopes.
+    Use as: dependencies=[Depends(require_scope("agents:read"))]
+
+    Args:
+        *required_scopes: One or more scope names that are required.
+                          If multiple are provided, user needs at least one.
+
+    Returns:
+        A dependency function that validates scope access.
+    """
+
+    def scope_checker(authorization: str = Header(None)):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization required")
+
+        token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+        auth = MagicalAuth(token=token)
+
+        if len(required_scopes) == 1:
+            if not auth.has_scope(required_scopes[0]):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient permissions. Required scope: {required_scopes[0]}",
+                )
+        else:
+            if not auth.has_any_scope(list(required_scopes)):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient permissions. Required one of: {', '.join(required_scopes)}",
+                )
+
+        return auth
+
+    return scope_checker
+
+
+def require_all_scopes(*required_scopes):
+    """
+    FastAPI dependency factory to require ALL specified scopes.
+    Use as: dependencies=[Depends(require_all_scopes("agents:read", "agents:write"))]
+
+    Args:
+        *required_scopes: Scope names that are ALL required.
+
+    Returns:
+        A dependency function that validates scope access.
+    """
+
+    def scope_checker(authorization: str = Header(None)):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization required")
+
+        token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+        auth = MagicalAuth(token=token)
+
+        if not auth.has_all_scopes(list(required_scopes)):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions. Required all of: {', '.join(required_scopes)}",
+            )
+
+        return auth
+
+    return scope_checker
+
+
 def get_user_id(user: str):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
@@ -577,6 +651,231 @@ class MagicalAuth:
                 .first()
             )
             return user_company is not None
+
+    def get_user_scopes(self, company_id: str = None) -> set:
+        """
+        Get all scopes available to the current user for a specific company.
+        This combines scopes from their default role and any custom roles.
+
+        Args:
+            company_id: The company to check scopes for. Defaults to user's current company.
+
+        Returns:
+            set: A set of scope names the user has access to.
+        """
+        if self.user_id is None:
+            return set()
+
+        if not company_id:
+            company_id = self.company_id
+
+        scopes = set()
+
+        with get_session() as db:
+            # Get user's role in this company
+            user_company = (
+                db.query(UserCompany)
+                .filter(
+                    UserCompany.user_id == self.user_id,
+                    UserCompany.company_id == company_id,
+                )
+                .first()
+            )
+
+            if not user_company:
+                return scopes
+
+            role_id = user_company.role_id
+
+            # Super admin has all scopes - return wildcard
+            if role_id == 0:
+                # Return '*' wildcard which grants all permissions
+                # The frontend and has_scope() will treat '*' as having all scopes
+                return {"*"}
+
+            # Get scopes from default role
+            default_role_scopes = (
+                db.query(Scope)
+                .join(DefaultRoleScope, DefaultRoleScope.scope_id == Scope.id)
+                .filter(DefaultRoleScope.role_id == role_id)
+                .all()
+            )
+            scopes.update(s.name for s in default_role_scopes)
+
+            # Get scopes from custom roles assigned to this user in this company
+            custom_role_scopes = (
+                db.query(Scope)
+                .join(CustomRoleScope, CustomRoleScope.scope_id == Scope.id)
+                .join(CustomRole, CustomRole.id == CustomRoleScope.custom_role_id)
+                .join(UserCustomRole, UserCustomRole.custom_role_id == CustomRole.id)
+                .filter(
+                    UserCustomRole.user_id == self.user_id,
+                    UserCustomRole.company_id == company_id,
+                    CustomRole.is_active == True,
+                )
+                .all()
+            )
+            scopes.update(s.name for s in custom_role_scopes)
+
+        return scopes
+
+    def has_scope(self, scope: str, company_id: str = None) -> bool:
+        """
+        Check if the user has a specific scope in a company.
+
+        Args:
+            scope: The scope to check (e.g., 'agents:read', 'ext:github:issues:read')
+            company_id: The company to check in. Defaults to user's current company.
+
+        Returns:
+            bool: True if the user has the scope, False otherwise.
+        """
+        if self.user_id is None:
+            return False
+
+        # Super admins have all scopes
+        if self.is_super_admin():
+            return True
+
+        user_scopes = self.get_user_scopes(company_id)
+
+        # Check global wildcard - user has all permissions
+        if "*" in user_scopes:
+            return True
+
+        # Check exact match
+        if scope in user_scopes:
+            return True
+
+        # Parse the scope to check
+        parts = scope.split(":")
+
+        # Handle extension-specific scopes
+        if parts[0] == "ext" and len(parts) >= 3:
+            ext_name = parts[1]
+
+            # Check if user has ext:* (all extension scopes)
+            if "ext:*" in user_scopes:
+                return True
+
+            # Handle 3-part extension scopes (ext:name:action)
+            if len(parts) == 3:
+                action = parts[2]
+
+                # Check if user has ext:*:action (e.g., ext:*:read for all extensions read access)
+                if f"ext:*:{action}" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:* (all actions for specific extension)
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+
+            # Handle 4-part deep extension scopes (ext:name:feature:action)
+            elif len(parts) == 4:
+                feature = parts[2]
+                action = parts[3]
+
+                # Check if user has ext:*:feature:action (all extensions, same feature)
+                if f"ext:*:{feature}:{action}" in user_scopes:
+                    return True
+
+                # Check if user has ext:*:*:action (all extensions, all features, same action)
+                if f"ext:*:*:{action}" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:* (all actions for specific extension)
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:feature:* (all actions for specific feature)
+                if f"ext:{ext_name}:{feature}:*" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:*:action (specific extension, all features, specific action)
+                if f"ext:{ext_name}:*:{action}" in user_scopes:
+                    return True
+
+                # Check if user has the simpler ext:name:execute scope (grants all execute for that extension)
+                if action == "execute" and f"ext:{ext_name}:execute" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:read (grants all read features for that extension)
+                if action == "read" and f"ext:{ext_name}:read" in user_scopes:
+                    return True
+
+        # Check standard wildcard patterns (e.g., if user has 'agents:*', they have 'agents:read')
+        if len(parts) >= 2:
+            resource = parts[0]
+            if f"{resource}:*" in user_scopes:
+                return True
+
+        return False
+
+    def has_any_scope(self, scopes: list, company_id: str = None) -> bool:
+        """
+        Check if the user has any of the specified scopes.
+
+        Args:
+            scopes: List of scope names to check.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Returns:
+            bool: True if the user has at least one of the scopes.
+        """
+        for scope in scopes:
+            if self.has_scope(scope, company_id):
+                return True
+        return False
+
+    def has_all_scopes(self, scopes: list, company_id: str = None) -> bool:
+        """
+        Check if the user has all of the specified scopes.
+
+        Args:
+            scopes: List of scope names to check.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Returns:
+            bool: True if the user has all of the scopes.
+        """
+        for scope in scopes:
+            if not self.has_scope(scope, company_id):
+                return False
+        return True
+
+    def require_scope(self, scope: str, company_id: str = None):
+        """
+        Require a specific scope, raising an HTTPException if not authorized.
+
+        Args:
+            scope: The scope to require.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Raises:
+            HTTPException: 403 if user doesn't have the required scope.
+        """
+        if not self.has_scope(scope, company_id):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions. Required scope: {scope}",
+            )
+
+    def require_any_scope(self, scopes: list, company_id: str = None):
+        """
+        Require at least one of the specified scopes.
+
+        Args:
+            scopes: List of scope names to check.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Raises:
+            HTTPException: 403 if user doesn't have any of the required scopes.
+        """
+        if not self.has_any_scope(scopes, company_id):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions. Required one of: {', '.join(scopes)}",
+            )
 
     def user_exists(self, email: str = None):
         self.email = (
