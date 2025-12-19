@@ -3463,7 +3463,7 @@ class MagicalAuth:
                     # Use dictionary for deduplication based on user ID
                     unique_users = {}
                     role_id = self.get_user_role(str(company.id))
-                    if not role_id:
+                    if role_id is None:
                         continue
                     try:
                         role_id = int(role_id)
