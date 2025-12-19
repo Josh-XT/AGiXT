@@ -65,3 +65,4 @@ web/*
 mobile/*
 agixt.egg-info/
 xtsystems_extensions
+tests/test_*
