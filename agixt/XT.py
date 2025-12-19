@@ -2658,7 +2658,7 @@ Your response (true or false):"""
         if has_tool_result and tool_result_text and thinking_id:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Received tool result: {tool_result_text[:200]}{'...' if len(tool_result_text) > 200 else ''}",
+                message=f"[SUBACTIVITY][{thinking_id}] Received tool result: \n```\n{tool_result_text}\n```",
             )
         file_contents = []
         current_input_tokens = get_tokens(new_prompt)

@@ -3635,6 +3635,11 @@ Analyze the actual output shown and continue with your response.
 
         # Get client-defined tools if available
         client_tools = getattr(self, "_client_tools", {})
+        
+        # Debug logging for client tools
+        if commands_to_execute:
+            logging.info(f"[execution_agent] Commands to execute: {[(c[1], c[2]) for c in commands_to_execute]}")
+            logging.info(f"[execution_agent] Available client_tools: {list(client_tools.keys())}")
 
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:
