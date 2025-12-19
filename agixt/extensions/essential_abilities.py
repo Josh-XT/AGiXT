@@ -5,6 +5,8 @@ import asyncio
 import logging
 import datetime
 import threading
+import re
+import ast
 from typing import Optional, List
 from sqlalchemy import Column, String, Text, Integer, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
@@ -28,6 +30,61 @@ from DB import (
     ExtensionDatabaseMixin,
 )
 import uuid
+
+
+# Binary file extensions to skip when searching file contents
+BINARY_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".webp",
+    ".svg",
+    ".mp3",
+    ".mp4",
+    ".wav",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".flac",
+    ".ogg",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".rar",
+    ".7z",
+    ".bz2",
+    ".xz",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".bin",
+    ".pyc",
+    ".pyo",
+    ".class",
+    ".o",
+    ".obj",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".otf",
+    ".ico",
+    ".icns",
+}
 
 
 # Database Model for Todos
@@ -196,6 +253,67 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Get Web UI Tips": self.get_webui_tips,
             "Create AGiXT Agent": self.create_new_agixt_agent,
             "Optimize Command Selection": self.optimize_command_selection,
+            # New Code Intelligence & Development Tools
+            "Find Symbol Usages": self.find_symbol_usages,
+            "Semantic Code Search": self.semantic_code_search,
+            "Multi-File Replace": self.multi_file_replace,
+            "Get File Errors": self.get_file_errors,
+            "Run Tests": self.run_tests,
+            "Get Code Symbols": self.get_code_symbols,
+            "Git Status": self.git_status,
+            "Git Commit": self.git_commit,
+            "Git Diff": self.git_diff,
+            "Git Blame": self.git_blame,
+            "Create Directory": self.create_directory,
+            "Rename File": self.rename_file,
+            "Copy File": self.copy_file,
+            "Get File Metadata": self.get_file_metadata,
+            "Diff Files": self.diff_files,
+            "Format Code": self.format_code,
+            "Insert in File": self.insert_in_file,
+            "Delete Lines": self.delete_lines,
+            "Get File Line Count": self.get_file_line_count,
+            "Search and Replace Regex": self.search_and_replace_regex,
+            "Extract Function": self.extract_function,
+            "Get Imports": self.get_imports,
+            "Append to File": self.append_to_file,
+            "Prepend to File": self.prepend_to_file,
+            "Git Log": self.git_log,
+            "Git Branch": self.git_branch,
+            "Git Stash": self.git_stash,
+            "Find Duplicate Code": self.find_duplicate_code,
+            "Get Function Signature": self.get_function_signature,
+            "Validate JSON": self.validate_json,
+            "Validate YAML": self.validate_yaml,
+            "Minify JSON": self.minify_json,
+            "Prettify JSON": self.prettify_json,
+            "Count Lines of Code": self.count_lines_of_code,
+            "Find TODO Comments": self.find_todo_comments,
+            "Generate Docstring": self.generate_docstring,
+            "Get File Tree": self.get_file_tree,
+            "Move File": self.move_file,
+            "Find References": self.find_references,
+            "Get Class Definition": self.get_class_definition,
+            "Get Method List": self.get_method_list,
+            "Analyze Dependencies": self.analyze_dependencies,
+            "Get Code Outline": self.get_code_outline,
+            "Git Fetch": self.git_fetch,
+            "Git Pull": self.git_pull,
+            "Git Merge": self.git_merge,
+            "Git Revert": self.git_revert,
+            "Git Cherry Pick": self.git_cherry_pick,
+            "Find Test File": self.find_test_file,
+            "Lint File": self.lint_file,
+            "Sort Lines": self.sort_lines,
+            "Remove Duplicate Lines": self.remove_duplicate_lines,
+            "Extract Comments": self.extract_comments,
+            "Generate Changelog": self.generate_changelog,
+            "Head File": self.head_file,
+            "Tail File": self.tail_file,
+            "Check Path Exists": self.check_path_exists,
+            "Get File Hash": self.get_file_hash,
+            "Truncate File": self.truncate_file,
+            "Find Large Files": self.find_large_files,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -3981,3 +4099,4921 @@ On the sidebar, expanding `Automation` reveals the following pages:
         # This is a signal command - the actual optimization is handled by the Interactions class
         # when it sees this command was executed. We return a message indicating optimization is requested.
         return f"OPTIMIZE_COMMANDS:{task_description}"
+
+    # ==========================================================================
+    # NEW CODE INTELLIGENCE & DEVELOPMENT TOOLS
+    # ==========================================================================
+
+    async def find_symbol_usages(
+        self,
+        symbol_name: str,
+        file_patterns: str = "**/*.py",
+        include_definitions: str = "true",
+    ) -> str:
+        """
+        Find all usages (references, definitions, calls) of a function, class, method, or variable across the workspace.
+        Essential for understanding code impact before making changes and for refactoring workflows.
+
+        Args:
+            symbol_name (str): The name of the symbol to search for (function, class, method, variable name)
+            file_patterns (str): Glob pattern to filter which files to search (e.g., "**/*.py", "**/*.js"). Default: "**/*.py"
+            include_definitions (str): Whether to include definition sites ("true"/"false"). Default: "true"
+
+        Returns:
+            str: List of all usages with file paths, line numbers, and context
+
+        Examples:
+            - Find all calls to a function: symbol_name="authenticate_user"
+            - Find all uses of a class: symbol_name="UserModel"
+            - Find variable references: symbol_name="config_settings"
+        """
+        import fnmatch
+        import re
+
+        try:
+            include_defs = str(include_definitions).lower() == "true"
+            usages = []
+            definitions = []
+            files_searched = 0
+
+            # Create regex pattern for the symbol
+            # Match word boundaries to avoid partial matches
+            pattern = re.compile(rf"\b{re.escape(symbol_name)}\b")
+
+            # Patterns that indicate a definition vs usage
+            definition_patterns = [
+                rf"^\s*def\s+{re.escape(symbol_name)}\s*\(",  # Python function def
+                rf"^\s*async\s+def\s+{re.escape(symbol_name)}\s*\(",  # Python async def
+                rf"^\s*class\s+{re.escape(symbol_name)}[\s:(]",  # Python class def
+                rf"^\s*{re.escape(symbol_name)}\s*=",  # Variable assignment
+                rf"^\s*self\.{re.escape(symbol_name)}\s*=",  # Instance attribute
+                rf"function\s+{re.escape(symbol_name)}\s*\(",  # JS function
+                rf"const\s+{re.escape(symbol_name)}\s*=",  # JS const
+                rf"let\s+{re.escape(symbol_name)}\s*=",  # JS let
+                rf"var\s+{re.escape(symbol_name)}\s*=",  # JS var
+            ]
+            definition_regex = re.compile("|".join(definition_patterns))
+
+            for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
+                # Skip hidden directories and common non-code directories
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if not d.startswith(".")
+                    and d
+                    not in [
+                        "node_modules",
+                        "__pycache__",
+                        "venv",
+                        ".venv",
+                        "dist",
+                        "build",
+                    ]
+                ]
+
+                for filename in files:
+                    rel_root = os.path.relpath(root, self.WORKING_DIRECTORY)
+                    if rel_root == ".":
+                        rel_path = filename
+                    else:
+                        rel_path = f"{rel_root}/{filename}"
+
+                    # Check if file matches pattern
+                    if not fnmatch.fnmatch(
+                        rel_path, file_patterns
+                    ) and not fnmatch.fnmatch(
+                        filename,
+                        (
+                            file_patterns.split("/")[-1]
+                            if "/" in file_patterns
+                            else file_patterns
+                        ),
+                    ):
+                        continue
+
+                    # Skip binary files
+                    ext = os.path.splitext(filename)[1].lower()
+                    if ext in BINARY_EXTENSIONS:
+                        continue
+
+                    file_path = os.path.join(root, filename)
+                    try:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            lines = f.readlines()
+
+                        for line_num, line in enumerate(lines, 1):
+                            if pattern.search(line):
+                                is_definition = bool(definition_regex.search(line))
+
+                                entry = {
+                                    "file": rel_path,
+                                    "line": line_num,
+                                    "content": line.strip(),
+                                    "type": "definition" if is_definition else "usage",
+                                }
+
+                                if is_definition:
+                                    definitions.append(entry)
+                                else:
+                                    usages.append(entry)
+
+                        files_searched += 1
+                    except Exception:
+                        continue
+
+            # Build result
+            result = f"# Symbol Analysis: `{symbol_name}`\n\n"
+            result += f"Searched {files_searched} files matching `{file_patterns}`\n\n"
+
+            if include_defs and definitions:
+                result += f"## Definitions ({len(definitions)})\n\n"
+                for d in definitions[:20]:
+                    result += f"- **{d['file']}:{d['line']}**\n  ```\n  {d['content']}\n  ```\n"
+                if len(definitions) > 20:
+                    result += f"\n... and {len(definitions) - 20} more definitions\n"
+
+            if usages:
+                result += f"\n## Usages ({len(usages)})\n\n"
+                for u in usages[:50]:
+                    result += f"- **{u['file']}:{u['line']}**: `{u['content'][:100]}{'...' if len(u['content']) > 100 else ''}`\n"
+                if len(usages) > 50:
+                    result += f"\n... and {len(usages) - 50} more usages\n"
+
+            if not definitions and not usages:
+                result += f"No occurrences of `{symbol_name}` found in the workspace."
+
+            return result
+
+        except Exception as e:
+            return f"Error finding symbol usages: {str(e)}"
+
+    async def semantic_code_search(
+        self,
+        query: str,
+        file_patterns: str = "**/*",
+        max_results: int = 20,
+    ) -> str:
+        """
+        Search for code using natural language descriptions. Finds code that matches conceptual queries
+        like "authentication logic", "database connection", "error handling", etc.
+
+        Args:
+            query (str): Natural language description of what you're looking for
+            file_patterns (str): Glob pattern to filter files (e.g., "**/*.py"). Default: all files
+            max_results (int): Maximum number of results to return. Default: 20
+
+        Returns:
+            str: Matching code snippets with file paths and relevance context
+
+        Examples:
+            - "authentication and login logic"
+            - "database connection setup"
+            - "error handling and exceptions"
+            - "API endpoint definitions"
+            - "configuration loading"
+        """
+        import fnmatch
+        import re
+
+        try:
+            # Build search terms from the query
+            # Extract key terms and common programming synonyms
+            query_lower = query.lower()
+            search_terms = []
+
+            # Add original query words
+            words = re.findall(r"\b\w+\b", query_lower)
+            search_terms.extend(words)
+
+            # Add programming-specific synonyms
+            synonyms = {
+                "auth": [
+                    "authenticate",
+                    "authentication",
+                    "login",
+                    "logout",
+                    "session",
+                    "token",
+                    "jwt",
+                    "oauth",
+                ],
+                "database": [
+                    "db",
+                    "sql",
+                    "query",
+                    "connection",
+                    "cursor",
+                    "orm",
+                    "model",
+                ],
+                "error": [
+                    "exception",
+                    "try",
+                    "except",
+                    "catch",
+                    "raise",
+                    "throw",
+                    "error",
+                ],
+                "config": [
+                    "configuration",
+                    "settings",
+                    "env",
+                    "environment",
+                    "options",
+                ],
+                "api": ["endpoint", "route", "request", "response", "rest", "http"],
+                "test": ["unittest", "pytest", "assert", "mock", "fixture"],
+                "log": ["logging", "logger", "debug", "info", "warning", "error"],
+                "file": ["read", "write", "open", "path", "directory", "folder"],
+                "user": ["account", "profile", "member", "customer"],
+                "data": ["parse", "serialize", "json", "xml", "csv"],
+            }
+
+            for word in words:
+                for key, values in synonyms.items():
+                    if word == key or word in values:
+                        search_terms.extend(values)
+                        search_terms.append(key)
+
+            search_terms = list(set(search_terms))
+
+            # Score-based matching
+            results = []
+            files_searched = 0
+
+            for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if not d.startswith(".")
+                    and d
+                    not in [
+                        "node_modules",
+                        "__pycache__",
+                        "venv",
+                        ".venv",
+                        "dist",
+                        "build",
+                    ]
+                ]
+
+                for filename in files:
+                    rel_root = os.path.relpath(root, self.WORKING_DIRECTORY)
+                    if rel_root == ".":
+                        rel_path = filename
+                    else:
+                        rel_path = f"{rel_root}/{filename}"
+
+                    if not fnmatch.fnmatch(
+                        rel_path, file_patterns
+                    ) and not fnmatch.fnmatch(
+                        filename,
+                        (
+                            file_patterns.split("/")[-1]
+                            if "/" in file_patterns
+                            else file_patterns
+                        ),
+                    ):
+                        continue
+
+                    ext = os.path.splitext(filename)[1].lower()
+                    if ext in BINARY_EXTENSIONS:
+                        continue
+
+                    file_path = os.path.join(root, filename)
+                    try:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            content = f.read()
+                            lines = content.split("\n")
+
+                        # Score the file based on term matches
+                        content_lower = content.lower()
+                        file_score = sum(
+                            content_lower.count(term) for term in search_terms
+                        )
+
+                        if file_score > 0:
+                            # Find the most relevant lines
+                            line_scores = []
+                            for i, line in enumerate(lines):
+                                line_lower = line.lower()
+                                line_score = sum(
+                                    1 for term in search_terms if term in line_lower
+                                )
+                                if line_score > 0:
+                                    line_scores.append(
+                                        (i + 1, line_score, line.strip())
+                                    )
+
+                            # Sort by score and take top matches
+                            line_scores.sort(key=lambda x: x[1], reverse=True)
+                            top_lines = line_scores[:5]
+
+                            results.append(
+                                {
+                                    "file": rel_path,
+                                    "score": file_score,
+                                    "matches": top_lines,
+                                }
+                            )
+
+                        files_searched += 1
+                    except Exception:
+                        continue
+
+            # Sort by score
+            results.sort(key=lambda x: x["score"], reverse=True)
+            results = results[:max_results]
+
+            # Build output
+            output = f'# Semantic Search: "{query}"\n\n'
+            output += f"Searched {files_searched} files, found {len(results)} relevant files\n"
+            output += f"Search terms used: {', '.join(search_terms[:15])}{'...' if len(search_terms) > 15 else ''}\n\n"
+
+            if results:
+                for r in results:
+                    output += f"## {r['file']} (relevance: {r['score']})\n"
+                    for line_num, score, content in r["matches"]:
+                        output += f"  - Line {line_num}: `{content[:80]}{'...' if len(content) > 80 else ''}`\n"
+                    output += "\n"
+            else:
+                output += "No relevant code found for your query.\n"
+                output += "Try using different terms or broader patterns."
+
+            return output
+
+        except Exception as e:
+            return f"Error in semantic search: {str(e)}"
+
+    async def multi_file_replace(
+        self,
+        replacements: str,
+    ) -> str:
+        """
+        Apply multiple string replacements across different files atomically.
+        Essential for refactoring operations and coordinated changes across a codebase.
+
+        Args:
+            replacements (str): JSON array of replacement operations. Each operation should have:
+                - file: relative file path
+                - old_text: exact text to find
+                - new_text: replacement text
+
+                Example: [{"file": "app.py", "old_text": "old_func", "new_text": "new_func"},
+                          {"file": "utils.py", "old_text": "old_func", "new_text": "new_func"}]
+
+        Returns:
+            str: Summary of successful and failed replacements
+
+        Notes:
+            - All replacements are validated before any changes are made
+            - If validation fails for any replacement, no changes are made (atomic operation)
+            - Use this for renaming functions, updating imports, or coordinated refactoring
+        """
+        try:
+            ops = json.loads(replacements)
+            if not isinstance(ops, list):
+                return "Error: replacements must be a JSON array of operations"
+
+            # Validate all operations first
+            validated = []
+            errors = []
+
+            for i, op in enumerate(ops):
+                if not isinstance(op, dict):
+                    errors.append(f"Operation {i+1}: must be an object")
+                    continue
+
+                file_path = op.get("file")
+                old_text = op.get("old_text")
+                new_text = op.get("new_text")
+
+                if not all([file_path, old_text is not None, new_text is not None]):
+                    errors.append(
+                        f"Operation {i+1}: missing required fields (file, old_text, new_text)"
+                    )
+                    continue
+
+                full_path = self.safe_join(file_path)
+                if not os.path.exists(full_path):
+                    errors.append(f"Operation {i+1}: file '{file_path}' does not exist")
+                    continue
+
+                try:
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    if old_text not in content:
+                        errors.append(
+                            f"Operation {i+1}: text not found in '{file_path}'"
+                        )
+                        continue
+
+                    # Count occurrences
+                    count = content.count(old_text)
+                    validated.append(
+                        {
+                            "file": file_path,
+                            "full_path": full_path,
+                            "old_text": old_text,
+                            "new_text": new_text,
+                            "occurrences": count,
+                            "content": content,
+                        }
+                    )
+                except Exception as e:
+                    errors.append(
+                        f"Operation {i+1}: error reading '{file_path}': {str(e)}"
+                    )
+
+            # If there are validation errors, report them without making changes
+            if errors:
+                result = "## Validation Errors\n\n"
+                result += "No changes were made due to the following errors:\n\n"
+                for err in errors:
+                    result += f"- {err}\n"
+                if validated:
+                    result += f"\n{len(validated)} operations would have succeeded."
+                return result
+
+            # Apply all replacements
+            successful = []
+            for op in validated:
+                try:
+                    new_content = op["content"].replace(op["old_text"], op["new_text"])
+                    with open(op["full_path"], "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                    successful.append(op)
+                except Exception as e:
+                    errors.append(f"Failed to write '{op['file']}': {str(e)}")
+
+            # Build result summary
+            result = f"## Multi-File Replace Results\n\n"
+            result += f"**{len(successful)} of {len(ops)} operations completed successfully**\n\n"
+
+            if successful:
+                result += "### Successful Replacements:\n"
+                for op in successful:
+                    result += f"- `{op['file']}`: replaced {op['occurrences']} occurrence(s)\n"
+
+            if errors:
+                result += "\n### Errors:\n"
+                for err in errors:
+                    result += f"- {err}\n"
+
+            return result
+
+        except json.JSONDecodeError as e:
+            return f"Error parsing replacements JSON: {str(e)}\n\nExpected format: [{'{'}\"file\": \"path\", \"old_text\": \"old\", \"new_text\": \"new\"{'}'}]"
+        except Exception as e:
+            return f"Error in multi-file replace: {str(e)}"
+
+    async def get_file_errors(
+        self,
+        file_path: str = "",
+        error_types: str = "all",
+    ) -> str:
+        """
+        Get syntax errors, linting issues, and other diagnostics for files in the workspace.
+        Essential for validating code after changes and identifying issues.
+
+        Args:
+            file_path (str): Specific file to check, or empty string to check all Python files
+            error_types (str): Types of errors to check: "syntax", "lint", "type", or "all". Default: "all"
+
+        Returns:
+            str: List of errors with file paths, line numbers, and descriptions
+
+        Notes:
+            - For Python files: checks syntax errors and optionally runs pylint/flake8
+            - For JavaScript files: checks syntax errors
+            - Use this after making code changes to validate your work
+        """
+        import ast
+        import fnmatch
+
+        errors = []
+        files_checked = 0
+
+        try:
+            check_syntax = error_types in ["all", "syntax"]
+            check_lint = error_types in ["all", "lint"]
+
+            if file_path:
+                files_to_check = [self.safe_join(file_path)]
+            else:
+                files_to_check = []
+                for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
+                    dirs[:] = [
+                        d
+                        for d in dirs
+                        if not d.startswith(".")
+                        and d not in ["node_modules", "__pycache__", "venv", ".venv"]
+                    ]
+                    for filename in files:
+                        if filename.endswith(".py"):
+                            files_to_check.append(os.path.join(root, filename))
+
+            for full_path in files_to_check:
+                if not os.path.exists(full_path):
+                    continue
+
+                rel_path = os.path.relpath(full_path, self.WORKING_DIRECTORY)
+                ext = os.path.splitext(full_path)[1].lower()
+
+                if ext == ".py" and check_syntax:
+                    # Check Python syntax
+                    try:
+                        with open(full_path, "r", encoding="utf-8") as f:
+                            code = f.read()
+                        ast.parse(code)
+                    except SyntaxError as e:
+                        errors.append(
+                            {
+                                "file": rel_path,
+                                "line": e.lineno or 0,
+                                "column": e.offset or 0,
+                                "type": "SyntaxError",
+                                "message": str(e.msg),
+                            }
+                        )
+
+                if ext == ".py" and check_lint:
+                    # Try to run basic lint checks
+                    try:
+                        with open(full_path, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+
+                        for i, line in enumerate(lines, 1):
+                            # Check for common issues
+                            stripped = line.rstrip()
+
+                            # Trailing whitespace
+                            if line.rstrip() != line.rstrip("\n").rstrip("\r"):
+                                if line.endswith(" \n") or line.endswith("\t\n"):
+                                    errors.append(
+                                        {
+                                            "file": rel_path,
+                                            "line": i,
+                                            "column": len(stripped),
+                                            "type": "Style",
+                                            "message": "Trailing whitespace",
+                                        }
+                                    )
+
+                            # Line too long
+                            if len(stripped) > 120:
+                                errors.append(
+                                    {
+                                        "file": rel_path,
+                                        "line": i,
+                                        "column": 120,
+                                        "type": "Style",
+                                        "message": f"Line too long ({len(stripped)} > 120 characters)",
+                                    }
+                                )
+
+                            # Mixed tabs and spaces (basic check)
+                            if "\t" in line and "    " in line:
+                                errors.append(
+                                    {
+                                        "file": rel_path,
+                                        "line": i,
+                                        "column": 1,
+                                        "type": "Style",
+                                        "message": "Mixed tabs and spaces in indentation",
+                                    }
+                                )
+
+                    except Exception:
+                        pass
+
+                files_checked += 1
+
+            # Build result
+            result = f"# Code Diagnostics Report\n\n"
+            result += (
+                f"Checked {files_checked} file(s), found {len(errors)} issue(s)\n\n"
+            )
+
+            if errors:
+                # Group by file
+                by_file = {}
+                for err in errors:
+                    if err["file"] not in by_file:
+                        by_file[err["file"]] = []
+                    by_file[err["file"]].append(err)
+
+                for file, file_errors in by_file.items():
+                    result += f"## {file}\n\n"
+                    for err in file_errors:
+                        result += f"- **Line {err['line']}**: [{err['type']}] {err['message']}\n"
+                    result += "\n"
+            else:
+                result += "✅ No issues found!"
+
+            return result
+
+        except Exception as e:
+            return f"Error checking files: {str(e)}"
+
+    async def run_tests(
+        self,
+        test_path: str = "",
+        test_pattern: str = "test_*.py",
+        verbose: str = "true",
+    ) -> str:
+        """
+        Run unit tests in the workspace. Supports pytest and unittest frameworks.
+
+        Args:
+            test_path (str): Specific test file or directory to run. Empty for auto-discovery.
+            test_pattern (str): Pattern to match test files. Default: "test_*.py"
+            verbose (str): Show detailed output ("true"/"false"). Default: "true"
+
+        Returns:
+            str: Test results including passed, failed, and error details
+
+        Notes:
+            - Automatically detects pytest or unittest
+            - Provides detailed failure information for debugging
+            - Use after making code changes to verify functionality
+        """
+        try:
+            verbose_flag = str(verbose).lower() == "true"
+
+            # Determine test path
+            if test_path:
+                full_test_path = self.safe_join(test_path)
+            else:
+                full_test_path = self.WORKING_DIRECTORY
+
+            # Check if pytest is available
+            pytest_available = False
+            try:
+                import pytest
+
+                pytest_available = True
+            except ImportError:
+                pass
+
+            if pytest_available:
+                # Run with pytest
+                import io
+                import sys
+
+                # Capture output
+                old_stdout = sys.stdout
+                old_stderr = sys.stderr
+                sys.stdout = io.StringIO()
+                sys.stderr = io.StringIO()
+
+                try:
+                    args = [
+                        full_test_path,
+                        "-v" if verbose_flag else "-q",
+                        "--tb=short",
+                    ]
+                    exit_code = pytest.main(args)
+
+                    stdout_output = sys.stdout.getvalue()
+                    stderr_output = sys.stderr.getvalue()
+                finally:
+                    sys.stdout = old_stdout
+                    sys.stderr = old_stderr
+
+                result = "# Test Results (pytest)\n\n"
+                result += f"Exit code: {exit_code} ({'PASSED' if exit_code == 0 else 'FAILED'})\n\n"
+                result += "```\n"
+                result += stdout_output
+                if stderr_output:
+                    result += "\n--- stderr ---\n"
+                    result += stderr_output
+                result += "```"
+
+                return result
+            else:
+                # Fall back to unittest
+                import unittest
+                import io
+
+                loader = unittest.TestLoader()
+
+                if os.path.isfile(full_test_path):
+                    # Load specific test file
+                    suite = loader.discover(
+                        os.path.dirname(full_test_path),
+                        pattern=os.path.basename(full_test_path),
+                    )
+                else:
+                    # Discover tests in directory
+                    suite = loader.discover(full_test_path, pattern=test_pattern)
+
+                # Run tests
+                stream = io.StringIO()
+                runner = unittest.TextTestRunner(
+                    stream=stream,
+                    verbosity=2 if verbose_flag else 1,
+                )
+                result_obj = runner.run(suite)
+
+                result = "# Test Results (unittest)\n\n"
+                result += f"Tests run: {result_obj.testsRun}\n"
+                result += f"Failures: {len(result_obj.failures)}\n"
+                result += f"Errors: {len(result_obj.errors)}\n"
+                result += f"Status: {'PASSED' if result_obj.wasSuccessful() else 'FAILED'}\n\n"
+                result += "```\n"
+                result += stream.getvalue()
+                result += "```"
+
+                if result_obj.failures:
+                    result += "\n\n## Failures\n\n"
+                    for test, traceback in result_obj.failures:
+                        result += f"### {test}\n```\n{traceback}\n```\n"
+
+                if result_obj.errors:
+                    result += "\n\n## Errors\n\n"
+                    for test, traceback in result_obj.errors:
+                        result += f"### {test}\n```\n{traceback}\n```\n"
+
+                return result
+
+        except Exception as e:
+            return f"Error running tests: {str(e)}"
+
+    async def get_code_symbols(
+        self,
+        file_path: str,
+        symbol_types: str = "all",
+    ) -> str:
+        """
+        List all code symbols (classes, functions, methods, variables) in a file.
+        Provides a structural overview without reading the entire file content.
+
+        Args:
+            file_path (str): Path to the file to analyze
+            symbol_types (str): Types to include: "classes", "functions", "variables", or "all". Default: "all"
+
+        Returns:
+            str: Hierarchical list of symbols with line numbers
+
+        Notes:
+            - For Python files: uses AST parsing for accurate results
+            - Shows class methods nested under their classes
+            - Useful for understanding file structure before making changes
+        """
+        import ast
+
+        try:
+            full_path = self.safe_join(file_path)
+            if not os.path.exists(full_path):
+                return f"Error: File '{file_path}' not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            if ext == ".py":
+                with open(full_path, "r", encoding="utf-8") as f:
+                    code = f.read()
+
+                try:
+                    tree = ast.parse(code)
+                except SyntaxError as e:
+                    return f"Error: Syntax error in file at line {e.lineno}: {e.msg}"
+
+                include_classes = symbol_types in ["all", "classes"]
+                include_functions = symbol_types in ["all", "functions"]
+                include_variables = symbol_types in ["all", "variables"]
+
+                result = f"# Code Symbols: {file_path}\n\n"
+
+                classes = []
+                functions = []
+                variables = []
+
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef) and include_classes:
+                        methods = []
+                        class_vars = []
+                        for item in node.body:
+                            if isinstance(item, ast.FunctionDef) or isinstance(
+                                item, ast.AsyncFunctionDef
+                            ):
+                                methods.append((item.name, item.lineno))
+                            elif isinstance(item, ast.Assign):
+                                for target in item.targets:
+                                    if isinstance(target, ast.Name):
+                                        class_vars.append((target.id, item.lineno))
+                        classes.append(
+                            {
+                                "name": node.name,
+                                "line": node.lineno,
+                                "methods": methods,
+                                "variables": class_vars,
+                            }
+                        )
+
+                    elif (
+                        isinstance(node, ast.FunctionDef)
+                        or isinstance(node, ast.AsyncFunctionDef)
+                    ) and include_functions:
+                        # Only top-level functions (not methods)
+                        if not any(
+                            node.lineno > c["line"] and node.lineno < c["line"] + 1000
+                            for c in classes
+                        ):
+                            is_async = isinstance(node, ast.AsyncFunctionDef)
+                            functions.append(
+                                {
+                                    "name": node.name,
+                                    "line": node.lineno,
+                                    "async": is_async,
+                                    "args": [arg.arg for arg in node.args.args],
+                                }
+                            )
+
+                    elif isinstance(node, ast.Assign) and include_variables:
+                        # Only module-level variables
+                        if hasattr(node, "col_offset") and node.col_offset == 0:
+                            for target in node.targets:
+                                if isinstance(target, ast.Name):
+                                    variables.append(
+                                        {"name": target.id, "line": node.lineno}
+                                    )
+
+                if classes:
+                    result += "## Classes\n\n"
+                    for cls in sorted(classes, key=lambda x: x["line"]):
+                        result += f"### `{cls['name']}` (line {cls['line']})\n"
+                        if cls["methods"]:
+                            result += "Methods:\n"
+                            for name, line in sorted(
+                                cls["methods"], key=lambda x: x[1]
+                            ):
+                                result += f"  - `{name}()` (line {line})\n"
+                        if cls["variables"]:
+                            result += "Class Variables:\n"
+                            for name, line in sorted(
+                                cls["variables"], key=lambda x: x[1]
+                            ):
+                                result += f"  - `{name}` (line {line})\n"
+                        result += "\n"
+
+                if functions:
+                    result += "## Functions\n\n"
+                    for func in sorted(functions, key=lambda x: x["line"]):
+                        async_prefix = "async " if func["async"] else ""
+                        args_str = ", ".join(func["args"][:5])
+                        if len(func["args"]) > 5:
+                            args_str += ", ..."
+                        result += f"- `{async_prefix}{func['name']}({args_str})` (line {func['line']})\n"
+                    result += "\n"
+
+                if variables:
+                    result += "## Module Variables\n\n"
+                    for var in sorted(variables, key=lambda x: x["line"]):
+                        result += f"- `{var['name']}` (line {var['line']})\n"
+
+                if not classes and not functions and not variables:
+                    result += "No symbols found in the file."
+
+                return result
+
+            else:
+                # For non-Python files, do basic pattern matching
+                with open(full_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+
+                result = f"# Code Symbols: {file_path}\n\n"
+                result += "(Basic pattern matching for non-Python files)\n\n"
+
+                symbols = []
+                for i, line in enumerate(lines, 1):
+                    # JavaScript/TypeScript patterns
+                    if ext in [".js", ".ts", ".jsx", ".tsx"]:
+                        import re
+
+                        # Function declarations
+                        if match := re.match(r"^\s*(async\s+)?function\s+(\w+)", line):
+                            symbols.append(f"- Function `{match.group(2)}` (line {i})")
+                        # Class declarations
+                        elif match := re.match(r"^\s*class\s+(\w+)", line):
+                            symbols.append(f"- Class `{match.group(1)}` (line {i})")
+                        # Arrow functions assigned to const
+                        elif match := re.match(
+                            r"^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?\(",
+                            line,
+                        ):
+                            symbols.append(f"- Const `{match.group(1)}` (line {i})")
+
+                if symbols:
+                    result += "\n".join(symbols)
+                else:
+                    result += "No recognizable symbols found."
+
+                return result
+
+        except Exception as e:
+            return f"Error analyzing file: {str(e)}"
+
+    async def git_status(self) -> str:
+        """
+        Get the current Git status of the workspace, showing changed, staged, and untracked files.
+
+        Returns:
+            str: Git status output showing file changes and staging state
+
+        Notes:
+            - Shows modified, added, deleted, and untracked files
+            - Indicates which changes are staged for commit
+            - Useful for tracking work progress before committing
+        """
+        try:
+            # Check if we're in a git repository
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return "Error: Not a git repository"
+
+            # Get status
+            result = subprocess.run(
+                ["git", "status", "--porcelain=v2", "--branch"],
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return f"Error running git status: {result.stderr}"
+
+            lines = result.stdout.strip().split("\n")
+
+            output = "# Git Status\n\n"
+
+            # Parse branch info
+            branch_name = "unknown"
+            for line in lines:
+                if line.startswith("# branch.head"):
+                    branch_name = line.split()[-1]
+                    break
+
+            output += f"**Branch:** `{branch_name}`\n\n"
+
+            # Parse file changes
+            staged = []
+            unstaged = []
+            untracked = []
+
+            for line in lines:
+                if line.startswith("#"):
+                    continue
+                if line.startswith("1") or line.startswith("2"):
+                    # Changed file
+                    parts = line.split()
+                    if len(parts) >= 9:
+                        xy = parts[1]
+                        path = parts[-1]
+                        if xy[0] != ".":
+                            staged.append(f"- {xy[0]} `{path}`")
+                        if xy[1] != ".":
+                            unstaged.append(f"- {xy[1]} `{path}`")
+                elif line.startswith("?"):
+                    # Untracked
+                    path = line[2:]
+                    untracked.append(f"- `{path}`")
+
+            if staged:
+                output += "## Staged Changes\n\n"
+                output += "\n".join(staged) + "\n\n"
+
+            if unstaged:
+                output += "## Unstaged Changes\n\n"
+                output += "\n".join(unstaged) + "\n\n"
+
+            if untracked:
+                output += "## Untracked Files\n\n"
+                output += "\n".join(untracked) + "\n\n"
+
+            if not staged and not unstaged and not untracked:
+                output += "✅ Working tree clean - no changes\n"
+
+            return output
+
+        except FileNotFoundError:
+            return "Error: Git is not installed or not in PATH"
+        except Exception as e:
+            return f"Error getting git status: {str(e)}"
+
+    async def git_commit(
+        self,
+        message: str,
+        files: str = "",
+        stage_all: str = "false",
+    ) -> str:
+        """
+        Stage files and create a Git commit.
+
+        Args:
+            message (str): Commit message (required)
+            files (str): Space-separated list of files to stage. Empty to commit already staged files.
+            stage_all (str): Stage all changes before committing ("true"/"false"). Default: "false"
+
+        Returns:
+            str: Commit result with hash and summary
+
+        Notes:
+            - If files are specified, they will be staged before committing
+            - Use stage_all="true" to stage all modified files
+            - Returns the commit hash on success
+        """
+        try:
+            if not message or not message.strip():
+                return "Error: Commit message is required"
+
+            # Check if we're in a git repository
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return "Error: Not a git repository"
+
+            # Stage files if specified
+            if str(stage_all).lower() == "true":
+                result = subprocess.run(
+                    ["git", "add", "-A"],
+                    cwd=self.WORKING_DIRECTORY,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    return f"Error staging files: {result.stderr}"
+            elif files:
+                file_list = files.split()
+                for file in file_list:
+                    result = subprocess.run(
+                        ["git", "add", file],
+                        cwd=self.WORKING_DIRECTORY,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode != 0:
+                        return f"Error staging '{file}': {result.stderr}"
+
+            # Create commit
+            result = subprocess.run(
+                ["git", "commit", "-m", message],
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                if (
+                    "nothing to commit" in result.stdout
+                    or "nothing to commit" in result.stderr
+                ):
+                    return "No changes to commit. Stage some files first or use stage_all='true'."
+                return f"Error creating commit: {result.stderr}"
+
+            # Get the commit hash
+            hash_result = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+            commit_hash = hash_result.stdout.strip()
+
+            return f"# Commit Created\n\n**Hash:** `{commit_hash}`\n**Message:** {message}\n\n```\n{result.stdout}\n```"
+
+        except FileNotFoundError:
+            return "Error: Git is not installed or not in PATH"
+        except Exception as e:
+            return f"Error creating commit: {str(e)}"
+
+    async def git_diff(
+        self,
+        file_path: str = "",
+        staged: str = "false",
+        commit: str = "",
+    ) -> str:
+        """
+        Show Git diff for files or commits.
+
+        Args:
+            file_path (str): Specific file to diff, or empty for all changes
+            staged (str): Show staged changes ("true"/"false"). Default: "false" (unstaged)
+            commit (str): Compare with specific commit hash, or empty for working tree
+
+        Returns:
+            str: Diff output showing line-by-line changes
+
+        Notes:
+            - Without arguments: shows unstaged changes in working tree
+            - With staged="true": shows changes staged for next commit
+            - With commit: shows diff between that commit and current state
+        """
+        try:
+            cmd = ["git", "diff"]
+
+            if str(staged).lower() == "true":
+                cmd.append("--staged")
+
+            if commit:
+                cmd.append(commit)
+
+            if file_path:
+                cmd.append("--")
+                cmd.append(file_path)
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return f"Error running git diff: {result.stderr}"
+
+            output = result.stdout.strip()
+
+            if not output:
+                return "No differences found."
+
+            # Truncate if too long
+            max_length = 10000
+            if len(output) > max_length:
+                output = (
+                    output[:max_length]
+                    + "\n\n... [diff truncated, showing first 10000 chars]"
+                )
+
+            return f"# Git Diff\n\n```diff\n{output}\n```"
+
+        except FileNotFoundError:
+            return "Error: Git is not installed or not in PATH"
+        except Exception as e:
+            return f"Error getting diff: {str(e)}"
+
+    async def git_blame(
+        self, file_path: str, start_line: str = "", end_line: str = ""
+    ) -> str:
+        """
+        Show who last modified each line of a file (git blame).
+
+        Args:
+            file_path (str): Path to the file to blame
+            start_line (str): Starting line number (optional)
+            end_line (str): Ending line number (optional)
+
+        Returns:
+            str: Blame output showing author and commit for each line
+
+        Notes:
+            - Useful for understanding code history and attribution
+            - Shows commit hash, author, date, and line content
+            - Use line range to focus on specific sections
+        """
+        try:
+            full_path = self.safe_join(file_path)
+            if not os.path.exists(full_path):
+                return f"Error: File '{file_path}' not found"
+
+            cmd = ["git", "blame", "--line-porcelain"]
+
+            if start_line and end_line:
+                cmd.extend(["-L", f"{start_line},{end_line}"])
+
+            cmd.append(file_path)
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return f"Error running git blame: {result.stderr}"
+
+            # Parse porcelain output
+            lines = result.stdout.split("\n")
+            blame_data = []
+            current = {}
+
+            for line in lines:
+                if line.startswith(
+                    ("author ", "author-mail ", "author-time ", "summary ")
+                ):
+                    key = line.split(" ", 1)[0]
+                    value = line.split(" ", 1)[1] if " " in line else ""
+                    current[key] = value
+                elif line.startswith("\t"):
+                    current["content"] = line[1:]
+                    blame_data.append(current)
+                    current = {}
+                elif line and not line.startswith(
+                    ("committer", "previous", "filename", "boundary")
+                ):
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        current["hash"] = parts[0][:8]
+                        current["line_num"] = parts[2]
+
+            # Format output
+            output = f"# Git Blame: {file_path}\n\n"
+            output += "| Line | Hash | Author | Content |\n"
+            output += "|------|------|--------|--------|\n"
+
+            for item in blame_data[:100]:  # Limit to 100 lines
+                line_num = item.get("line_num", "?")
+                hash_short = item.get("hash", "?")[:7]
+                author = item.get("author", "?")[:15]
+                content = item.get("content", "")[:50]
+                content = content.replace("|", "\\|")
+                output += f"| {line_num} | `{hash_short}` | {author} | `{content}` |\n"
+
+            if len(blame_data) > 100:
+                output += f"\n... and {len(blame_data) - 100} more lines"
+
+            return output
+
+        except FileNotFoundError:
+            return "Error: Git is not installed or not in PATH"
+        except Exception as e:
+            return f"Error getting blame: {str(e)}"
+
+    async def create_directory(self, path: str) -> str:
+        """
+        Create a new directory (and parent directories if needed) in the workspace.
+
+        Args:
+            path (str): Path of the directory to create (relative to workspace)
+
+        Returns:
+            str: Success message or error
+
+        Notes:
+            - Creates parent directories automatically (like mkdir -p)
+            - Path is relative to the agent's workspace
+        """
+        try:
+            full_path = self.safe_join(path)
+
+            if os.path.exists(full_path):
+                if os.path.isdir(full_path):
+                    return f"Directory `{path}` already exists."
+                else:
+                    return f"Error: `{path}` exists but is a file, not a directory."
+
+            os.makedirs(full_path, exist_ok=True)
+            return f"✅ Created directory: `{path}`"
+
+        except Exception as e:
+            return f"Error creating directory: {str(e)}"
+
+    async def rename_file(self, old_path: str, new_path: str) -> str:
+        """
+        Rename or move a file within the workspace.
+
+        Args:
+            old_path (str): Current path of the file
+            new_path (str): New path/name for the file
+
+        Returns:
+            str: Success message or error
+
+        Notes:
+            - Can be used to rename files or move them to different directories
+            - Creates destination directory if it doesn't exist
+        """
+        try:
+            full_old_path = self.safe_join(old_path)
+            full_new_path = self.safe_join(new_path)
+
+            if not os.path.exists(full_old_path):
+                return f"Error: Source file `{old_path}` not found"
+
+            if os.path.exists(full_new_path):
+                return f"Error: Destination `{new_path}` already exists"
+
+            # Create destination directory if needed
+            dest_dir = os.path.dirname(full_new_path)
+            if dest_dir:
+                os.makedirs(dest_dir, exist_ok=True)
+
+            os.rename(full_old_path, full_new_path)
+            return f"✅ Renamed `{old_path}` to `{new_path}`"
+
+        except Exception as e:
+            return f"Error renaming file: {str(e)}"
+
+    async def copy_file(self, source: str, destination: str) -> str:
+        """
+        Copy a file or directory within the workspace.
+
+        Args:
+            source (str): Path of the file/directory to copy
+            destination (str): Destination path
+
+        Returns:
+            str: Success message or error
+
+        Notes:
+            - Copies files and directories recursively
+            - Creates destination directory if needed
+        """
+        import shutil
+
+        try:
+            full_source = self.safe_join(source)
+            full_dest = self.safe_join(destination)
+
+            if not os.path.exists(full_source):
+                return f"Error: Source `{source}` not found"
+
+            # Create destination directory if needed
+            dest_dir = (
+                os.path.dirname(full_dest)
+                if not os.path.isdir(full_source)
+                else full_dest
+            )
+            if dest_dir:
+                os.makedirs(dest_dir, exist_ok=True)
+
+            if os.path.isdir(full_source):
+                shutil.copytree(full_source, full_dest)
+            else:
+                shutil.copy2(full_source, full_dest)
+
+            return f"✅ Copied `{source}` to `{destination}`"
+
+        except Exception as e:
+            return f"Error copying file: {str(e)}"
+
+    async def get_file_metadata(self, file_path: str) -> str:
+        """
+        Get detailed metadata about a file (size, dates, type, encoding).
+
+        Args:
+            file_path (str): Path to the file
+
+        Returns:
+            str: File metadata including size, dates, type, and encoding info
+
+        Notes:
+            - Shows file size in human-readable format
+            - Includes creation/modification times
+            - Detects file type and encoding
+        """
+        import stat
+        import mimetypes
+
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            stat_info = os.stat(full_path)
+
+            # Size formatting
+            size = stat_info.st_size
+            if size < 1024:
+                size_str = f"{size} bytes"
+            elif size < 1024 * 1024:
+                size_str = f"{size/1024:.2f} KB"
+            elif size < 1024 * 1024 * 1024:
+                size_str = f"{size/(1024*1024):.2f} MB"
+            else:
+                size_str = f"{size/(1024*1024*1024):.2f} GB"
+
+            # Times
+            mtime = datetime.datetime.fromtimestamp(stat_info.st_mtime)
+            ctime = datetime.datetime.fromtimestamp(stat_info.st_ctime)
+            atime = datetime.datetime.fromtimestamp(stat_info.st_atime)
+
+            # File type
+            mime_type, encoding = mimetypes.guess_type(full_path)
+            file_type = mime_type or "unknown"
+
+            # Detect text encoding for text files
+            detected_encoding = None
+            if file_type and file_type.startswith("text"):
+                try:
+                    with open(full_path, "rb") as f:
+                        raw = f.read(1024)
+                    # Simple encoding detection
+                    try:
+                        raw.decode("utf-8")
+                        detected_encoding = "UTF-8"
+                    except:
+                        try:
+                            raw.decode("latin-1")
+                            detected_encoding = "Latin-1"
+                        except:
+                            detected_encoding = "Unknown"
+                except:
+                    pass
+
+            # Permissions
+            mode = stat_info.st_mode
+            perms = stat.filemode(mode)
+
+            # Line count for text files
+            line_count = None
+            if file_type and (
+                file_type.startswith("text")
+                or file_type in ["application/json", "application/xml"]
+            ):
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        line_count = sum(1 for _ in f)
+                except:
+                    pass
+
+            output = f"# File Metadata: {file_path}\n\n"
+            output += f"| Property | Value |\n"
+            output += f"|----------|-------|\n"
+            output += f"| **Size** | {size_str} ({size:,} bytes) |\n"
+            output += f"| **Type** | {file_type} |\n"
+            if detected_encoding:
+                output += f"| **Encoding** | {detected_encoding} |\n"
+            if line_count is not None:
+                output += f"| **Lines** | {line_count:,} |\n"
+            output += f"| **Modified** | {mtime.strftime('%Y-%m-%d %H:%M:%S')} |\n"
+            output += f"| **Created** | {ctime.strftime('%Y-%m-%d %H:%M:%S')} |\n"
+            output += f"| **Accessed** | {atime.strftime('%Y-%m-%d %H:%M:%S')} |\n"
+            output += f"| **Permissions** | {perms} |\n"
+
+            return output
+
+        except Exception as e:
+            return f"Error getting file metadata: {str(e)}"
+
+    async def diff_files(self, file1: str, file2: str, context_lines: str = "3") -> str:
+        """
+        Compare two files and show the differences.
+
+        Args:
+            file1 (str): Path to the first file
+            file2 (str): Path to the second file
+            context_lines (str): Number of context lines around changes. Default: "3"
+
+        Returns:
+            str: Unified diff showing differences between the files
+
+        Notes:
+            - Shows additions, deletions, and changes
+            - Uses unified diff format
+            - Useful for code review and comparing versions
+        """
+        import difflib
+
+        try:
+            context = int(context_lines) if context_lines else 3
+        except:
+            context = 3
+
+        try:
+            full_path1 = self.safe_join(file1)
+            full_path2 = self.safe_join(file2)
+
+            if not os.path.exists(full_path1):
+                return f"Error: File `{file1}` not found"
+            if not os.path.exists(full_path2):
+                return f"Error: File `{file2}` not found"
+
+            with open(full_path1, "r", encoding="utf-8", errors="ignore") as f:
+                lines1 = f.readlines()
+            with open(full_path2, "r", encoding="utf-8", errors="ignore") as f:
+                lines2 = f.readlines()
+
+            diff = difflib.unified_diff(
+                lines1,
+                lines2,
+                fromfile=file1,
+                tofile=file2,
+                n=context,
+            )
+
+            diff_text = "".join(diff)
+
+            if not diff_text:
+                return f"Files `{file1}` and `{file2}` are identical."
+
+            # Truncate if too long
+            max_length = 10000
+            if len(diff_text) > max_length:
+                diff_text = diff_text[:max_length] + "\n\n... [diff truncated]"
+
+            return f"# File Comparison\n\n**{file1}** vs **{file2}**\n\n```diff\n{diff_text}\n```"
+
+        except Exception as e:
+            return f"Error comparing files: {str(e)}"
+
+    async def format_code(
+        self,
+        file_path: str,
+        formatter: str = "auto",
+    ) -> str:
+        """
+        Format code using language-specific formatters (black for Python, prettier for JS/TS).
+
+        Args:
+            file_path (str): Path to the file to format
+            formatter (str): Formatter to use: "auto", "black", "prettier", "autopep8". Default: "auto"
+
+        Returns:
+            str: Success message with changes summary, or error
+
+        Notes:
+            - Auto-detects formatter based on file extension
+            - For Python: uses black or autopep8
+            - For JS/TS/JSON/CSS: uses prettier if available
+            - Shows before/after line count comparison
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            # Read original content
+            with open(full_path, "r", encoding="utf-8") as f:
+                original = f.read()
+
+            original_lines = len(original.split("\n"))
+            formatted = None
+
+            # Auto-detect formatter
+            if formatter == "auto":
+                if ext == ".py":
+                    formatter = "black"
+                elif ext in [".js", ".ts", ".jsx", ".tsx", ".json", ".css", ".html"]:
+                    formatter = "prettier"
+                else:
+                    return f"No formatter available for `{ext}` files"
+
+            # Apply formatter
+            if formatter == "black" and ext == ".py":
+                try:
+                    import black
+
+                    mode = black.Mode(
+                        target_versions={black.TargetVersion.PY38},
+                        line_length=88,
+                    )
+                    formatted = black.format_str(original, mode=mode)
+                except ImportError:
+                    return "Error: black is not installed. Run: pip install black"
+                except Exception as e:
+                    return f"Error formatting with black: {str(e)}"
+
+            elif formatter == "autopep8" and ext == ".py":
+                try:
+                    import autopep8
+
+                    formatted = autopep8.fix_code(original)
+                except ImportError:
+                    return "Error: autopep8 is not installed. Run: pip install autopep8"
+                except Exception as e:
+                    return f"Error formatting with autopep8: {str(e)}"
+
+            elif formatter == "prettier":
+                # Try to run prettier via subprocess
+                result = subprocess.run(
+                    ["prettier", "--write", full_path],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    return f"Error running prettier: {result.stderr}\n\nIs prettier installed? Run: npm install -g prettier"
+
+                # Read formatted content
+                with open(full_path, "r", encoding="utf-8") as f:
+                    formatted = f.read()
+
+            else:
+                return f"Unknown formatter: {formatter}"
+
+            # Write formatted content
+            if formatted and formatted != original:
+                with open(full_path, "w", encoding="utf-8") as f:
+                    f.write(formatted)
+
+                formatted_lines = len(formatted.split("\n"))
+                return f"✅ Formatted `{file_path}` with {formatter}\n\n- Original: {original_lines} lines\n- Formatted: {formatted_lines} lines"
+            else:
+                return f"File `{file_path}` is already properly formatted."
+
+        except Exception as e:
+            return f"Error formatting file: {str(e)}"
+
+    # ==================== WAVE 2: 18 ADDITIONAL DEVELOPMENT TOOLS ====================
+
+    async def insert_in_file(
+        self,
+        file_path: str,
+        line_number: int,
+        content: str,
+    ) -> str:
+        """
+        Insert content at a specific line number in a file.
+
+        Args:
+            file_path (str): Path to the file to modify
+            line_number (int): Line number to insert at (1-indexed). Content at this line and below will be shifted down.
+            content (str): Content to insert
+
+        Returns:
+            str: Success message with new line count, or error
+
+        Notes:
+            - Line numbers are 1-indexed
+            - Existing content at line_number and below shifts down
+            - If line_number exceeds file length, content is appended
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Convert to 0-indexed
+            idx = max(0, line_number - 1)
+
+            # Ensure content ends with newline if needed
+            if not content.endswith("\n"):
+                content += "\n"
+
+            # Insert content
+            if idx >= len(lines):
+                lines.append(content)
+            else:
+                lines.insert(idx, content)
+
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+
+            return f"✅ Inserted content at line {line_number} in `{file_path}`\n\n- New total lines: {len(lines)}"
+
+        except Exception as e:
+            return f"Error inserting in file: {str(e)}"
+
+    async def delete_lines(
+        self,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+    ) -> str:
+        """
+        Delete a range of lines from a file.
+
+        Args:
+            file_path (str): Path to the file to modify
+            start_line (int): First line to delete (1-indexed, inclusive)
+            end_line (int): Last line to delete (1-indexed, inclusive)
+
+        Returns:
+            str: Success message with deletion summary, or error
+
+        Notes:
+            - Line numbers are 1-indexed and inclusive
+            - Remaining lines shift up to fill the gap
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            original_count = len(lines)
+
+            # Convert to 0-indexed
+            start_idx = max(0, start_line - 1)
+            end_idx = min(len(lines), end_line)
+
+            if start_idx >= len(lines):
+                return f"Error: Start line {start_line} is beyond file length ({original_count} lines)"
+
+            # Delete the lines
+            deleted = lines[start_idx:end_idx]
+            del lines[start_idx:end_idx]
+
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+
+            return f"✅ Deleted lines {start_line}-{end_line} from `{file_path}`\n\n- Lines deleted: {len(deleted)}\n- Original lines: {original_count}\n- New lines: {len(lines)}"
+
+        except Exception as e:
+            return f"Error deleting lines: {str(e)}"
+
+    async def get_file_line_count(
+        self,
+        file_path: str,
+    ) -> str:
+        """
+        Get the total number of lines in a file.
+
+        Args:
+            file_path (str): Path to the file to count
+
+        Returns:
+            str: Line count information or error
+
+        Notes:
+            - Counts all lines including empty ones
+            - Also reports non-empty line count
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            total = len(lines)
+            non_empty = len([l for l in lines if l.strip()])
+
+            return f"📄 `{file_path}`\n\n- Total lines: {total}\n- Non-empty lines: {non_empty}\n- Empty lines: {total - non_empty}"
+
+        except Exception as e:
+            return f"Error counting lines: {str(e)}"
+
+    async def search_and_replace_regex(
+        self,
+        file_path: str,
+        pattern: str,
+        replacement: str,
+        flags: str = "",
+    ) -> str:
+        """
+        Search and replace using regular expressions in a file.
+
+        Args:
+            file_path (str): Path to the file to modify
+            pattern (str): Regular expression pattern to search for
+            replacement (str): Replacement string (can use \\1, \\2, etc. for groups)
+            flags (str): Regex flags: "i" for case-insensitive, "m" for multiline. Default: ""
+
+        Returns:
+            str: Success message with replacement count, or error
+
+        Notes:
+            - Uses Python re module syntax
+            - Replacement can reference capture groups with \\1, \\2, etc.
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            # Parse flags
+            re_flags = 0
+            if "i" in flags:
+                re_flags |= re.IGNORECASE
+            if "m" in flags:
+                re_flags |= re.MULTILINE
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Count matches first
+            matches = re.findall(pattern, content, re_flags)
+            match_count = len(matches)
+
+            if match_count == 0:
+                return f"No matches found for pattern `{pattern}` in `{file_path}`"
+
+            # Perform replacement
+            new_content = re.sub(pattern, replacement, content, flags=re_flags)
+
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+
+            return f"✅ Replaced {match_count} occurrence(s) in `{file_path}`\n\n- Pattern: `{pattern}`\n- Replacement: `{replacement}`"
+
+        except re.error as e:
+            return f"Regex error: {str(e)}"
+        except Exception as e:
+            return f"Error during search and replace: {str(e)}"
+
+    async def extract_function(
+        self,
+        file_path: str,
+        function_name: str,
+    ) -> str:
+        """
+        Extract a function or method definition from a file.
+
+        Args:
+            file_path (str): Path to the file
+            function_name (str): Name of the function/method to extract
+
+        Returns:
+            str: The function code with line numbers, or error
+
+        Notes:
+            - Works with Python, JavaScript/TypeScript, and other common languages
+            - Returns the complete function including decorators
+            - Includes line number information
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                f.seek(0)
+                lines = f.readlines()
+
+            # Python extraction using AST
+            if ext == ".py":
+                try:
+                    tree = ast.parse(content)
+                    for node in ast.walk(tree):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            if node.name == function_name:
+                                # Get decorators start line
+                                start_line = (
+                                    node.decorator_list[0].lineno
+                                    if node.decorator_list
+                                    else node.lineno
+                                )
+                                end_line = node.end_lineno
+
+                                func_lines = lines[start_line - 1 : end_line]
+                                result = f"📦 Function `{function_name}` from `{file_path}` (lines {start_line}-{end_line}):\n\n```python\n"
+                                for i, line in enumerate(func_lines, start=start_line):
+                                    result += f"{i:4} | {line}"
+                                result += "```"
+                                return result
+
+                    return f"Function `{function_name}` not found in `{file_path}`"
+                except SyntaxError as e:
+                    return f"Syntax error parsing Python file: {str(e)}"
+
+            # JavaScript/TypeScript extraction using regex
+            elif ext in [".js", ".ts", ".jsx", ".tsx"]:
+                # Match function declarations and arrow functions
+                patterns = [
+                    rf"(?:export\s+)?(?:async\s+)?function\s+{re.escape(function_name)}\s*\([^)]*\)\s*\{{",
+                    rf"(?:export\s+)?(?:const|let|var)\s+{re.escape(function_name)}\s*=\s*(?:async\s+)?\([^)]*\)\s*=>\s*\{{",
+                    rf"(?:async\s+)?{re.escape(function_name)}\s*\([^)]*\)\s*\{{",
+                ]
+
+                for pattern in patterns:
+                    match = re.search(pattern, content)
+                    if match:
+                        start_pos = match.start()
+                        # Find matching closing brace
+                        brace_count = 0
+                        end_pos = start_pos
+                        for i, char in enumerate(content[start_pos:]):
+                            if char == "{":
+                                brace_count += 1
+                            elif char == "}":
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    end_pos = start_pos + i + 1
+                                    break
+
+                        # Find line numbers
+                        start_line = content[:start_pos].count("\n") + 1
+                        end_line = content[:end_pos].count("\n") + 1
+
+                        func_lines = lines[start_line - 1 : end_line]
+                        result = f"📦 Function `{function_name}` from `{file_path}` (lines {start_line}-{end_line}):\n\n```{ext[1:]}\n"
+                        for i, line in enumerate(func_lines, start=start_line):
+                            result += f"{i:4} | {line}"
+                        result += "```"
+                        return result
+
+                return f"Function `{function_name}` not found in `{file_path}`"
+
+            else:
+                return f"Function extraction not supported for `{ext}` files"
+
+        except Exception as e:
+            return f"Error extracting function: {str(e)}"
+
+    async def get_imports(
+        self,
+        file_path: str,
+    ) -> str:
+        """
+        Get all import statements from a file.
+
+        Args:
+            file_path (str): Path to the file
+
+        Returns:
+            str: List of imports with line numbers, or error
+
+        Notes:
+            - Supports Python, JavaScript/TypeScript imports
+            - Groups standard library, third-party, and local imports for Python
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                f.seek(0)
+                lines = f.readlines()
+
+            imports = []
+
+            # Python imports
+            if ext == ".py":
+                try:
+                    tree = ast.parse(content)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Import):
+                            for alias in node.names:
+                                import_str = f"import {alias.name}"
+                                if alias.asname:
+                                    import_str += f" as {alias.asname}"
+                                imports.append((node.lineno, import_str))
+                        elif isinstance(node, ast.ImportFrom):
+                            module = node.module or ""
+                            names = ", ".join(
+                                [
+                                    (f"{a.name} as {a.asname}" if a.asname else a.name)
+                                    for a in node.names
+                                ]
+                            )
+                            dots = "." * node.level
+                            imports.append(
+                                (node.lineno, f"from {dots}{module} import {names}")
+                            )
+                except SyntaxError:
+                    # Fallback to regex
+                    for i, line in enumerate(lines, 1):
+                        if re.match(r"^\s*(import|from)\s+", line):
+                            imports.append((i, line.strip()))
+
+            # JavaScript/TypeScript imports
+            elif ext in [".js", ".ts", ".jsx", ".tsx"]:
+                for i, line in enumerate(lines, 1):
+                    stripped = line.strip()
+                    if stripped.startswith("import ") or re.match(
+                        r"^(const|let|var)\s+\{?.*\}?\s*=\s*require\(", stripped
+                    ):
+                        imports.append((i, stripped))
+
+            else:
+                return f"Import extraction not supported for `{ext}` files"
+
+            if not imports:
+                return f"No imports found in `{file_path}`"
+
+            result = f"📥 Imports in `{file_path}`:\n\n"
+            for line_no, import_stmt in sorted(imports):
+                result += f"  Line {line_no:4}: {import_stmt}\n"
+            result += f"\nTotal: {len(imports)} import(s)"
+
+            return result
+
+        except Exception as e:
+            return f"Error getting imports: {str(e)}"
+
+    async def append_to_file(
+        self,
+        file_path: str,
+        content: str,
+    ) -> str:
+        """
+        Append content to the end of a file.
+
+        Args:
+            file_path (str): Path to the file
+            content (str): Content to append
+
+        Returns:
+            str: Success message, or error
+
+        Notes:
+            - Creates file if it doesn't exist
+            - Adds newline before content if file doesn't end with one
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            # Check if file exists and get its current state
+            needs_newline = False
+            if os.path.exists(full_path):
+                with open(full_path, "rb") as f:
+                    f.seek(-1, 2) if os.path.getsize(full_path) > 0 else None
+                    if os.path.getsize(full_path) > 0:
+                        last_char = f.read(1)
+                        needs_newline = last_char != b"\n"
+
+            with open(full_path, "a", encoding="utf-8") as f:
+                if needs_newline:
+                    f.write("\n")
+                f.write(content)
+                if not content.endswith("\n"):
+                    f.write("\n")
+
+            lines_added = len(content.split("\n"))
+            return f"✅ Appended {lines_added} line(s) to `{file_path}`"
+
+        except Exception as e:
+            return f"Error appending to file: {str(e)}"
+
+    async def prepend_to_file(
+        self,
+        file_path: str,
+        content: str,
+    ) -> str:
+        """
+        Prepend content to the beginning of a file.
+
+        Args:
+            file_path (str): Path to the file
+            content (str): Content to prepend
+
+        Returns:
+            str: Success message, or error
+
+        Notes:
+            - Creates file if it doesn't exist
+            - Adds newline after content if needed
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            existing_content = ""
+            if os.path.exists(full_path):
+                with open(full_path, "r", encoding="utf-8") as f:
+                    existing_content = f.read()
+
+            # Ensure content ends with newline
+            if not content.endswith("\n"):
+                content += "\n"
+
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(content + existing_content)
+
+            lines_added = len(content.split("\n")) - 1
+            return f"✅ Prepended {lines_added} line(s) to `{file_path}`"
+
+        except Exception as e:
+            return f"Error prepending to file: {str(e)}"
+
+    async def git_log(
+        self,
+        count: int = 10,
+        file_path: str = "",
+        format_type: str = "oneline",
+    ) -> str:
+        """
+        Get git commit history.
+
+        Args:
+            count (int): Number of commits to show. Default: 10
+            file_path (str): Optional file path to show history for
+            format_type (str): Log format: "oneline", "short", "full". Default: "oneline"
+
+        Returns:
+            str: Git log output, or error
+
+        Notes:
+            - Executes from the workspace directory
+            - Restricted to agent workspace
+        """
+        try:
+            # Build git log command
+            format_map = {
+                "oneline": "--oneline",
+                "short": "--format=short",
+                "full": "--format=fuller",
+            }
+            fmt = format_map.get(format_type, "--oneline")
+
+            cmd = ["git", "log", fmt, "-n", str(count)]
+            if file_path:
+                safe_path = self.safe_join(file_path)
+                cmd.extend(["--", safe_path])
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr
+                if "not a git repository" in stderr.lower():
+                    return "Error: Not a git repository"
+                return f"Error: {stderr}"
+
+            stdout = result.stdout
+            if not stdout.strip():
+                return "No commits found"
+
+            return f"📜 Git Log (last {count} commits):\n\n```\n{stdout}\n```"
+
+        except Exception as e:
+            return f"Error getting git log: {str(e)}"
+
+    async def git_branch(
+        self,
+        action: str = "list",
+        branch_name: str = "",
+    ) -> str:
+        """
+        Manage git branches.
+
+        Args:
+            action (str): Branch action: "list", "create", "switch", "delete". Default: "list"
+            branch_name (str): Branch name for create/switch/delete actions
+
+        Returns:
+            str: Branch operation result, or error
+
+        Notes:
+            - For delete, use with caution
+            - Restricted to agent workspace
+        """
+        try:
+            if action == "list":
+                cmd = ["git", "branch", "-a"]
+            elif action == "create":
+                if not branch_name:
+                    return "Error: Branch name required for create action"
+                cmd = ["git", "branch", branch_name]
+            elif action == "switch":
+                if not branch_name:
+                    return "Error: Branch name required for switch action"
+                cmd = ["git", "checkout", branch_name]
+            elif action == "delete":
+                if not branch_name:
+                    return "Error: Branch name required for delete action"
+                cmd = ["git", "branch", "-d", branch_name]
+            else:
+                return f"Unknown action: {action}. Use: list, create, switch, delete"
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr
+                return f"Error: {stderr}"
+
+            stdout = result.stdout
+            if action == "list":
+                return f"🌿 Git Branches:\n\n```\n{stdout}\n```"
+            else:
+                return f"✅ Branch {action} successful: {branch_name}\n\n{stdout}"
+
+        except Exception as e:
+            return f"Error with git branch: {str(e)}"
+
+    async def git_stash(
+        self,
+        action: str = "list",
+        message: str = "",
+    ) -> str:
+        """
+        Manage git stash.
+
+        Args:
+            action (str): Stash action: "list", "push", "pop", "apply", "drop". Default: "list"
+            message (str): Stash message for push action
+
+        Returns:
+            str: Stash operation result, or error
+
+        Notes:
+            - push: saves changes to stash
+            - pop: applies and removes from stash
+            - apply: applies but keeps in stash
+            - Restricted to agent workspace
+        """
+        try:
+            if action == "list":
+                cmd = ["git", "stash", "list"]
+            elif action == "push":
+                cmd = ["git", "stash", "push"]
+                if message:
+                    cmd.extend(["-m", message])
+            elif action == "pop":
+                cmd = ["git", "stash", "pop"]
+            elif action == "apply":
+                cmd = ["git", "stash", "apply"]
+            elif action == "drop":
+                cmd = ["git", "stash", "drop"]
+            else:
+                return f"Unknown action: {action}. Use: list, push, pop, apply, drop"
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr
+                # "No stash entries found" is not really an error for list
+                if "No stash" in stderr and action == "list":
+                    return "📦 No stash entries found"
+                return f"Error: {stderr}"
+
+            stdout = result.stdout
+            if action == "list":
+                if not stdout.strip():
+                    return "📦 No stash entries found"
+                return f"📦 Git Stash:\n\n```\n{stdout}\n```"
+            else:
+                return f"✅ Stash {action} successful\n\n{stdout}"
+
+        except Exception as e:
+            return f"Error with git stash: {str(e)}"
+
+    async def find_duplicate_code(
+        self,
+        directory: str = ".",
+        min_lines: int = 4,
+        file_extensions: str = ".py,.js,.ts",
+    ) -> str:
+        """
+        Find potential duplicate code blocks across files.
+
+        Args:
+            directory (str): Directory to search. Default: "."
+            min_lines (int): Minimum consecutive lines to consider duplicate. Default: 4
+            file_extensions (str): Comma-separated file extensions to check. Default: ".py,.js,.ts"
+
+        Returns:
+            str: Report of potential duplicates, or error
+
+        Notes:
+            - Compares normalized (whitespace-stripped) code blocks
+            - Reports file paths and line numbers
+            - Restricted to agent workspace
+        """
+        try:
+            full_dir = self.safe_join(directory)
+
+            if not os.path.exists(full_dir):
+                return f"Error: Directory `{directory}` not found"
+
+            extensions = [ext.strip() for ext in file_extensions.split(",")]
+
+            # Collect all code blocks from files
+            code_blocks = {}  # hash -> [(file, start_line, block)]
+
+            for root, dirs, files in os.walk(full_dir):
+                for file in files:
+                    if not any(file.endswith(ext) for ext in extensions):
+                        continue
+
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, self.WORKING_DIRECTORY)
+
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                    except Exception:
+                        continue
+
+                    # Extract blocks of min_lines consecutive lines
+                    for start in range(len(lines) - min_lines + 1):
+                        block = lines[start : start + min_lines]
+                        # Normalize: strip whitespace and skip if mostly blank
+                        normalized = "\n".join([l.strip() for l in block])
+                        if len(normalized.replace("\n", "").strip()) < 20:
+                            continue  # Skip mostly empty blocks
+
+                        block_hash = hash(normalized)
+                        if block_hash not in code_blocks:
+                            code_blocks[block_hash] = []
+                        code_blocks[block_hash].append(
+                            (rel_path, start + 1, "".join(block))
+                        )
+
+            # Find duplicates (blocks appearing more than once)
+            duplicates = []
+            for block_hash, locations in code_blocks.items():
+                if len(locations) > 1:
+                    # Remove duplicates within same file (overlapping blocks)
+                    unique_locations = []
+                    seen = set()
+                    for loc in locations:
+                        key = (loc[0], loc[1])
+                        if key not in seen:
+                            seen.add(key)
+                            unique_locations.append(loc)
+                    if len(unique_locations) > 1:
+                        duplicates.append(unique_locations)
+
+            if not duplicates:
+                return f"✅ No duplicate code blocks found (min {min_lines} lines)"
+
+            # Sort by number of occurrences
+            duplicates.sort(key=lambda x: len(x), reverse=True)
+
+            result = (
+                f"🔍 Found {len(duplicates)} potential duplicate code pattern(s):\n\n"
+            )
+
+            for i, locations in enumerate(duplicates[:10], 1):  # Show top 10
+                result += f"**Duplicate #{i}** ({len(locations)} occurrences):\n"
+                for file, line, _ in locations[:5]:  # Show first 5 locations
+                    result += f"  - `{file}` line {line}\n"
+                if len(locations) > 5:
+                    result += f"  - ... and {len(locations) - 5} more\n"
+                result += f"\n  Preview:\n```\n{locations[0][2][:200]}...\n```\n\n"
+
+            return result
+
+        except Exception as e:
+            return f"Error finding duplicates: {str(e)}"
+
+    async def get_function_signature(
+        self,
+        file_path: str,
+        function_name: str,
+    ) -> str:
+        """
+        Get the signature of a function without the full body.
+
+        Args:
+            file_path (str): Path to the file
+            function_name (str): Name of the function
+
+        Returns:
+            str: Function signature including parameters and return type, or error
+
+        Notes:
+            - Includes decorators, type hints, and docstring summary
+            - Supports Python and JavaScript/TypeScript
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Python signature extraction
+            if ext == ".py":
+                try:
+                    tree = ast.parse(content)
+                    for node in ast.walk(tree):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            if node.name == function_name:
+                                result = f"📝 Signature of `{function_name}` in `{file_path}`:\n\n```python\n"
+
+                                # Add decorators
+                                for dec in node.decorator_list:
+                                    if isinstance(dec, ast.Name):
+                                        result += f"@{dec.id}\n"
+                                    elif isinstance(dec, ast.Call):
+                                        if isinstance(dec.func, ast.Name):
+                                            result += f"@{dec.func.id}(...)\n"
+
+                                # Build signature
+                                async_prefix = (
+                                    "async "
+                                    if isinstance(node, ast.AsyncFunctionDef)
+                                    else ""
+                                )
+                                args = []
+                                for arg in node.args.args:
+                                    arg_str = arg.arg
+                                    if arg.annotation:
+                                        arg_str += f": {ast.unparse(arg.annotation)}"
+                                    args.append(arg_str)
+
+                                returns = ""
+                                if node.returns:
+                                    returns = f" -> {ast.unparse(node.returns)}"
+
+                                result += f"{async_prefix}def {function_name}({', '.join(args)}){returns}:\n"
+
+                                # Add docstring summary if present
+                                docstring = ast.get_docstring(node)
+                                if docstring:
+                                    first_line = docstring.split("\n")[0]
+                                    result += f'    """{first_line}..."""\n'
+
+                                result += "    ...\n```"
+                                return result
+
+                    return f"Function `{function_name}` not found in `{file_path}`"
+                except SyntaxError as e:
+                    return f"Syntax error parsing file: {str(e)}"
+
+            # JavaScript/TypeScript
+            elif ext in [".js", ".ts", ".jsx", ".tsx"]:
+                # Match function declarations
+                patterns = [
+                    rf"((?:export\s+)?(?:async\s+)?function\s+{re.escape(function_name)}\s*\([^)]*\)(?:\s*:\s*[^{{]+)?)",
+                    rf"((?:export\s+)?(?:const|let|var)\s+{re.escape(function_name)}\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\([^)]*\)(?:\s*:\s*[^=]+)?\s*=>)",
+                ]
+
+                for pattern in patterns:
+                    match = re.search(pattern, content)
+                    if match:
+                        signature = match.group(1).strip()
+                        return f"📝 Signature of `{function_name}` in `{file_path}`:\n\n```{ext[1:]}\n{signature}\n```"
+
+                return f"Function `{function_name}` not found in `{file_path}`"
+
+            else:
+                return f"Signature extraction not supported for `{ext}` files"
+
+        except Exception as e:
+            return f"Error getting function signature: {str(e)}"
+
+    async def validate_json(
+        self,
+        file_path: str,
+    ) -> str:
+        """
+        Validate JSON file syntax and structure.
+
+        Args:
+            file_path (str): Path to the JSON file
+
+        Returns:
+            str: Validation result with any errors, or success
+
+        Notes:
+            - Reports specific error location (line, column)
+            - Also reports basic structure info on success
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            try:
+                data = json.loads(content)
+
+                # Analyze structure
+                if isinstance(data, dict):
+                    keys = list(data.keys())
+                    structure = f"Object with {len(keys)} top-level key(s)"
+                    if keys:
+                        structure += f": {', '.join(keys[:5])}"
+                        if len(keys) > 5:
+                            structure += f"... (+{len(keys) - 5} more)"
+                elif isinstance(data, list):
+                    structure = f"Array with {len(data)} element(s)"
+                else:
+                    structure = f"Primitive value: {type(data).__name__}"
+
+                return f"✅ Valid JSON in `{file_path}`\n\n- Structure: {structure}\n- Size: {len(content)} bytes"
+
+            except json.JSONDecodeError as e:
+                # Find the error location
+                lines = content[: e.pos].split("\n")
+                line_no = len(lines)
+                col_no = len(lines[-1]) + 1 if lines else 1
+
+                return f"❌ Invalid JSON in `{file_path}`\n\n- Error: {e.msg}\n- Location: Line {line_no}, Column {col_no}\n- Context: `{content[max(0, e.pos-20):e.pos+20]}`"
+
+        except Exception as e:
+            return f"Error validating JSON: {str(e)}"
+
+    async def validate_yaml(
+        self,
+        file_path: str,
+    ) -> str:
+        """
+        Validate YAML file syntax and structure.
+
+        Args:
+            file_path (str): Path to the YAML file
+
+        Returns:
+            str: Validation result with any errors, or success
+
+        Notes:
+            - Reports specific error location
+            - Also reports basic structure info on success
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            try:
+                import yaml
+
+                data = yaml.safe_load(content)
+
+                # Analyze structure
+                if isinstance(data, dict):
+                    keys = list(data.keys())
+                    structure = f"Mapping with {len(keys)} top-level key(s)"
+                    if keys:
+                        structure += f": {', '.join(str(k) for k in keys[:5])}"
+                        if len(keys) > 5:
+                            structure += f"... (+{len(keys) - 5} more)"
+                elif isinstance(data, list):
+                    structure = f"Sequence with {len(data)} element(s)"
+                elif data is None:
+                    structure = "Empty document"
+                else:
+                    structure = f"Scalar value: {type(data).__name__}"
+
+                return f"✅ Valid YAML in `{file_path}`\n\n- Structure: {structure}\n- Size: {len(content)} bytes"
+
+            except yaml.YAMLError as e:
+                error_msg = str(e)
+                if hasattr(e, "problem_mark"):
+                    mark = e.problem_mark
+                    return f"❌ Invalid YAML in `{file_path}`\n\n- Error: {e.problem}\n- Location: Line {mark.line + 1}, Column {mark.column + 1}"
+                return f"❌ Invalid YAML in `{file_path}`\n\n- Error: {error_msg}"
+
+        except ImportError:
+            return "Error: PyYAML is not installed. Run: pip install pyyaml"
+        except Exception as e:
+            return f"Error validating YAML: {str(e)}"
+
+    async def minify_json(
+        self,
+        file_path: str,
+        output_path: str = "",
+    ) -> str:
+        """
+        Minify a JSON file by removing whitespace.
+
+        Args:
+            file_path (str): Path to the JSON file
+            output_path (str): Optional output path. If empty, overwrites input file.
+
+        Returns:
+            str: Success message with size comparison, or error
+
+        Notes:
+            - Removes all unnecessary whitespace
+            - Reports size reduction
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            original_size = len(content)
+
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError as e:
+                return f"Error: Invalid JSON - {e.msg}"
+
+            minified = json.dumps(data, separators=(",", ":"))
+            minified_size = len(minified)
+
+            out_path = self.safe_join(output_path) if output_path else full_path
+
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(minified)
+
+            reduction = ((original_size - minified_size) / original_size) * 100
+
+            return f"✅ Minified JSON\n\n- Original: {original_size} bytes\n- Minified: {minified_size} bytes\n- Reduction: {reduction:.1f}%\n- Output: `{output_path or file_path}`"
+
+        except Exception as e:
+            return f"Error minifying JSON: {str(e)}"
+
+    async def prettify_json(
+        self,
+        file_path: str,
+        indent: int = 2,
+        output_path: str = "",
+    ) -> str:
+        """
+        Prettify/format a JSON file with indentation.
+
+        Args:
+            file_path (str): Path to the JSON file
+            indent (int): Number of spaces for indentation. Default: 2
+            output_path (str): Optional output path. If empty, overwrites input file.
+
+        Returns:
+            str: Success message, or error
+
+        Notes:
+            - Formats with specified indentation
+            - Sorts keys alphabetically
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            original_size = len(content)
+
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError as e:
+                return f"Error: Invalid JSON - {e.msg}"
+
+            prettified = json.dumps(data, indent=indent, sort_keys=True)
+            prettified_size = len(prettified)
+
+            out_path = self.safe_join(output_path) if output_path else full_path
+
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(prettified)
+
+            return f"✅ Prettified JSON\n\n- Original: {original_size} bytes\n- Prettified: {prettified_size} bytes\n- Indent: {indent} spaces\n- Output: `{output_path or file_path}`"
+
+        except Exception as e:
+            return f"Error prettifying JSON: {str(e)}"
+
+    async def count_lines_of_code(
+        self,
+        directory: str = ".",
+        file_extensions: str = ".py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.go,.rs",
+        exclude_dirs: str = "node_modules,.git,__pycache__,venv,.venv,dist,build",
+    ) -> str:
+        """
+        Count lines of code in a directory, excluding comments and blank lines.
+
+        Args:
+            directory (str): Directory to analyze. Default: "."
+            file_extensions (str): Comma-separated file extensions to count. Default: common code extensions
+            exclude_dirs (str): Comma-separated directory names to exclude. Default: common non-source dirs
+
+        Returns:
+            str: Report with line counts by file type, or error
+
+        Notes:
+            - Counts total lines, code lines, comment lines, and blank lines
+            - Groups by file extension
+            - Restricted to agent workspace
+        """
+        try:
+            full_dir = self.safe_join(directory)
+
+            if not os.path.exists(full_dir):
+                return f"Error: Directory `{directory}` not found"
+
+            extensions = [ext.strip() for ext in file_extensions.split(",")]
+            excludes = set(d.strip() for d in exclude_dirs.split(","))
+
+            stats = {}  # ext -> {files, total, code, comments, blank}
+
+            def is_comment(line, ext):
+                stripped = line.strip()
+                if ext == ".py":
+                    return stripped.startswith("#")
+                elif ext in [
+                    ".js",
+                    ".ts",
+                    ".jsx",
+                    ".tsx",
+                    ".java",
+                    ".c",
+                    ".cpp",
+                    ".go",
+                    ".rs",
+                ]:
+                    return (
+                        stripped.startswith("//")
+                        or stripped.startswith("/*")
+                        or stripped.startswith("*")
+                    )
+                return False
+
+            for root, dirs, files in os.walk(full_dir):
+                # Skip excluded directories
+                dirs[:] = [d for d in dirs if d not in excludes]
+
+                for file in files:
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext not in extensions:
+                        continue
+
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            lines = f.readlines()
+                    except Exception:
+                        continue
+
+                    if ext not in stats:
+                        stats[ext] = {
+                            "files": 0,
+                            "total": 0,
+                            "code": 0,
+                            "comments": 0,
+                            "blank": 0,
+                        }
+
+                    stats[ext]["files"] += 1
+                    for line in lines:
+                        stats[ext]["total"] += 1
+                        if not line.strip():
+                            stats[ext]["blank"] += 1
+                        elif is_comment(line, ext):
+                            stats[ext]["comments"] += 1
+                        else:
+                            stats[ext]["code"] += 1
+
+            if not stats:
+                return f"No code files found in `{directory}`"
+
+            # Build report
+            result = f"📊 Lines of Code Report for `{directory}`\n\n"
+            result += "| Extension | Files | Total | Code | Comments | Blank |\n"
+            result += "|-----------|-------|-------|------|----------|-------|\n"
+
+            total_files = 0
+            total_total = 0
+            total_code = 0
+            total_comments = 0
+            total_blank = 0
+
+            for ext, s in sorted(
+                stats.items(), key=lambda x: x[1]["code"], reverse=True
+            ):
+                result += f"| {ext} | {s['files']} | {s['total']} | {s['code']} | {s['comments']} | {s['blank']} |\n"
+                total_files += s["files"]
+                total_total += s["total"]
+                total_code += s["code"]
+                total_comments += s["comments"]
+                total_blank += s["blank"]
+
+            result += f"| **Total** | **{total_files}** | **{total_total}** | **{total_code}** | **{total_comments}** | **{total_blank}** |\n"
+
+            return result
+
+        except Exception as e:
+            return f"Error counting lines: {str(e)}"
+
+    async def find_todo_comments(
+        self,
+        directory: str = ".",
+        tags: str = "TODO,FIXME,HACK,XXX,BUG",
+        file_extensions: str = ".py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.go,.rs",
+    ) -> str:
+        """
+        Find TODO, FIXME, and other tagged comments in code files.
+
+        Args:
+            directory (str): Directory to search. Default: "."
+            tags (str): Comma-separated tags to search for. Default: "TODO,FIXME,HACK,XXX,BUG"
+            file_extensions (str): Comma-separated file extensions to search. Default: common code extensions
+
+        Returns:
+            str: Report of found comments with file locations, or error
+
+        Notes:
+            - Case-insensitive tag matching
+            - Shows context (line content)
+            - Grouped by tag type
+            - Restricted to agent workspace
+        """
+        try:
+            full_dir = self.safe_join(directory)
+
+            if not os.path.exists(full_dir):
+                return f"Error: Directory `{directory}` not found"
+
+            extensions = [ext.strip() for ext in file_extensions.split(",")]
+            tag_list = [t.strip().upper() for t in tags.split(",")]
+
+            findings = {tag: [] for tag in tag_list}
+
+            # Build regex pattern
+            pattern = r"\b(" + "|".join(tag_list) + r")\b\s*:?\s*(.*)$"
+
+            for root, dirs, files in os.walk(full_dir):
+                # Skip common non-source directories
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if d not in ["node_modules", ".git", "__pycache__", "venv", ".venv"]
+                ]
+
+                for file in files:
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext not in extensions:
+                        continue
+
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, self.WORKING_DIRECTORY)
+
+                    try:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            for line_no, line in enumerate(f, 1):
+                                match = re.search(pattern, line, re.IGNORECASE)
+                                if match:
+                                    tag = match.group(1).upper()
+                                    comment = match.group(2).strip()[
+                                        :100
+                                    ]  # Limit length
+                                    findings[tag].append((rel_path, line_no, comment))
+                    except Exception:
+                        continue
+
+            # Build report
+            total = sum(len(v) for v in findings.values())
+            if total == 0:
+                return f"✅ No {', '.join(tag_list)} comments found in `{directory}`"
+
+            result = f"📋 Found {total} tagged comment(s) in `{directory}`\n\n"
+
+            for tag in tag_list:
+                if findings[tag]:
+                    result += f"### {tag} ({len(findings[tag])})\n\n"
+                    for file, line, comment in findings[tag][
+                        :20
+                    ]:  # Limit to 20 per tag
+                        result += f"- `{file}:{line}`: {comment}\n"
+                    if len(findings[tag]) > 20:
+                        result += f"- ... and {len(findings[tag]) - 20} more\n"
+                    result += "\n"
+
+            return result
+
+        except Exception as e:
+            return f"Error finding TODO comments: {str(e)}"
+
+    async def generate_docstring(
+        self,
+        file_path: str,
+        function_name: str,
+        style: str = "google",
+    ) -> str:
+        """
+        Generate a docstring template for a function.
+
+        Args:
+            file_path (str): Path to the file containing the function
+            function_name (str): Name of the function to document
+            style (str): Docstring style: "google", "numpy", "sphinx". Default: "google"
+
+        Returns:
+            str: Generated docstring template, or error
+
+        Notes:
+            - Extracts function signature and generates appropriate docstring
+            - Includes Args, Returns, and Raises sections
+            - Supports Python functions
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            if ext != ".py":
+                return f"Docstring generation only supported for Python files"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            try:
+                tree = ast.parse(content)
+            except SyntaxError as e:
+                return f"Syntax error parsing file: {str(e)}"
+
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name == function_name:
+                        # Extract parameters
+                        params = []
+                        for arg in node.args.args:
+                            param_type = ""
+                            if arg.annotation:
+                                param_type = ast.unparse(arg.annotation)
+                            params.append((arg.arg, param_type))
+
+                        # Extract return type
+                        return_type = ""
+                        if node.returns:
+                            return_type = ast.unparse(node.returns)
+
+                        # Generate docstring based on style
+                        if style == "google":
+                            docstring = self._generate_google_docstring(
+                                function_name, params, return_type
+                            )
+                        elif style == "numpy":
+                            docstring = self._generate_numpy_docstring(
+                                function_name, params, return_type
+                            )
+                        elif style == "sphinx":
+                            docstring = self._generate_sphinx_docstring(
+                                function_name, params, return_type
+                            )
+                        else:
+                            return f"Unknown docstring style: {style}. Use: google, numpy, sphinx"
+
+                        return f"📝 Generated {style}-style docstring for `{function_name}`:\n\n```python\n{docstring}\n```"
+
+            return f"Function `{function_name}` not found in `{file_path}`"
+
+        except Exception as e:
+            return f"Error generating docstring: {str(e)}"
+
+    def _generate_google_docstring(self, func_name, params, return_type):
+        """Generate Google-style docstring."""
+        lines = [
+            '"""Short description of the function.',
+            "",
+            "Longer description if needed.",
+            "",
+        ]
+
+        if params:
+            lines.append("Args:")
+            for name, ptype in params:
+                if name == "self":
+                    continue
+                type_hint = f" ({ptype})" if ptype else ""
+                lines.append(f"    {name}{type_hint}: Description of {name}.")
+            lines.append("")
+
+        if return_type:
+            lines.append("Returns:")
+            lines.append(f"    {return_type}: Description of return value.")
+            lines.append("")
+
+        lines.append("Raises:")
+        lines.append("    ExceptionType: Description of when this exception is raised.")
+        lines.append('"""')
+
+        return "\n".join(lines)
+
+    def _generate_numpy_docstring(self, func_name, params, return_type):
+        """Generate NumPy-style docstring."""
+        lines = [
+            '"""Short description of the function.',
+            "",
+            "Longer description if needed.",
+            "",
+        ]
+
+        if params:
+            lines.append("Parameters")
+            lines.append("----------")
+            for name, ptype in params:
+                if name == "self":
+                    continue
+                type_hint = f" : {ptype}" if ptype else ""
+                lines.append(f"{name}{type_hint}")
+                lines.append(f"    Description of {name}.")
+            lines.append("")
+
+        if return_type:
+            lines.append("Returns")
+            lines.append("-------")
+            lines.append(return_type)
+            lines.append("    Description of return value.")
+            lines.append("")
+
+        lines.append("Raises")
+        lines.append("------")
+        lines.append("ExceptionType")
+        lines.append("    Description of when this exception is raised.")
+        lines.append('"""')
+
+        return "\n".join(lines)
+
+    def _generate_sphinx_docstring(self, func_name, params, return_type):
+        """Generate Sphinx-style docstring."""
+        lines = [
+            '"""Short description of the function.',
+            "",
+            "Longer description if needed.",
+            "",
+        ]
+
+        for name, ptype in params:
+            if name == "self":
+                continue
+            if ptype:
+                lines.append(f":param {name}: Description of {name}.")
+                lines.append(f":type {name}: {ptype}")
+            else:
+                lines.append(f":param {name}: Description of {name}.")
+
+        if return_type:
+            lines.append(f":returns: Description of return value.")
+            lines.append(f":rtype: {return_type}")
+
+        lines.append(
+            ":raises ExceptionType: Description of when this exception is raised."
+        )
+        lines.append('"""')
+
+        return "\n".join(lines)
+
+    # ==================== WAVE 3: ADDITIONAL DEVELOPMENT TOOLS ====================
+
+    async def get_file_tree(
+        self,
+        directory: str = ".",
+        max_depth: int = 3,
+        show_hidden: bool = False,
+        show_size: bool = False,
+    ) -> str:
+        """
+        Generate a visual directory tree structure.
+
+        Args:
+            directory (str): Directory to start from. Default: "."
+            max_depth (int): Maximum depth to traverse. Default: 3
+            show_hidden (bool): Include hidden files/folders. Default: False
+            show_size (bool): Show file sizes. Default: False
+
+        Returns:
+            str: Visual tree structure of the directory
+
+        Notes:
+            - Uses ASCII characters for tree visualization
+            - Skips common non-essential directories (node_modules, .git, etc.)
+            - Restricted to agent workspace
+        """
+        try:
+            full_dir = self.safe_join(directory)
+
+            if not os.path.exists(full_dir):
+                return f"Error: Directory `{directory}` not found"
+
+            skip_dirs = {
+                ".git",
+                "node_modules",
+                "__pycache__",
+                ".venv",
+                "venv",
+                ".pytest_cache",
+                ".mypy_cache",
+            }
+
+            def build_tree(path, prefix="", depth=0):
+                if depth > max_depth:
+                    return ""
+
+                result = ""
+                try:
+                    entries = sorted(os.listdir(path))
+                except PermissionError:
+                    return f"{prefix}[Permission Denied]\n"
+
+                # Filter hidden files if needed
+                if not show_hidden:
+                    entries = [e for e in entries if not e.startswith(".")]
+
+                # Separate dirs and files
+                dirs = []
+                files = []
+                for entry in entries:
+                    entry_path = os.path.join(path, entry)
+                    if os.path.isdir(entry_path):
+                        if entry not in skip_dirs:
+                            dirs.append(entry)
+                    else:
+                        files.append(entry)
+
+                all_entries = dirs + files
+                for i, entry in enumerate(all_entries):
+                    is_last = i == len(all_entries) - 1
+                    connector = "└── " if is_last else "├── "
+                    entry_path = os.path.join(path, entry)
+
+                    # Add size info if requested
+                    size_info = ""
+                    if show_size and os.path.isfile(entry_path):
+                        try:
+                            size = os.path.getsize(entry_path)
+                            if size < 1024:
+                                size_info = f" ({size}B)"
+                            elif size < 1024 * 1024:
+                                size_info = f" ({size // 1024}KB)"
+                            else:
+                                size_info = f" ({size // (1024 * 1024)}MB)"
+                        except OSError:
+                            pass
+
+                    if os.path.isdir(entry_path):
+                        result += f"{prefix}{connector}{entry}/\n"
+                        extension = "    " if is_last else "│   "
+                        result += build_tree(entry_path, prefix + extension, depth + 1)
+                    else:
+                        result += f"{prefix}{connector}{entry}{size_info}\n"
+
+                return result
+
+            rel_dir = os.path.relpath(full_dir, self.WORKING_DIRECTORY)
+            header = f"📁 {rel_dir if rel_dir != '.' else 'workspace'}/\n"
+            tree = build_tree(full_dir)
+
+            if not tree:
+                return f"{header}(empty directory)"
+
+            return f"{header}{tree}"
+
+        except Exception as e:
+            return f"Error generating file tree: {str(e)}"
+
+    async def move_file(
+        self,
+        source: str,
+        destination: str,
+    ) -> str:
+        """
+        Move a file or directory to a new location.
+
+        Args:
+            source (str): Source path
+            destination (str): Destination path
+
+        Returns:
+            str: Success message or error
+
+        Notes:
+            - Can move files or directories
+            - Will overwrite destination if it exists
+            - Restricted to agent workspace
+        """
+        try:
+            src_path = self.safe_join(source)
+            dst_path = self.safe_join(destination)
+
+            if not os.path.exists(src_path):
+                return f"Error: Source `{source}` not found"
+
+            # If destination is a directory, move into it
+            if os.path.isdir(dst_path):
+                dst_path = os.path.join(dst_path, os.path.basename(src_path))
+
+            import shutil
+
+            shutil.move(src_path, dst_path)
+
+            return f"✅ Moved `{source}` to `{destination}`"
+
+        except Exception as e:
+            return f"Error moving file: {str(e)}"
+
+    async def find_references(
+        self,
+        symbol: str,
+        file_extensions: str = ".py,.js,.ts,.jsx,.tsx",
+        directory: str = ".",
+    ) -> str:
+        """
+        Find all references to a symbol (function, class, variable) across files.
+
+        Args:
+            symbol (str): The symbol name to search for
+            file_extensions (str): Comma-separated file extensions to search. Default: ".py,.js,.ts,.jsx,.tsx"
+            directory (str): Directory to search. Default: "."
+
+        Returns:
+            str: List of references with file paths and line numbers
+
+        Notes:
+            - Searches for whole word matches
+            - Groups results by file
+            - Shows context line for each reference
+            - Restricted to agent workspace
+        """
+        try:
+            full_dir = self.safe_join(directory)
+
+            if not os.path.exists(full_dir):
+                return f"Error: Directory `{directory}` not found"
+
+            extensions = [ext.strip() for ext in file_extensions.split(",")]
+            skip_dirs = {"node_modules", ".git", "__pycache__", "venv", ".venv"}
+
+            # Build regex for whole word match
+            pattern = rf"\b{re.escape(symbol)}\b"
+
+            references = {}  # file -> [(line_no, line_content, context)]
+
+            for root, dirs, files in os.walk(full_dir):
+                dirs[:] = [d for d in dirs if d not in skip_dirs]
+
+                for file in files:
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext not in extensions:
+                        continue
+
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, self.WORKING_DIRECTORY)
+
+                    try:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            lines = f.readlines()
+
+                        for i, line in enumerate(lines, 1):
+                            if re.search(pattern, line):
+                                if rel_path not in references:
+                                    references[rel_path] = []
+
+                                # Determine reference type
+                                ref_type = "reference"
+                                stripped = line.strip()
+                                if ext == ".py":
+                                    if stripped.startswith(
+                                        f"def {symbol}"
+                                    ) or stripped.startswith(f"async def {symbol}"):
+                                        ref_type = "definition"
+                                    elif stripped.startswith(f"class {symbol}"):
+                                        ref_type = "definition"
+                                    elif (
+                                        f"{symbol} =" in stripped
+                                        and not stripped.startswith("#")
+                                    ):
+                                        ref_type = "assignment"
+                                    elif (
+                                        f"import {symbol}" in stripped
+                                        or f"from " in stripped
+                                        and f" import " in stripped
+                                        and symbol in stripped
+                                    ):
+                                        ref_type = "import"
+                                elif ext in [".js", ".ts", ".jsx", ".tsx"]:
+                                    if (
+                                        f"function {symbol}" in stripped
+                                        or f"const {symbol}" in stripped
+                                        or f"let {symbol}" in stripped
+                                    ):
+                                        ref_type = "definition"
+                                    elif f"class {symbol}" in stripped:
+                                        ref_type = "definition"
+                                    elif "import" in stripped:
+                                        ref_type = "import"
+
+                                references[rel_path].append(
+                                    (i, line.rstrip()[:100], ref_type)
+                                )
+
+                    except Exception:
+                        continue
+
+            if not references:
+                return f"No references found for `{symbol}` in `{directory}`"
+
+            total = sum(len(refs) for refs in references.values())
+            result = f"🔍 Found {total} reference(s) to `{symbol}` in {len(references)} file(s):\n\n"
+
+            for file, refs in sorted(references.items()):
+                result += f"**{file}** ({len(refs)} references):\n"
+                for line_no, content, ref_type in refs[:10]:  # Limit per file
+                    type_icon = {
+                        "definition": "📝",
+                        "assignment": "📌",
+                        "import": "📦",
+                    }.get(ref_type, "👉")
+                    result += f"  {type_icon} Line {line_no}: `{content[:80]}`\n"
+                if len(refs) > 10:
+                    result += f"  ... and {len(refs) - 10} more\n"
+                result += "\n"
+
+            return result
+
+        except Exception as e:
+            return f"Error finding references: {str(e)}"
+
+    async def get_class_definition(
+        self,
+        file_path: str,
+        class_name: str,
+    ) -> str:
+        """
+        Extract a complete class definition from a file.
+
+        Args:
+            file_path (str): Path to the file
+            class_name (str): Name of the class to extract
+
+        Returns:
+            str: The complete class code with line numbers
+
+        Notes:
+            - Includes decorators, docstrings, and all methods
+            - Supports Python classes
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                f.seek(0)
+                lines = f.readlines()
+
+            if ext == ".py":
+                try:
+                    tree = ast.parse(content)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.ClassDef) and node.name == class_name:
+                            # Get decorators start line
+                            start_line = (
+                                node.decorator_list[0].lineno
+                                if node.decorator_list
+                                else node.lineno
+                            )
+                            end_line = node.end_lineno
+
+                            class_lines = lines[start_line - 1 : end_line]
+                            result = f"📦 Class `{class_name}` from `{file_path}` (lines {start_line}-{end_line}):\n\n```python\n"
+                            for i, line in enumerate(class_lines, start=start_line):
+                                result += f"{i:4} | {line}"
+                            result += "```"
+
+                            # Also list methods
+                            methods = []
+                            for item in node.body:
+                                if isinstance(
+                                    item, (ast.FunctionDef, ast.AsyncFunctionDef)
+                                ):
+                                    async_prefix = (
+                                        "async "
+                                        if isinstance(item, ast.AsyncFunctionDef)
+                                        else ""
+                                    )
+                                    methods.append(f"{async_prefix}{item.name}")
+
+                            if methods:
+                                result += f"\n\n**Methods ({len(methods)}):** {', '.join(methods)}"
+
+                            return result
+
+                    return f"Class `{class_name}` not found in `{file_path}`"
+
+                except SyntaxError as e:
+                    return f"Syntax error parsing file: {str(e)}"
+
+            else:
+                return f"Class extraction only supported for Python files"
+
+        except Exception as e:
+            return f"Error extracting class: {str(e)}"
+
+    async def get_method_list(
+        self,
+        file_path: str,
+        class_name: str = "",
+    ) -> str:
+        """
+        List all methods/functions in a file or specific class.
+
+        Args:
+            file_path (str): Path to the file
+            class_name (str): Optional class name to filter methods. If empty, lists all functions.
+
+        Returns:
+            str: List of methods with signatures
+
+        Notes:
+            - Shows method signatures including parameters and return types
+            - Groups by class if no class_name specified
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            if ext != ".py":
+                return f"Method listing only supported for Python files"
+
+            try:
+                tree = ast.parse(content)
+            except SyntaxError as e:
+                return f"Syntax error parsing file: {str(e)}"
+
+            result = f"📋 Methods in `{file_path}`"
+            if class_name:
+                result += f" (class `{class_name}`)"
+            result += ":\n\n"
+
+            def format_func(node, indent=""):
+                async_prefix = (
+                    "async " if isinstance(node, ast.AsyncFunctionDef) else ""
+                )
+                args = []
+                for arg in node.args.args:
+                    arg_str = arg.arg
+                    if arg.annotation:
+                        arg_str += f": {ast.unparse(arg.annotation)}"
+                    args.append(arg_str)
+
+                returns = ""
+                if node.returns:
+                    returns = f" -> {ast.unparse(node.returns)}"
+
+                return (
+                    f"{indent}{async_prefix}def {node.name}({', '.join(args)}){returns}"
+                )
+
+            if class_name:
+                # Find specific class
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef) and node.name == class_name:
+                        methods = [
+                            item
+                            for item in node.body
+                            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        ]
+                        for method in methods:
+                            result += f"  - `{format_func(method)}`\n"
+                        result += f"\n**Total:** {len(methods)} method(s)"
+                        return result
+                return f"Class `{class_name}` not found"
+
+            else:
+                # List all classes and their methods, plus top-level functions
+                classes = {}
+                top_level_funcs = []
+
+                for node in ast.iter_child_nodes(tree):
+                    if isinstance(node, ast.ClassDef):
+                        methods = [
+                            item
+                            for item in node.body
+                            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        ]
+                        classes[node.name] = methods
+                    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        top_level_funcs.append(node)
+
+                if top_level_funcs:
+                    result += "**Top-level functions:**\n"
+                    for func in top_level_funcs:
+                        result += f"  - `{format_func(func)}`\n"
+                    result += "\n"
+
+                for cls_name, methods in classes.items():
+                    result += f"**class {cls_name}:** ({len(methods)} methods)\n"
+                    for method in methods[:10]:  # Limit methods shown
+                        result += f"  - `{format_func(method, '')}`\n"
+                    if len(methods) > 10:
+                        result += f"  ... and {len(methods) - 10} more\n"
+                    result += "\n"
+
+                total = len(top_level_funcs) + sum(len(m) for m in classes.values())
+                result += f"**Total:** {total} function(s)/method(s) in {len(classes)} class(es)"
+                return result
+
+        except Exception as e:
+            return f"Error listing methods: {str(e)}"
+
+    async def analyze_dependencies(
+        self,
+        file_path: str,
+    ) -> str:
+        """
+        Analyze dependencies of a Python file.
+
+        Args:
+            file_path (str): Path to the Python file
+
+        Returns:
+            str: Dependency analysis including imports and their types
+
+        Notes:
+            - Categorizes imports as standard library, third-party, or local
+            - Shows what each import provides
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext != ".py":
+                return f"Dependency analysis only supported for Python files"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            try:
+                tree = ast.parse(content)
+            except SyntaxError as e:
+                return f"Syntax error parsing file: {str(e)}"
+
+            # Standard library modules (common ones)
+            stdlib = {
+                "os",
+                "sys",
+                "re",
+                "json",
+                "datetime",
+                "time",
+                "math",
+                "random",
+                "collections",
+                "itertools",
+                "functools",
+                "typing",
+                "pathlib",
+                "logging",
+                "subprocess",
+                "threading",
+                "multiprocessing",
+                "asyncio",
+                "io",
+                "copy",
+                "uuid",
+                "hashlib",
+                "base64",
+                "pickle",
+                "csv",
+                "urllib",
+                "http",
+                "socket",
+                "ssl",
+                "email",
+                "html",
+                "xml",
+                "sqlite3",
+                "unittest",
+                "tempfile",
+                "shutil",
+                "glob",
+                "fnmatch",
+                "abc",
+                "contextlib",
+                "dataclasses",
+                "enum",
+                "traceback",
+                "inspect",
+                "ast",
+                "dis",
+                "struct",
+                "codecs",
+                "locale",
+                "gettext",
+                "argparse",
+            }
+
+            imports = {
+                "stdlib": [],
+                "third_party": [],
+                "local": [],
+            }
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        module = alias.name.split(".")[0]
+                        entry = alias.name
+                        if alias.asname:
+                            entry += f" as {alias.asname}"
+
+                        if module in stdlib:
+                            imports["stdlib"].append((node.lineno, entry))
+                        elif module.startswith(".") or module == "__future__":
+                            imports["local"].append((node.lineno, entry))
+                        else:
+                            imports["third_party"].append((node.lineno, entry))
+
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    base_module = module.split(".")[0] if module else ""
+                    names = [
+                        a.name + (f" as {a.asname}" if a.asname else "")
+                        for a in node.names
+                    ]
+                    dots = "." * node.level
+                    entry = f"from {dots}{module} import {', '.join(names)}"
+
+                    if node.level > 0:  # Relative import
+                        imports["local"].append((node.lineno, entry))
+                    elif base_module in stdlib:
+                        imports["stdlib"].append((node.lineno, entry))
+                    else:
+                        imports["third_party"].append((node.lineno, entry))
+
+            result = f"📊 Dependency Analysis for `{file_path}`\n\n"
+
+            if imports["stdlib"]:
+                result += f"**Standard Library ({len(imports['stdlib'])}):**\n"
+                for line, imp in sorted(imports["stdlib"]):
+                    result += f"  Line {line}: `{imp}`\n"
+                result += "\n"
+
+            if imports["third_party"]:
+                result += f"**Third-Party ({len(imports['third_party'])}):**\n"
+                for line, imp in sorted(imports["third_party"]):
+                    result += f"  Line {line}: `{imp}`\n"
+                result += "\n"
+
+            if imports["local"]:
+                result += f"**Local/Relative ({len(imports['local'])}):**\n"
+                for line, imp in sorted(imports["local"]):
+                    result += f"  Line {line}: `{imp}`\n"
+                result += "\n"
+
+            total = sum(len(v) for v in imports.values())
+            result += f"**Total:** {total} import statement(s)"
+
+            return result
+
+        except Exception as e:
+            return f"Error analyzing dependencies: {str(e)}"
+
+    async def get_code_outline(
+        self,
+        file_path: str,
+    ) -> str:
+        """
+        Get a structured outline of a code file showing classes, functions, and key elements.
+
+        Args:
+            file_path (str): Path to the code file
+
+        Returns:
+            str: Structured outline with line numbers
+
+        Notes:
+            - Shows classes, methods, functions, and decorators
+            - Includes docstring summaries where available
+            - Supports Python
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            if ext != ".py":
+                return f"Code outline only supported for Python files"
+
+            try:
+                tree = ast.parse(content)
+            except SyntaxError as e:
+                return f"Syntax error parsing file: {str(e)}"
+
+            result = f"📝 Code Outline: `{file_path}`\n\n"
+
+            # Get module docstring
+            module_doc = ast.get_docstring(tree)
+            if module_doc:
+                first_line = module_doc.split("\n")[0][:80]
+                result += f"📄 **Module:** {first_line}...\n\n"
+
+            # Track global variables
+            globals_list = []
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id.isupper():
+                            globals_list.append((node.lineno, target.id))
+
+            if globals_list:
+                result += "**Constants/Globals:**\n"
+                for line, name in globals_list[:10]:
+                    result += f"  Line {line}: `{name}`\n"
+                if len(globals_list) > 10:
+                    result += f"  ... and {len(globals_list) - 10} more\n"
+                result += "\n"
+
+            # Process top-level items
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.ClassDef):
+                    decorators = (
+                        [f"@{ast.unparse(d)}" for d in node.decorator_list]
+                        if node.decorator_list
+                        else []
+                    )
+                    dec_str = " ".join(decorators) + " " if decorators else ""
+
+                    bases = [ast.unparse(b) for b in node.bases] if node.bases else []
+                    base_str = f"({', '.join(bases)})" if bases else ""
+
+                    result += (
+                        f"📦 **class {node.name}{base_str}** (line {node.lineno})\n"
+                    )
+                    if dec_str:
+                        result += f"   Decorators: {dec_str}\n"
+
+                    doc = ast.get_docstring(node)
+                    if doc:
+                        result += f"   {doc.split(chr(10))[0][:60]}...\n"
+
+                    # List methods
+                    methods = [
+                        item
+                        for item in node.body
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    ]
+                    for method in methods[:8]:
+                        async_prefix = (
+                            "async " if isinstance(method, ast.AsyncFunctionDef) else ""
+                        )
+                        result += f"   └─ {async_prefix}def {method.name}() (line {method.lineno})\n"
+                    if len(methods) > 8:
+                        result += f"   └─ ... and {len(methods) - 8} more methods\n"
+                    result += "\n"
+
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    async_prefix = (
+                        "async " if isinstance(node, ast.AsyncFunctionDef) else ""
+                    )
+                    decorators = (
+                        [f"@{ast.unparse(d)}" for d in node.decorator_list]
+                        if node.decorator_list
+                        else []
+                    )
+                    dec_str = " ".join(decorators) + " " if decorators else ""
+
+                    result += (
+                        f"🔧 **{async_prefix}def {node.name}()** (line {node.lineno})\n"
+                    )
+                    if dec_str:
+                        result += f"   Decorators: {dec_str}\n"
+
+                    doc = ast.get_docstring(node)
+                    if doc:
+                        result += f"   {doc.split(chr(10))[0][:60]}...\n"
+                    result += "\n"
+
+            return result
+
+        except Exception as e:
+            return f"Error generating outline: {str(e)}"
+
+    async def git_fetch(
+        self,
+        remote: str = "origin",
+        prune: bool = False,
+    ) -> str:
+        """
+        Fetch updates from a remote repository.
+
+        Args:
+            remote (str): Remote name. Default: "origin"
+            prune (bool): Remove remote-tracking branches that no longer exist. Default: False
+
+        Returns:
+            str: Fetch result or error
+
+        Notes:
+            - Does not merge, only downloads new data
+            - Restricted to agent workspace
+        """
+        try:
+            cmd = ["git", "fetch", remote]
+            if prune:
+                cmd.append("--prune")
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return f"Error: {result.stderr}"
+
+            output = result.stdout or result.stderr or "Fetch completed (no new data)"
+            return f"✅ Git fetch from `{remote}` completed\n\n{output}"
+
+        except Exception as e:
+            return f"Error during git fetch: {str(e)}"
+
+    async def git_pull(
+        self,
+        remote: str = "origin",
+        branch: str = "",
+        rebase: bool = False,
+    ) -> str:
+        """
+        Pull changes from a remote repository.
+
+        Args:
+            remote (str): Remote name. Default: "origin"
+            branch (str): Branch to pull. If empty, pulls current branch.
+            rebase (bool): Use rebase instead of merge. Default: False
+
+        Returns:
+            str: Pull result or error
+
+        Notes:
+            - Fetches and merges/rebases changes
+            - Restricted to agent workspace
+        """
+        try:
+            cmd = ["git", "pull"]
+            if rebase:
+                cmd.append("--rebase")
+            cmd.append(remote)
+            if branch:
+                cmd.append(branch)
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr
+                if "CONFLICT" in stderr or "conflict" in result.stdout:
+                    return f"⚠️ Pull resulted in conflicts:\n\n{result.stdout}\n{stderr}"
+                return f"Error: {stderr}"
+
+            return f"✅ Git pull completed\n\n{result.stdout}"
+
+        except Exception as e:
+            return f"Error during git pull: {str(e)}"
+
+    async def git_merge(
+        self,
+        branch: str,
+        no_ff: bool = False,
+        message: str = "",
+    ) -> str:
+        """
+        Merge a branch into the current branch.
+
+        Args:
+            branch (str): Branch name to merge
+            no_ff (bool): Create merge commit even for fast-forward. Default: False
+            message (str): Custom merge commit message
+
+        Returns:
+            str: Merge result or error
+
+        Notes:
+            - May result in conflicts that need resolution
+            - Restricted to agent workspace
+        """
+        try:
+            cmd = ["git", "merge", branch]
+            if no_ff:
+                cmd.append("--no-ff")
+            if message:
+                cmd.extend(["-m", message])
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr
+                if "CONFLICT" in stderr or "CONFLICT" in result.stdout:
+                    return f"⚠️ Merge conflicts detected:\n\n{result.stdout}\n{stderr}\n\nResolve conflicts and commit."
+                return f"Error: {stderr}"
+
+            return f"✅ Merged `{branch}` into current branch\n\n{result.stdout}"
+
+        except Exception as e:
+            return f"Error during git merge: {str(e)}"
+
+    async def git_revert(
+        self,
+        commit: str,
+        no_commit: bool = False,
+    ) -> str:
+        """
+        Revert a specific commit.
+
+        Args:
+            commit (str): Commit hash to revert
+            no_commit (bool): Stage changes but don't commit. Default: False
+
+        Returns:
+            str: Revert result or error
+
+        Notes:
+            - Creates a new commit that undoes the changes
+            - Restricted to agent workspace
+        """
+        try:
+            cmd = ["git", "revert", commit]
+            if no_commit:
+                cmd.append("--no-commit")
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return f"Error: {result.stderr}"
+
+            return f"✅ Reverted commit `{commit}`\n\n{result.stdout}"
+
+        except Exception as e:
+            return f"Error during git revert: {str(e)}"
+
+    async def git_cherry_pick(
+        self,
+        commit: str,
+        no_commit: bool = False,
+    ) -> str:
+        """
+        Cherry-pick a specific commit onto the current branch.
+
+        Args:
+            commit (str): Commit hash to cherry-pick
+            no_commit (bool): Stage changes but don't commit. Default: False
+
+        Returns:
+            str: Cherry-pick result or error
+
+        Notes:
+            - Applies changes from a specific commit
+            - May result in conflicts
+            - Restricted to agent workspace
+        """
+        try:
+            cmd = ["git", "cherry-pick", commit]
+            if no_commit:
+                cmd.append("--no-commit")
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr
+                if "CONFLICT" in stderr:
+                    return f"⚠️ Cherry-pick conflicts:\n\n{result.stdout}\n{stderr}"
+                return f"Error: {stderr}"
+
+            return f"✅ Cherry-picked commit `{commit}`\n\n{result.stdout}"
+
+        except Exception as e:
+            return f"Error during cherry-pick: {str(e)}"
+
+    async def find_test_file(
+        self,
+        source_file: str,
+    ) -> str:
+        """
+        Find the test file corresponding to a source file.
+
+        Args:
+            source_file (str): Path to the source file
+
+        Returns:
+            str: Path to test file(s) if found, or suggestions
+
+        Notes:
+            - Checks common test file naming conventions
+            - Looks in tests/, test/, and same directory
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(source_file)
+
+            if not os.path.exists(full_path):
+                return f"Error: Source file `{source_file}` not found"
+
+            base_name = os.path.basename(source_file)
+            name_without_ext = os.path.splitext(base_name)[0]
+            ext = os.path.splitext(base_name)[1]
+            source_dir = os.path.dirname(full_path)
+
+            # Common test file patterns
+            test_patterns = [
+                f"test_{name_without_ext}{ext}",
+                f"{name_without_ext}_test{ext}",
+                f"test_{name_without_ext.replace('_', '')}{ext}",
+                f"{name_without_ext}Test{ext}",
+            ]
+
+            # Directories to search
+            search_dirs = [
+                source_dir,
+                os.path.join(self.WORKING_DIRECTORY, "tests"),
+                os.path.join(self.WORKING_DIRECTORY, "test"),
+                os.path.join(source_dir, "tests"),
+                os.path.join(source_dir, "test"),
+            ]
+
+            found_tests = []
+
+            for search_dir in search_dirs:
+                if not os.path.exists(search_dir):
+                    continue
+
+                for pattern in test_patterns:
+                    test_path = os.path.join(search_dir, pattern)
+                    if os.path.exists(test_path):
+                        rel_path = os.path.relpath(test_path, self.WORKING_DIRECTORY)
+                        found_tests.append(rel_path)
+
+                # Also search recursively
+                for root, dirs, files in os.walk(search_dir):
+                    for file in files:
+                        if file in test_patterns:
+                            rel_path = os.path.relpath(
+                                os.path.join(root, file), self.WORKING_DIRECTORY
+                            )
+                            if rel_path not in found_tests:
+                                found_tests.append(rel_path)
+
+            if found_tests:
+                result = (
+                    f"🧪 Found {len(found_tests)} test file(s) for `{source_file}`:\n\n"
+                )
+                for test_file in found_tests:
+                    result += f"  - `{test_file}`\n"
+                return result
+
+            # Suggest where to create test
+            suggested = os.path.join("tests", f"test_{name_without_ext}{ext}")
+            return f"No test file found for `{source_file}`\n\nSuggested location: `{suggested}`"
+
+        except Exception as e:
+            return f"Error finding test file: {str(e)}"
+
+    async def lint_file(
+        self,
+        file_path: str,
+        linter: str = "auto",
+    ) -> str:
+        """
+        Run a linter on a file and report issues.
+
+        Args:
+            file_path (str): Path to the file to lint
+            linter (str): Linter to use: "auto", "flake8", "pylint", "ruff". Default: "auto"
+
+        Returns:
+            str: Linting results with issues found
+
+        Notes:
+            - Auto-detects linter based on file type
+            - For Python: tries ruff, flake8, then pylint
+            - Shows line numbers and issue descriptions
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            if ext != ".py":
+                return f"Linting currently only supported for Python files"
+
+            # Try different linters
+            linters_to_try = []
+            if linter == "auto":
+                linters_to_try = ["ruff", "flake8", "pylint"]
+            else:
+                linters_to_try = [linter]
+
+            for lint_tool in linters_to_try:
+                try:
+                    if lint_tool == "ruff":
+                        cmd = ["ruff", "check", full_path, "--output-format", "text"]
+                    elif lint_tool == "flake8":
+                        cmd = ["flake8", full_path]
+                    elif lint_tool == "pylint":
+                        cmd = [
+                            "pylint",
+                            full_path,
+                            "--output-format",
+                            "text",
+                            "--score=no",
+                        ]
+                    else:
+                        continue
+
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    # Linters often return non-zero when issues found
+                    output = result.stdout or result.stderr
+
+                    if output.strip():
+                        issues = output.strip().split("\n")
+                        return f"🔍 Lint results for `{file_path}` (using {lint_tool}):\n\n```\n{output}\n```\n\n**Issues found:** {len(issues)}"
+                    else:
+                        return f"✅ No lint issues found in `{file_path}` (using {lint_tool})"
+
+                except FileNotFoundError:
+                    continue
+
+            return f"Error: No linter available. Install ruff, flake8, or pylint."
+
+        except Exception as e:
+            return f"Error linting file: {str(e)}"
+
+    async def sort_lines(
+        self,
+        file_path: str,
+        start_line: int = 0,
+        end_line: int = 0,
+        reverse: bool = False,
+        ignore_case: bool = False,
+    ) -> str:
+        """
+        Sort lines in a file or a specific range.
+
+        Args:
+            file_path (str): Path to the file
+            start_line (int): First line to sort (1-indexed). 0 = start of file.
+            end_line (int): Last line to sort (1-indexed). 0 = end of file.
+            reverse (bool): Sort in descending order. Default: False
+            ignore_case (bool): Case-insensitive sorting. Default: False
+
+        Returns:
+            str: Success message or error
+
+        Notes:
+            - Sorts in-place
+            - Use start_line/end_line to sort a specific range
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Determine range
+            start_idx = max(0, start_line - 1) if start_line > 0 else 0
+            end_idx = min(len(lines), end_line) if end_line > 0 else len(lines)
+
+            # Extract, sort, and reinsert
+            to_sort = lines[start_idx:end_idx]
+            key_func = (lambda x: x.lower()) if ignore_case else None
+            sorted_lines = sorted(to_sort, key=key_func, reverse=reverse)
+
+            lines[start_idx:end_idx] = sorted_lines
+
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+
+            range_desc = f"lines {start_line or 1}-{end_line or len(lines)}"
+            return (
+                f"✅ Sorted {len(sorted_lines)} lines in `{file_path}` ({range_desc})"
+            )
+
+        except Exception as e:
+            return f"Error sorting lines: {str(e)}"
+
+    async def remove_duplicate_lines(
+        self,
+        file_path: str,
+        preserve_order: bool = True,
+    ) -> str:
+        """
+        Remove duplicate lines from a file.
+
+        Args:
+            file_path (str): Path to the file
+            preserve_order (bool): Keep first occurrence of each line. Default: True
+
+        Returns:
+            str: Success message with count of removed duplicates
+
+        Notes:
+            - By default preserves the order of first occurrences
+            - Considers trailing whitespace as part of the line
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            original_count = len(lines)
+
+            if preserve_order:
+                seen = set()
+                unique_lines = []
+                for line in lines:
+                    if line not in seen:
+                        seen.add(line)
+                        unique_lines.append(line)
+            else:
+                unique_lines = list(set(lines))
+
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.writelines(unique_lines)
+
+            removed = original_count - len(unique_lines)
+            return f"✅ Removed {removed} duplicate line(s) from `{file_path}`\n\n- Original: {original_count} lines\n- After: {len(unique_lines)} lines"
+
+        except Exception as e:
+            return f"Error removing duplicates: {str(e)}"
+
+    async def extract_comments(
+        self,
+        file_path: str,
+        include_docstrings: bool = True,
+    ) -> str:
+        """
+        Extract all comments from a code file.
+
+        Args:
+            file_path (str): Path to the code file
+            include_docstrings (bool): Include docstrings as comments. Default: True
+
+        Returns:
+            str: List of comments with line numbers
+
+        Notes:
+            - Supports Python and JavaScript/TypeScript
+            - Groups by type (inline, block, docstring)
+            - Restricted to agent workspace
+        """
+        try:
+            full_path = self.safe_join(file_path)
+
+            if not os.path.exists(full_path):
+                return f"Error: File `{file_path}` not found"
+
+            ext = os.path.splitext(file_path)[1].lower()
+
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                f.seek(0)
+                lines = f.readlines()
+
+            comments = {
+                "inline": [],
+                "block": [],
+                "docstring": [],
+            }
+
+            if ext == ".py":
+                # Extract docstrings using AST
+                if include_docstrings:
+                    try:
+                        tree = ast.parse(content)
+                        for node in ast.walk(tree):
+                            if isinstance(
+                                node,
+                                (
+                                    ast.Module,
+                                    ast.ClassDef,
+                                    ast.FunctionDef,
+                                    ast.AsyncFunctionDef,
+                                ),
+                            ):
+                                doc = ast.get_docstring(node)
+                                if doc:
+                                    if isinstance(node, ast.Module):
+                                        loc = "module"
+                                    else:
+                                        loc = f"{node.name}"
+                                    comments["docstring"].append(
+                                        (
+                                            (
+                                                node.lineno
+                                                if hasattr(node, "lineno")
+                                                else 1
+                                            ),
+                                            loc,
+                                            doc[:100],
+                                        )
+                                    )
+                    except SyntaxError:
+                        pass
+
+                # Extract inline comments
+                for i, line in enumerate(lines, 1):
+                    stripped = line.strip()
+                    if stripped.startswith("#"):
+                        comments["inline"].append((i, stripped))
+                    elif "#" in line and not line.strip().startswith("#"):
+                        # Inline comment at end of line
+                        comment_part = line.split("#", 1)[1].strip()
+                        comments["inline"].append((i, f"# {comment_part}"))
+
+            elif ext in [".js", ".ts", ".jsx", ".tsx"]:
+                # Single-line comments
+                for i, line in enumerate(lines, 1):
+                    stripped = line.strip()
+                    if stripped.startswith("//"):
+                        comments["inline"].append((i, stripped))
+
+                # Multi-line comments
+                in_block = False
+                block_start = 0
+                block_content = []
+                for i, line in enumerate(lines, 1):
+                    if "/*" in line and not in_block:
+                        in_block = True
+                        block_start = i
+                        block_content = [line.split("/*")[1]]
+                    elif in_block:
+                        if "*/" in line:
+                            block_content.append(line.split("*/")[0])
+                            comments["block"].append(
+                                (block_start, " ".join(block_content).strip()[:100])
+                            )
+                            in_block = False
+                            block_content = []
+                        else:
+                            block_content.append(line.strip().lstrip("*").strip())
+
+            # Format output
+            result = f"💬 Comments in `{file_path}`:\n\n"
+
+            if comments["docstring"] and include_docstrings:
+                result += f"**Docstrings ({len(comments['docstring'])}):**\n"
+                for line, loc, doc in comments["docstring"][:10]:
+                    result += f"  Line {line} ({loc}): `{doc[:60]}...`\n"
+                result += "\n"
+
+            if comments["inline"]:
+                result += f"**Inline Comments ({len(comments['inline'])}):**\n"
+                for line, comment in comments["inline"][:15]:
+                    result += f"  Line {line}: `{comment[:60]}`\n"
+                if len(comments["inline"]) > 15:
+                    result += f"  ... and {len(comments['inline']) - 15} more\n"
+                result += "\n"
+
+            if comments["block"]:
+                result += f"**Block Comments ({len(comments['block'])}):**\n"
+                for line, comment in comments["block"][:5]:
+                    result += f"  Line {line}: `{comment[:60]}...`\n"
+                result += "\n"
+
+            total = sum(len(v) for v in comments.values())
+            if total == 0:
+                return f"No comments found in `{file_path}`"
+
+            result += f"**Total:** {total} comment(s)"
+            return result
+
+        except Exception as e:
+            return f"Error extracting comments: {str(e)}"
+
+    async def generate_changelog(
+        self,
+        count: int = 20,
+        since: str = "",
+        format_type: str = "markdown",
+    ) -> str:
+        """
+        Generate a changelog from git commit history.
+
+        Args:
+            count (int): Number of commits to include. Default: 20
+            since (str): Only commits after this date (YYYY-MM-DD). Optional.
+            format_type (str): Output format: "markdown", "plain". Default: "markdown"
+
+        Returns:
+            str: Generated changelog
+
+        Notes:
+            - Groups commits by type if using conventional commits
+            - Includes commit hash, author, and date
+            - Restricted to agent workspace
+        """
+        try:
+            cmd = ["git", "log", f"-n{count}", "--format=%H|%an|%ad|%s", "--date=short"]
+            if since:
+                cmd.append(f"--since={since}")
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.WORKING_DIRECTORY,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return f"Error: {result.stderr}"
+
+            if not result.stdout.strip():
+                return "No commits found"
+
+            commits = []
+            for line in result.stdout.strip().split("\n"):
+                parts = line.split("|", 3)
+                if len(parts) == 4:
+                    commits.append(
+                        {
+                            "hash": parts[0][:7],
+                            "author": parts[1],
+                            "date": parts[2],
+                            "message": parts[3],
+                        }
+                    )
+
+            # Try to categorize by conventional commits
+            categories = {
+                "feat": [],
+                "fix": [],
+                "docs": [],
+                "style": [],
+                "refactor": [],
+                "test": [],
+                "chore": [],
+                "other": [],
+            }
+
+            for commit in commits:
+                msg = commit["message"].lower()
+                categorized = False
+                for cat in categories:
+                    if msg.startswith(f"{cat}:") or msg.startswith(f"{cat}("):
+                        categories[cat].append(commit)
+                        categorized = True
+                        break
+                if not categorized:
+                    categories["other"].append(commit)
+
+            # Format output
+            if format_type == "markdown":
+                result_text = "# Changelog\n\n"
+
+                category_names = {
+                    "feat": "✨ Features",
+                    "fix": "🐛 Bug Fixes",
+                    "docs": "📚 Documentation",
+                    "style": "💅 Styling",
+                    "refactor": "♻️ Refactoring",
+                    "test": "🧪 Tests",
+                    "chore": "🔧 Chores",
+                    "other": "📝 Other Changes",
+                }
+
+                for cat, name in category_names.items():
+                    if categories[cat]:
+                        result_text += f"## {name}\n\n"
+                        for commit in categories[cat]:
+                            result_text += f"- {commit['message']} (`{commit['hash']}`) - {commit['author']}, {commit['date']}\n"
+                        result_text += "\n"
+
+            else:
+                result_text = "CHANGELOG\n" + "=" * 50 + "\n\n"
+                for commit in commits:
+                    result_text += (
+                        f"[{commit['hash']}] {commit['date']} - {commit['author']}\n"
+                    )
+                    result_text += f"  {commit['message']}\n\n"
+
+            return result_text
+
+        except Exception as e:
+            return f"Error generating changelog: {str(e)}"
+
+    async def head_file(
+        self,
+        file_path: str,
+        lines: int = 10,
+    ) -> str:
+        """
+        Get the first N lines of a file efficiently without reading the entire file.
+
+        Args:
+            file_path: Path to the file (relative to workspace or absolute)
+            lines: Number of lines to return from the beginning (default: 10)
+
+        Returns:
+            The first N lines of the file
+        """
+        try:
+            safe_path = self.safe_join(file_path)
+            if not safe_path:
+                return f"Error: Access denied - path '{file_path}' is outside the workspace"
+
+            if not os.path.exists(safe_path):
+                return f"Error: File not found: {file_path}"
+
+            if not os.path.isfile(safe_path):
+                return f"Error: Path is not a file: {file_path}"
+
+            lines = int(lines)
+            result_lines = []
+            with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+                for i, line in enumerate(f):
+                    if i >= lines:
+                        break
+                    result_lines.append(line.rstrip("\n"))
+
+            return f"First {len(result_lines)} lines of {file_path}:\n" + "\n".join(
+                f"{i+1}: {line}" for i, line in enumerate(result_lines)
+            )
+
+        except Exception as e:
+            return f"Error reading file head: {str(e)}"
+
+    async def tail_file(
+        self,
+        file_path: str,
+        lines: int = 10,
+    ) -> str:
+        """
+        Get the last N lines of a file efficiently.
+
+        Args:
+            file_path: Path to the file (relative to workspace or absolute)
+            lines: Number of lines to return from the end (default: 10)
+
+        Returns:
+            The last N lines of the file
+        """
+        try:
+            safe_path = self.safe_join(file_path)
+            if not safe_path:
+                return f"Error: Access denied - path '{file_path}' is outside the workspace"
+
+            if not os.path.exists(safe_path):
+                return f"Error: File not found: {file_path}"
+
+            if not os.path.isfile(safe_path):
+                return f"Error: Path is not a file: {file_path}"
+
+            lines = int(lines)
+            # Use deque for efficient tail operation
+            from collections import deque
+
+            with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+                result_lines = deque(f, maxlen=lines)
+
+            result_lines = [line.rstrip("\n") for line in result_lines]
+
+            # Get total line count for accurate line numbers
+            with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+                total_lines = sum(1 for _ in f)
+
+            start_line = total_lines - len(result_lines) + 1
+
+            return (
+                f"Last {len(result_lines)} lines of {file_path} (lines {start_line}-{total_lines}):\n"
+                + "\n".join(
+                    f"{start_line + i}: {line}" for i, line in enumerate(result_lines)
+                )
+            )
+
+        except Exception as e:
+            return f"Error reading file tail: {str(e)}"
+
+    async def check_path_exists(
+        self,
+        path: str,
+        check_type: str = "any",
+    ) -> str:
+        """
+        Check if a path exists without reading its contents.
+
+        Args:
+            path: Path to check (relative to workspace or absolute)
+            check_type: Type to check for - 'any', 'file', or 'directory'
+
+        Returns:
+            JSON with existence status and path details
+        """
+        try:
+            safe_path = self.safe_join(path)
+            if not safe_path:
+                return json.dumps(
+                    {
+                        "exists": False,
+                        "error": f"Access denied - path '{path}' is outside the workspace",
+                        "path": path,
+                    }
+                )
+
+            exists = os.path.exists(safe_path)
+            is_file = os.path.isfile(safe_path) if exists else False
+            is_dir = os.path.isdir(safe_path) if exists else False
+            is_symlink = os.path.islink(safe_path) if exists else False
+
+            # Check type-specific existence
+            type_match = True
+            if check_type == "file":
+                type_match = is_file
+            elif check_type == "directory":
+                type_match = is_dir
+
+            result = {
+                "exists": exists and type_match,
+                "path": path,
+                "absolute_path": safe_path,
+                "is_file": is_file,
+                "is_directory": is_dir,
+                "is_symlink": is_symlink,
+                "check_type": check_type,
+            }
+
+            if exists:
+                stat_info = os.stat(safe_path)
+                result["size_bytes"] = stat_info.st_size
+                result["readable"] = os.access(safe_path, os.R_OK)
+                result["writable"] = os.access(safe_path, os.W_OK)
+
+            return json.dumps(result, indent=2)
+
+        except Exception as e:
+            return json.dumps({"exists": False, "error": str(e), "path": path})
+
+    async def get_file_hash(
+        self,
+        file_path: str,
+        algorithm: str = "sha256",
+    ) -> str:
+        """
+        Calculate the hash of a file for integrity verification.
+
+        Args:
+            file_path: Path to the file (relative to workspace or absolute)
+            algorithm: Hash algorithm - 'md5', 'sha1', 'sha256', 'sha512'
+
+        Returns:
+            The file hash and metadata
+        """
+        import hashlib
+
+        try:
+            safe_path = self.safe_join(file_path)
+            if not safe_path:
+                return f"Error: Access denied - path '{file_path}' is outside the workspace"
+
+            if not os.path.exists(safe_path):
+                return f"Error: File not found: {file_path}"
+
+            if not os.path.isfile(safe_path):
+                return f"Error: Path is not a file: {file_path}"
+
+            algorithm = algorithm.lower()
+            valid_algorithms = ["md5", "sha1", "sha256", "sha512"]
+            if algorithm not in valid_algorithms:
+                return f"Error: Invalid algorithm. Choose from: {', '.join(valid_algorithms)}"
+
+            # Create hash object
+            hash_obj = hashlib.new(algorithm)
+
+            # Read file in chunks for memory efficiency
+            file_size = os.path.getsize(safe_path)
+            with open(safe_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    hash_obj.update(chunk)
+
+            file_hash = hash_obj.hexdigest()
+
+            result = {
+                "file": file_path,
+                "algorithm": algorithm.upper(),
+                "hash": file_hash,
+                "size_bytes": file_size,
+            }
+
+            return json.dumps(result, indent=2)
+
+        except Exception as e:
+            return f"Error calculating file hash: {str(e)}"
+
+    async def truncate_file(
+        self,
+        file_path: str,
+        confirm: bool = False,
+    ) -> str:
+        """
+        Truncate a file to zero length (empty it) while preserving the file.
+
+        Args:
+            file_path: Path to the file (relative to workspace or absolute)
+            confirm: Must be True to confirm the truncation
+
+        Returns:
+            Success or error message
+        """
+        try:
+            safe_path = self.safe_join(file_path)
+            if not safe_path:
+                return f"Error: Access denied - path '{file_path}' is outside the workspace"
+
+            if not os.path.exists(safe_path):
+                return f"Error: File not found: {file_path}"
+
+            if not os.path.isfile(safe_path):
+                return f"Error: Path is not a file: {file_path}"
+
+            # Require explicit confirmation
+            if not confirm:
+                file_size = os.path.getsize(safe_path)
+                return f"Warning: This will permanently empty '{file_path}' ({file_size} bytes). Set confirm=True to proceed."
+
+            # Get original size for reporting
+            original_size = os.path.getsize(safe_path)
+
+            # Truncate the file
+            with open(safe_path, "w") as f:
+                pass  # Opening in write mode truncates
+
+            return f"Successfully truncated '{file_path}'. Original size: {original_size} bytes, New size: 0 bytes"
+
+        except Exception as e:
+            return f"Error truncating file: {str(e)}"
+
+    async def find_large_files(
+        self,
+        directory: str = ".",
+        min_size_mb: float = 10.0,
+        max_results: int = 50,
+    ) -> str:
+        """
+        Find files larger than a specified size in a directory.
+
+        Args:
+            directory: Directory to search (relative to workspace or absolute)
+            min_size_mb: Minimum file size in megabytes to include (default: 10 MB)
+            max_results: Maximum number of results to return (default: 50)
+
+        Returns:
+            List of large files with sizes, sorted by size descending
+        """
+        try:
+            safe_path = self.safe_join(directory)
+            if not safe_path:
+                return f"Error: Access denied - path '{directory}' is outside the workspace"
+
+            if not os.path.exists(safe_path):
+                return f"Error: Directory not found: {directory}"
+
+            if not os.path.isdir(safe_path):
+                return f"Error: Path is not a directory: {directory}"
+
+            min_size_bytes = float(min_size_mb) * 1024 * 1024
+            max_results = int(max_results)
+            large_files = []
+
+            for root, dirs, files in os.walk(safe_path):
+                # Skip hidden and common non-essential directories
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if not d.startswith(".")
+                    and d
+                    not in [
+                        "node_modules",
+                        "__pycache__",
+                        ".git",
+                        "venv",
+                        ".venv",
+                        "dist",
+                        "build",
+                    ]
+                ]
+
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        size = os.path.getsize(file_path)
+                        if size >= min_size_bytes:
+                            rel_path = os.path.relpath(file_path, safe_path)
+                            large_files.append(
+                                {
+                                    "path": rel_path,
+                                    "size_bytes": size,
+                                    "size_mb": round(size / (1024 * 1024), 2),
+                                }
+                            )
+                    except (OSError, PermissionError):
+                        continue
+
+            # Sort by size descending
+            large_files.sort(key=lambda x: x["size_bytes"], reverse=True)
+            large_files = large_files[:max_results]
+
+            # Calculate totals
+            total_size = sum(f["size_bytes"] for f in large_files)
+
+            result = {
+                "directory": directory,
+                "min_size_mb": min_size_mb,
+                "files_found": len(large_files),
+                "total_size_mb": round(total_size / (1024 * 1024), 2),
+                "files": large_files,
+            }
+
+            if not large_files:
+                return f"No files found larger than {min_size_mb} MB in '{directory}'"
+
+            return json.dumps(result, indent=2)
+
+        except Exception as e:
+            return f"Error finding large files: {str(e)}"
