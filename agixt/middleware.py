@@ -342,7 +342,12 @@ async def send_discord_new_user_notification(email: str):
         email: The email of the newly registered user
     """
     # Skip test/example emails to avoid spamming Discord
-    if email and email.lower().endswith("@example.com"):
+    if (
+        email
+        and email.lower().endswith("@example.com")
+        or email
+        and email.lower().endwith("test.com")
+    ):
         logging.debug(f"Skipping Discord notification for test email: {email}")
         return
 
