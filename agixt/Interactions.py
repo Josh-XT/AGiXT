@@ -22,6 +22,7 @@ from ApiClient import (
 from MagicalAuth import MagicalAuth, convert_time, impersonate_user
 from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
+from middleware import log_silenced_exception
 from Complexity import (
     ComplexityScore,
     ComplexityTier,
@@ -665,7 +666,7 @@ class Interactions:
                         if metadata not in context and metadata != "":
                             context.append(metadata)
         except Exception as e:
-            pass
+            log_silenced_exception(e, "format_prompt: getting company memories")
         context.append(self.auth.get_markdown_companies())
         if persona != "":
             context.append(
@@ -3479,8 +3480,8 @@ Analyze the actual output shown and continue with your response.
                     text=final_answer,
                     external_source="user input",
                 )
-            except:
-                pass
+            except Exception as e:
+                log_silenced_exception(e, "chat: writing to memory")
 
         # Handle image generation if enabled
         if "image_provider" in agent_settings:

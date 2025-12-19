@@ -21,6 +21,7 @@ from safeexecute import execute_python_code
 from InternalClient import InternalClient
 from Globals import getenv
 from Task import Task
+from middleware import log_silenced_exception
 from DB import (
     get_session,
     Base,

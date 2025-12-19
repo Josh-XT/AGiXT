@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from typing import Optional, Union, TextIO, BinaryIO, Generator, List, Dict, Any
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from middleware import log_silenced_exception
 import threading
 import queue
 import time

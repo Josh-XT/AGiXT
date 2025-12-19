@@ -35,6 +35,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from InternalClient import InternalClient
+from middleware import log_silenced_exception
 import importlib
 import pyotp
 import logging
@@ -178,8 +179,10 @@ def get_oauth_providers():
                         "pkce_required": module.PKCE_REQUIRED,
                     }
                 )
-        except:
-            pass
+        except Exception as e:
+            log_silenced_exception(
+                e, f"get_sso_providers: loading provider {extension_file}"
+            )
     return providers
 
 
@@ -3165,7 +3168,11 @@ class MagicalAuth:
                         continue
                     try:
                         role_id = int(role_id)
-                    except:
+                    except Exception as e:
+                        log_silenced_exception(
+                            e,
+                            f"get_user_list: parsing role_id for company {company.id}",
+                        )
                         continue
                     if role_id < 3:
                         for user_company in company.users:

@@ -12,6 +12,7 @@ from Complexity import (
     ComplexityScore,
     log_complexity_decision,
 )
+from middleware import log_silenced_exception
 from datetime import datetime
 from typing import (
     List,
@@ -1806,8 +1807,10 @@ Your response (true or false):"""
                             if len(csv_files) == 1
                             else f"{base_name}_*.csv (multiple sheets)"
                         )
-                except:
-                    pass
+                except Exception as e:
+                    log_silenced_exception(
+                        e, f"_process_file: listing CSV files for {file_name}"
+                    )
 
             # Return only metadata and instructions - not the actual content
             instructions = self._get_file_access_instructions(

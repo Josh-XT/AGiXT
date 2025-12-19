@@ -6,7 +6,7 @@ from MagicalAuth import MagicalAuth, verify_api_key
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
-from middleware import send_discord_topup_notification
+from middleware import send_discord_topup_notification, log_silenced_exception
 from DB import (
     PaymentTransaction,
     CompanyTokenUsage,
@@ -1215,8 +1215,8 @@ async def set_super_admin(
         try:
             auth = MagicalAuth(token=authorization)
             is_super_admin_auth = auth.is_super_admin()
-        except:
-            pass
+        except Exception as e:
+            log_silenced_exception(e, "delete_user: checking super admin auth")
 
     if not is_api_key_auth and not is_super_admin_auth:
         raise HTTPException(

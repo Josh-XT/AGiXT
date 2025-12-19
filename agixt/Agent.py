@@ -26,6 +26,7 @@ from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
 from Conversations import get_conversation_id_by_name
+from middleware import log_silenced_exception
 from typing import Any, Union
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
@@ -486,8 +487,8 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
             if user_company and user_company.company_id is not None
             else None
         )
-    except:
-        pass
+    except Exception as e:
+        log_silenced_exception(e, "add_agent: getting user company_id")
 
     try:
         asyncio.create_task(
@@ -504,9 +505,9 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                 company_id=company_id,
             )
         )
-    except:
+    except Exception as e:
         # If we're not in an async context, just log it
-        logging.debug(f"Could not emit webhook event for agent creation: {agent_name}")
+        log_silenced_exception(e, "add_agent: emitting webhook event")
 
     for key, value in provider_settings.items():
         agent_setting = AgentSettingModel(

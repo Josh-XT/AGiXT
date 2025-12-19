@@ -20,6 +20,7 @@ from Conversations import (
 )
 from DB import Message, Agent as DBAgent, User
 from XT import AGiXT
+from middleware import log_silenced_exception
 from Models import (
     HistoryModel,
     ConversationHistoryModel,
@@ -1639,8 +1640,10 @@ async def conversation_stream(
                 json.dumps({"type": "error", "message": f"Unexpected error: {str(e)}"})
             )
             await websocket.close()
-        except:
-            pass
+        except Exception as close_error:
+            log_silenced_exception(
+                close_error, "conversation_stream: closing websocket after error"
+            )
 
 
 # User-level WebSocket endpoint for global notifications
@@ -1784,8 +1787,10 @@ async def user_notifications_stream(websocket: WebSocket, authorization: str = N
                 json.dumps({"type": "error", "message": f"Unexpected error: {str(e)}"})
             )
             await websocket.close()
-        except:
-            pass
+        except Exception as close_error:
+            log_silenced_exception(
+                close_error, "user_notifications_stream: closing websocket after error"
+            )
     finally:
         if user_id:
             await user_notification_manager.disconnect(websocket, user_id)
