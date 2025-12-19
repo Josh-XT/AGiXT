@@ -3558,6 +3558,47 @@ def migrate_extension_settings_tables():
         logging.error(f"Error creating extension settings tables: {e}")
 
 
+def migrate_server_config_categories():
+    """
+    Migration function to update server config categories from definitions.
+    This ensures that if category definitions are changed (e.g., splitting 'storage'
+    into 'storage_aws', 'storage_azure', 'storage_b2'), existing database records
+    are updated to match the new structure.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # Build a map of config name -> category from definitions
+            config_category_map = {
+                d["name"]: d["category"] for d in SERVER_CONFIG_DEFINITIONS
+            }
+
+            # Get all server configs
+            configs = session.query(ServerConfig).all()
+            updated_count = 0
+
+            for config in configs:
+                expected_category = config_category_map.get(config.name)
+                if expected_category and config.category != expected_category:
+                    old_category = config.category
+                    config.category = expected_category
+                    updated_count += 1
+                    logging.debug(
+                        f"Updated server config '{config.name}' category: {old_category} -> {expected_category}"
+                    )
+
+            if updated_count > 0:
+                session.commit()
+                logging.info(
+                    f"Updated {updated_count} server config categories to match definitions"
+                )
+
+    except Exception as e:
+        logging.error(f"Error migrating server config categories: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -4584,10 +4625,10 @@ SERVER_CONFIG_DEFINITIONS = [
         "is_sensitive": True,
         "is_required": False,
     },
-    # Notifications
+    # Notifications - moved to app_settings since there's only one
     {
         "name": "DISCORD_WEBHOOK",
-        "category": "notifications",
+        "category": "app_settings",
         "description": "Discord webhook URL for notifications",
         "value_type": "url",
         "default_value": "",

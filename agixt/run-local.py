@@ -34,6 +34,7 @@ async def initialize_database(is_restart=False):
         DB.migrate_discarded_context_table()
         DB.migrate_cleanup_duplicate_wallet_settings()
         DB.migrate_extension_settings_tables()
+        DB.migrate_server_config_categories()
 
         # Initialize extension tables
         DB.initialize_extension_tables()
