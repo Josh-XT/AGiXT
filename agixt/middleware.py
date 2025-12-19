@@ -11,13 +11,13 @@ from Globals import getenv
 
 async def send_discord_error(error: Exception, request: Request = None):
     """
-    Send error traceback to Discord webhook if DISCORD_ERROR_WEBHOOK is configured.
+    Send error traceback to Discord webhook if DISCORD_WEBHOOK is configured.
 
     Args:
         error: The exception that occurred
         request: Optional FastAPI request object for additional context
     """
-    webhook_url = getenv("DISCORD_ERROR_WEBHOOK")
+    webhook_url = getenv("DISCORD_WEBHOOK")
     if not webhook_url:
         return
 
@@ -90,13 +90,108 @@ async def send_discord_error(error: Exception, request: Request = None):
         logging.error(f"Failed to send error to Discord webhook: {e}")
 
 
+async def send_discord_notification(
+    title: str,
+    description: str,
+    color: int = 3066993,  # Green color by default
+    fields: list = None,
+):
+    """
+    Send a notification to Discord webhook if DISCORD_WEBHOOK is configured.
+
+    Args:
+        title: The title of the embed
+        description: The description/main content
+        color: Embed color (default green)
+        fields: Optional list of field dicts with 'name', 'value', 'inline' keys
+    """
+    webhook_url = getenv("DISCORD_WEBHOOK")
+    if not webhook_url:
+        return
+
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        agixt_server = getenv("AGIXT_URI", "Unknown Server")
+        app_name = getenv("APP_NAME", "AGiXT")
+
+        content = {
+            "embeds": [
+                {
+                    "title": title,
+                    "description": description,
+                    "color": color,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "footer": {"text": f"{app_name} @ {agixt_server} | {timestamp}"},
+                }
+            ]
+        }
+
+        if fields:
+            content["embeds"][0]["fields"] = fields
+
+        async with httpx.AsyncClient() as client:
+            await client.post(webhook_url, json=content, timeout=10.0)
+
+    except Exception as e:
+        logging.error(f"Failed to send notification to Discord webhook: {e}")
+
+
+async def send_discord_new_user_notification(email: str):
+    """
+    Send notification when a new user registers.
+
+    Args:
+        email: The email of the newly registered user
+    """
+    agixt_server = getenv("AGIXT_URI", "Unknown Server")
+    app_name = getenv("APP_NAME", "AGiXT")
+
+    await send_discord_notification(
+        title=f"👤 New User Registered on {app_name}",
+        description=f"**Server:** `{agixt_server}`\n**Email:** `{email}`",
+        color=3066993,  # Green
+    )
+
+
+async def send_discord_topup_notification(
+    email: str, amount_usd: float, tokens: int, company_id: str = None
+):
+    """
+    Send notification when a user tops up their token balance.
+
+    Args:
+        email: The email of the user who topped up
+        amount_usd: The amount in USD
+        tokens: The number of tokens credited
+        company_id: Optional company ID
+    """
+    agixt_server = getenv("AGIXT_URI", "Unknown Server")
+    app_name = getenv("APP_NAME", "AGiXT")
+
+    fields = [
+        {"name": "Amount", "value": f"${amount_usd:.2f} USD", "inline": True},
+        {"name": "Tokens", "value": f"{tokens:,}", "inline": True},
+    ]
+    if company_id:
+        fields.append(
+            {"name": "Company ID", "value": f"`{company_id}`", "inline": False}
+        )
+
+    await send_discord_notification(
+        title=f"💰 Token Top-Up on {app_name}",
+        description=f"**Server:** `{agixt_server}`\n**User:** `{email}`",
+        color=15844367,  # Gold/yellow
+        fields=fields,
+    )
+
+
 class DiscordErrorMiddleware(BaseHTTPMiddleware):
     """Middleware to catch unhandled exceptions and send them to Discord"""
 
     def __init__(self, app):
         super().__init__(app)
         self.logger = logging.getLogger(__name__)
-        self.webhook_url = getenv("DISCORD_ERROR_WEBHOOK")
+        self.webhook_url = getenv("DISCORD_WEBHOOK")
 
     async def dispatch(self, request: Request, call_next):
         try:

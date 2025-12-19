@@ -11,7 +11,7 @@ from solana.rpc.async_api import AsyncClient
 from solders.signature import Signature
 
 from Globals import getenv
-from DB import PaymentTransaction, get_session
+from DB import PaymentTransaction, User, get_session
 from .pricing import PriceService, SUPPORTED_CURRENCIES
 
 CONFIRMATION_TOLERANCE = Decimal("0.995")  # Allow 0.5% slippage on received amount
@@ -297,6 +297,28 @@ class CryptoPaymentService:
                 token_amount=record.token_amount,
                 amount_usd=float(record.amount_usd),
             )
+            # Send Discord notification for token top-up
+            try:
+                from middleware import send_discord_topup_notification
+
+                # Get user email from record
+                user_email = "Unknown"
+                if record.user_id:
+                    session = get_session()
+                    user = session.query(User).filter(User.id == record.user_id).first()
+                    if user:
+                        user_email = user.email
+                    session.close()
+                await send_discord_topup_notification(
+                    email=user_email,
+                    amount_usd=float(record.amount_usd),
+                    tokens=record.token_amount,
+                    company_id=str(record.company_id),
+                )
+            except Exception as e:
+                import logging
+
+                logging.warning(f"Failed to send Discord notification: {e}")
 
     @staticmethod
     def _extract_sol_amount(

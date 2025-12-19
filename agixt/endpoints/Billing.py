@@ -6,6 +6,7 @@ from MagicalAuth import MagicalAuth, verify_api_key
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
+from middleware import send_discord_topup_notification
 from DB import (
     PaymentTransaction,
     CompanyTokenUsage,
@@ -369,6 +370,13 @@ async def confirm_stripe_payment(
                 )
                 logging.info(
                     f"Credited {tokens_credited} tokens to company {transaction_company_id} via payment intent {request.payment_intent_id}"
+                )
+                # Send Discord notification for token top-up
+                await send_discord_topup_notification(
+                    email=auth.email,
+                    amount_usd=transaction_amount_usd,
+                    tokens=tokens_credited,
+                    company_id=transaction_company_id,
                 )
 
             session.commit()

@@ -26,6 +26,7 @@ from MagicalAuth import (
     impersonate_user,
     get_oauth_providers,
 )
+from middleware import send_discord_new_user_notification
 from Agent import Agent
 from typing import List
 from Globals import getenv
@@ -56,6 +57,8 @@ async def register(register: Register):
     )
     if result["status_code"] != 200:
         raise HTTPException(status_code=result["status_code"], detail=result["error"])
+    # Send Discord notification for new user registration
+    await send_discord_new_user_notification(email=register.email)
     mfa_token = result["mfa_token"]
     totp = pyotp.TOTP(mfa_token)
     otp_uri = totp.provisioning_uri(name=register.email, issuer_name=getenv("APP_NAME"))

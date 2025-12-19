@@ -2,6 +2,7 @@ from Extensions import Extensions
 import requests
 import json
 import logging
+import asyncio
 from typing import Dict, List, Any, Optional
 from urllib.parse import urljoin
 import base64
@@ -527,6 +528,32 @@ class stripe_payments(Extensions):
                             logging.info(
                                 f"Credited {transaction.token_amount} tokens to company {transaction.company_id}"
                             )
+                            # Send Discord notification for token top-up
+                            try:
+                                from middleware import send_discord_topup_notification
+
+                                # Get user email from transaction
+                                user_email = "Unknown"
+                                if transaction.user_id:
+                                    user = (
+                                        session.query(User)
+                                        .filter(User.id == transaction.user_id)
+                                        .first()
+                                    )
+                                    if user:
+                                        user_email = user.email
+                                asyncio.create_task(
+                                    send_discord_topup_notification(
+                                        email=user_email,
+                                        amount_usd=float(transaction.amount_usd),
+                                        tokens=transaction.token_amount,
+                                        company_id=str(transaction.company_id),
+                                    )
+                                )
+                            except Exception as e:
+                                logging.warning(
+                                    f"Failed to send Discord notification: {e}"
+                                )
 
                     session.commit()
                     session.close()
