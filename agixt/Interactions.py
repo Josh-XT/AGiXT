@@ -2130,6 +2130,16 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 logging.error(f"[run_stream] Error in command selection: {e}")
                 selected_commands = None
 
+        # Always include client-defined tools regardless of command selection
+        # Client explicitly provided these tools, so they should always be available
+        if self._client_tools and selected_commands is not None:
+            for client_tool_name in self._client_tools.keys():
+                if client_tool_name not in selected_commands:
+                    selected_commands.append(client_tool_name)
+                    logging.info(
+                        f"[run_stream] Force-included client tool: {client_tool_name}"
+                    )
+
         # Store selected_commands as instance variable to persist across continuation loops
         self._selected_commands = selected_commands
 

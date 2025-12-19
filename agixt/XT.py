@@ -1569,21 +1569,49 @@ Your response (true or false):"""
             if new_folder.startswith(self.agent_workspace):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=new_folder)
-                # Iterate over every file that was extracted including subdirectories
+                # Build folder structure summary instead of processing each file
+                # This prevents spamming activities for large repos like Flipper-IRDB
+                folder_structure = []
+                file_count = 0
+                dir_count = 0
                 for root, dirs, files in os.walk(new_folder):
-                    for name in files:
-                        current_folder = root.replace(new_folder, "")
-                        output_url = f"{self.outputs}/{collection_id}/{extracted_zip_folder_name}/{current_folder}/{name}"
-                        file_content += f"Content from file uploaded named `{name}`:\n"
-                        file_content += await self.learn_from_file(
-                            file_url=output_url,
-                            file_name=name,
-                            user_input=user_input,
-                            collection_id=collection_id,
-                            thinking_id=thinking_id,
-                            save_to_memory=save_to_memory,
-                        )
-                response = f"Extracted the content of the zip file [{file_name}]({file_url}) and {'learned them to memory' if save_to_memory else 'saved them to workspace'}."
+                    rel_path = os.path.relpath(root, new_folder)
+                    if rel_path == ".":
+                        rel_path = ""
+                    dir_count += len(dirs)
+                    file_count += len(files)
+                    # Only show top-level structure and first 2 levels to avoid overwhelming output
+                    depth = rel_path.count(os.sep) if rel_path else 0
+                    if depth <= 2:
+                        if rel_path:
+                            folder_structure.append(f"📁 {rel_path}/")
+                        # Show up to 10 files per directory at depth <= 1
+                        if depth <= 1 and files:
+                            shown_files = files[:10]
+                            for f in shown_files:
+                                folder_structure.append(f"   📄 {f}")
+                            if len(files) > 10:
+                                folder_structure.append(
+                                    f"   ... and {len(files) - 10} more files"
+                                )
+
+                structure_summary = "\n".join(
+                    folder_structure[:100]
+                )  # Limit to 100 lines
+                if len(folder_structure) > 100:
+                    structure_summary += f"\n... and more ({dir_count} total directories, {file_count} total files)"
+                else:
+                    structure_summary += (
+                        f"\n\nTotal: {dir_count} directories, {file_count} files"
+                    )
+
+                file_content += f"\n\n**EXTRACTED ZIP CONTENTS** (use the extracted folder, NOT the .zip file):\n"
+                file_content += (
+                    f"Extracted folder path: `{extracted_zip_folder_name}/`\n\n"
+                )
+                file_content += f"Folder structure:\n{structure_summary}\n"
+                file_content += f"\n**IMPORTANT**: To read files, use paths like `{extracted_zip_folder_name}/subfolder/file.ext` - do NOT try to read the .zip file directly."
+                response = f"Extracted zip file [{file_name}]({file_url}) to `{extracted_zip_folder_name}/` ({file_count} files in {dir_count} directories). Use the EXTRACTED FOLDER to browse files, not the zip."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
@@ -2349,6 +2377,140 @@ Your response (true or false):"""
                     # Add tool result as prompt content - agent should respond based on this
                     new_prompt += f"{tool_content}\n\n"
                     tool_result_text = tool_content  # Store for logging
+                    # Extract URLs from tool result text (may be JSON or plain text)
+                    # Look for GitHub URLs specifically to download repos to workspace
+                    # Match URLs but stop at common JSON/text delimiters including backslash
+                    url_pattern = r'https?://[^\s"\'<>\}\]\,\\]+'
+                    found_urls = re.findall(url_pattern, tool_content)
+                    for found_url in found_urls:
+                        # Clean up any trailing punctuation that got matched
+                        found_url = found_url.rstrip('",}]\\:')
+                        # Skip if URL looks malformed or has leftover JSON
+                        if "workflow" in found_url or len(found_url) > 200:
+                            continue
+                        if found_url.startswith("https://github.com/"):
+                            do_not_pull_repo = [
+                                "/pull/",
+                                "/issues",
+                                "/discussions",
+                                "/actions/",
+                                "/projects",
+                                "/security",
+                                "/releases",
+                                "/commits",
+                                "/branches",
+                                "/tags",
+                                "/stargazers",
+                                "/watchers",
+                                "/network",
+                                "/settings",
+                                "/compare",
+                                "/archive",
+                            ]
+                            if any(x in found_url for x in do_not_pull_repo):
+                                urls.append(found_url)
+                                logging.info(
+                                    f"[chat_completions] Found GitHub non-repo URL in tool result: {found_url}"
+                                )
+                            else:
+                                # Download the GitHub repo as zip
+                                logging.info(
+                                    f"[chat_completions] Found GitHub repo URL in tool result: {found_url}"
+                                )
+                                github_user = self.agent_settings.get("GITHUB_USERNAME")
+                                github_token = self.agent_settings.get("GITHUB_TOKEN")
+                                github_repo = found_url.replace(
+                                    "https://github.com/", ""
+                                ).replace("https://www.github.com/", "")
+                                # Parse out branch from /tree/branch if present
+                                tool_github_branch = "main"
+                                if "/tree/" in github_repo:
+                                    parts = github_repo.split("/tree/")
+                                    github_repo = parts[0]
+                                    if len(parts) > 1:
+                                        # Branch might have subpath after it
+                                        branch_and_path = parts[1].split("/")
+                                        tool_github_branch = branch_and_path[0]
+                                user_parts = github_repo.split("/")
+                                if len(user_parts) >= 2:
+                                    user = user_parts[0]
+                                    repo = user_parts[1]
+                                    # Clean up repo name
+                                    for symbol in [
+                                        " ",
+                                        "\n",
+                                        "\t",
+                                        "\r",
+                                        "\\",
+                                        "/",
+                                        ":",
+                                        "*",
+                                        "?",
+                                        '"',
+                                        "<",
+                                        ">",
+                                    ]:
+                                        repo = repo.replace(symbol, "")
+                                        user = user.replace(symbol, "")
+                                        tool_github_branch = tool_github_branch.replace(
+                                            symbol, ""
+                                        )
+                                    repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{tool_github_branch}.zip"
+                                    logging.info(
+                                        f"[chat_completions] Downloading GitHub repo: {repo_url}"
+                                    )
+                                    try:
+                                        if github_user and github_token:
+                                            response = requests.get(
+                                                repo_url,
+                                                auth=(github_user, github_token),
+                                            )
+                                        else:
+                                            response = requests.get(repo_url)
+                                        if response.status_code != 200:
+                                            # Try master branch
+                                            tool_github_branch = "master"
+                                            repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{tool_github_branch}.zip"
+                                            if github_user and github_token:
+                                                response = requests.get(
+                                                    repo_url,
+                                                    auth=(github_user, github_token),
+                                                )
+                                            else:
+                                                response = requests.get(repo_url)
+                                        if response.status_code == 200:
+                                            file_name = f"{user}_{repo}_{tool_github_branch}.zip"
+                                            file_path = os.path.normpath(
+                                                os.path.join(
+                                                    self.agent_workspace,
+                                                    conversation_id,
+                                                    file_name,
+                                                )
+                                            )
+                                            os.makedirs(
+                                                os.path.dirname(file_path),
+                                                exist_ok=True,
+                                            )
+                                            with open(file_path, "wb") as f:
+                                                f.write(response.content)
+                                            logging.info(
+                                                f"[chat_completions] Downloaded GitHub repo to: {file_path}"
+                                            )
+                                            # Append as dict with file_name and file_url for consistency
+                                            file_url = f"{self.outputs}/{conversation_id}/{file_name}"
+                                            files.append(
+                                                {
+                                                    "file_name": file_name,
+                                                    "file_url": file_url,
+                                                }
+                                            )
+                                    except Exception as e:
+                                        logging.error(
+                                            f"[chat_completions] Failed to download GitHub repo: {e}"
+                                        )
+                        elif found_url.startswith("http"):
+                            # Add other URLs to the browse list
+                            urls.append(found_url)
                 elif isinstance(tool_content, list):
                     # Handle multipart tool results (text + images)
                     for part in tool_content:
