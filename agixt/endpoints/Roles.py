@@ -887,7 +887,10 @@ async def get_default_roles_with_scopes(authorization: str = Header(None)):
     with get_session() as db:
         result = []
 
-        for role_data in default_roles:
+        # Sort default_roles by display_order for consistent UI ordering
+        sorted_roles = sorted(default_roles, key=lambda r: r.get("display_order", 100))
+
+        for role_data in sorted_roles:
             role_id = role_data["id"]
 
             # Get scopes for this role
@@ -903,6 +906,7 @@ async def get_default_roles_with_scopes(authorization: str = Header(None)):
                     "id": role_id,
                     "name": role_data["name"],
                     "friendly_name": role_data["friendly_name"],
+                    "display_order": role_data.get("display_order", 100),
                     "scopes": [
                         {
                             "id": str(s.id),

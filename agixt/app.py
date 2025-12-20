@@ -29,6 +29,7 @@ from endpoints.Webhook import app as webhook_endpoints
 from endpoints.Billing import app as billing_endpoints
 from endpoints.Roles import app as roles_endpoints
 from endpoints.ServerConfig import app as server_config_endpoints
+from endpoints.ApiKey import app as apikey_endpoints
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
@@ -54,6 +55,14 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        # Load server configuration cache on worker startup
+        # This is critical because uvicorn workers are forked processes
+        # and the cache loaded in the main process is not available in workers
+        from Globals import load_server_config_cache
+
+        load_server_config_cache()
+        logging.info("Server config cache loaded for worker")
+
         # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
         # to avoid multiple workers trying to clone the same repositories
 
@@ -188,6 +197,7 @@ app.include_router(webhook_endpoints)
 app.include_router(billing_endpoints)
 app.include_router(roles_endpoints)
 app.include_router(server_config_endpoints)
+app.include_router(apikey_endpoints)
 
 # Extension router registration will be handled after seed import
 # to ensure hub extensions are available before registration

@@ -155,12 +155,12 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "EXTENSIONS_HUB_TOKEN": "",
         "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
-        "MONTHLY_PRICE_PER_USER_USD": "0",
         # Token-based billing configuration
         "TOKEN_PRICE_PER_MILLION_USD": "0.00",
         "MIN_TOKEN_TOPUP_USD": "10.00",
         "LOW_BALANCE_WARNING_THRESHOLD": "10000000",  # 10M tokens
         "TOKEN_WARNING_INCREMENT": "1000000",  # 1M tokens
+        "BILLING_PAUSED": "false",  # Temporarily pause billing
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"

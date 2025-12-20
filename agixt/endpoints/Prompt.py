@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Prompts, verify_api_key, is_admin
+from MagicalAuth import require_scope
 from Models import (
     PromptName,
     PromptList,
@@ -82,15 +83,13 @@ async def get_prompts_by_category_id_v1(category_id: str, user=Depends(verify_ap
     tags=["Prompt"],
     summary="Create a new prompt",
     description="Create a new prompt with the specified name, content, and category. Returns the prompt ID.",
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("prompts:write"))],
 )
 async def create_prompt_v1(
     prompt: CustomPromptModel,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> PromptResponse:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     prompt_id = Prompts(user=user).add_prompt(
         prompt_name=prompt.prompt_name,
         prompt=prompt.prompt,
@@ -133,15 +132,13 @@ async def get_prompt_by_id_v1(prompt_id: str, user=Depends(verify_api_key)):
     response_model=ResponseMessage,
     summary="Delete a prompt by ID",
     description="Delete a specific prompt by its ID. Requires admin privileges.",
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("prompts:delete"))],
 )
 async def delete_prompt_by_id_v1(
     prompt_id: str,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         prompt_details = Prompts(user=user).get_prompt_details_by_id(
             prompt_id=prompt_id
@@ -162,7 +159,7 @@ async def delete_prompt_by_id_v1(
     response_model=ResponseMessage,
     summary="Update a prompt by ID",
     description="Update the content of an existing prompt by its ID. Requires admin privileges.",
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("prompts:write"))],
 )
 async def update_prompt_by_id_v1(
     prompt_id: str,
@@ -170,8 +167,6 @@ async def update_prompt_by_id_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).update_prompt_by_id(
             prompt_id=prompt_id,

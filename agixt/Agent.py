@@ -148,14 +148,6 @@ def impersonate_user(user_id: str):
     return token
 
 
-def can_user_access_agent(user_id, agent_id, auth: MagicalAuth = None):
-    """
-    Check if a user can access an agent.
-    Returns: (can_access: bool, is_owner: bool, access_level: str)
-    """
-    session = get_session()
-
-
 class AIProviderManager:
     """
     Manages AI Provider extensions for an agent.
@@ -1322,6 +1314,18 @@ class Agent:
                         )
                         .first()
                     )
+            if not agent:
+                # Check for company-shared agent access using can_user_access_agent
+                can_access, is_owner, access_level = can_user_access_agent(
+                    user_id=self.user_id, agent_id=self.agent_id, auth=self.auth
+                )
+                if can_access:
+                    # User has access to a shared agent, get it directly by ID
+                    agent = (
+                        session.query(AgentModel)
+                        .filter(AgentModel.id == self.agent_id)
+                        .first()
+                    )
         else:
             # Use agent_name to find the agent
             agent = (
@@ -2256,9 +2260,10 @@ class Agent:
         return f"Link {url} deleted from browsed links."
 
     def get_agent_name_by_id(self):
-        """Get agent name by agent_id"""
+        """Get agent name by agent_id, checking ownership and shared access"""
         session = get_session()
         try:
+            # First try to find agent owned by user
             agent = (
                 session.query(AgentModel)
                 .filter(
@@ -2266,25 +2271,39 @@ class Agent:
                 )
                 .first()
             )
-            if not agent:
-                # Try to find in global agents (DEFAULT_USER)
-                global_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
-                )
-                if global_user:
-                    agent = (
-                        session.query(AgentModel)
-                        .filter(
-                            AgentModel.id == self.agent_id,
-                            AgentModel.user_id == global_user.id,
-                        )
-                        .first()
+            if agent:
+                return agent.name
+
+            # Try to find in global agents (DEFAULT_USER)
+            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+            if global_user:
+                agent = (
+                    session.query(AgentModel)
+                    .filter(
+                        AgentModel.id == self.agent_id,
+                        AgentModel.user_id == global_user.id,
                     )
-            if not agent:
-                raise ValueError(
-                    f"Agent with ID {self.agent_id} not found for user {self.user}"
+                    .first()
                 )
-            return agent.name
+                if agent:
+                    return agent.name
+
+            # Check if user has shared access to this agent
+            can_access, is_owner, access_level = can_user_access_agent(
+                user_id=self.user_id, agent_id=self.agent_id, auth=self.auth
+            )
+            if can_access:
+                agent = (
+                    session.query(AgentModel)
+                    .filter(AgentModel.id == self.agent_id)
+                    .first()
+                )
+                if agent:
+                    return agent.name
+
+            raise ValueError(
+                f"Agent with ID {self.agent_id} not found or not accessible for user {self.user}"
+            )
         finally:
             session.close()
 

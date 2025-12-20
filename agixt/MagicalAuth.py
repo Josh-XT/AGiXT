@@ -19,6 +19,9 @@ from DB import (
     CustomRoleScope,
     UserCustomRole,
     DefaultRoleScope,
+    PersonalAccessToken,
+    PersonalAccessTokenAgentAccess,
+    PersonalAccessTokenCompanyAccess,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -129,7 +132,42 @@ def send_email(email: str, subject: str, body: str):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
-    return True
+    """
+    Check if a user has admin-level access (role_id <= 2: super_admin, tenant_admin, or company_admin).
+
+    Args:
+        email: The user's email address
+        api_key: The API key/JWT token from the request
+
+    Returns:
+        bool: True if user has admin access, False otherwise
+    """
+    from Globals import getenv
+
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    if api_key is None:
+        api_key = ""
+    api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
+
+    # Check if using the master API key
+    if AGIXT_API_KEY and api_key == AGIXT_API_KEY:
+        return True
+
+    # Check if user has admin flag set (legacy super admin)
+    if is_agixt_admin(email=email, api_key=api_key):
+        return True
+
+    # Check if user has admin role (role_id <= 2) via JWT token
+    try:
+        auth = MagicalAuth(token=api_key)
+        if auth.user_id:
+            role_id = auth.get_user_role()
+            if role_id is not None and role_id <= 2:
+                return True
+    except Exception:
+        pass
+
+    return False
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
@@ -275,6 +313,35 @@ def verify_api_key(authorization: str = Header(None)):
         try:
             if authorization == AGIXT_API_KEY:
                 return get_admin_user()
+
+            # Check if this is a Personal Access Token (starts with "agixt_")
+            if authorization.startswith("agixt_"):
+                pat_validation = validate_personal_access_token(authorization)
+                if not pat_validation["valid"]:
+                    raise HTTPException(
+                        status_code=401,
+                        detail=pat_validation.get(
+                            "error", "Invalid personal access token"
+                        ),
+                    )
+                # Return user info from PAT validation
+                db = get_session()
+                user = (
+                    db.query(User).filter(User.id == pat_validation["user_id"]).first()
+                )
+                if not user:
+                    db.close()
+                    raise HTTPException(
+                        status_code=401, detail="User not found for token"
+                    )
+                user_dict = user.__dict__.copy()
+                user_dict.pop("_sa_instance_state", None)
+                # Add PAT-specific info to the user dict for downstream use
+                user_dict["_pat_scopes"] = pat_validation.get("scopes", [])
+                user_dict["_pat_agent_ids"] = pat_validation.get("agent_ids", [])
+                user_dict["_pat_company_ids"] = pat_validation.get("company_ids", [])
+                db.close()
+                return user_dict
 
             # Check if token is blacklisted before validating
             db = get_session()
@@ -1501,117 +1568,36 @@ class MagicalAuth:
             session.close()
 
     def check_user_limit(self, company_id: str) -> bool:
-        """Check if a user has reached their subscription user limit
+        """Check if a company has sufficient token balance to add users.
 
-        True = user limit not reached
-        False = user limit reached
+        With token-based billing, we simply check if the company has a positive token balance.
+
+        Returns:
+            True = company can add users (has token balance or billing is disabled)
+            False = company cannot add users (no token balance and billing is enabled)
         """
-        # Check if we should bypass user limits entirely
-        stripe_api_key = getenv("STRIPE_API_KEY")
-        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
-        try:
-            price_value = float(price_env) if price_env else 0.0
-        except (TypeError, ValueError):
-            price_value = 0.0
+        # Check if billing is enabled
+        price_service = PriceService()
+        token_price = price_service.get_token_price()
+        billing_enabled = token_price > 0
 
-        # If price is 0, bypass user limits regardless of Stripe configuration
-        if price_value == 0:
+        if not billing_enabled:
+            # Billing is disabled, allow all operations
             return True
 
-        # We have to check how many users the company purchased from Stripe, compare to user count for the company
         session = get_session()
-        company = session.query(Company).filter(Company.id == company_id).first()
-        if not company:
-            session.close()
-            raise HTTPException(status_code=404, detail="Company not found")
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
 
-        # Get user count for the company
-        user_count = (
-            session.query(UserCompany)
-            .filter(UserCompany.company_id == company.id)
-            .count()
-        )
+            # Check if company has positive token balance
+            if company.token_balance and company.token_balance > 0:
+                return True
 
-        # If company has an explicit user limit set, check against that
-        if company.user_limit is not None and user_count >= company.user_limit:
-            session.close()
             return False
-
-        # If no explicit limit is set, check Stripe subscription
-        if stripe_api_key and stripe_api_key.lower() != "none":
-            try:
-                import stripe
-
-                stripe.api_key = stripe_api_key
-
-                # Get company admin to check for subscription
-                company_admin = (
-                    session.query(User)
-                    .join(UserCompany, User.id == UserCompany.user_id)
-                    .filter(UserCompany.company_id == company.id)
-                    .filter(UserCompany.role_id <= 2)  # Admin roles
-                    .first()
-                )
-
-                if not company_admin:
-                    session.close()
-                    return False  # No admin found, can't verify subscription
-
-                # Get admin preferences to find Stripe customer ID
-                admin_preferences = (
-                    session.query(UserPreferences)
-                    .filter(UserPreferences.user_id == company_admin.id)
-                    .all()
-                )
-
-                admin_pref_dict = {p.pref_key: p.pref_value for p in admin_preferences}
-                stripe_id = admin_pref_dict.get("stripe_id")
-
-                if not stripe_id or not stripe_id.startswith("cus_"):
-                    session.close()
-                    return False  # No valid Stripe ID
-
-                # Get subscriptions for this customer
-                subscriptions = self.get_subscribed_products(
-                    stripe_api_key, company_admin.email
-                )
-
-                if not subscriptions:
-                    session.close()
-                    return False  # No active subscriptions
-
-                # Check user limits from subscription metadata
-                for subscription in subscriptions:
-                    for item in subscription.get("items", {}).get("data", []):
-                        product_id = item.get("price", {}).get("product")
-                        if product_id:
-                            product = stripe.Product.retrieve(product_id)
-                            metadata = product.get("metadata", {})
-
-                            # Check if product has user limit in metadata
-                            if "user_limit" in metadata:
-                                subscription_user_limit = int(metadata["user_limit"])
-                                if user_count < subscription_user_limit:
-                                    session.close()
-                                    return True  # Under the subscription limit
-
-                            # If product specifies unlimited users
-                            if metadata.get("unlimited_users") == "true":
-                                session.close()
-                                return True
-
-                # If we got here, no subscription with adequate user limits was found
-                session.close()
-                return False
-
-            except Exception as e:
-                logging.error(f"Error checking Stripe subscription: {str(e)}")
-                session.close()
-                return False
-
-        # If no Stripe integration or other limits, default to allowing the user
-        session.close()
-        return True
+        finally:
+            session.close()
 
     def _has_active_payment_transaction(self, session, user_companies) -> bool:
         direct_payment = (
@@ -2097,11 +2083,7 @@ class MagicalAuth:
             session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
         )
         wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
-        try:
-            price_value = float(str(price_env))
-        except (TypeError, ValueError):
-            price_value = 0.0
+
         # Determine if billing is enabled globally (token price > 0)
         price_service = PriceService()
         try:
@@ -2111,10 +2093,8 @@ class MagicalAuth:
             token_price = 1
         billing_enabled = token_price > 0
 
-        # Token billing is the primary billing model
+        # Token billing is the primary (and only) billing model
         token_billing_enabled = token_price > 0
-        # Subscription billing is deprecated but kept for backwards compatibility
-        subscription_billing_enabled = price_value > 0
 
         # Wallet paywall is enabled when token billing is enabled and wallet address is set
         wallet_paywall_enabled = (
@@ -4553,6 +4533,569 @@ class MagicalAuth:
                 ],
                 children=[],
             )
+
+    # ==========================================================================
+    # Personal Access Token (PAT) Management
+    # ==========================================================================
+
+    def create_personal_access_token(
+        self,
+        name: str,
+        scopes: list,
+        agent_ids: list = None,
+        company_ids: list = None,
+        expiration: str = None,
+    ) -> dict:
+        """
+        Create a new personal access token for the user.
+
+        Args:
+            name: Human-readable name for the token (e.g., "CI/CD Pipeline")
+            scopes: List of scope names the token has access to
+            agent_ids: List of agent IDs the token can access (empty = all user's agents)
+            company_ids: List of company IDs the token can access (empty = all user's companies)
+            expiration: Expiration setting - "1_day", "7_days", "30_days", "90_days", "1_year", "never", or ISO datetime
+
+        Returns:
+            dict with token info including the actual token value (shown only once)
+        """
+        import secrets
+        import hashlib
+
+        self.validate_user()
+
+        # Require apikeys:write scope
+        if not self.has_scope("apikeys:write"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:write",
+            )
+
+        # Validate that user can only grant scopes they have
+        user_scopes = self.get_user_scopes()
+        for scope in scopes:
+            if not self.has_scope(scope):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Cannot grant scope '{scope}' - you don't have this permission",
+                )
+
+        # Validate agent access
+        if agent_ids:
+            user_agents = self._get_user_agent_ids()
+            for agent_id in agent_ids:
+                if str(agent_id) not in user_agents:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Cannot grant access to agent '{agent_id}' - you don't have access",
+                    )
+
+        # Validate company access
+        if company_ids:
+            user_companies = self.get_user_companies()
+            for company_id in company_ids:
+                if str(company_id) not in user_companies:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Cannot grant access to company '{company_id}' - you don't have access",
+                    )
+
+        # Calculate expiration date
+        expires_at = self._calculate_expiration(expiration)
+
+        # Generate the token
+        # Format: agixt_<random_32_bytes_hex>
+        token_bytes = secrets.token_bytes(32)
+        token_value = f"agixt_{token_bytes.hex()}"
+        token_prefix = token_value[:16]  # "agixt_" + first 10 hex chars
+        token_hash = hashlib.sha256(token_value.encode()).hexdigest()
+
+        from DB import (
+            PersonalAccessToken,
+            PersonalAccessTokenAgentAccess,
+            PersonalAccessTokenCompanyAccess,
+        )
+
+        session = get_session()
+        try:
+            # Create the token record
+            pat = PersonalAccessToken(
+                user_id=self.user_id,
+                name=name,
+                token_prefix=token_prefix,
+                token_hash=token_hash,
+                scopes_json=json.dumps(scopes),
+                agents_json=json.dumps(agent_ids or []),
+                companies_json=json.dumps(company_ids or []),
+                expires_at=expires_at,
+            )
+            session.add(pat)
+            session.flush()  # Get the ID
+
+            # Add agent access records
+            if agent_ids:
+                for agent_id in agent_ids:
+                    agent_access = PersonalAccessTokenAgentAccess(
+                        token_id=pat.id,
+                        agent_id=agent_id,
+                    )
+                    session.add(agent_access)
+
+            # Add company access records
+            if company_ids:
+                for company_id in company_ids:
+                    company_access = PersonalAccessTokenCompanyAccess(
+                        token_id=pat.id,
+                        company_id=company_id,
+                    )
+                    session.add(company_access)
+
+            session.commit()
+
+            return {
+                "id": str(pat.id),
+                "name": pat.name,
+                "token": token_value,  # Only shown at creation time!
+                "token_prefix": pat.token_prefix,
+                "scopes": scopes,
+                "agent_ids": agent_ids or [],
+                "company_ids": company_ids or [],
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "created_at": (
+                    pat.created_at.isoformat()
+                    if pat.created_at
+                    else datetime.now().isoformat()
+                ),
+            }
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error creating personal access token: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create personal access token: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def _calculate_expiration(self, expiration: str) -> datetime:
+        """Calculate expiration datetime from expiration setting string."""
+        if not expiration or expiration == "never":
+            return None
+
+        now = datetime.now()
+        expiration_map = {
+            "1_day": timedelta(days=1),
+            "7_days": timedelta(days=7),
+            "30_days": timedelta(days=30),
+            "90_days": timedelta(days=90),
+            "1_year": timedelta(days=365),
+        }
+
+        if expiration in expiration_map:
+            return now + expiration_map[expiration]
+
+        # Try to parse as ISO datetime
+        try:
+            return datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid expiration format: {expiration}. Use '1_day', '7_days', '30_days', '90_days', '1_year', 'never', or ISO datetime.",
+            )
+
+    def _get_user_agent_ids(self) -> list:
+        """Get list of agent IDs the user has access to."""
+        from DB import Agent as AgentModel, AgentSetting as AgentSettingModel
+
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                return []
+
+            agents = (
+                session.query(AgentModel)
+                .filter(AgentModel.user_id == self.user_id)
+                .all()
+            )
+            return [str(agent.id) for agent in agents]
+        finally:
+            session.close()
+
+    def list_personal_access_tokens(self) -> list:
+        """
+        List all personal access tokens for the current user.
+
+        Returns:
+            List of token info dicts (without actual token values)
+        """
+        self.validate_user()
+
+        if not self.has_scope("apikeys:read"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:read",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            tokens = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .filter(PersonalAccessToken.is_revoked == False)
+                .order_by(PersonalAccessToken.created_at.desc())
+                .all()
+            )
+
+            return [
+                {
+                    "id": str(token.id),
+                    "name": token.name,
+                    "token_prefix": token.token_prefix,
+                    "scopes": json.loads(token.scopes_json),
+                    "agent_ids": json.loads(token.agents_json),
+                    "company_ids": json.loads(token.companies_json),
+                    "expires_at": (
+                        token.expires_at.isoformat() if token.expires_at else None
+                    ),
+                    "is_revoked": token.is_revoked,
+                    "last_used_at": (
+                        token.last_used_at.isoformat() if token.last_used_at else None
+                    ),
+                    "created_at": (
+                        token.created_at.isoformat() if token.created_at else None
+                    ),
+                }
+                for token in tokens
+            ]
+        finally:
+            session.close()
+
+    def get_personal_access_token(self, token_id: str) -> dict:
+        """
+        Get details of a specific personal access token.
+
+        Args:
+            token_id: The ID of the token to retrieve
+
+        Returns:
+            Token info dict (without actual token value)
+        """
+        self.validate_user()
+
+        if not self.has_scope("apikeys:read"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:read",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            token = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.id == token_id)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .first()
+            )
+
+            if not token:
+                raise HTTPException(status_code=404, detail="Token not found")
+
+            return {
+                "id": str(token.id),
+                "name": token.name,
+                "token_prefix": token.token_prefix,
+                "scopes": json.loads(token.scopes_json),
+                "agent_ids": json.loads(token.agents_json),
+                "company_ids": json.loads(token.companies_json),
+                "expires_at": (
+                    token.expires_at.isoformat() if token.expires_at else None
+                ),
+                "is_revoked": token.is_revoked,
+                "last_used_at": (
+                    token.last_used_at.isoformat() if token.last_used_at else None
+                ),
+                "created_at": (
+                    token.created_at.isoformat() if token.created_at else None
+                ),
+            }
+        finally:
+            session.close()
+
+    def revoke_personal_access_token(self, token_id: str) -> dict:
+        """
+        Revoke a personal access token.
+
+        Args:
+            token_id: The ID of the token to revoke
+
+        Returns:
+            Success message
+        """
+        self.validate_user()
+
+        if not self.has_scope("apikeys:delete"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:delete",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            token = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.id == token_id)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .first()
+            )
+
+            if not token:
+                raise HTTPException(status_code=404, detail="Token not found")
+
+            token.is_revoked = True
+            token.updated_at = datetime.now()
+            session.commit()
+
+            return {"detail": f"Token '{token.name}' has been revoked"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error revoking token: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to revoke token: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def regenerate_personal_access_token(self, token_id: str) -> dict:
+        """
+        Regenerate a personal access token (revokes old one and creates new with same settings).
+
+        Args:
+            token_id: The ID of the token to regenerate
+
+        Returns:
+            New token info including the new token value
+        """
+        import secrets
+        import hashlib
+
+        self.validate_user()
+
+        if not self.has_scope("apikeys:write"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:write",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            old_token = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.id == token_id)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .first()
+            )
+
+            if not old_token:
+                raise HTTPException(status_code=404, detail="Token not found")
+
+            # Generate new token
+            token_bytes = secrets.token_bytes(32)
+            new_token_value = f"agixt_{token_bytes.hex()}"
+            new_token_prefix = new_token_value[:16]
+            new_token_hash = hashlib.sha256(new_token_value.encode()).hexdigest()
+
+            # Update the token record with new hash
+            old_token.token_prefix = new_token_prefix
+            old_token.token_hash = new_token_hash
+            old_token.updated_at = datetime.now()
+            session.commit()
+
+            return {
+                "id": str(old_token.id),
+                "name": old_token.name,
+                "token": new_token_value,  # Only shown at regeneration time!
+                "token_prefix": old_token.token_prefix,
+                "scopes": json.loads(old_token.scopes_json),
+                "agent_ids": json.loads(old_token.agents_json),
+                "company_ids": json.loads(old_token.companies_json),
+                "expires_at": (
+                    old_token.expires_at.isoformat() if old_token.expires_at else None
+                ),
+                "created_at": (
+                    old_token.created_at.isoformat() if old_token.created_at else None
+                ),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error regenerating token: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to regenerate token: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def get_available_scopes_for_token_creation(self) -> dict:
+        """
+        Get all scopes the current user can grant to a personal access token.
+
+        Returns:
+            Dict with scopes list and scopes grouped by category
+        """
+        self.validate_user()
+
+        user_scopes = self.get_user_scopes()
+
+        from DB import Scope, default_scopes
+
+        session = get_session()
+        try:
+            # Get all scope definitions
+            all_scopes = session.query(Scope).all()
+
+            available_scopes = []
+            categories = {}
+
+            for scope in all_scopes:
+                # Check if user has this scope (including wildcard matching)
+                if self.has_scope(scope.name):
+                    scope_info = {
+                        "id": str(scope.id),
+                        "name": scope.name,
+                        "resource": scope.resource,
+                        "action": scope.action,
+                        "description": scope.description,
+                        "category": scope.category or "Other",
+                        "is_system": scope.is_system,
+                    }
+                    available_scopes.append(scope_info)
+
+                    # Group by category
+                    cat = scope.category or "Other"
+                    if cat not in categories:
+                        categories[cat] = []
+                    categories[cat].append(scope_info)
+
+            return {
+                "scopes": available_scopes,
+                "categories": categories,
+            }
+        finally:
+            session.close()
+
+    def get_available_agents_for_token_creation(self) -> list:
+        """
+        Get all agents the current user can grant access to for a personal access token.
+
+        Returns:
+            List of agent info dicts
+        """
+        self.validate_user()
+
+        agents = get_agents(self.email, self.company_id)
+        return agents
+
+    def get_available_companies_for_token_creation(self) -> list:
+        """
+        Get all companies the current user can grant access to for a personal access token.
+
+        Returns:
+            List of company info dicts
+        """
+        self.validate_user()
+
+        return self.get_user_companies_with_roles()
+
+
+def validate_personal_access_token(token: str) -> dict:
+    """
+    Validate a personal access token and return user/scope information.
+
+    This is a standalone function (not a method) so it can be used before
+    we know who the user is.
+
+    Args:
+        token: The full token value (e.g., "agixt_abc123...")
+
+    Returns:
+        dict with validation info including user_id, scopes, etc.
+    """
+    import hashlib
+
+    if not token or not token.startswith("agixt_"):
+        return {
+            "valid": False,
+            "error": "Invalid token format",
+        }
+
+    from DB import PersonalAccessToken
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    session = get_session()
+    try:
+        pat = (
+            session.query(PersonalAccessToken)
+            .filter(PersonalAccessToken.token_hash == token_hash)
+            .first()
+        )
+
+        if not pat:
+            return {
+                "valid": False,
+                "error": "Token not found",
+            }
+
+        if pat.is_revoked:
+            return {
+                "valid": False,
+                "error": "Token has been revoked",
+            }
+
+        if pat.expires_at and pat.expires_at < datetime.now():
+            return {
+                "valid": False,
+                "error": "Token has expired",
+            }
+
+        # Update last_used_at
+        pat.last_used_at = datetime.now()
+        session.commit()
+
+        # Get user info
+        user = session.query(User).filter(User.id == pat.user_id).first()
+
+        return {
+            "valid": True,
+            "user_id": str(pat.user_id),
+            "user_email": user.email if user else None,
+            "scopes": json.loads(pat.scopes_json),
+            "agent_ids": json.loads(pat.agents_json),
+            "company_ids": json.loads(pat.companies_json),
+            "token_name": pat.name,
+        }
+    except Exception as e:
+        logging.error(f"Error validating personal access token: {str(e)}")
+        return {
+            "valid": False,
+            "error": f"Validation error: {str(e)}",
+        }
+    finally:
+        session.close()
 
 
 def refresh_expiring_oauth_tokens():

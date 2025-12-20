@@ -200,6 +200,9 @@ class UserRole(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     friendly_name = Column(String)
+    display_order = Column(
+        Integer, default=100
+    )  # For UI ordering, lower = higher in list
 
 
 class Scope(Base):
@@ -1558,6 +1561,110 @@ class TokenBlacklist(Base):
     user = relationship("User", backref="blacklisted_tokens")
 
 
+class PersonalAccessToken(Base):
+    """
+    Personal Access Tokens (PATs) are similar to GitHub's personal access tokens.
+    They allow users to create API keys with specific scopes, agent access, and company access.
+    The token_hash stores a hashed version of the token for security.
+    """
+
+    __tablename__ = "personal_access_token"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # User who created this token
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Token name for identification (e.g., "CI/CD Pipeline", "Local Development")
+    name = Column(String, nullable=False)
+    # Token prefix for identification (first 8 chars, like "agixt_abc123")
+    token_prefix = Column(String(16), nullable=False, index=True)
+    # SHA-256 hash of the full token for validation
+    token_hash = Column(String(64), nullable=False, unique=True)
+    # JSON array of scope names this token has access to
+    # e.g., ["agents:read", "agents:execute", "conversations:write"]
+    scopes_json = Column(Text, nullable=False, default="[]")
+    # JSON array of agent IDs this token can access (empty = all agents user has access to)
+    agents_json = Column(Text, nullable=False, default="[]")
+    # JSON array of company IDs this token can access (empty = all companies user has access to)
+    companies_json = Column(Text, nullable=False, default="[]")
+    # Expiration date (null = never expires)
+    expires_at = Column(DateTime, nullable=True)
+    # Whether this token has been revoked
+    is_revoked = Column(Boolean, default=False, nullable=False)
+    # Last time this token was used
+    last_used_at = Column(DateTime, nullable=True)
+    # Creation timestamp
+    created_at = Column(DateTime, server_default=func.now())
+    # Update timestamp
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", backref="personal_access_tokens")
+
+
+class PersonalAccessTokenAgentAccess(Base):
+    """
+    Junction table for tokens that have access to specific agents.
+    If no entries exist for a token, it has access to all agents the user can access.
+    """
+
+    __tablename__ = "personal_access_token_agent"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    token_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("personal_access_token.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    token = relationship("PersonalAccessToken", backref="agent_access")
+    agent = relationship("Agent")
+
+
+class PersonalAccessTokenCompanyAccess(Base):
+    """
+    Junction table for tokens that have access to specific companies.
+    If no entries exist for a token, it has access to all companies the user can access.
+    """
+
+    __tablename__ = "personal_access_token_company"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    token_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("personal_access_token.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    token = relationship("PersonalAccessToken", backref="company_access")
+    company = relationship("Company")
+
+
 class PaymentTransaction(Base):
     __tablename__ = "payment_transaction"
     id = Column(
@@ -1728,12 +1835,34 @@ def get_similar_memories(
 
 
 default_roles = [
-    {"id": 0, "name": "super_admin", "friendly_name": "Super Admin"},
-    {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
-    {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
-    {"id": 3, "name": "user", "friendly_name": "Power User"},
-    {"id": 4, "name": "child", "friendly_name": "Child"},
-    {"id": 5, "name": "chat_user", "friendly_name": "Chat User"},
+    # display_order determines UI ordering (lower = higher in list)
+    {
+        "id": 0,
+        "name": "super_admin",
+        "friendly_name": "Super Admin",
+        "display_order": 0,
+    },
+    {
+        "id": 1,
+        "name": "tenant_admin",
+        "friendly_name": "Tenant Admin",
+        "display_order": 1,
+    },
+    {
+        "id": 2,
+        "name": "company_admin",
+        "friendly_name": "Company Admin",
+        "display_order": 2,
+    },
+    {"id": 3, "name": "user", "friendly_name": "Power User", "display_order": 3},
+    {
+        "id": 6,
+        "name": "read_only_user",
+        "friendly_name": "Read Only User",
+        "display_order": 4,
+    },
+    {"id": 5, "name": "chat_user", "friendly_name": "Chat User", "display_order": 5},
+    {"id": 4, "name": "child", "friendly_name": "Child", "display_order": 6},
 ]
 
 
@@ -2567,6 +2696,7 @@ default_role_scopes = {
         "roles:read",
         "webhooks:*",
         "providers:*",
+        "apikeys:*",
         "secrets:read",
         "secrets:write",
         "billing:read",
@@ -2591,6 +2721,7 @@ default_role_scopes = {
         "chains:read",
         "chains:execute",
         "prompts:read",
+        "apikeys:*",
         "assets:read",
         "assets:write",
         "tickets:read",
@@ -2615,6 +2746,20 @@ default_role_scopes = {
         "conversations:write",
         "ui:full_chat",
         # Limited extension access - only execute through agent
+    ],
+    6: [  # read_only_user: read-only access to everything user has
+        "agents:read",
+        "conversations:read",
+        "extensions:read",
+        "memories:read",
+        "chains:read",
+        "prompts:read",
+        "assets:read",
+        "tickets:read",
+        "activity:read",
+        "ui:settings",
+        "ui:full_chat",
+        "ext:*:read",  # Can read all extensions, but not write or execute
     ],
 }
 
@@ -3710,13 +3855,82 @@ def migrate_company_storage_settings_table():
         logging.error(f"Error migrating company_storage_setting table: {e}")
 
 
+def migrate_role_table():
+    """
+    Migration function to add new columns to the Role table and ensure
+    all default roles exist with correct data.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("display_order", "INTEGER DEFAULT 100"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text('PRAGMA table_info("Role")'))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Role" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Role table")
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'Role' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Role" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Role table")
+    except Exception as e:
+        logging.error(f"Error migrating Role table: {e}")
+
+
 def setup_default_roles():
+    """
+    Set up default system roles. Creates new roles if they don't exist,
+    and updates existing roles with any new fields (like display_order).
+    """
     with get_session() as db:
         for role in default_roles:
             existing_role = db.query(UserRole).filter_by(id=role["id"]).first()
             if not existing_role:
                 new_role = UserRole(**role)
                 db.add(new_role)
+                logging.info(f"Created default role: {role['name']} (id={role['id']})")
+            else:
+                # Update existing role with any new fields
+                updated = False
+                if existing_role.display_order != role.get("display_order"):
+                    existing_role.display_order = role.get("display_order", 100)
+                    updated = True
+                if existing_role.friendly_name != role.get("friendly_name"):
+                    existing_role.friendly_name = role.get("friendly_name")
+                    updated = True
+                if updated:
+                    logging.info(
+                        f"Updated default role: {role['name']} (id={role['id']})"
+                    )
         db.commit()
 
 
@@ -4682,9 +4896,18 @@ SERVER_CONFIG_DEFINITIONS = [
     {
         "name": "TOKEN_PRICE_PER_MILLION_USD",
         "category": "billing",
-        "description": "Price per million tokens in USD (0 for free)",
+        "description": "Price per million tokens in USD (0 for free, billing disabled)",
         "value_type": "string",
         "default_value": "0.00",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "BILLING_PAUSED",
+        "category": "billing",
+        "description": "Temporarily pause billing (sets effective price to 0 until toggled back)",
+        "value_type": "boolean",
+        "default_value": "false",
         "is_sensitive": False,
         "is_required": False,
     },
@@ -5054,6 +5277,7 @@ if __name__ == "__main__":
     migrate_cleanup_duplicate_wallet_settings()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
+    migrate_role_table()
     setup_default_roles()
     setup_default_scopes()
     setup_default_role_scopes()

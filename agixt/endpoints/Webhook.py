@@ -12,7 +12,14 @@ import json
 from datetime import datetime
 import uuid
 
-from MagicalAuth import MagicalAuth, verify_api_key, convert_time
+from MagicalAuth import (
+    MagicalAuth,
+    verify_api_key,
+    convert_time,
+    is_admin,
+    require_scope,
+)
+from fastapi import Header
 from Models import (
     WebhookIncomingCreate,
     WebhookIncomingUpdate,
@@ -110,10 +117,12 @@ async def process_webhook(
     response_model=WebhookIncomingResponse,
     tags=["Webhooks"],
     summary="Create incoming webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def create_incoming_webhook(
     webhook_data: WebhookIncomingCreate,
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     """
     Create a new incoming webhook
@@ -199,9 +208,11 @@ async def create_incoming_webhook(
     response_model=List[WebhookIncomingResponse],
     tags=["Webhooks"],
     summary="List incoming webhooks",
+    dependencies=[Depends(require_scope("webhooks:read"))],
 )
 async def list_incoming_webhooks(
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     active: Optional[bool] = Query(None, description="Filter by active status"),
 ):
@@ -270,11 +281,13 @@ async def list_incoming_webhooks(
     response_model=WebhookIncomingResponse,
     tags=["Webhooks"],
     summary="Update incoming webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def update_incoming_webhook(
     webhook_id: str,
     webhook_update: WebhookIncomingUpdate,
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     """
     Update an existing incoming webhook
@@ -344,10 +357,12 @@ async def update_incoming_webhook(
     response_model=Detail,
     tags=["Webhooks"],
     summary="Delete incoming webhook",
+    dependencies=[Depends(require_scope("webhooks:delete"))],
 )
 async def delete_incoming_webhook(
     webhook_id: str,
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     """
     Delete an incoming webhook
@@ -389,10 +404,12 @@ async def delete_incoming_webhook(
     response_model=WebhookOutgoingResponse,
     tags=["Webhooks"],
     summary="Create outgoing webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def create_outgoing_webhook(
     webhook_data: WebhookOutgoingCreate,
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     """
     Create a new outgoing webhook subscription
@@ -494,9 +511,11 @@ async def create_outgoing_webhook(
     response_model=List[WebhookOutgoingResponse],
     tags=["Webhooks"],
     summary="List outgoing webhooks",
+    dependencies=[Depends(require_scope("webhooks:read"))],
 )
 async def list_outgoing_webhooks(
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
     event_type: Optional[str] = Query(None, description="Filter by event type"),
     active: Optional[bool] = Query(None, description="Filter by active status"),
 ):
@@ -570,11 +589,13 @@ async def list_outgoing_webhooks(
     response_model=WebhookOutgoingResponse,
     tags=["Webhooks"],
     summary="Update outgoing webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def update_outgoing_webhook(
     webhook_id: str,
     webhook_update: WebhookOutgoingUpdate,
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     """
     Update an existing outgoing webhook subscription
@@ -711,10 +732,12 @@ async def update_outgoing_webhook(
     response_model=Detail,
     tags=["Webhooks"],
     summary="Delete outgoing webhook",
+    dependencies=[Depends(require_scope("webhooks:delete"))],
 )
 async def delete_outgoing_webhook(
     webhook_id: str,
     user_data: dict = Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     """
     Delete an outgoing webhook subscription

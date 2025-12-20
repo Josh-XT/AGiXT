@@ -3,6 +3,7 @@ import base64
 import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Agent, verify_api_key, get_api_client, WORKERS, is_admin
+from MagicalAuth import require_scope
 from typing import Dict, Any, List
 from Websearch import Websearch
 from XT import AGiXT
@@ -119,7 +120,7 @@ async def import_agent_memories_v1(
 @app.post(
     "/v1/agent/{agent_id}/learn/text",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:write"))],
     response_model=ResponseMessage,
     summary="Learn from text input by ID",
     description="Adds text content to the agent's memory with associated user input context using agent ID.",
@@ -259,7 +260,7 @@ async def learn_url_v1(
 @app.delete(
     "/v1/agent/{agent_id}/memory",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:delete"))],
     response_model=ResponseMessage,
     summary="Delete all agent memories by ID",
     description="Wipes all memories for the specified agent using agent ID. Requires admin access.",
@@ -267,8 +268,6 @@ async def learn_url_v1(
 async def wipe_agent_memories_v1(
     agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     await Memories(
@@ -284,7 +283,7 @@ async def wipe_agent_memories_v1(
 @app.delete(
     "/v1/agent/{agent_id}/memory/{collection_number}",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:delete"))],
     response_model=ResponseMessage,
     summary="Delete memories from specific collection by ID",
     description="Wipes memories from a specific collection using agent ID. Requires admin access.",
@@ -295,8 +294,6 @@ async def wipe_agent_memories_collection_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     await Memories(
@@ -341,7 +338,7 @@ async def delete_agent_memory_v1(
 @app.post(
     "/v1/agent/{agent_id}/memory/dataset",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:train"))],
     response_model=ResponseMessage,
     summary="Create dataset from memories by ID",
     description="Creates a training dataset from the agent's memories using agent ID. Requires admin access.",
@@ -352,8 +349,6 @@ async def create_dataset_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -415,7 +410,7 @@ async def get_dpo_response_v1(
 @app.post(
     "/v1/agent/{agent_id}/memory/dataset/{dataset_name}/finetune",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:train"))],
     summary="Fine tune a language model with the agent's memories as a synthetic dataset by ID",
 )
 async def fine_tune_model_v1(
@@ -425,8 +420,6 @@ async def fine_tune_model_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     from Tuning import fine_tune_llm
 
     # Get agent name from agent_id
@@ -453,7 +446,7 @@ async def fine_tune_model_v1(
 @app.delete(
     "/v1/agent/{agent_id}/memories/external_source",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:delete"))],
     response_model=ResponseMessage,
     summary="Delete memories from external source by ID",
     description="Deletes all memories from a specific external source using agent ID. Requires admin access.",
@@ -464,8 +457,6 @@ async def delete_memories_from_external_source_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     if external_source.company_id is not None:
         auth = MagicalAuth(token=authorization)
         agixt = auth.get_company_agent_session(company_id=external_source.company_id)

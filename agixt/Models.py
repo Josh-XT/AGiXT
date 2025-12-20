@@ -1157,6 +1157,85 @@ class UserScopesResponse(BaseModel):
     custom_roles: List[CustomRoleResponse] = []
 
 
+# Personal Access Token Models (similar to GitHub PATs)
+class PersonalAccessTokenCreate(BaseModel):
+    """Request model for creating a personal access token"""
+
+    name: str  # e.g., "CI/CD Pipeline", "Local Development"
+    scopes: List[str]  # List of scope names, e.g., ["agents:read", "agents:execute"]
+    agent_ids: Optional[List[str]] = []  # Empty = all agents user can access
+    company_ids: Optional[List[str]] = []  # Empty = all companies user can access
+    expiration: Optional[str] = (
+        None  # "1_day", "7_days", "30_days", "90_days", "1_year", "never", or ISO datetime
+    )
+
+
+class PersonalAccessTokenResponse(BaseModel):
+    """Response model for a personal access token (without the actual token value)"""
+
+    id: str
+    name: str
+    token_prefix: str  # First 8 chars for identification, e.g., "agixt_ab"
+    scopes: List[str]
+    agent_ids: List[str]
+    company_ids: List[str]
+    expires_at: Optional[datetime] = None
+    is_revoked: bool = False
+    last_used_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class PersonalAccessTokenCreatedResponse(BaseModel):
+    """Response when a new token is created - includes the actual token value (shown only once)"""
+
+    id: str
+    name: str
+    token: str  # The actual token value - ONLY shown at creation time
+    token_prefix: str
+    scopes: List[str]
+    agent_ids: List[str]
+    company_ids: List[str]
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class PersonalAccessTokenListResponse(BaseModel):
+    """Response model for list of personal access tokens"""
+
+    tokens: List[PersonalAccessTokenResponse]
+
+
+class PersonalAccessTokenValidationResponse(BaseModel):
+    """Response model for token validation (for internal use)"""
+
+    valid: bool
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    scopes: List[str] = []
+    agent_ids: List[str] = []
+    company_ids: List[str] = []
+    error: Optional[str] = None
+
+
+class AvailableScopesResponse(BaseModel):
+    """Response model showing scopes the user can grant to tokens"""
+
+    scopes: List[ScopeResponse]
+    categories: Dict[str, List[ScopeResponse]]  # Scopes grouped by category
+
+
+class AvailableAgentsResponse(BaseModel):
+    """Response model showing agents the user can grant access to"""
+
+    agents: List[Dict[str, Any]]  # List of agent info dicts
+
+
+class AvailableCompaniesResponse(BaseModel):
+    """Response model showing companies the user can grant access to"""
+
+    companies: List[Dict[str, Any]]  # List of company info dicts
+
+
 try:  # Ensure forward references for workspace item tree
     WorkspaceItemModel.model_rebuild()
 except AttributeError:  # pragma: no cover - Pydantic v1 fallback

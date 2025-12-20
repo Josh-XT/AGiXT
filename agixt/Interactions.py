@@ -8,6 +8,7 @@ import base64
 import uuid
 import asyncio
 from datetime import datetime
+from fastapi import HTTPException
 from Memories import Memories
 from Websearch import Websearch
 from Extensions import Extensions
@@ -2286,6 +2287,12 @@ Example: If user says "list my files", use:
             stream = await self.agent.inference(
                 prompt=formatted_prompt, use_smartest=use_smartest, stream=True
             )
+        except HTTPException as e:
+            # Re-raise HTTP exceptions (like 402 Payment Required) to propagate to endpoint
+            logging.error(
+                f"HTTP error during streaming inference: {e.status_code} - {e.detail}"
+            )
+            raise
         except Exception as e:
             logging.error(f"Error starting streaming inference: {e}")
             yield {"type": "error", "content": str(e), "complete": True}
