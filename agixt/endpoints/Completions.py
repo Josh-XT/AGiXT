@@ -128,6 +128,9 @@ async def chat_completion(
             )
         else:
             return await agixt.chat_completions(prompt=prompt)
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 402 Payment Required) without modification
+        raise
     except ValueError as e:
         # Return 400 for validation errors (bad request)
         logging.warning(f"Validation error in chat_completion endpoint: {e}")

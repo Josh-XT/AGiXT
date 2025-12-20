@@ -40,46 +40,15 @@ SUPPORTED_CURRENCIES: Dict[str, Dict[str, Any]] = {
 
 
 class PriceService:
-    """Centralized price conversion utilities with caching."""
+    """Centralized price conversion utilities with caching for token-based billing."""
 
     def __init__(self, cache_ttl_seconds: int = 300) -> None:
         self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
-        try:
-            self.base_price_usd = Decimal(
-                str(getenv("MONTHLY_PRICE_PER_USER_USD", "99"))
-            )
-        except Exception as exc:  # pragma: no cover - defensive conversion guard
-            self.base_price_usd = 0.00
 
     def supported_currencies(self) -> Dict[str, Dict[str, Any]]:
         return SUPPORTED_CURRENCIES
-
-    async def get_quote(self, currency: str, seat_count: int) -> Dict[str, Any]:
-        symbol = currency.upper()
-        if symbol not in SUPPORTED_CURRENCIES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported currency '{currency}'. Supported: {', '.join(SUPPORTED_CURRENCIES.keys())}",
-            )
-        if seat_count < 1:
-            raise HTTPException(status_code=400, detail="Seat count must be at least 1")
-
-        rate = await self._get_rate(symbol)
-        amount_usd = self.base_price_usd * Decimal(seat_count)
-        decimals = SUPPORTED_CURRENCIES[symbol]["decimals"]
-        amount_currency = self._quantize(amount_usd / rate, decimals)
-
-        return {
-            "seat_count": seat_count,
-            "currency": symbol,
-            "network": SUPPORTED_CURRENCIES[symbol].get("network"),
-            "amount_usd": float(self._quantize(amount_usd, 2)),
-            "amount_currency": float(amount_currency),
-            "exchange_rate": float(self._quantize(rate, 8)),
-            "mint": SUPPORTED_CURRENCIES[symbol].get("mint"),
-        }
 
     async def get_token_quote(self, token_millions: int) -> Dict[str, Any]:
         """Get quote for token purchase in USD - token_millions is the number of millions of tokens"""

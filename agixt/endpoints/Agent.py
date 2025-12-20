@@ -652,6 +652,9 @@ async def prompt_agent_v1(
         )
         response = response["choices"][0]["message"]["content"]
         return {"response": str(response)}
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 402 Payment Required) without modification
+        raise
     except Exception as e:
         logging.error(f"Error prompting agent: {e}")
         logging.error(traceback.format_exc())

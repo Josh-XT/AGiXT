@@ -2302,8 +2302,7 @@ def get_default_env_vars():
         # Payment configuration
         "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
-        "TOKEN_PRICE_PER_MILLION_USD": "0",
-        "MIN_TOKEN_TOPUP_USD": "10.00",
+        # TOKEN_PRICE_PER_MILLION_USD and MIN_TOKEN_TOPUP_USD are managed via server_config database table
         "STRIPE_API_KEY": "",
         "STRIPE_PUBLISHABLE_KEY": "",
         # AI Model configuration
@@ -3437,7 +3436,7 @@ def _show_env_help() -> None:
         "Payment Configuration": [
             "PAYMENT_WALLET_ADDRESS",
             "PAYMENT_SOLANA_RPC_URL",
-            "MONTHLY_PRICE_PER_USER_USD",
+            "TOKEN_PRICE_PER_MILLION_USD",
         ],
         "OAuth Configuration": [
             "ALEXA_CLIENT_ID",

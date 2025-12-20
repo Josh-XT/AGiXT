@@ -54,6 +54,14 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        # Load server configuration cache on worker startup
+        # This is critical because uvicorn workers are forked processes
+        # and the cache loaded in the main process is not available in workers
+        from Globals import load_server_config_cache
+
+        load_server_config_cache()
+        logging.info("Server config cache loaded for worker")
+
         # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
         # to avoid multiple workers trying to clone the same repositories
 

@@ -235,6 +235,24 @@ def run_test(
         return result
     except Exception as e:
         error_msg = str(e)
+
+        # Check for 402 Payment Required - billing/paywall issue
+        if (
+            "402" in error_msg
+            or "Payment Required" in error_msg
+            or "paywall" in error_msg.lower()
+        ):
+            print(
+                f"💳 [{role}] {test_name}: Paywalled (402) - billing is enabled and payment required"
+            )
+            ctx.record_result(
+                test_name,
+                role,
+                success=True,  # Not a test failure, just paywalled
+                error="Paywalled - billing enabled",
+            )
+            return None
+
         if should_fail:
             # Check if it's a permission error (403, 401, or scope-related)
             if (

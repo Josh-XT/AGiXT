@@ -1536,117 +1536,36 @@ class MagicalAuth:
             session.close()
 
     def check_user_limit(self, company_id: str) -> bool:
-        """Check if a user has reached their subscription user limit
+        """Check if a company has sufficient token balance to add users.
 
-        True = user limit not reached
-        False = user limit reached
+        With token-based billing, we simply check if the company has a positive token balance.
+
+        Returns:
+            True = company can add users (has token balance or billing is disabled)
+            False = company cannot add users (no token balance and billing is enabled)
         """
-        # Check if we should bypass user limits entirely
-        stripe_api_key = getenv("STRIPE_API_KEY")
-        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
-        try:
-            price_value = float(price_env) if price_env else 0.0
-        except (TypeError, ValueError):
-            price_value = 0.0
+        # Check if billing is enabled
+        price_service = PriceService()
+        token_price = price_service.get_token_price()
+        billing_enabled = token_price > 0
 
-        # If price is 0, bypass user limits regardless of Stripe configuration
-        if price_value == 0:
+        if not billing_enabled:
+            # Billing is disabled, allow all operations
             return True
 
-        # We have to check how many users the company purchased from Stripe, compare to user count for the company
         session = get_session()
-        company = session.query(Company).filter(Company.id == company_id).first()
-        if not company:
-            session.close()
-            raise HTTPException(status_code=404, detail="Company not found")
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
 
-        # Get user count for the company
-        user_count = (
-            session.query(UserCompany)
-            .filter(UserCompany.company_id == company.id)
-            .count()
-        )
+            # Check if company has positive token balance
+            if company.token_balance and company.token_balance > 0:
+                return True
 
-        # If company has an explicit user limit set, check against that
-        if company.user_limit is not None and user_count >= company.user_limit:
-            session.close()
             return False
-
-        # If no explicit limit is set, check Stripe subscription
-        if stripe_api_key and stripe_api_key.lower() != "none":
-            try:
-                import stripe
-
-                stripe.api_key = stripe_api_key
-
-                # Get company admin to check for subscription
-                company_admin = (
-                    session.query(User)
-                    .join(UserCompany, User.id == UserCompany.user_id)
-                    .filter(UserCompany.company_id == company.id)
-                    .filter(UserCompany.role_id <= 2)  # Admin roles
-                    .first()
-                )
-
-                if not company_admin:
-                    session.close()
-                    return False  # No admin found, can't verify subscription
-
-                # Get admin preferences to find Stripe customer ID
-                admin_preferences = (
-                    session.query(UserPreferences)
-                    .filter(UserPreferences.user_id == company_admin.id)
-                    .all()
-                )
-
-                admin_pref_dict = {p.pref_key: p.pref_value for p in admin_preferences}
-                stripe_id = admin_pref_dict.get("stripe_id")
-
-                if not stripe_id or not stripe_id.startswith("cus_"):
-                    session.close()
-                    return False  # No valid Stripe ID
-
-                # Get subscriptions for this customer
-                subscriptions = self.get_subscribed_products(
-                    stripe_api_key, company_admin.email
-                )
-
-                if not subscriptions:
-                    session.close()
-                    return False  # No active subscriptions
-
-                # Check user limits from subscription metadata
-                for subscription in subscriptions:
-                    for item in subscription.get("items", {}).get("data", []):
-                        product_id = item.get("price", {}).get("product")
-                        if product_id:
-                            product = stripe.Product.retrieve(product_id)
-                            metadata = product.get("metadata", {})
-
-                            # Check if product has user limit in metadata
-                            if "user_limit" in metadata:
-                                subscription_user_limit = int(metadata["user_limit"])
-                                if user_count < subscription_user_limit:
-                                    session.close()
-                                    return True  # Under the subscription limit
-
-                            # If product specifies unlimited users
-                            if metadata.get("unlimited_users") == "true":
-                                session.close()
-                                return True
-
-                # If we got here, no subscription with adequate user limits was found
-                session.close()
-                return False
-
-            except Exception as e:
-                logging.error(f"Error checking Stripe subscription: {str(e)}")
-                session.close()
-                return False
-
-        # If no Stripe integration or other limits, default to allowing the user
-        session.close()
-        return True
+        finally:
+            session.close()
 
     def _has_active_payment_transaction(self, session, user_companies) -> bool:
         direct_payment = (
@@ -2132,11 +2051,7 @@ class MagicalAuth:
             session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
         )
         wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
-        try:
-            price_value = float(str(price_env))
-        except (TypeError, ValueError):
-            price_value = 0.0
+
         # Determine if billing is enabled globally (token price > 0)
         price_service = PriceService()
         try:
@@ -2146,10 +2061,8 @@ class MagicalAuth:
             token_price = 1
         billing_enabled = token_price > 0
 
-        # Token billing is the primary billing model
+        # Token billing is the primary (and only) billing model
         token_billing_enabled = token_price > 0
-        # Subscription billing is deprecated but kept for backwards compatibility
-        subscription_billing_enabled = price_value > 0
 
         # Wallet paywall is enabled when token billing is enabled and wallet address is set
         wallet_paywall_enabled = (

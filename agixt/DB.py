@@ -4790,7 +4790,7 @@ SERVER_CONFIG_DEFINITIONS = [
     {
         "name": "TOKEN_PRICE_PER_MILLION_USD",
         "category": "billing",
-        "description": "Price per million tokens in USD (0 for free)",
+        "description": "Price per million tokens in USD (0 for free, billing disabled)",
         "value_type": "string",
         "default_value": "0.00",
         "is_sensitive": False,
