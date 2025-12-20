@@ -667,6 +667,10 @@ def test_rename_agent():
     new_name = f"renamed_{agent_name}_{ctx.current_user.role_name}"
     response = sdk.rename_agent(agent_id=agent_id, new_name=new_name)
 
+    # Check if we got an error response (SDK returns dict with 'detail' on error)
+    if isinstance(response, dict) and "detail" in response:
+        raise Exception(f"Access denied: {response.get('detail')}")
+
     # Only update name if this is the user's own agent
     if ctx.current_user.agent_id:
         ctx.current_user.agent_name = new_name
@@ -920,7 +924,7 @@ def test_execute_command():
 
 
 def test_learn_text():
-    """Test learning text (should work for all roles with memories:write)
+    """Test learning text (requires memories:write scope)
 
     Note: This test requires access to an agent. Users can only access agents they own
     or agents that are shared within their company. If testing with admin's agent,
@@ -941,6 +945,10 @@ def test_learn_text():
         text=f"This is test content learned by {ctx.current_user.role_name} role.",
         collection_number="0",
     )
+
+    # Check if we got an error response (SDK returns dict with 'detail' on error)
+    if isinstance(response, dict) and "detail" in response:
+        raise Exception(f"Access denied: {response.get('detail')}")
 
     print(f"   Learned text successfully")
     return response

@@ -3,6 +3,7 @@ import base64
 import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Agent, verify_api_key, get_api_client, WORKERS, is_admin
+from MagicalAuth import require_scope
 from typing import Dict, Any, List
 from Websearch import Websearch
 from XT import AGiXT
@@ -119,7 +120,7 @@ async def import_agent_memories_v1(
 @app.post(
     "/v1/agent/{agent_id}/learn/text",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:write"))],
     response_model=ResponseMessage,
     summary="Learn from text input by ID",
     description="Adds text content to the agent's memory with associated user input context using agent ID.",
