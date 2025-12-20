@@ -23,6 +23,9 @@ import pyotp
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Any
 
+# Get the directory containing this test file for resolving relative paths
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 # ============================================
 # Test Context and User Management
@@ -424,14 +427,15 @@ qr = qrcode.QRCode()
 qr.add_data(admin_otp_uri)
 qr.make(fit=True)
 img = qr.make_image(fill="black", back_color="white")
-img.save("qr.png")
-print(f"QR code saved to qr.png for MFA setup")
+qr_path = os.path.join(TEST_DIR, "qr.png")
+img.save(qr_path)
+print(f"QR code saved to {qr_path} for MFA setup")
 
 # Display in Jupyter if available
 try:
     from IPython.display import Image as IPImage
 
-    IPImage(filename="qr.png")
+    IPImage(filename=qr_path)
 except ImportError:
     pass
 
@@ -1315,13 +1319,13 @@ print(f"Learn text response: {text_learning}")
 
 import base64
 
-learn_file_path = "test.zip"
+learn_file_path = os.path.join(TEST_DIR, "test.zip")
 with open(learn_file_path, "rb") as f:
     learn_file_content = base64.b64encode(f.read()).decode("utf-8")
 
 file_learning = agixt.learn_file(
     agent_id=test_agent_id,
-    file_name=learn_file_path,
+    file_name="test.zip",
     file_content=learn_file_content,
     collection_number="0",
 )
@@ -1335,13 +1339,13 @@ print(f"Learn zip file response: {file_learning}")
 
 import base64
 
-learn_file_path = "test.csv"
+learn_file_path = os.path.join(TEST_DIR, "test.csv")
 with open(learn_file_path, "rb") as f:
     learn_file_content = base64.b64encode(f.read()).decode("utf-8")
 
 file_learning = agixt.learn_file(
     agent_id=test_agent_id,
-    file_name=learn_file_path,
+    file_name="test.csv",
     file_content=learn_file_content,
     collection_number="0",
 )
@@ -1355,13 +1359,13 @@ print(f"Learn csv file response: {file_learning}")
 
 import base64
 
-learn_file_path = "test.xlsx"
+learn_file_path = os.path.join(TEST_DIR, "test.xlsx")
 with open(learn_file_path, "rb") as f:
     learn_file_content = base64.b64encode(f.read()).decode("utf-8")
 
 file_learning = agixt.learn_file(
     agent_id=test_agent_id,
-    file_name=learn_file_path,
+    file_name="test.xlsx",
     file_content=learn_file_content,
     collection_number="0",
 )
@@ -1375,13 +1379,13 @@ print(f"Learn xlsx file response: {file_learning}")
 
 import base64
 
-learn_file_path = "test.docx"
+learn_file_path = os.path.join(TEST_DIR, "test.docx")
 with open(learn_file_path, "rb") as f:
     learn_file_content = base64.b64encode(f.read()).decode("utf-8")
 
 file_learning = agixt.learn_file(
     agent_id=test_agent_id,
-    file_name=learn_file_path,
+    file_name="test.docx",
     file_content=learn_file_content,
     collection_number="0",
 )
@@ -1398,14 +1402,14 @@ import base64
 
 ppt_url = "https://getsamplefiles.com/download/pptx/sample-1.pptx"
 response = requests.get(ppt_url)
-learn_file_path = os.path.join(os.getcwd(), "sample-1.pptx")
+learn_file_path = os.path.join(TEST_DIR, "sample-1.pptx")
 with open(learn_file_path, "wb") as f:
     f.write(response.content)
 learn_file_content = base64.b64encode(response.content).decode("utf-8")
 
 file_learning = agixt.learn_file(
     agent_id=test_agent_id,
-    file_name=learn_file_path,
+    file_name="sample-1.pptx",
     file_content=learn_file_content,
     collection_number="0",
 )
@@ -1422,14 +1426,14 @@ import base64
 
 pdf_url = "https://getsamplefiles.com/download/pdf/sample-1.pdf"
 response = requests.get(pdf_url)
-learn_file_path = os.path.join(os.getcwd(), "sample-1.pdf")
+learn_file_path = os.path.join(TEST_DIR, "sample-1.pdf")
 with open(learn_file_path, "wb") as f:
     f.write(response.content)
 learn_file_content = base64.b64encode(response.content).decode("utf-8")
 
 file_learning = agixt.learn_file(
     agent_id=test_agent_id,
-    file_name=learn_file_path,
+    file_name="sample-1.pdf",
     file_content=learn_file_content,
     collection_number="0",
 )
@@ -1443,13 +1447,13 @@ print(f"Learn pdf file response: {file_learning}")
 
 import base64
 
-learn_file_path = "test.txt"
+learn_file_path = os.path.join(TEST_DIR, "test.txt")
 with open(learn_file_path, "rb") as f:
     learn_file_content = base64.b64encode(f.read()).decode("utf-8")
 
 file_learning = agixt.learn_file(
     agent_id=test_agent_id,
-    file_name=learn_file_path,
+    file_name="test.txt",
     file_content=learn_file_content,
     collection_number="0",
 )
