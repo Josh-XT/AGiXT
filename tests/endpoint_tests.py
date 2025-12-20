@@ -98,7 +98,14 @@ class TestContext:
             print(f"\n📋 {test_name}:")
             for role, result in roles.items():
                 status = "✅ PASS" if result["passed"] else "❌ FAIL"
-                expected = " (expected to fail)" if result["expected_to_fail"] else ""
+                if result["expected_to_fail"] and result["passed"]:
+                    # Successfully denied - permission restrictions working
+                    expected = " (correctly denied due to role restrictions)"
+                elif result["expected_to_fail"] and not result["passed"]:
+                    # Should have been denied but succeeded - security issue!
+                    expected = " ⚠️ SECURITY: Should have been denied but succeeded!"
+                else:
+                    expected = ""
                 error = (
                     f" - {result['error']}"
                     if result["error"] and not result["passed"]
@@ -226,7 +233,7 @@ def run_test(
         result = test_func()
         if should_fail:
             print(
-                f"⚠️ [{role}] {test_name}: Succeeded but was expected to fail (scope issue?)"
+                f"⚠️ [{role}] {test_name}: SECURITY ISSUE - Operation succeeded but should have been denied for {role} role!"
             )
             ctx.record_result(test_name, role, success=True, expected_to_fail=True)
         else:
@@ -254,16 +261,21 @@ def run_test(
             return None
 
         if should_fail:
-            # Check if it's a permission error (403, 401, or scope-related)
-            if (
+            # Check if it's a permission error (403, 401, scope-related, or access denied)
+            error_lower = error_msg.lower()
+            is_permission_error = (
                 "403" in error_msg
                 or "401" in error_msg
-                or "Unauthorized" in error_msg
-                or "scope" in error_msg.lower()
-                or "permission" in error_msg.lower()
-            ):
+                or "unauthorized" in error_lower
+                or "scope" in error_lower
+                or "permission" in error_lower
+                or "access denied" in error_lower
+                or "unable to retrieve data"
+                in error_lower  # SDK response parsing when access denied
+            )
+            if is_permission_error:
                 print(
-                    f"✅ [{role}] {test_name}: Correctly denied (as expected for {role} role)"
+                    f"✅ [{role}] {test_name}: Correctly denied - role restrictions working as intended"
                 )
                 ctx.record_result(
                     test_name,
@@ -637,15 +649,19 @@ def test_create_agent():
 def test_rename_agent():
     """Test renaming an agent (admin only - requires agents:write)"""
     sdk = ctx.current_user.sdk
-    agent_id = ctx.current_user.agent_id
+    # Use current user's agent, or admin's agent for permission testing
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+    agent_name = ctx.current_user.agent_name or ctx.admin_user.agent_name
 
     if not agent_id:
-        raise Exception("No agent to rename - create_agent must run first")
+        raise Exception("No agent available to rename")
 
-    new_name = f"renamed_{ctx.current_user.agent_name}"
+    new_name = f"renamed_{agent_name}_{ctx.current_user.role_name}"
     response = sdk.rename_agent(agent_id=agent_id, new_name=new_name)
 
-    ctx.current_user.agent_name = new_name
+    # Only update name if this is the user's own agent
+    if ctx.current_user.agent_id:
+        ctx.current_user.agent_name = new_name
     print(f"   Renamed agent to: {new_name}")
     return response
 
@@ -653,16 +669,16 @@ def test_rename_agent():
 def test_update_agent_settings():
     """Test updating agent settings (admin only - requires agents:write)"""
     sdk = ctx.current_user.sdk
-    agent_id = ctx.current_user.agent_id
+    # Use current user's agent, or admin's agent for permission testing
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
 
     if not agent_id:
-        raise Exception("No agent to update - create_agent must run first")
+        raise Exception("No agent available to update")
 
-    config = sdk.get_agentconfig(agent_id=agent_id)
-    settings = config.get("settings", {})
-    settings["AI_TEMPERATURE"] = 0.8
-
-    response = sdk.update_agent_settings(agent_id=agent_id, settings=settings)
+    # Try to update settings - this will fail for non-admins
+    response = sdk.update_agent_settings(
+        agent_id=agent_id, settings={"AI_TEMPERATURE": 0.8}
+    )
     print(f"   Updated agent settings")
     return response
 
