@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Extensions import Extensions
 from ApiClient import Agent, Conversations, verify_api_key, get_api_client, is_admin
+from MagicalAuth import require_scope
 from Models import CommandExecution, CommandArgs, ExtensionsModel, ExtensionSettings
 from XT import AGiXT
 from DB import get_db_session, ExtensionCategory, Extension
@@ -126,10 +127,13 @@ async def get_agent_extensions_v1(agent_id: str, user=Depends(verify_api_key)):
 @app.post(
     "/v1/agent/{agent_id}/command",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(require_scope("extensions:execute")),
+    ],
     response_model=Dict[str, Any],
     summary="Execute Agent Command by ID",
-    description="Executes a specific command for an agent using agent ID. This endpoint requires admin privileges.",
+    description="Executes a specific command for an agent using agent ID. Requires extensions:execute scope.",
 )
 async def run_command_v1(
     agent_id: str,
@@ -137,8 +141,6 @@ async def run_command_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     agent_name = agent.agent_name

@@ -216,8 +216,16 @@ class PriceService:
         return value.quantize(quant, rounding=ROUND_UP)
 
     def get_token_price(self) -> Decimal:
-        """Get the current token price per million USD"""
+        """Get the current token price per million USD.
+        
+        Returns 0 if billing is paused, otherwise returns the configured price.
+        """
         try:
+            # Check if billing is paused
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            if billing_paused:
+                return Decimal("0")
+            
             token_price = Decimal(str(getenv("TOKEN_PRICE_PER_MILLION_USD", "0")))
             # Return the actual value, including 0 (which means billing disabled)
             return token_price if token_price >= 0 else Decimal("0")

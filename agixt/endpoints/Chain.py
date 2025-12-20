@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Chain, verify_api_key, get_api_client, is_admin
+from MagicalAuth import require_scope
 from Agent import get_agent_name_by_id
 from typing import List, Dict
 from uuid import UUID
@@ -26,7 +27,7 @@ app = APIRouter()
 @app.get(
     "/v1/chains",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:read"))],
     response_model=List[Dict[str, str]],
     summary="Get all chains",
     description="Retrieves a list of all available chains with IDs for the authenticated user and global chains.",
@@ -34,8 +35,6 @@ app = APIRouter()
 async def get_chains_v1(
     user=Depends(verify_api_key), authorization: str = Header(None)
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
 
     # Get chain names
     chain_names = Chain(user=user).get_chains()
@@ -393,7 +392,7 @@ async def move_step_by_id_v1(
 @app.post(
     "/v1/chain/{chain_id}/run",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:execute"))],
     response_model=str,
     summary="Run chain by ID",
     description="Executes a chain using its ID and returns the final output.",
@@ -406,8 +405,6 @@ async def run_chain_v1(
 ):
     if chain_id == "":
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
 
     # Get the chain name from chain ID
     chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)
@@ -457,7 +454,7 @@ async def run_chain_v1(
 @app.post(
     "/v1/chain/{chain_id}/run/step/{step_number}",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:execute"))],
     response_model=str,
     summary="Run chain step by ID",
     description="Executes a specific step within a chain using chain ID and returns the output.",
@@ -471,8 +468,6 @@ async def run_chain_step_v1(
 ):
     if chain_id == "":
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
 
     # Get the chain name from chain ID
     chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)

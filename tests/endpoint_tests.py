@@ -126,8 +126,16 @@ class TestContext:
 
 # Define which tests should fail for the "user" role (due to scope restrictions)
 # These are operations that require admin privileges (is_admin check or admin-only scopes)
+#
+# Role scopes reference (from DB.py default_role_scopes):
+# - user (role_id=3): agents:read/execute, conversations:*, extensions:read/execute,
+#   memories:read/write, chains:read/execute, prompts:read, assets:read/write, etc.
+# - read_only_user (role_id=6): Only read access - no write/execute scopes
+#
+# Users CAN: read chains, run chains, execute commands, learn text, get memories
+# Users CANNOT: create/delete/modify chains, create agents, manage webhooks, invite users
 ADMIN_ONLY_TESTS = {
-    # Agent management
+    # Agent management (requires agents:write scope)
     "create_agent",
     "delete_agent",
     "rename_agent",
@@ -135,17 +143,16 @@ ADMIN_ONLY_TESTS = {
     "update_agent_commands",
     "toggle_command",
     "get_agent_config",  # Agent.py has is_admin check
-    # Chain management
-    "create_chain",
-    "delete_chain",
-    "rename_chain",
-    "add_chain_step",
-    "update_chain_step",
-    "move_chain_step",
-    "delete_chain_step",
-    "run_chain",
-    "get_chains",  # Chain.py has is_admin check
-    # Prompt management
+    # Chain management - write operations only (user has chains:read, chains:execute)
+    "create_chain",  # Requires chains:write
+    "delete_chain",  # Requires chains:write/delete
+    "rename_chain",  # Requires chains:write
+    "add_chain_step",  # Requires chains:write
+    "update_chain_step",  # Requires chains:write
+    "move_chain_step",  # Requires chains:write
+    "delete_chain_step",  # Requires chains:write
+    # Note: get_chains and run_chain are now allowed for users with chains:read/execute
+    # Prompt management (requires prompts:write scope)
     "create_prompt",
     "update_prompt",
     "delete_prompt",
@@ -154,14 +161,12 @@ ADMIN_ONLY_TESTS = {
     "get_webhooks",
     "update_webhook",
     "delete_webhook",
-    # Memory management
-    "learn_text",  # Memory.py has is_admin check for write
-    "get_memories",  # Memory.py has is_admin check for read
-    "wipe_agent_memories",
+    # Memory management - only delete requires admin
+    "wipe_agent_memories",  # DELETE operations require admin
+    # Note: learn_text (memories:write) and get_memories (memories:read) are allowed for users
     # User management
     "invite_user",
-    # Command execution
-    "execute_command",  # Extensions.py has is_admin check
+    # Note: execute_command is now allowed for users with extensions:execute scope
 }
 
 # Tests that should also fail for read_only_user (role_id=6)
@@ -625,6 +630,7 @@ def test_create_agent():
     role = ctx.current_user.role_name
     agent_name = f"test_agent_{role}_{random_string}"
 
+    # Include shared=true and company_id so other company members can access
     response = sdk.add_agent(
         agent_name=agent_name,
         settings={
@@ -632,6 +638,8 @@ def test_create_agent():
             "prompt_category": "Default",
             "prompt_name": "Think About It",
             "persona": "",
+            "shared": "true",  # Share with company members
+            "company_id": ctx.current_user.company_id,  # Set company_id for sharing
         },
     )
 
@@ -912,10 +920,16 @@ def test_execute_command():
 
 
 def test_learn_text():
-    """Test learning text (should work for all roles with memories:write)"""
+    """Test learning text (should work for all roles with memories:write)
+
+    Note: This test requires access to an agent. Users can only access agents they own
+    or agents that are shared within their company. If testing with admin's agent,
+    the test may fail due to agent-level access controls (not scope-level).
+    """
     sdk = ctx.current_user.sdk
 
     # Use admin's agent if regular user doesn't have one
+    # Note: This may fail for non-admin users due to agent-level access controls
     agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
 
     if not agent_id:
@@ -933,7 +947,12 @@ def test_learn_text():
 
 
 def test_get_memories():
-    """Test getting agent memories (should work for all roles with memories:read)"""
+    """Test getting agent memories (should work for all roles with memories:read)
+
+    Note: This test requires access to an agent. Users can only access agents they own
+    or agents that are shared within their company. If testing with admin's agent,
+    the test may fail due to agent-level access controls (not scope-level).
+    """
     sdk = ctx.current_user.sdk
 
     # Use admin's agent if regular user doesn't have one
@@ -990,7 +1009,12 @@ def run_all_role_tests():
         (test_get_providers, "get_providers", False, False),
         (test_get_agents, "get_agents", False, False),
         (test_get_conversations, "get_conversations", False, False),
-        (test_get_chains, "get_chains", True, True),  # Chain.py has is_admin check
+        (
+            test_get_chains,
+            "get_chains",
+            False,
+            False,
+        ),  # Both user and read_only have chains:read
         (test_get_prompts, "get_prompts", False, False),
         # Agent operations
         (test_create_agent, "create_agent", True, True),  # Requires agents:write
@@ -1023,22 +1047,27 @@ def run_all_role_tests():
         (test_get_webhooks, "get_webhooks", True, True),  # is_admin check
         # User management
         (test_invite_user, "invite_user", True, True),  # Requires users:write
-        # Extension/Command operations
+        # Extension/Command operations - user has extensions:execute, read_only does not
         (
             test_execute_command,
             "execute_command",
-            True,  # Extensions.py has is_admin check
-            True,
+            False,  # user has extensions:execute scope
+            True,  # read_only does NOT have execute
         ),
-        # Memory operations
-        (test_learn_text, "learn_text", True, True),  # Memory.py has is_admin check
-        (test_get_memories, "get_memories", True, True),  # Memory.py has is_admin check
+        # Memory operations - user has memories:read/write, read_only has only memories:read
+        (
+            test_learn_text,
+            "learn_text",
+            False,
+            True,
+        ),  # user has memories:write, read_only does not
+        (test_get_memories, "get_memories", False, False),  # Both have memories:read
         (
             test_wipe_memories,
             "wipe_memories",
+            True,  # Requires admin (DELETE operation)
             True,
-            True,
-        ),  # Requires memories:delete
+        ),  # Requires admin (DELETE operation)
         # NOTE: delete_agent removed from test loop - handled in cleanup
         # The admin's agent must remain available for non-admin role tests
     ]

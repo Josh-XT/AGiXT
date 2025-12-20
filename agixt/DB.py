@@ -4797,6 +4797,15 @@ SERVER_CONFIG_DEFINITIONS = [
         "is_required": False,
     },
     {
+        "name": "BILLING_PAUSED",
+        "category": "billing",
+        "description": "Temporarily pause billing (sets effective price to 0 until toggled back)",
+        "value_type": "boolean",
+        "default_value": "false",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
         "name": "MIN_TOKEN_TOPUP_USD",
         "category": "billing",
         "description": "Minimum token top-up amount in USD",
