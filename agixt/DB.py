@@ -2368,6 +2368,13 @@ default_scopes = [
         "category": "Administration",
     },
     {
+        "name": "company:delete",
+        "resource": "company",
+        "action": "delete",
+        "description": "Delete companies",
+        "category": "Administration",
+    },
+    {
         "name": "company:billing",
         "resource": "company",
         "action": "billing",

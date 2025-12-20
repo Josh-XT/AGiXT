@@ -1870,25 +1870,17 @@ class MagicalAuth:
         Delete a company and remove all associated user relationships.
 
         Authorization:
-        - Super admins can delete any company
-        - Company admins (role_id <= 2) can only delete companies they have access to
+        - Super admins can delete any company (via has_scope)
+        - Users with 'company:delete' scope can delete companies they have access to
         """
         self.validate_user()
 
-        # Check if user is authorized to delete this company
-        if not self.is_super_admin():
-            # For non-super-admins, verify they have access to this company with admin role
-            if str(company_id) not in self.get_user_companies():
-                raise HTTPException(
-                    status_code=403,
-                    detail="Unauthorized. You do not have access to this company.",
-                )
-            user_role = self.get_user_role(company_id)
-            if user_role is None or user_role > 2:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Unauthorized. Insufficient permissions to delete this company.",
-                )
+        # Check if user has company:delete scope (super admins automatically pass via has_scope)
+        if not self.has_scope("company:delete", company_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. You do not have permission to delete this company.",
+            )
 
         session = get_session()
         company = session.query(Company).filter(Company.id == company_id).first()
@@ -1914,16 +1906,13 @@ class MagicalAuth:
     def delete_user_from_company(self, company_id: str, target_user_id: str):
         self.validate_user()
         session = get_session()
-        caller_role = self.get_user_role(company_id)
-        if not caller_role or caller_role > 2:
+
+        # Check if user has permission to delete users from this company
+        if not self.has_scope("users:delete", company_id):
+            session.close()
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions to remove users.",
-            )
-
-        if str(company_id) not in self.get_user_companies():
-            raise HTTPException(
-                status_code=403, detail="Unauthorized. Company not accessible to user."
             )
 
         user_company = (
@@ -1938,10 +1927,13 @@ class MagicalAuth:
                 status_code=404, detail="User not found in the specified company"
             )
 
-        # Prevent self-deletion for company admins
-        if str(target_user_id) == str(self.user_id) and caller_role <= 2:
+        # Prevent self-deletion for users with management permissions
+        if str(target_user_id) == str(self.user_id) and self.has_scope(
+            "users:delete", company_id
+        ):
             raise HTTPException(
-                status_code=400, detail="Company admins cannot remove themselves"
+                status_code=400,
+                detail="Users with management permissions cannot remove themselves",
             )
 
         session.delete(user_company)
@@ -2062,15 +2054,14 @@ class MagicalAuth:
                 status_code=403, detail="You cannot change your own role."
             )
         session = get_session()
-        user_role = self.get_user_role(company_id)
-        if user_role is None:
-            session.close()
-            raise HTTPException(status_code=404, detail="User not found in company")
-        if user_role >= 3:
+
+        # Check if user has permission to manage roles
+        if not self.has_scope("users:roles", company_id):
             session.close()
             raise HTTPException(
                 status_code=403, detail="User does not have permission to update roles"
             )
+
         user_company = (
             session.query(UserCompany)
             .filter(UserCompany.user_id == user_id)
@@ -2081,7 +2072,10 @@ class MagicalAuth:
             role_id = int(role_id)
         except:
             role_id = 3
-        if role_id < user_role:
+
+        # Users can only assign roles at or below their own level
+        caller_role = self.get_user_role(company_id)
+        if caller_role is not None and role_id < caller_role:
             session.close()
             raise HTTPException(
                 status_code=403,
@@ -3058,16 +3052,17 @@ class MagicalAuth:
                 )
         with get_session() as db:
             try:
-                # Check if user has appropriate role
-                user_role = self.get_user_role(invitation.company_id)
-                if not invitation.role_id:
-                    invitation.role_id = 3
-                if user_role > 2:  # Only allow tenant_admin and company_admin
+                # Check if user has appropriate scope to create invitations
+                if not self.has_scope("users:write", invitation.company_id):
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
                     )
-                if int(invitation.role_id) < user_role:
+                if not invitation.role_id:
+                    invitation.role_id = 3
+                # Users can only invite users at or below their own role level
+                user_role = self.get_user_role(invitation.company_id)
+                if user_role is not None and int(invitation.role_id) < user_role:
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
@@ -3482,18 +3477,9 @@ class MagicalAuth:
                 for company in user_companies:
                     # Use dictionary for deduplication based on user ID
                     unique_users = {}
-                    role_id = self.get_user_role(str(company.id))
-                    if role_id is None:
-                        continue
-                    try:
-                        role_id = int(role_id)
-                    except Exception as e:
-                        log_silenced_exception(
-                            e,
-                            f"get_user_list: parsing role_id for company {company.id}",
-                        )
-                        continue
-                    if role_id < 3:
+                    # Check if user has permission to read users for this company
+                    can_read_users = self.has_scope("users:read", str(company.id))
+                    if can_read_users:
                         for user_company in company.users:
                             role_name = None
                             for role in default_roles:
@@ -3844,17 +3830,16 @@ class MagicalAuth:
             agent_name = getenv("AGENT_NAME")
         with get_session() as db:
             try:
+                # Check if user has permission to create child companies
                 if self.company_id != None:
-                    if parent_company_id != None:
-                        user_role = self.get_user_role(parent_company_id)
-                    else:
-                        user_role = self.get_user_role(self.company_id)
-                    if user_role != None:
-                        if user_role > 2:  # Only allow tenant_admin and company_admin
-                            raise HTTPException(
-                                status_code=403,
-                                detail="Unauthorized. Insufficient permissions.",
-                            )
+                    check_company_id = (
+                        parent_company_id if parent_company_id else self.company_id
+                    )
+                    if not self.has_scope("company:write", check_company_id):
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Unauthorized. Insufficient permissions.",
+                        )
                 new_company = Company.create(
                     db,
                     name=name,
@@ -3983,21 +3968,22 @@ class MagicalAuth:
             return company.agent_name if company.agent_name else getenv("AGENT_NAME")
 
     def update_company(self, company_id: str, name: str) -> CompanyResponse:
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+
         with get_session() as db:
             try:
                 company = db.query(Company).filter(Company.id == company_id).first()
                 if not company:
                     raise HTTPException(status_code=404, detail="Company not found")
 
-                user_role = self.get_user_role(company_id)
-                if user_role > 2:  # Only allow tenant_admin and company_admin
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Unauthorized. Insufficient permissions.",
-                    )
-
                 company.name = name
                 db.commit()
+                user_role = self.get_user_role(company_id)
                 role_name = None
                 for role in default_roles:
                     if role["id"] == user_role:
@@ -4054,14 +4040,8 @@ class MagicalAuth:
     def set_training_data(self, training_data: str, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
-        if str(company_id) not in self.get_user_companies():
-            raise HTTPException(
-                status_code=403,
-                detail="Unauthorized. Insufficient permissions.",
-            )
-        # If role id is greater than 2, the user does not have permission to update the training data
-        user_role = self.get_user_role(company_id)
-        if user_role > 2:
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -4424,8 +4404,8 @@ class MagicalAuth:
         return getenv("TZ")
 
     def rename_company(self, company_id, name):
-        # Check if company is in users companies
-        if str(company_id) not in self.get_user_companies():
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -4434,14 +4414,9 @@ class MagicalAuth:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
-            user_role = self.get_user_role(company_id)
-            if user_role > 2:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Unauthorized. Insufficient permissions.",
-                )
             company.name = name
             db.commit()
+            user_role = self.get_user_role(company_id)
             role_name = None
             for role in default_roles:
                 if role["id"] == user_role:
@@ -4492,8 +4467,8 @@ class MagicalAuth:
         country: Optional[str] = None,
         notes: Optional[str] = None,
     ):
-        # Check if company is in users companies
-        if str(company_id) not in self.get_user_companies():
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -4502,12 +4477,6 @@ class MagicalAuth:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
-            user_role = self.get_user_role(company_id)
-            if user_role > 2:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Unauthorized. Insufficient permissions.",
-                )
 
             # Update only the fields that are provided
             if name is not None:
@@ -4534,6 +4503,7 @@ class MagicalAuth:
                 company.notes = notes
 
             db.commit()
+            user_role = self.get_user_role(company_id)
             role_name = None
             for role in default_roles:
                 if role["id"] == user_role:
