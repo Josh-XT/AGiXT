@@ -12,11 +12,18 @@ from DB import (
     User,
     TaskCategory,
     TaskItem,
+    ServerChain,
+    ServerChainStep,
+    ServerChainStepArgument,
+    CompanyChain,
+    CompanyChainStep,
+    CompanyChainStepArgument,
+    UserChainOverride,
 )
 from Globals import getenv, DEFAULT_USER
 from Prompts import Prompts
 from Extensions import Extensions
-from MagicalAuth import get_user_id
+from MagicalAuth import get_user_id, get_user_company_id
 import logging
 import asyncio
 from WebhookManager import webhook_emitter
@@ -31,6 +38,7 @@ class Chain:
     def __init__(self, user=DEFAULT_USER):
         self.user = user
         self.user_id = get_user_id(self.user)
+        self.company_id = get_user_company_id(self.user)
 
     def get_chain(self, chain_name):
         session = get_session()
@@ -195,21 +203,40 @@ class Chain:
         return chain_list
 
     def get_chains(self):
+        """
+        Get all chains available to the user with tiered resolution.
+        Includes server chains, company chains, and user chains.
+        User chains override company, which override server chains of the same name.
+        """
         session = get_session()
-        """
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        global_chains = (
-            session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
+        chains_set = set()  # Use set for deduplication by name
+
+        # 1. Server-level chains (non-internal only)
+        server_chains = (
+            session.query(ServerChain).filter(ServerChain.is_internal == False).all()
         )
-        """
-        chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
-        chain_list = []
-        for chain in chains:
-            chain_list.append(chain.name)
-        # for chain in global_chains:
-        # chain_list.append(chain.name)
+        for chain in server_chains:
+            chains_set.add(chain.name)
+
+        # 2. Company-level chains (add or override server)
+        if self.company_id:
+            company_chains = (
+                session.query(CompanyChain)
+                .filter(CompanyChain.company_id == self.company_id)
+                .all()
+            )
+            for chain in company_chains:
+                chains_set.add(chain.name)
+
+        # 3. User-level chains (add or override company and server)
+        user_chains = (
+            session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
+        )
+        for chain in user_chains:
+            chains_set.add(chain.name)
+
         session.close()
-        return chain_list
+        return list(chains_set)
 
     def add_chain(self, chain_name, description=""):
         session = get_session()
@@ -1526,3 +1553,929 @@ class Chain:
 
         session.close()
         return chain_args
+
+    # =========================================================================
+    # Tiered Chain Methods - Server/Company/User hierarchy
+    # =========================================================================
+
+    def _get_chain_steps_data(self, session, chain_db, chain_type="user"):
+        """Helper to extract step data from a chain (user/server/company)."""
+        if chain_type == "server":
+            steps = (
+                session.query(ServerChainStep)
+                .filter(ServerChainStep.chain_id == chain_db.id)
+                .order_by(ServerChainStep.step_number)
+                .all()
+            )
+            step_arg_model = ServerChainStepArgument
+        elif chain_type == "company":
+            steps = (
+                session.query(CompanyChainStep)
+                .filter(CompanyChainStep.chain_id == chain_db.id)
+                .order_by(CompanyChainStep.step_number)
+                .all()
+            )
+            step_arg_model = CompanyChainStepArgument
+        else:
+            steps = (
+                session.query(ChainStep)
+                .filter(ChainStep.chain_id == chain_db.id)
+                .order_by(ChainStep.step_number)
+                .all()
+            )
+            step_arg_model = ChainStepArgument
+
+        chain_steps = []
+        for step in steps:
+            agent = session.query(Agent).filter(Agent.id == step.agent_id).first()
+            agent_name = agent.name if agent else ""
+
+            prompt = {}
+            if step.target_chain_id:
+                chain_obj = session.query(ChainDB).get(step.target_chain_id)
+                if chain_obj:
+                    prompt["chain_name"] = chain_obj.name
+            elif step.target_command_id:
+                command_obj = session.query(Command).get(step.target_command_id)
+                if command_obj:
+                    prompt["command_name"] = command_obj.name
+            elif step.target_prompt_id:
+                prompt_obj = session.query(Prompt).get(step.target_prompt_id)
+                if prompt_obj:
+                    prompt["prompt_name"] = prompt_obj.name
+
+            # Get arguments
+            arguments = (
+                session.query(Argument, step_arg_model)
+                .join(step_arg_model, step_arg_model.argument_id == Argument.id)
+                .filter(step_arg_model.chain_step_id == step.id)
+                .all()
+            )
+            for argument, step_argument in arguments:
+                prompt[argument.name] = step_argument.value
+
+            chain_steps.append(
+                {
+                    "step": step.step_number,
+                    "agent_name": agent_name,
+                    "prompt_type": step.prompt_type or "",
+                    "prompt": prompt,
+                }
+            )
+
+        return chain_steps
+
+    def get_all_user_chains(self):
+        """
+        Get all chains available to the user from all tiers.
+        Returns chains with source indicators (server/company/user).
+        User chains override company, which override server chains of the same name.
+        """
+        session = get_session()
+        chains_dict = {}  # name -> chain data (for deduplication)
+
+        # 1. Server-level chains (non-internal only)
+        server_chains = (
+            session.query(ServerChain).filter(ServerChain.is_internal == False).all()
+        )
+        for chain in server_chains:
+            steps = self._get_chain_steps_data(session, chain, "server")
+            chains_dict[chain.name] = {
+                "id": str(chain.id),
+                "name": chain.name,
+                "description": chain.description,
+                "steps": steps,
+                "source": "server",
+                "is_override": False,
+            }
+
+        # 2. Company-level chains (override server)
+        if self.company_id:
+            company_chains = (
+                session.query(CompanyChain)
+                .filter(CompanyChain.company_id == self.company_id)
+                .all()
+            )
+            for chain in company_chains:
+                steps = self._get_chain_steps_data(session, chain, "company")
+                is_override = chain.server_chain_id is not None
+                chains_dict[chain.name] = {
+                    "id": str(chain.id),
+                    "name": chain.name,
+                    "description": chain.description,
+                    "steps": steps,
+                    "source": "company",
+                    "is_override": is_override,
+                    "parent_id": (
+                        str(chain.server_chain_id) if chain.server_chain_id else None
+                    ),
+                }
+
+        # 3. User-level chains (override company and server)
+        user_chains = (
+            session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
+        )
+        for chain in user_chains:
+            steps = self._get_chain_steps_data(session, chain, "user")
+
+            # Check if this is an override
+            override = (
+                session.query(UserChainOverride)
+                .filter(
+                    UserChainOverride.user_id == self.user_id,
+                    UserChainOverride.chain_id == chain.id,
+                )
+                .first()
+            )
+            is_override = override is not None
+            parent_id = None
+            if override:
+                if override.server_chain_id:
+                    parent_id = str(override.server_chain_id)
+                elif override.company_chain_id:
+                    parent_id = str(override.company_chain_id)
+
+            chains_dict[chain.name] = {
+                "id": str(chain.id),
+                "name": chain.name,
+                "description": chain.description,
+                "steps": steps,
+                "source": "user",
+                "is_override": is_override,
+                "parent_id": parent_id,
+            }
+
+        # 4. Legacy global chains from DEFAULT_USER
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        if user_data and user_data.id != self.user_id:
+            global_chains = (
+                session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
+            )
+            for chain in global_chains:
+                if chain.name not in chains_dict:
+                    steps = self._get_chain_steps_data(session, chain, "user")
+                    chains_dict[chain.name] = {
+                        "id": str(chain.id),
+                        "name": chain.name,
+                        "description": chain.description,
+                        "steps": steps,
+                        "source": "global",
+                        "is_override": False,
+                    }
+
+        session.close()
+        return list(chains_dict.values())
+
+    def get_chain_with_tiered_resolution(self, chain_name):
+        """
+        Get a chain by name with tiered resolution:
+        1. User-level chain (highest priority)
+        2. Company-level chain
+        3. Server-level chain (global)
+        4. Legacy DEFAULT_USER chain (lowest priority)
+        """
+        session = get_session()
+        chain_name = chain_name.replace("%20", " ")
+
+        # 1. Try user-level chain first
+        chain_db = (
+            session.query(ChainDB)
+            .filter(ChainDB.user_id == self.user_id, ChainDB.name == chain_name)
+            .first()
+        )
+        if chain_db:
+            steps = self._get_chain_steps_data(session, chain_db, "user")
+            result = {
+                "id": str(chain_db.id),
+                "chain_name": chain_db.name,
+                "description": chain_db.description or "",
+                "steps": steps,
+                "source": "user",
+            }
+            session.close()
+            return result
+
+        # 2. Try company-level chain
+        if self.company_id:
+            company_chain = (
+                session.query(CompanyChain)
+                .filter(
+                    CompanyChain.company_id == self.company_id,
+                    CompanyChain.name == chain_name,
+                )
+                .first()
+            )
+            if company_chain:
+                steps = self._get_chain_steps_data(session, company_chain, "company")
+                result = {
+                    "id": str(company_chain.id),
+                    "chain_name": company_chain.name,
+                    "description": company_chain.description or "",
+                    "steps": steps,
+                    "source": "company",
+                }
+                session.close()
+                return result
+
+        # 3. Try server-level chain (global, non-internal)
+        server_chain = (
+            session.query(ServerChain).filter(ServerChain.name == chain_name).first()
+        )
+        if server_chain:
+            steps = self._get_chain_steps_data(session, server_chain, "server")
+            result = {
+                "id": str(server_chain.id),
+                "chain_name": server_chain.name,
+                "description": server_chain.description or "",
+                "steps": steps,
+                "source": "server",
+            }
+            session.close()
+            return result
+
+        # 4. Try legacy DEFAULT_USER chain
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        if user_data:
+            legacy_chain = (
+                session.query(ChainDB)
+                .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
+                .first()
+            )
+            if legacy_chain:
+                steps = self._get_chain_steps_data(session, legacy_chain, "user")
+                result = {
+                    "id": str(legacy_chain.id),
+                    "chain_name": legacy_chain.name,
+                    "description": legacy_chain.description or "",
+                    "steps": steps,
+                    "source": "global",
+                }
+                session.close()
+                return result
+
+        session.close()
+        return []
+
+    def clone_chain_to_user(self, chain_name):
+        """Clone a chain from parent tier to user level for editing."""
+        session = get_session()
+        chain_name = chain_name.replace("%20", " ")
+
+        server_chain_id = None
+        company_chain_id = None
+        source_chain = None
+        source_type = None
+
+        # Check company-level first
+        if self.company_id:
+            company_chain = (
+                session.query(CompanyChain)
+                .filter(
+                    CompanyChain.company_id == self.company_id,
+                    CompanyChain.name == chain_name,
+                )
+                .first()
+            )
+            if company_chain:
+                source_chain = company_chain
+                source_type = "company"
+                company_chain_id = company_chain.id
+
+        # Check server-level
+        if not source_chain:
+            server_chain = (
+                session.query(ServerChain)
+                .filter(ServerChain.name == chain_name)
+                .first()
+            )
+            if server_chain:
+                source_chain = server_chain
+                source_type = "server"
+                server_chain_id = server_chain.id
+
+        if not source_chain:
+            session.close()
+            return None
+
+        # Create user's copy of the chain
+        new_chain = ChainDB(
+            name=source_chain.name,
+            description=source_chain.description,
+            user_id=self.user_id,
+        )
+        session.add(new_chain)
+        session.commit()
+
+        # Copy steps
+        if source_type == "server":
+            source_steps = (
+                session.query(ServerChainStep)
+                .filter(ServerChainStep.chain_id == source_chain.id)
+                .order_by(ServerChainStep.step_number)
+                .all()
+            )
+            step_arg_model = ServerChainStepArgument
+        else:
+            source_steps = (
+                session.query(CompanyChainStep)
+                .filter(CompanyChainStep.chain_id == source_chain.id)
+                .order_by(CompanyChainStep.step_number)
+                .all()
+            )
+            step_arg_model = CompanyChainStepArgument
+
+        for source_step in source_steps:
+            new_step = ChainStep(
+                chain_id=new_chain.id,
+                step_number=source_step.step_number,
+                agent_id=source_step.agent_id,
+                prompt_type=source_step.prompt_type,
+                prompt=source_step.prompt,
+                target_chain_id=source_step.target_chain_id,
+                target_command_id=source_step.target_command_id,
+                target_prompt_id=source_step.target_prompt_id,
+            )
+            session.add(new_step)
+            session.commit()
+
+            # Copy step arguments
+            source_args = (
+                session.query(step_arg_model)
+                .filter(step_arg_model.chain_step_id == source_step.id)
+                .all()
+            )
+            for source_arg in source_args:
+                new_arg = ChainStepArgument(
+                    chain_step_id=new_step.id,
+                    argument_id=source_arg.argument_id,
+                    value=source_arg.value,
+                )
+                session.add(new_arg)
+            session.commit()
+
+        # Track the override
+        override = UserChainOverride(
+            user_id=self.user_id,
+            chain_id=new_chain.id,
+            server_chain_id=server_chain_id,
+            company_chain_id=company_chain_id,
+        )
+        session.add(override)
+        session.commit()
+
+        chain_id = str(new_chain.id)
+        session.close()
+        return chain_id
+
+    def revert_chain_to_default(self, chain_id: str):
+        """
+        Revert a user's customized chain back to the parent (server/company) version.
+        Deletes the user's override and removes the tracking record.
+        """
+        session = get_session()
+
+        override = (
+            session.query(UserChainOverride)
+            .filter(
+                UserChainOverride.user_id == self.user_id,
+                UserChainOverride.chain_id == chain_id,
+            )
+            .first()
+        )
+
+        if not override:
+            session.close()
+            return {"success": False, "message": "This chain is not an override"}
+
+        # Delete the user's chain (cascade will delete steps and arguments)
+        chain = session.query(ChainDB).filter(ChainDB.id == chain_id).first()
+        if chain:
+            session.delete(chain)
+
+        # Delete the override tracking
+        session.delete(override)
+        session.commit()
+        session.close()
+
+        return {"success": True, "message": "Reverted to default"}
+
+    # =========================================================================
+    # Server-level chain management (super admin only)
+    # =========================================================================
+
+    def get_server_chains(self, include_internal: bool = False):
+        """Get all server-level chains. Super admin function."""
+        session = get_session()
+        query = session.query(ServerChain)
+        if not include_internal:
+            query = query.filter(ServerChain.is_internal == False)
+        chains = query.all()
+
+        result = []
+        for chain in chains:
+            steps = self._get_chain_steps_data(session, chain, "server")
+            result.append(
+                {
+                    "id": str(chain.id),
+                    "name": chain.name,
+                    "description": chain.description,
+                    "steps": steps,
+                    "is_internal": chain.is_internal,
+                }
+            )
+
+        session.close()
+        return result
+
+    def add_server_chain(
+        self, name: str, description: str = "", is_internal: bool = False
+    ):
+        """Add a server-level chain. Super admin function."""
+        session = get_session()
+        chain = ServerChain(
+            name=name,
+            description=description,
+            is_internal=is_internal,
+        )
+        session.add(chain)
+        session.commit()
+        chain_id = str(chain.id)
+        session.close()
+        return chain_id
+
+    def update_server_chain(
+        self,
+        chain_id: str,
+        name: str = None,
+        description: str = None,
+        is_internal: bool = None,
+    ):
+        """Update a server-level chain. Super admin function."""
+        session = get_session()
+        chain = session.query(ServerChain).filter(ServerChain.id == chain_id).first()
+        if not chain:
+            session.close()
+            raise Exception("Server chain not found")
+
+        if name is not None:
+            chain.name = name
+        if description is not None:
+            chain.description = description
+        if is_internal is not None:
+            chain.is_internal = is_internal
+
+        session.commit()
+        session.close()
+
+    def delete_server_chain(self, chain_id: str):
+        """Delete a server-level chain. Super admin function."""
+        session = get_session()
+        chain = session.query(ServerChain).filter(ServerChain.id == chain_id).first()
+        if not chain:
+            session.close()
+            raise Exception("Server chain not found")
+        session.delete(chain)
+        session.commit()
+        session.close()
+
+    def add_server_chain_step(
+        self,
+        chain_id: str,
+        step_number: int,
+        agent_name: str,
+        prompt_type: str,
+        prompt: dict,
+    ):
+        """Add a step to a server chain. Super admin function."""
+        session = get_session()
+        chain = session.query(ServerChain).filter(ServerChain.id == chain_id).first()
+        if not chain:
+            session.close()
+            raise Exception("Server chain not found")
+
+        # Get agent (from any user or default)
+        agent = session.query(Agent).filter(Agent.name == agent_name).first()
+        if not agent:
+            session.close()
+            raise Exception(f"Agent {agent_name} not found")
+
+        # Determine target IDs
+        target_chain_id = None
+        target_command_id = None
+        target_prompt_id = None
+        argument_key = None
+
+        if prompt_type.lower() == "prompt":
+            argument_key = "prompt_name"
+            prompt_category = prompt.get("prompt_category", "Default")
+            target = (
+                session.query(Prompt)
+                .filter(
+                    Prompt.name == prompt.get("prompt_name"),
+                    Prompt.prompt_category.has(name=prompt_category),
+                )
+                .first()
+            )
+            if target:
+                target_prompt_id = target.id
+        elif prompt_type.lower() == "chain":
+            argument_key = "chain_name" if "chain_name" in prompt else "chain"
+            target = (
+                session.query(ChainDB)
+                .filter(ChainDB.name == prompt.get(argument_key))
+                .first()
+            )
+            if target:
+                target_chain_id = target.id
+        elif prompt_type.lower() == "command":
+            argument_key = "command_name"
+            target = (
+                session.query(Command)
+                .filter(Command.name == prompt.get("command_name"))
+                .first()
+            )
+            if target:
+                target_command_id = target.id
+
+        step = ServerChainStep(
+            chain_id=chain.id,
+            step_number=step_number,
+            agent_id=agent.id,
+            prompt_type=prompt_type,
+            prompt=prompt.get(argument_key, "") if argument_key else "",
+            target_chain_id=target_chain_id,
+            target_command_id=target_command_id,
+            target_prompt_id=target_prompt_id,
+        )
+        session.add(step)
+        session.commit()
+
+        # Add step arguments
+        prompt_args = {
+            k: v
+            for k, v in prompt.items()
+            if k != argument_key and k != "prompt_category"
+        }
+        for arg_name, arg_value in prompt_args.items():
+            argument = session.query(Argument).filter(Argument.name == arg_name).first()
+            if argument:
+                step_arg = ServerChainStepArgument(
+                    chain_step_id=step.id,
+                    argument_id=argument.id,
+                    value=str(arg_value),
+                )
+                session.add(step_arg)
+
+        session.commit()
+        session.close()
+
+    def delete_server_chain_step(self, chain_id: str, step_number: int):
+        """Delete a step from a server chain. Super admin function."""
+        session = get_session()
+        chain = session.query(ServerChain).filter(ServerChain.id == chain_id).first()
+        if not chain:
+            session.close()
+            raise Exception("Server chain not found")
+
+        step = (
+            session.query(ServerChainStep)
+            .filter(
+                ServerChainStep.chain_id == chain.id,
+                ServerChainStep.step_number == step_number,
+            )
+            .first()
+        )
+        if step:
+            session.delete(step)
+            session.commit()
+
+            # Reorder remaining steps
+            session.query(ServerChainStep).filter(
+                ServerChainStep.chain_id == chain.id,
+                ServerChainStep.step_number > step_number,
+            ).update(
+                {"step_number": ServerChainStep.step_number - 1},
+                synchronize_session=False,
+            )
+            session.commit()
+
+        session.close()
+
+    # =========================================================================
+    # Company-level chain management (company admin only)
+    # =========================================================================
+
+    def get_company_chains(self, company_id: str = None):
+        """Get all company-level chains. Company admin function."""
+        target_company = company_id or self.company_id
+        if not target_company:
+            return []
+
+        session = get_session()
+        chains = (
+            session.query(CompanyChain)
+            .filter(CompanyChain.company_id == target_company)
+            .all()
+        )
+
+        result = []
+        for chain in chains:
+            steps = self._get_chain_steps_data(session, chain, "company")
+            result.append(
+                {
+                    "id": str(chain.id),
+                    "name": chain.name,
+                    "description": chain.description,
+                    "steps": steps,
+                    "server_chain_id": (
+                        str(chain.server_chain_id) if chain.server_chain_id else None
+                    ),
+                }
+            )
+
+        session.close()
+        return result
+
+    def add_company_chain(
+        self, name: str, description: str = "", company_id: str = None
+    ):
+        """Add a company-level chain. Company admin function."""
+        target_company = company_id or self.company_id
+        if not target_company:
+            raise Exception("No company context")
+
+        session = get_session()
+        chain = CompanyChain(
+            company_id=target_company,
+            name=name,
+            description=description,
+        )
+        session.add(chain)
+        session.commit()
+        chain_id = str(chain.id)
+        session.close()
+        return chain_id
+
+    def update_company_chain(
+        self, chain_id: str, name: str = None, description: str = None
+    ):
+        """Update a company-level chain. Company admin function."""
+        session = get_session()
+        chain = (
+            session.query(CompanyChain)
+            .filter(
+                CompanyChain.id == chain_id,
+                CompanyChain.company_id == self.company_id,
+            )
+            .first()
+        )
+        if not chain:
+            session.close()
+            raise Exception("Company chain not found")
+
+        if name is not None:
+            chain.name = name
+        if description is not None:
+            chain.description = description
+
+        session.commit()
+        session.close()
+
+    def delete_company_chain(self, chain_id: str):
+        """Delete a company-level chain. Company admin function."""
+        session = get_session()
+        chain = (
+            session.query(CompanyChain)
+            .filter(
+                CompanyChain.id == chain_id,
+                CompanyChain.company_id == self.company_id,
+            )
+            .first()
+        )
+        if not chain:
+            session.close()
+            raise Exception("Company chain not found")
+        session.delete(chain)
+        session.commit()
+        session.close()
+
+    def share_chain_to_company(self, chain_id: str):
+        """
+        Share a user's chain to the company level.
+        Company admin function.
+        """
+        session = get_session()
+
+        # Get user's chain
+        user_chain = (
+            session.query(ChainDB)
+            .filter(
+                ChainDB.id == chain_id,
+                ChainDB.user_id == self.user_id,
+            )
+            .first()
+        )
+        if not user_chain:
+            session.close()
+            raise Exception("Chain not found")
+
+        if not self.company_id:
+            session.close()
+            raise Exception("No company context")
+
+        # Create company version
+        company_chain = CompanyChain(
+            company_id=self.company_id,
+            name=user_chain.name,
+            description=user_chain.description,
+        )
+        session.add(company_chain)
+        session.commit()
+
+        # Copy steps
+        user_steps = (
+            session.query(ChainStep)
+            .filter(ChainStep.chain_id == user_chain.id)
+            .order_by(ChainStep.step_number)
+            .all()
+        )
+
+        for user_step in user_steps:
+            company_step = CompanyChainStep(
+                chain_id=company_chain.id,
+                step_number=user_step.step_number,
+                agent_id=user_step.agent_id,
+                prompt_type=user_step.prompt_type,
+                prompt=user_step.prompt,
+                target_chain_id=user_step.target_chain_id,
+                target_command_id=user_step.target_command_id,
+                target_prompt_id=user_step.target_prompt_id,
+            )
+            session.add(company_step)
+            session.commit()
+
+            # Copy step arguments
+            user_args = (
+                session.query(ChainStepArgument)
+                .filter(ChainStepArgument.chain_step_id == user_step.id)
+                .all()
+            )
+            for user_arg in user_args:
+                company_arg = CompanyChainStepArgument(
+                    chain_step_id=company_step.id,
+                    argument_id=user_arg.argument_id,
+                    value=user_arg.value,
+                )
+                session.add(company_arg)
+
+        session.commit()
+        chain_id = str(company_chain.id)
+        session.close()
+        return chain_id
+
+    def add_company_chain_step(
+        self,
+        chain_id: str,
+        step_number: int,
+        agent_name: str,
+        prompt_type: str,
+        prompt: dict,
+    ):
+        """Add a step to a company chain. Company admin function."""
+        session = get_session()
+        chain = (
+            session.query(CompanyChain)
+            .filter(
+                CompanyChain.id == chain_id,
+                CompanyChain.company_id == self.company_id,
+            )
+            .first()
+        )
+        if not chain:
+            session.close()
+            raise Exception("Company chain not found")
+
+        # Get agent
+        agent = (
+            session.query(Agent)
+            .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
+            .first()
+        )
+        if not agent:
+            agent = session.query(Agent).filter(Agent.name == agent_name).first()
+        if not agent:
+            session.close()
+            raise Exception(f"Agent {agent_name} not found")
+
+        # Determine target IDs (similar to server chain step)
+        target_chain_id = None
+        target_command_id = None
+        target_prompt_id = None
+        argument_key = None
+
+        if prompt_type.lower() == "prompt":
+            argument_key = "prompt_name"
+            prompt_category = prompt.get("prompt_category", "Default")
+            target = (
+                session.query(Prompt)
+                .filter(
+                    Prompt.name == prompt.get("prompt_name"),
+                    Prompt.user_id == self.user_id,
+                    Prompt.prompt_category.has(name=prompt_category),
+                )
+                .first()
+            )
+            if target:
+                target_prompt_id = target.id
+        elif prompt_type.lower() == "chain":
+            argument_key = "chain_name" if "chain_name" in prompt else "chain"
+            target = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.name == prompt.get(argument_key),
+                    ChainDB.user_id == self.user_id,
+                )
+                .first()
+            )
+            if target:
+                target_chain_id = target.id
+        elif prompt_type.lower() == "command":
+            argument_key = "command_name"
+            target = (
+                session.query(Command)
+                .filter(Command.name == prompt.get("command_name"))
+                .first()
+            )
+            if target:
+                target_command_id = target.id
+
+        step = CompanyChainStep(
+            chain_id=chain.id,
+            step_number=step_number,
+            agent_id=agent.id,
+            prompt_type=prompt_type,
+            prompt=prompt.get(argument_key, "") if argument_key else "",
+            target_chain_id=target_chain_id,
+            target_command_id=target_command_id,
+            target_prompt_id=target_prompt_id,
+        )
+        session.add(step)
+        session.commit()
+
+        # Add step arguments
+        prompt_args = {
+            k: v
+            for k, v in prompt.items()
+            if k != argument_key and k != "prompt_category"
+        }
+        for arg_name, arg_value in prompt_args.items():
+            argument = session.query(Argument).filter(Argument.name == arg_name).first()
+            if argument:
+                step_arg = CompanyChainStepArgument(
+                    chain_step_id=step.id,
+                    argument_id=argument.id,
+                    value=str(arg_value),
+                )
+                session.add(step_arg)
+
+        session.commit()
+        session.close()
+
+    def delete_company_chain_step(self, chain_id: str, step_number: int):
+        """Delete a step from a company chain. Company admin function."""
+        session = get_session()
+        chain = (
+            session.query(CompanyChain)
+            .filter(
+                CompanyChain.id == chain_id,
+                CompanyChain.company_id == self.company_id,
+            )
+            .first()
+        )
+        if not chain:
+            session.close()
+            raise Exception("Company chain not found")
+
+        step = (
+            session.query(CompanyChainStep)
+            .filter(
+                CompanyChainStep.chain_id == chain.id,
+                CompanyChainStep.step_number == step_number,
+            )
+            .first()
+        )
+        if step:
+            session.delete(step)
+            session.commit()
+
+            # Reorder remaining steps
+            session.query(CompanyChainStep).filter(
+                CompanyChainStep.chain_id == chain.id,
+                CompanyChainStep.step_number > step_number,
+            ).update(
+                {"step_number": CompanyChainStep.step_number - 1},
+                synchronize_session=False,
+            )
+            session.commit()
+
+        session.close()

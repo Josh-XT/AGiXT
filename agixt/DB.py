@@ -2,6 +2,7 @@ import uuid
 import time
 import logging
 import os
+import json
 from datetime import datetime
 from sqlalchemy import (
     create_engine,
@@ -782,6 +783,436 @@ class CompanyStorageSetting(Base):
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ============================================================================
+# Tiered Prompts and Chains (Server → Company → User)
+# ============================================================================
+# These tables implement a hierarchical configuration system for prompts and chains:
+# - Server level: Global defaults managed by super admins, available to all users
+# - Company level: Company-wide templates managed by company admins
+# - User level: Personal prompts/chains (existing Prompt and Chain tables)
+#
+# When a user tries to edit a server or company prompt/chain, a clone is created
+# at their level. Users can revert to the parent (server/company) version.
+# ============================================================================
+
+
+class ServerPromptCategory(Base):
+    """
+    Server-level prompt categories that serve as global defaults.
+    Managed by super admins, these are visible to all users.
+    """
+
+    __tablename__ = "server_prompt_category"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    # If True, this category and its prompts are for internal system use only
+    # and should not be shown to users in UI
+    is_internal = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (UniqueConstraint("name", name="uix_server_prompt_category_name"),)
+
+
+class ServerPrompt(Base):
+    """
+    Server-level prompts that serve as global defaults for all companies.
+    Managed by super admins, these cascade down: Server → Company → User.
+    Internal prompts (like "Think About It") are marked with is_internal=True
+    and are available to agents but hidden from user prompt lists.
+    """
+
+    __tablename__ = "server_prompt"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt_category.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    content = Column(Text, nullable=False)
+    # If True, this prompt is for internal agent use only (e.g., "Think About It")
+    # and should not be shown to users in prompt selection UI
+    is_internal = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    category = relationship("ServerPromptCategory", backref="prompts")
+
+    __table_args__ = (
+        UniqueConstraint("name", "category_id", name="uix_server_prompt_name_cat"),
+    )
+
+
+class ServerPromptArgument(Base):
+    """Arguments extracted from server-level prompts."""
+
+    __tablename__ = "server_prompt_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+
+    prompt = relationship("ServerPrompt", backref="arguments")
+
+
+class ServerChain(Base):
+    """
+    Server-level chains that serve as global workflow templates.
+    Managed by super admins, these cascade down: Server → Company → User.
+    """
+
+    __tablename__ = "server_chain"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(Text, nullable=False, unique=True)
+    description = Column(Text, nullable=True, default="")
+    # If True, this chain is for internal system use only
+    is_internal = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ServerChainStep(Base):
+    """Steps for server-level chains."""
+
+    __tablename__ = "server_chain_step"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_number = Column(Integer, nullable=False)
+    # "Prompt", "Chain", "Command"
+    prompt_type = Column(Text)
+    # The target reference - could be prompt name, chain name, or command name
+    prompt = Column(Text)
+    # Agent name to use for this step (will resolve to user's agent at runtime)
+    agent_name = Column(Text, nullable=True)
+
+    chain = relationship("ServerChain", backref="steps")
+
+
+class ServerChainStepArgument(Base):
+    """Arguments for server-level chain steps."""
+
+    __tablename__ = "server_chain_step_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_step_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain_step.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    value = Column(Text, nullable=True)
+
+    chain_step = relationship("ServerChainStep", backref="arguments")
+
+
+class CompanyPromptCategory(Base):
+    """
+    Company-level prompt categories that can override server defaults.
+    Managed by company admins, these are visible to company users.
+    """
+
+    __tablename__ = "company_prompt_category"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    # Reference to server category if this is an override
+    server_category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt_category.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company")
+    server_category = relationship("ServerPromptCategory")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uix_company_prompt_category_name"),
+    )
+
+
+class CompanyPrompt(Base):
+    """
+    Company-level prompts that override server defaults or are company-specific.
+    Managed by company admins, these are visible to company users.
+    """
+
+    __tablename__ = "company_prompt"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_prompt_category.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    content = Column(Text, nullable=False)
+    # Reference to server prompt if this is an override
+    server_prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company")
+    category = relationship("CompanyPromptCategory", backref="prompts")
+    server_prompt = relationship("ServerPrompt")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "name", "category_id", name="uix_company_prompt_name_cat"
+        ),
+    )
+
+
+class CompanyPromptArgument(Base):
+    """Arguments extracted from company-level prompts."""
+
+    __tablename__ = "company_prompt_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_prompt.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+
+    prompt = relationship("CompanyPrompt", backref="arguments")
+
+
+class CompanyChain(Base):
+    """
+    Company-level chains that override server defaults or are company-specific.
+    Managed by company admins, these are visible to company users.
+    """
+
+    __tablename__ = "company_chain"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True, default="")
+    # Reference to server chain if this is an override
+    server_chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company")
+    server_chain = relationship("ServerChain")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uix_company_chain_name"),
+    )
+
+
+class CompanyChainStep(Base):
+    """Steps for company-level chains."""
+
+    __tablename__ = "company_chain_step"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_chain.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_number = Column(Integer, nullable=False)
+    prompt_type = Column(Text)
+    prompt = Column(Text)
+    agent_name = Column(Text, nullable=True)
+
+    chain = relationship("CompanyChain", backref="steps")
+
+
+class CompanyChainStepArgument(Base):
+    """Arguments for company-level chain steps."""
+
+    __tablename__ = "company_chain_step_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_step_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_chain_step.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    value = Column(Text, nullable=True)
+
+    chain_step = relationship("CompanyChainStep", backref="arguments")
+
+
+class UserPromptOverride(Base):
+    """
+    Tracks when a user has customized (cloned) a server or company prompt.
+    This allows users to revert to the original version.
+    """
+
+    __tablename__ = "user_prompt_override"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The user's customized prompt (in the existing Prompt table)
+    prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("prompt.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # The source prompt that was cloned - one of these will be set
+    server_prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    company_prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_prompt.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User")
+    prompt = relationship("Prompt")
+    server_prompt = relationship("ServerPrompt")
+    company_prompt = relationship("CompanyPrompt")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "prompt_id", name="uix_user_prompt_override"),
+    )
+
+
+class UserChainOverride(Base):
+    """
+    Tracks when a user has customized (cloned) a server or company chain.
+    This allows users to revert to the original version.
+    """
+
+    __tablename__ = "user_chain_override"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The user's customized chain (in the existing Chain table)
+    chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("chain.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # The source chain that was cloned - one of these will be set
+    server_chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    company_chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_chain.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User")
+    chain = relationship("Chain")
+    server_chain = relationship("ServerChain")
+    company_chain = relationship("CompanyChain")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "chain_id", name="uix_user_chain_override"),
+    )
 
 
 class FailedLogins(Base):
@@ -2352,6 +2783,50 @@ default_scopes = [
         "description": "Delete prompts",
         "category": "Prompts",
     },
+    {
+        "name": "prompts:share",
+        "resource": "prompts",
+        "action": "share",
+        "description": "Share prompts with company members",
+        "category": "Prompts",
+    },
+    # Server-level prompt/chain management (super admin only)
+    {
+        "name": "server:prompts",
+        "resource": "server",
+        "action": "prompts",
+        "description": "Manage server-level global prompts",
+        "category": "Super Admin",
+    },
+    {
+        "name": "server:chains",
+        "resource": "server",
+        "action": "chains",
+        "description": "Manage server-level global chains",
+        "category": "Super Admin",
+    },
+    # Company-level prompt/chain management
+    {
+        "name": "company:prompts",
+        "resource": "company",
+        "action": "prompts",
+        "description": "Manage company-wide prompts",
+        "category": "Administration",
+    },
+    {
+        "name": "company:chains",
+        "resource": "company",
+        "action": "chains",
+        "description": "Manage company-wide chains",
+        "category": "Administration",
+    },
+    {
+        "name": "chains:share",
+        "resource": "chains",
+        "action": "share",
+        "description": "Share chains with company members",
+        "category": "Automation",
+    },
     # Company/Team Management Scopes
     {
         "name": "company:read",
@@ -2698,6 +3173,8 @@ default_role_scopes = {
         "prompts:*",
         "company:read",
         "company:write",
+        "company:prompts",  # Manage company-wide prompts
+        "company:chains",  # Manage company-wide chains
         "users:read",
         "users:write",
         "roles:read",
@@ -4038,6 +4515,62 @@ def setup_default_role_scopes():
         logging.info("Set up default role scope mappings")
 
 
+def migrate_tiered_prompts_chains_tables():
+    """
+    Migration function to create the tiered prompts and chains tables.
+    These tables implement a hierarchical configuration system:
+    Server → Company → User (each level can override the previous).
+
+    Tables created:
+    - server_prompt_category, server_prompt, server_prompt_argument
+    - server_chain, server_chain_step, server_chain_step_argument
+    - company_prompt_category, company_prompt, company_prompt_argument
+    - company_chain, company_chain_step, company_chain_step_argument
+    - user_prompt_override, user_chain_override (for tracking customizations)
+    """
+    if engine is None:
+        return
+
+    tables_to_create = [
+        ServerPromptCategory,
+        ServerPrompt,
+        ServerPromptArgument,
+        ServerChain,
+        ServerChainStep,
+        ServerChainStepArgument,
+        CompanyPromptCategory,
+        CompanyPrompt,
+        CompanyPromptArgument,
+        CompanyChain,
+        CompanyChainStep,
+        CompanyChainStepArgument,
+        UserPromptOverride,
+        UserChainOverride,
+    ]
+
+    try:
+        inspector = inspect(engine)
+        existing_tables = inspector.get_table_names()
+
+        for table_class in tables_to_create:
+            table_name = table_class.__tablename__
+            if table_name not in existing_tables:
+                try:
+                    table_class.__table__.create(engine)
+                    logging.info(f"Created table: {table_name}")
+                except Exception as table_error:
+                    logging.warning(
+                        f"Could not create table {table_name}: {table_error}"
+                    )
+            else:
+                logging.debug(f"Table {table_name} already exists")
+
+        logging.info("Tiered prompts and chains tables migration complete")
+
+    except Exception as e:
+        logging.error(f"Error migrating tiered prompts and chains tables: {e}")
+
+
 # Server configuration definitions
 # These define all configurable settings and their metadata
 SERVER_CONFIG_DEFINITIONS = [
@@ -5259,6 +5792,185 @@ def seed_server_config_from_env():
         logging.debug(f"Could not load server config cache: {e}")
 
 
+def seed_server_prompts():
+    """
+    Seed server-level prompts from the prompts folder.
+    These prompts serve as the global defaults that can be inherited by companies and users.
+    Server prompts are the base level in the tiered hierarchy:
+    Server → Company → User
+
+    This function should be called during startup after the tiered tables are created.
+    """
+    prompts_dir = os.path.join(os.path.dirname(__file__), "prompts")
+    if not os.path.exists(prompts_dir):
+        logging.warning(
+            f"Prompts directory not found at {prompts_dir}, skipping server prompt seeding"
+        )
+        return
+
+    seeded_count = 0
+    updated_count = 0
+
+    with get_session() as db:
+        # Ensure default server category exists
+        default_category = (
+            db.query(ServerPromptCategory).filter_by(name="Default").first()
+        )
+        if not default_category:
+            default_category = ServerPromptCategory(
+                name="Default", description="Default category for server prompts"
+            )
+            db.add(default_category)
+            db.commit()
+
+        for root, dirs, files in os.walk(prompts_dir):
+            for file in files:
+                if not file.endswith((".txt", ".md", ".prompt")):
+                    continue
+
+                # Determine category from folder structure
+                if root != prompts_dir:
+                    category_name = os.path.basename(root)
+                    category = (
+                        db.query(ServerPromptCategory)
+                        .filter_by(name=category_name)
+                        .first()
+                    )
+                    if not category:
+                        category = ServerPromptCategory(
+                            name=category_name, description=f"{category_name} category"
+                        )
+                        db.add(category)
+                        db.commit()
+                else:
+                    category = default_category
+
+                prompt_name = os.path.splitext(file)[0]
+                file_path = os.path.join(root, file)
+
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        prompt_content = f.read()
+                except Exception as e:
+                    logging.warning(f"Could not read prompt file {file_path}: {e}")
+                    continue
+
+                # Check if server prompt already exists
+                existing_prompt = (
+                    db.query(ServerPrompt)
+                    .filter_by(name=prompt_name, category_id=category.id)
+                    .first()
+                )
+
+                if existing_prompt:
+                    # Update content if changed
+                    if existing_prompt.content != prompt_content:
+                        existing_prompt.content = prompt_content
+                        updated_count += 1
+                else:
+                    # Create new server prompt
+                    server_prompt = ServerPrompt(
+                        name=prompt_name,
+                        description=f"Server-level prompt: {prompt_name}",
+                        content=prompt_content,
+                        category_id=category.id,
+                    )
+                    db.add(server_prompt)
+                    db.commit()
+
+                    # Extract and add prompt arguments
+                    prompt_args = []
+                    for word in prompt_content.split():
+                        if word.startswith("{") and word.endswith("}"):
+                            arg_name = word[1:-1]
+                            if arg_name not in prompt_args:
+                                prompt_args.append(arg_name)
+
+                    for arg_name in prompt_args:
+                        existing_arg = (
+                            db.query(ServerPromptArgument)
+                            .filter_by(prompt_id=server_prompt.id, name=arg_name)
+                            .first()
+                        )
+                        if not existing_arg:
+                            argument = ServerPromptArgument(
+                                prompt_id=server_prompt.id, name=arg_name
+                            )
+                            db.add(argument)
+
+                    seeded_count += 1
+
+            db.commit()
+
+    if seeded_count > 0 or updated_count > 0:
+        logging.info(f"Server prompts: {seeded_count} seeded, {updated_count} updated")
+
+
+def seed_server_chains():
+    """
+    Seed server-level chains from the chains folder.
+    These chains serve as the global defaults that can be inherited by companies and users.
+    Server chains are the base level in the tiered hierarchy:
+    Server → Company → User
+
+    This function should be called during startup after the tiered tables are created.
+    """
+    chains_dir = os.path.join(os.path.dirname(__file__), "chains")
+    if not os.path.exists(chains_dir):
+        logging.debug("Chains directory not found, skipping server chain seeding")
+        return
+
+    seeded_count = 0
+
+    with get_session() as db:
+        for file in os.listdir(chains_dir):
+            if not file.endswith(".json"):
+                continue
+
+            chain_name = os.path.splitext(file)[0]
+            file_path = os.path.join(chains_dir, file)
+
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    chain_data = json.load(f)
+            except Exception as e:
+                logging.warning(f"Could not read chain file {file_path}: {e}")
+                continue
+
+            # Check if server chain already exists
+            existing_chain = db.query(ServerChain).filter_by(name=chain_name).first()
+            if existing_chain:
+                continue
+
+            # Create new server chain
+            server_chain = ServerChain(
+                name=chain_name,
+                description=chain_data.get(
+                    "description", f"Server-level chain: {chain_name}"
+                ),
+            )
+            db.add(server_chain)
+            db.commit()
+
+            # Add chain steps
+            steps = chain_data.get("steps", [])
+            for step_data in steps:
+                step = ServerChainStep(
+                    chain_id=server_chain.id,
+                    step_number=step_data.get("step", 1),
+                    agent_name=step_data.get("agent_name", ""),
+                    prompt_type=step_data.get("prompt_type", ""),
+                    prompt=step_data.get("prompt", {}),
+                )
+                db.add(step)
+
+            seeded_count += 1
+            db.commit()
+
+    if seeded_count > 0:
+        logging.info(f"Server chains: {seeded_count} seeded")
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -5282,6 +5994,7 @@ if __name__ == "__main__":
     migrate_user_table()
     migrate_discarded_context_table()
     migrate_cleanup_duplicate_wallet_settings()
+    migrate_tiered_prompts_chains_tables()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
     migrate_role_table()
@@ -5289,6 +6002,9 @@ if __name__ == "__main__":
     setup_default_scopes()
     setup_default_role_scopes()
     seed_server_config_from_env()
+    # Seed server-level prompts and chains from files
+    seed_server_prompts()
+    seed_server_chains()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:
         # Import seed data
