@@ -129,7 +129,42 @@ def send_email(email: str, subject: str, body: str):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
-    return True
+    """
+    Check if a user has admin-level access (role_id <= 2: super_admin, tenant_admin, or company_admin).
+
+    Args:
+        email: The user's email address
+        api_key: The API key/JWT token from the request
+
+    Returns:
+        bool: True if user has admin access, False otherwise
+    """
+    from Globals import getenv
+
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    if api_key is None:
+        api_key = ""
+    api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
+
+    # Check if using the master API key
+    if AGIXT_API_KEY and api_key == AGIXT_API_KEY:
+        return True
+
+    # Check if user has admin flag set (legacy super admin)
+    if is_agixt_admin(email=email, api_key=api_key):
+        return True
+
+    # Check if user has admin role (role_id <= 2) via JWT token
+    try:
+        auth = MagicalAuth(token=api_key)
+        if auth.user_id:
+            role_id = auth.get_user_role()
+            if role_id is not None and role_id <= 2:
+                return True
+    except Exception:
+        pass
+
+    return False
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):

@@ -86,18 +86,10 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
-    return True
-    # Commenting out functionality until testing is complete.
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    if api_key is None:
-        api_key = ""
-    api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
-    if AGIXT_API_KEY == api_key:
-        return True
+    """
+    Check if a user has admin-level access.
+    Delegates to MagicalAuth.is_admin() for proper role-based checking.
+    """
+    from MagicalAuth import is_admin as magical_is_admin
 
-    if email == "" or email is None or email == "None":
-        email = getenv("DEFAULT_USER")
-        if email == "" or email is None or email == "None":
-            email = "USER"
-    return is_agixt_admin(email=email, api_key=api_key)
-    return False
+    return magical_is_admin(email=email, api_key=api_key)

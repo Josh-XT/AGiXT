@@ -322,6 +322,8 @@ async def create_invitations(
     try:
         auth = MagicalAuth(token=authorization)
         return auth.create_invitation(invitation)
+    except HTTPException:
+        raise  # Re-raise HTTPExceptions with their original status code
     except Exception as e:
         logging.error(f"Error in create_invitation endpoint: {str(e)}")
         raise HTTPException(
