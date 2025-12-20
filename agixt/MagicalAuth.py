@@ -1866,8 +1866,36 @@ class MagicalAuth:
         return "User updated successfully."
 
     def delete_company(self, company_id):
+        """
+        Delete a company and remove all associated user relationships.
+
+        Authorization:
+        - Super admins can delete any company
+        - Company admins (role_id <= 2) can only delete companies they have access to
+        """
+        self.validate_user()
+
+        # Check if user is authorized to delete this company
+        if not self.is_super_admin():
+            # For non-super-admins, verify they have access to this company with admin role
+            if str(company_id) not in self.get_user_companies():
+                raise HTTPException(
+                    status_code=403,
+                    detail="Unauthorized. You do not have access to this company.",
+                )
+            user_role = self.get_user_role(company_id)
+            if user_role is None or user_role > 2:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Unauthorized. Insufficient permissions to delete this company.",
+                )
+
         session = get_session()
         company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            session.close()
+            raise HTTPException(status_code=404, detail="Company not found")
+
         # Get users in the company and remove them from the company
         user_companies = (
             session.query(UserCompany)
