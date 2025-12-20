@@ -1731,7 +1731,7 @@ default_roles = [
     {"id": 0, "name": "super_admin", "friendly_name": "Super Admin"},
     {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
     {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
-    {"id": 3, "name": "user", "friendly_name": "User"},
+    {"id": 3, "name": "user", "friendly_name": "Power User"},
     {"id": 4, "name": "child", "friendly_name": "Child"},
     {"id": 5, "name": "chat_user", "friendly_name": "Chat User"},
 ]
@@ -2599,7 +2599,8 @@ default_role_scopes = {
         "ui:settings",
         "ui:full_chat",
         "ext:*:read",
-        "ext:*:execute",  # Can read and execute all extensions, but not configure
+        "ext:*:write",
+        "ext:*:execute",  # Can read, write, and execute all extensions, but not configure
     ],
     4: [  # child: restricted voice-only access
         "agents:execute",
