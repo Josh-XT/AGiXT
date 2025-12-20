@@ -142,7 +142,7 @@ ADMIN_ONLY_TESTS = {
     "update_agent_settings",
     "update_agent_commands",
     "toggle_command",
-    "get_agent_config",  # Agent.py has is_admin check
+    # Note: get_agent_config is allowed for users with agents:read scope
     # Chain management - write operations only (user has chains:read, chains:execute)
     "create_chain",  # Requires chains:write
     "delete_chain",  # Requires chains:write/delete
@@ -1029,9 +1029,9 @@ def run_all_role_tests():
         (
             test_get_agent_config,
             "get_agent_config",
-            True,
-            True,
-        ),  # Agent.py has is_admin check
+            False,
+            False,
+        ),  # Allowed for users with agents:read scope
         (test_rename_agent, "rename_agent", True, True),  # Requires agents:write
         (
             test_update_agent_settings,

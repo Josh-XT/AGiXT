@@ -12,7 +12,13 @@ import json
 from datetime import datetime
 import uuid
 
-from MagicalAuth import MagicalAuth, verify_api_key, convert_time, is_admin
+from MagicalAuth import (
+    MagicalAuth,
+    verify_api_key,
+    convert_time,
+    is_admin,
+    require_scope,
+)
 from fastapi import Header
 from Models import (
     WebhookIncomingCreate,
@@ -111,6 +117,7 @@ async def process_webhook(
     response_model=WebhookIncomingResponse,
     tags=["Webhooks"],
     summary="Create incoming webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def create_incoming_webhook(
     webhook_data: WebhookIncomingCreate,
@@ -128,11 +135,6 @@ async def create_incoming_webhook(
         user_id = user_data.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
 
         # Get user to verify existence
         session = get_session()
@@ -206,6 +208,7 @@ async def create_incoming_webhook(
     response_model=List[WebhookIncomingResponse],
     tags=["Webhooks"],
     summary="List incoming webhooks",
+    dependencies=[Depends(require_scope("webhooks:read"))],
 )
 async def list_incoming_webhooks(
     user_data: dict = Depends(verify_api_key),
@@ -221,11 +224,6 @@ async def list_incoming_webhooks(
         user_id = user_data.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
 
         session = get_session()
 
@@ -283,6 +281,7 @@ async def list_incoming_webhooks(
     response_model=WebhookIncomingResponse,
     tags=["Webhooks"],
     summary="Update incoming webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def update_incoming_webhook(
     webhook_id: str,
@@ -298,11 +297,6 @@ async def update_incoming_webhook(
         user_id = user_data.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
 
         session = get_session()
 
@@ -363,6 +357,7 @@ async def update_incoming_webhook(
     response_model=Detail,
     tags=["Webhooks"],
     summary="Delete incoming webhook",
+    dependencies=[Depends(require_scope("webhooks:delete"))],
 )
 async def delete_incoming_webhook(
     webhook_id: str,
@@ -377,11 +372,6 @@ async def delete_incoming_webhook(
         user_id = user_data.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
 
         session = get_session()
 
@@ -414,6 +404,7 @@ async def delete_incoming_webhook(
     response_model=WebhookOutgoingResponse,
     tags=["Webhooks"],
     summary="Create outgoing webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def create_outgoing_webhook(
     webhook_data: WebhookOutgoingCreate,
@@ -429,14 +420,6 @@ async def create_outgoing_webhook(
         # Extract user ID from the user data dictionary
         user_id = user_data.get("id")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
-
-            # Get user's company ID through UserCompany relationship
             raise HTTPException(status_code=401, detail="Invalid user data")
 
         # Get user's company ID through UserCompany relationship
@@ -528,6 +511,7 @@ async def create_outgoing_webhook(
     response_model=List[WebhookOutgoingResponse],
     tags=["Webhooks"],
     summary="List outgoing webhooks",
+    dependencies=[Depends(require_scope("webhooks:read"))],
 )
 async def list_outgoing_webhooks(
     user_data: dict = Depends(verify_api_key),
@@ -543,11 +527,6 @@ async def list_outgoing_webhooks(
         user_id = user_data.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
 
         session = get_session()
 
@@ -610,6 +589,7 @@ async def list_outgoing_webhooks(
     response_model=WebhookOutgoingResponse,
     tags=["Webhooks"],
     summary="Update outgoing webhook",
+    dependencies=[Depends(require_scope("webhooks:write"))],
 )
 async def update_outgoing_webhook(
     webhook_id: str,
@@ -626,11 +606,6 @@ async def update_outgoing_webhook(
         user_id = user_data.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
 
         session = get_session()
 
@@ -757,6 +732,7 @@ async def update_outgoing_webhook(
     response_model=Detail,
     tags=["Webhooks"],
     summary="Delete outgoing webhook",
+    dependencies=[Depends(require_scope("webhooks:delete"))],
 )
 async def delete_outgoing_webhook(
     webhook_id: str,
@@ -771,11 +747,6 @@ async def delete_outgoing_webhook(
         user_id = user_data.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user data")
-
-        # Check admin permissions - webhooks require admin access
-        user_email = user_data.get("email")
-        if is_admin(email=user_email, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
 
         session = get_session()
 

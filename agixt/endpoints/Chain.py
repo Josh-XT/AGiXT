@@ -68,7 +68,7 @@ async def get_chains_v1(
 @app.post(
     "/v1/chain",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:write"))],
     response_model=ChainResponse,
     summary="Create new chain",
     description="Creates a new empty chain with the specified name.",
@@ -80,8 +80,6 @@ async def add_chain_v1(
 ) -> ChainResponse:
     if chain_name.chain_name == "":
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     chain_id = Chain(user=user).add_chain(
         chain_name=chain_name.chain_name, description=chain_name.description
     )
@@ -93,7 +91,7 @@ async def add_chain_v1(
 @app.post(
     "/v1/chain/import",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:write"))],
     response_model=ResponseMessage,
     summary="Import chain",
     description="Imports a chain configuration including all steps and settings.",
@@ -103,8 +101,6 @@ async def import_chain_v1(
 ) -> ResponseMessage:
     if chain.chain_name == "":
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     response = Chain(user=user).import_chain(
         chain_name=chain.chain_name, steps=chain.steps
     )
@@ -140,7 +136,7 @@ async def get_chain_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
 @app.delete(
     "/v1/chain/{chain_id}",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:delete"))],
     response_model=ResponseMessage,
     summary="Delete chain by ID",
     description="Deletes a specific chain using chain ID. Requires admin privileges.",
@@ -150,8 +146,6 @@ async def delete_chain_by_id_v1(
 ) -> ResponseMessage:
     if chain_id == "":
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         chain_data = Chain(user=user).get_chain_by_id(chain_id=chain_id)
         if chain_data is None:
@@ -165,7 +159,7 @@ async def delete_chain_by_id_v1(
 @app.put(
     "/v1/chain/{chain_id}",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:write"))],
     response_model=ResponseMessage,
     summary="Update chain by ID",
     description="Updates a chain's name and description using chain ID. Requires admin privileges.",
@@ -178,8 +172,6 @@ async def update_chain_by_id_v1(
 ) -> ResponseMessage:
     if chain_id == "":
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Chain(user=user).update_chain_by_id(
             chain_id=chain_id,
@@ -210,7 +202,7 @@ async def get_chain_args_by_id_v1(chain_id: str, user=Depends(verify_api_key)):
 @app.post(
     "/v1/chain/{chain_id}/step",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:write"))],
     response_model=ResponseMessage,
     summary="Add chain step by ID",
     description="Adds a new step to an existing chain using chain ID and agent ID.",
@@ -225,8 +217,6 @@ async def add_step_by_id_v1(
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
     if step_info.agent_id == "":
         raise HTTPException(status_code=400, detail="Agent ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
 
     try:
         # Get the chain name from chain ID
@@ -261,7 +251,7 @@ async def add_step_by_id_v1(
 @app.put(
     "/v1/chain/{chain_id}/step/{step_number}",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:write"))],
     response_model=ResponseMessage,
     summary="Update chain step by ID",
     description="Updates the configuration of an existing step in the chain using chain ID and agent ID.",
@@ -277,8 +267,6 @@ async def update_step_by_id_v1(
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
     if chain_step.agent_id == "":
         raise HTTPException(status_code=400, detail="Agent ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
 
     try:
         # Get the chain name from chain ID
@@ -313,7 +301,7 @@ async def update_step_by_id_v1(
 @app.delete(
     "/v1/chain/{chain_id}/step/{step_number}",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:delete"))],
     response_model=ResponseMessage,
     summary="Delete chain step by ID",
     description="Removes a specific step from the chain using chain ID.",
@@ -326,8 +314,6 @@ async def delete_step_by_id_v1(
 ) -> ResponseMessage:
     if chain_id == "":
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
 
     try:
         # Get the chain name from chain ID
@@ -348,7 +334,7 @@ async def delete_step_by_id_v1(
 @app.patch(
     "/v1/chain/{chain_id}/step/move",
     tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("chains:write"))],
     response_model=ResponseMessage,
     summary="Move chain step by ID",
     description="Changes the position of a step within the chain using chain ID.",
@@ -361,8 +347,6 @@ async def move_step_by_id_v1(
 ) -> ResponseMessage:
     if chain_id == "":
         raise HTTPException(status_code=400, detail="Chain ID cannot be empty.")
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
 
     try:
         # Get the chain name from chain ID
