@@ -43,6 +43,7 @@ async def initialize_database(is_restart=False):
         # Setup default data
         DB.setup_default_extension_categories()
         DB.migrate_extensions_to_new_categories()
+        DB.migrate_role_table()
         DB.setup_default_roles()
         DB.setup_default_scopes()
         DB.setup_default_role_scopes()
