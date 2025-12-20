@@ -33,6 +33,9 @@ async def initialize_database(is_restart=False):
         DB.migrate_user_table()
         DB.migrate_discarded_context_table()
         DB.migrate_cleanup_duplicate_wallet_settings()
+        DB.migrate_extension_settings_tables()
+        DB.migrate_server_config_categories()
+        DB.migrate_company_storage_settings_table()
 
         # Initialize extension tables
         DB.initialize_extension_tables()
@@ -41,6 +44,9 @@ async def initialize_database(is_restart=False):
         DB.setup_default_extension_categories()
         DB.migrate_extensions_to_new_categories()
         DB.setup_default_roles()
+        DB.setup_default_scopes()
+        DB.setup_default_role_scopes()
+        DB.seed_server_config_from_env()
 
         # Handle seed data - only on initial boot, not on restarts
         if not is_restart:

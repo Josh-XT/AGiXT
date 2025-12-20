@@ -1068,6 +1068,95 @@ class SharedConversationResponse(BaseModel):
     include_workspace: bool
 
 
+# Scope and Custom Role Models
+class ScopeResponse(BaseModel):
+    """Response model for a scope"""
+
+    id: str
+    name: str
+    resource: str
+    action: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    is_system: bool = True
+
+
+class ScopeListResponse(BaseModel):
+    """Response model for list of scopes"""
+
+    scopes: List[ScopeResponse]
+    categories: List[str]
+
+
+class CustomRoleCreate(BaseModel):
+    """Request model for creating a custom role"""
+
+    name: str
+    friendly_name: str
+    description: Optional[str] = None
+    priority: Optional[int] = 100
+    scope_ids: List[str] = []
+
+
+class CustomRoleUpdate(BaseModel):
+    """Request model for updating a custom role"""
+
+    friendly_name: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[int] = None
+    scope_ids: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class CustomRoleResponse(BaseModel):
+    """Response model for a custom role"""
+
+    id: str
+    company_id: str
+    name: str
+    friendly_name: str
+    description: Optional[str] = None
+    priority: int = 100
+    is_active: bool = True
+    scopes: List[ScopeResponse] = []
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class CustomRoleListResponse(BaseModel):
+    """Response model for list of custom roles"""
+
+    roles: List[CustomRoleResponse]
+
+
+class UserCustomRoleAssign(BaseModel):
+    """Request model for assigning a custom role to a user"""
+
+    user_id: str
+    custom_role_id: str
+
+
+class UserCustomRoleResponse(BaseModel):
+    """Response model for user custom role assignment"""
+
+    id: str
+    user_id: str
+    company_id: str
+    custom_role: CustomRoleResponse
+    assigned_at: datetime
+
+
+class UserScopesResponse(BaseModel):
+    """Response model for user's scopes"""
+
+    user_id: str
+    company_id: str
+    role_id: int
+    role_name: str
+    scopes: List[str]
+    custom_roles: List[CustomRoleResponse] = []
+
+
 try:  # Ensure forward references for workspace item tree
     WorkspaceItemModel.model_rebuild()
 except AttributeError:  # pragma: no cover - Pydantic v1 fallback

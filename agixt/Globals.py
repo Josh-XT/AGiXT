@@ -11,6 +11,81 @@ load_dotenv()
 _manager = Manager()
 MACHINE_ACTIVE_TERMINALS = _manager.dict()
 
+# Server config cache to avoid repeated database queries
+_server_config_cache = {}
+_server_config_cache_loaded = False
+
+# Settings that should NEVER be loaded from database (infrastructure settings)
+# These must be set via environment variables as they're needed before DB is available
+_ENV_ONLY_SETTINGS = {
+    "DATABASE_TYPE",
+    "DATABASE_NAME",
+    "DATABASE_USER",
+    "DATABASE_PASSWORD",
+    "DATABASE_HOST",
+    "DATABASE_PORT",
+    "DATABASE_SSL",
+    "UVICORN_WORKERS",
+    "WORKING_DIRECTORY",
+    "LOG_LEVEL",
+    "LOG_FORMAT",
+    "AGIXT_HEALTH_URL",
+    "HEALTH_CHECK_INTERVAL",
+    "HEALTH_CHECK_TIMEOUT",
+    "HEALTH_CHECK_MAX_FAILURES",
+    "RESTART_COOLDOWN",
+    "INITIAL_STARTUP_DELAY",
+    "SEED_DATA",
+    "AGIXT_API_KEY",
+    "DEFAULT_USER",
+    "USING_JWT",
+    "ALLOWED_DOMAINS",
+    "CHROMA_PORT",
+    "CHROMA_SSL",
+    "CREATE_AGENT_ON_REGISTER",
+    "CREATE_AGIXT_AGENT",
+    "DISABLED_EXTENSIONS",
+    "DISABLED_PROVIDERS",
+}
+
+
+def load_server_config_cache():
+    """
+    Load all server config values from the database into cache.
+    This is called once during startup after the database is initialized.
+    """
+    global _server_config_cache, _server_config_cache_loaded
+
+    if _server_config_cache_loaded:
+        return
+
+    try:
+        # Import here to avoid circular imports
+        from DB import ServerConfig, get_session, decrypt_config_value
+
+        with get_session() as db:
+            configs = db.query(ServerConfig).all()
+            for config in configs:
+                if config.value:
+                    if config.is_sensitive:
+                        _server_config_cache[config.name] = decrypt_config_value(
+                            config.value
+                        )
+                    else:
+                        _server_config_cache[config.name] = config.value
+
+        _server_config_cache_loaded = True
+    except Exception:
+        # Database not initialized yet or other error - this is expected during startup
+        pass
+
+
+def invalidate_server_config_cache():
+    """Invalidate the server config cache to force a reload."""
+    global _server_config_cache, _server_config_cache_loaded
+    _server_config_cache = {}
+    _server_config_cache_loaded = False
+
 
 def getenv(var_name: str, default_value: str = "") -> str:
     default_values = {
@@ -92,7 +167,24 @@ def getenv(var_name: str, default_value: str = "") -> str:
     if default_value != "":
         default_values[var_name] = default_value
     default_value = default_values[var_name] if var_name in default_values else ""
-    return os.getenv(var_name, default_value)
+
+    # For infrastructure settings, always use environment variables only
+    if var_name in _ENV_ONLY_SETTINGS:
+        return os.getenv(var_name, default_value)
+
+    # First check environment variable (highest priority - allows overrides)
+    env_value = os.getenv(var_name)
+    if env_value is not None and env_value != "":
+        return env_value
+
+    # Then check server config cache (database values)
+    if _server_config_cache_loaded and var_name in _server_config_cache:
+        cached_value = _server_config_cache.get(var_name)
+        if cached_value is not None and cached_value != "":
+            return cached_value
+
+    # Fall back to default value
+    return default_value
 
 
 def get_tokens(text: str) -> int:
