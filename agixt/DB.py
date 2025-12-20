@@ -17,6 +17,7 @@ from sqlalchemy import (
     func,
     text,
     UniqueConstraint,
+    inspect,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
@@ -728,6 +729,56 @@ class CompanyExtensionSetting(Base):
             name="uix_company_ext_setting",
         ),
     )
+
+
+class CompanyStorageSetting(Base):
+    """
+    Company-level storage settings that override server defaults.
+    Allows companies to use their own cloud storage (S3, Azure, B2) for agent workspaces.
+
+    If not configured, the company uses server default storage with retention policy.
+    Child companies inherit parent company storage settings unless they define their own.
+
+    Sensitive values (credentials) are encrypted at rest.
+    """
+
+    __tablename__ = "company_storage_setting"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Company this setting belongs to
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+        unique=True,  # One storage config per company
+        index=True,
+    )
+    company = relationship("Company")
+    # Storage backend: s3, azure, b2 (no 'local' option for companies - they use server storage)
+    storage_backend = Column(
+        String, nullable=False, default="server"
+    )  # 'server', 's3', 'azure', 'b2'
+    # Container/bucket name
+    storage_container = Column(String, nullable=True)
+    # AWS S3 / MinIO settings (encrypted)
+    aws_access_key_id = Column(Text, nullable=True)
+    aws_secret_access_key = Column(Text, nullable=True)
+    aws_region = Column(String, nullable=True)
+    s3_endpoint = Column(String, nullable=True)
+    s3_bucket = Column(String, nullable=True)
+    # Azure Blob settings (encrypted)
+    azure_storage_account_name = Column(String, nullable=True)
+    azure_storage_key = Column(Text, nullable=True)
+    # Backblaze B2 settings (encrypted)
+    b2_key_id = Column(Text, nullable=True)
+    b2_application_key = Column(Text, nullable=True)
+    b2_region = Column(String, nullable=True)
+    # Metadata
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class FailedLogins(Base):
@@ -3599,6 +3650,65 @@ def migrate_server_config_categories():
         logging.error(f"Error migrating server config categories: {e}")
 
 
+def migrate_company_storage_settings_table():
+    """
+    Migration function to create the company_storage_setting table.
+    This allows companies to configure their own cloud storage for agent workspaces.
+    """
+    if engine is None:
+        return
+
+    try:
+        inspector = inspect(engine)
+
+        # Check if table exists
+        if "company_storage_setting" not in inspector.get_table_names():
+            CompanyStorageSetting.__table__.create(engine)
+            logging.info("Created company_storage_setting table")
+        else:
+            # Table exists, check for missing columns
+            existing_columns = {
+                col["name"] for col in inspector.get_columns("company_storage_setting")
+            }
+            expected_columns = {
+                "id",
+                "company_id",
+                "storage_backend",
+                "storage_container",
+                "aws_access_key_id",
+                "aws_secret_access_key",
+                "aws_region",
+                "s3_endpoint",
+                "s3_bucket",
+                "azure_storage_account_name",
+                "azure_storage_key",
+                "b2_key_id",
+                "b2_application_key",
+                "b2_region",
+                "created_at",
+                "updated_at",
+            }
+            missing_columns = expected_columns - existing_columns
+
+            if missing_columns:
+                with engine.begin() as connection:
+                    for col_name in missing_columns:
+                        col = getattr(CompanyStorageSetting, col_name, None)
+                        if col is not None:
+                            col_type = col.type.compile(engine.dialect)
+                            default = "NULL"
+                            connection.execute(
+                                text(
+                                    f"ALTER TABLE company_storage_setting ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                                )
+                            )
+                            logging.info(
+                                f"Added column {col_name} to company_storage_setting table"
+                            )
+    except Exception as e:
+        logging.error(f"Error migrating company_storage_setting table: {e}")
+
+
 def setup_default_roles():
     with get_session() as db:
         for role in default_roles:
@@ -4412,6 +4522,15 @@ SERVER_CONFIG_DEFINITIONS = [
     # ========================================
     # Storage - General
     # ========================================
+    {
+        "name": "WORKSPACE_RETENTION_DAYS",
+        "category": "storage",
+        "description": "Number of days to retain inactive workspaces before cleanup (0 = never delete)",
+        "value_type": "integer",
+        "default_value": "5",
+        "is_sensitive": False,
+        "is_required": False,
+    },
     {
         "name": "STORAGE_BACKEND",
         "category": "storage",

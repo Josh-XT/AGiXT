@@ -20,6 +20,8 @@ from DB import (
     get_server_config,
     ServerExtensionCommand,
     CompanyExtensionCommand,
+    CompanyStorageSetting,
+    Company,
 )
 from Globals import invalidate_server_config_cache, load_server_config_cache, getenv
 import logging
@@ -1291,3 +1293,381 @@ async def update_server_oauth_providers(
         "updated": updated,
         "errors": errors,
     }
+
+
+# ========================================
+# Company Storage Settings Endpoints
+# ========================================
+
+
+class CompanyStorageSettingResponse(BaseModel):
+    """Response for company storage settings."""
+
+    storage_backend: str = "server"  # 'server', 's3', 'azure', 'b2'
+    storage_container: Optional[str] = None
+    # AWS S3 / MinIO - masked
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_region: Optional[str] = None
+    s3_endpoint: Optional[str] = None
+    s3_bucket: Optional[str] = None
+    # Azure Blob - masked
+    azure_storage_account_name: Optional[str] = None
+    azure_storage_key: Optional[str] = None
+    # Backblaze B2 - masked
+    b2_key_id: Optional[str] = None
+    b2_application_key: Optional[str] = None
+    b2_region: Optional[str] = None
+    # Server default info (for display)
+    server_retention_days: int = 5
+    app_name: str = "AGiXT"
+
+
+class CompanyStorageSettingUpdate(BaseModel):
+    """Request to update company storage settings."""
+
+    storage_backend: str = Field(
+        ..., description="Storage backend: 'server', 's3', 'azure', 'b2'"
+    )
+    storage_container: Optional[str] = None
+    # AWS S3 / MinIO
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_region: Optional[str] = None
+    s3_endpoint: Optional[str] = None
+    s3_bucket: Optional[str] = None
+    # Azure Blob
+    azure_storage_account_name: Optional[str] = None
+    azure_storage_key: Optional[str] = None
+    # Backblaze B2
+    b2_key_id: Optional[str] = None
+    b2_application_key: Optional[str] = None
+    b2_region: Optional[str] = None
+
+
+def verify_company_admin(authorization: str, company_id: str) -> MagicalAuth:
+    """Verify that the user is an admin of the specified company."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Super admins can access any company
+    if auth.is_super_admin():
+        return auth
+
+    # Check if user is admin of the company
+    user_role = auth.get_user_role(company_id)
+    if user_role not in ["admin", "Admin"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Company admin role required.",
+        )
+    return auth
+
+
+def get_effective_company_for_storage(db, company_id: str) -> Optional[str]:
+    """
+    Get the company ID that provides storage settings.
+    Checks up the parent chain until we find a company with custom storage settings.
+    Returns None if server default should be used.
+    """
+    visited = set()
+    current_company_id = company_id
+
+    while current_company_id and current_company_id not in visited:
+        visited.add(current_company_id)
+
+        # Check if this company has storage settings
+        storage_setting = (
+            db.query(CompanyStorageSetting)
+            .filter(CompanyStorageSetting.company_id == current_company_id)
+            .first()
+        )
+
+        if storage_setting and storage_setting.storage_backend != "server":
+            return current_company_id
+
+        # Get parent company
+        company = db.query(Company).filter(Company.id == current_company_id).first()
+        if not company or not company.company_id:
+            break
+        current_company_id = str(company.company_id)
+
+    return None  # Use server default
+
+
+@app.get(
+    "/v1/company/{company_id}/storage",
+    tags=["Company Storage"],
+    response_model=CompanyStorageSettingResponse,
+    summary="Get company storage settings",
+    description="Get the storage settings for a company. Company admins can view their own company's settings.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_storage_settings(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Get storage settings for a company.
+    Returns the current configuration or indicates if using server defaults.
+    """
+    verify_company_admin(authorization, company_id)
+
+    app_name = getenv("APP_NAME", "AGiXT")
+    retention_days = int(getenv("WORKSPACE_RETENTION_DAYS", "5"))
+
+    with get_session() as db:
+        setting = (
+            db.query(CompanyStorageSetting)
+            .filter(CompanyStorageSetting.company_id == company_id)
+            .first()
+        )
+
+        if not setting:
+            return CompanyStorageSettingResponse(
+                storage_backend="server",
+                server_retention_days=retention_days,
+                app_name=app_name,
+            )
+
+        # Mask sensitive values
+        def mask_value(val: Optional[str]) -> Optional[str]:
+            if not val:
+                return None
+            decrypted = decrypt_config_value(val)
+            if not decrypted:
+                return None
+            if len(decrypted) <= 8:
+                return "••••••••"
+            return f"{decrypted[:4]}{'•' * (len(decrypted) - 8)}{decrypted[-4:]}"
+
+        return CompanyStorageSettingResponse(
+            storage_backend=setting.storage_backend,
+            storage_container=setting.storage_container,
+            aws_access_key_id=mask_value(setting.aws_access_key_id),
+            aws_secret_access_key=mask_value(setting.aws_secret_access_key),
+            aws_region=setting.aws_region,
+            s3_endpoint=setting.s3_endpoint,
+            s3_bucket=setting.s3_bucket,
+            azure_storage_account_name=setting.azure_storage_account_name,
+            azure_storage_key=mask_value(setting.azure_storage_key),
+            b2_key_id=mask_value(setting.b2_key_id),
+            b2_application_key=mask_value(setting.b2_application_key),
+            b2_region=setting.b2_region,
+            server_retention_days=retention_days,
+            app_name=app_name,
+        )
+
+
+@app.put(
+    "/v1/company/{company_id}/storage",
+    tags=["Company Storage"],
+    summary="Update company storage settings",
+    description="Update storage settings for a company. Company admins can configure their own storage.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_company_storage_settings(
+    company_id: str,
+    settings: CompanyStorageSettingUpdate,
+    authorization: str = Header(None),
+):
+    """
+    Update storage settings for a company.
+    Setting storage_backend to 'server' removes custom settings and uses server defaults.
+    """
+    verify_company_admin(authorization, company_id)
+
+    # Validate storage backend
+    valid_backends = ["server", "s3", "azure", "b2"]
+    if settings.storage_backend not in valid_backends:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid storage backend. Must be one of: {', '.join(valid_backends)}",
+        )
+
+    with get_session() as db:
+        # Verify company exists
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        existing = (
+            db.query(CompanyStorageSetting)
+            .filter(CompanyStorageSetting.company_id == company_id)
+            .first()
+        )
+
+        # If setting to server default, remove the custom setting
+        if settings.storage_backend == "server":
+            if existing:
+                db.delete(existing)
+                db.commit()
+            return {
+                "status": "success",
+                "message": "Company will use server default storage",
+            }
+
+        # Validate required fields based on backend
+        if settings.storage_backend == "s3":
+            if not settings.aws_access_key_id or not settings.aws_secret_access_key:
+                # Check if existing values should be preserved (masked values)
+                if existing:
+                    has_key = existing.aws_access_key_id and not (
+                        settings.aws_access_key_id
+                        and "•" not in settings.aws_access_key_id
+                    )
+                    has_secret = existing.aws_secret_access_key and not (
+                        settings.aws_secret_access_key
+                        and "•" not in settings.aws_secret_access_key
+                    )
+                    if not has_key or not has_secret:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="AWS Access Key ID and Secret Access Key are required for S3",
+                        )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="AWS Access Key ID and Secret Access Key are required for S3",
+                    )
+
+        elif settings.storage_backend == "azure":
+            if not settings.azure_storage_account_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Azure Storage Account Name is required for Azure Blob",
+                )
+            if not settings.azure_storage_key:
+                if not existing or not existing.azure_storage_key:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Azure Storage Key is required for Azure Blob",
+                    )
+
+        elif settings.storage_backend == "b2":
+            if not settings.b2_key_id or not settings.b2_application_key:
+                if (
+                    not existing
+                    or not existing.b2_key_id
+                    or not existing.b2_application_key
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="B2 Key ID and Application Key are required for Backblaze B2",
+                    )
+
+        # Helper to encrypt sensitive values, preserving existing if masked
+        def encrypt_or_preserve(
+            new_val: Optional[str], existing_val: Optional[str]
+        ) -> Optional[str]:
+            if not new_val:
+                return existing_val  # Preserve existing
+            if "•" in new_val:
+                return existing_val  # Value is masked, preserve existing
+            return encrypt_config_value(new_val)
+
+        if existing:
+            existing.storage_backend = settings.storage_backend
+            existing.storage_container = settings.storage_container
+            # AWS S3
+            existing.aws_access_key_id = encrypt_or_preserve(
+                settings.aws_access_key_id, existing.aws_access_key_id
+            )
+            existing.aws_secret_access_key = encrypt_or_preserve(
+                settings.aws_secret_access_key, existing.aws_secret_access_key
+            )
+            existing.aws_region = settings.aws_region or existing.aws_region
+            existing.s3_endpoint = settings.s3_endpoint or existing.s3_endpoint
+            existing.s3_bucket = settings.s3_bucket or existing.s3_bucket
+            # Azure
+            existing.azure_storage_account_name = (
+                settings.azure_storage_account_name
+                or existing.azure_storage_account_name
+            )
+            existing.azure_storage_key = encrypt_or_preserve(
+                settings.azure_storage_key, existing.azure_storage_key
+            )
+            # B2
+            existing.b2_key_id = encrypt_or_preserve(
+                settings.b2_key_id, existing.b2_key_id
+            )
+            existing.b2_application_key = encrypt_or_preserve(
+                settings.b2_application_key, existing.b2_application_key
+            )
+            existing.b2_region = settings.b2_region or existing.b2_region
+        else:
+            new_setting = CompanyStorageSetting(
+                company_id=company_id,
+                storage_backend=settings.storage_backend,
+                storage_container=settings.storage_container,
+                aws_access_key_id=(
+                    encrypt_config_value(settings.aws_access_key_id)
+                    if settings.aws_access_key_id
+                    else None
+                ),
+                aws_secret_access_key=(
+                    encrypt_config_value(settings.aws_secret_access_key)
+                    if settings.aws_secret_access_key
+                    else None
+                ),
+                aws_region=settings.aws_region,
+                s3_endpoint=settings.s3_endpoint,
+                s3_bucket=settings.s3_bucket,
+                azure_storage_account_name=settings.azure_storage_account_name,
+                azure_storage_key=(
+                    encrypt_config_value(settings.azure_storage_key)
+                    if settings.azure_storage_key
+                    else None
+                ),
+                b2_key_id=(
+                    encrypt_config_value(settings.b2_key_id)
+                    if settings.b2_key_id
+                    else None
+                ),
+                b2_application_key=(
+                    encrypt_config_value(settings.b2_application_key)
+                    if settings.b2_application_key
+                    else None
+                ),
+                b2_region=settings.b2_region,
+            )
+            db.add(new_setting)
+
+        db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Company storage configured to use {settings.storage_backend}",
+    }
+
+
+@app.delete(
+    "/v1/company/{company_id}/storage",
+    tags=["Company Storage"],
+    summary="Delete company storage settings",
+    description="Remove custom storage settings and revert to server defaults.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_company_storage_settings(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Delete custom storage settings for a company.
+    The company will use server default storage after this.
+    """
+    verify_company_admin(authorization, company_id)
+
+    with get_session() as db:
+        existing = (
+            db.query(CompanyStorageSetting)
+            .filter(CompanyStorageSetting.company_id == company_id)
+            .first()
+        )
+
+        if existing:
+            db.delete(existing)
+            db.commit()
+            return {"status": "success", "message": "Custom storage settings removed"}
+
+        return {"status": "success", "message": "No custom storage settings to remove"}
