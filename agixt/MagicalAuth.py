@@ -656,7 +656,7 @@ class MagicalAuth:
         """
         Get all scopes available to the current user for a specific company.
         This combines scopes from their default role and any custom roles.
-        Also includes wildcard patterns from default_role_scopes for proper 
+        Also includes wildcard patterns from default_role_scopes for proper
         frontend scope checking (e.g., ext:* for company admins).
 
         Args:
