@@ -3,12 +3,12 @@ name: Build and Test
 on:
   push:
     paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - 'book.json'
-      - 'SECURITY.md'
-      - 'CODE_OF_CONDUCT.md'
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "book.json"
+      - "SECURITY.md"
+      - "CODE_OF_CONDUCT.md"
 jobs:
   lint:
     runs-on: ubuntu-22.04
@@ -36,12 +36,12 @@ jobs:
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
   test-agixt-postgres:
-    uses: ./.github/workflows/tests.yml
+    uses: ./.github/workflows/python-tests.yml
     permissions:
       contents: read
       packages: read
     with:
-      notebook: tests/endpoint-tests.ipynb
+      test-file: tests/endpoint_tests.py
       image: ${{ needs.build.outputs.primary-image }}
       port: "7437"
       database-type: "postgresql"
@@ -50,12 +50,12 @@ jobs:
     secrets:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
   test-agixt-sqlite:
-    uses: ./.github/workflows/tests.yml
+    uses: ./.github/workflows/python-tests.yml
     permissions:
       contents: read
       packages: read
     with:
-      notebook: tests/endpoint-tests.ipynb
+      test-file: tests/endpoint_tests.py
       image: ${{ needs.build.outputs.primary-image }}
       port: "7437"
       database-type: "sqlite"
@@ -63,7 +63,7 @@ jobs:
     needs: build
     secrets:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-  
+
   deploy:
     runs-on: ubuntu-22.04
     permissions:
@@ -80,13 +80,13 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${{ secrets.DEPLOY_SECRET }}" \
             -d '{"domain": "${{ secrets.DEPLOY_DOMAIN }}"}')
-          
+
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS_CODE:[0-9]*" | cut -d: -f2)
           RESPONSE_BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS_CODE:/d')
-          
+
           echo "deploy_response=$RESPONSE_BODY" >> $GITHUB_OUTPUT
           echo "deploy_status=$HTTP_STATUS" >> $GITHUB_OUTPUT
-          
+
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
             echo "Deployment successful with status $HTTP_STATUS"
           else
@@ -110,13 +110,13 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${{ secrets.DEPLOY_SECRET }}" \
             -d '{"domain": "everything.software"}')
-          
+
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS_CODE:[0-9]*" | cut -d: -f2)
           RESPONSE_BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS_CODE:/d')
-          
+
           echo "deploy_response=$RESPONSE_BODY" >> $GITHUB_OUTPUT
           echo "deploy_status=$HTTP_STATUS" >> $GITHUB_OUTPUT
-          
+
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
             echo "Release deployment successful with status $HTTP_STATUS"
           else

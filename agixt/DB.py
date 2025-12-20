@@ -200,6 +200,9 @@ class UserRole(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     friendly_name = Column(String)
+    display_order = Column(
+        Integer, default=100
+    )  # For UI ordering, lower = higher in list
 
 
 class Scope(Base):
@@ -1728,12 +1731,34 @@ def get_similar_memories(
 
 
 default_roles = [
-    {"id": 0, "name": "super_admin", "friendly_name": "Super Admin"},
-    {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
-    {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
-    {"id": 3, "name": "user", "friendly_name": "Power User"},
-    {"id": 4, "name": "child", "friendly_name": "Child"},
-    {"id": 5, "name": "chat_user", "friendly_name": "Chat User"},
+    # display_order determines UI ordering (lower = higher in list)
+    {
+        "id": 0,
+        "name": "super_admin",
+        "friendly_name": "Super Admin",
+        "display_order": 0,
+    },
+    {
+        "id": 1,
+        "name": "tenant_admin",
+        "friendly_name": "Tenant Admin",
+        "display_order": 1,
+    },
+    {
+        "id": 2,
+        "name": "company_admin",
+        "friendly_name": "Company Admin",
+        "display_order": 2,
+    },
+    {"id": 3, "name": "user", "friendly_name": "Power User", "display_order": 3},
+    {
+        "id": 6,
+        "name": "read_only_user",
+        "friendly_name": "Read Only User",
+        "display_order": 4,
+    },
+    {"id": 5, "name": "chat_user", "friendly_name": "Chat User", "display_order": 5},
+    {"id": 4, "name": "child", "friendly_name": "Child", "display_order": 6},
 ]
 
 
@@ -2615,6 +2640,20 @@ default_role_scopes = {
         "conversations:write",
         "ui:full_chat",
         # Limited extension access - only execute through agent
+    ],
+    6: [  # read_only_user: read-only access to everything user has
+        "agents:read",
+        "conversations:read",
+        "extensions:read",
+        "memories:read",
+        "chains:read",
+        "prompts:read",
+        "assets:read",
+        "tickets:read",
+        "activity:read",
+        "ui:settings",
+        "ui:full_chat",
+        "ext:*:read",  # Can read all extensions, but not write or execute
     ],
 }
 
@@ -3710,13 +3749,82 @@ def migrate_company_storage_settings_table():
         logging.error(f"Error migrating company_storage_setting table: {e}")
 
 
+def migrate_role_table():
+    """
+    Migration function to add new columns to the Role table and ensure
+    all default roles exist with correct data.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("display_order", "INTEGER DEFAULT 100"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text('PRAGMA table_info("Role")'))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Role" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Role table")
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'Role' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Role" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Role table")
+    except Exception as e:
+        logging.error(f"Error migrating Role table: {e}")
+
+
 def setup_default_roles():
+    """
+    Set up default system roles. Creates new roles if they don't exist,
+    and updates existing roles with any new fields (like display_order).
+    """
     with get_session() as db:
         for role in default_roles:
             existing_role = db.query(UserRole).filter_by(id=role["id"]).first()
             if not existing_role:
                 new_role = UserRole(**role)
                 db.add(new_role)
+                logging.info(f"Created default role: {role['name']} (id={role['id']})")
+            else:
+                # Update existing role with any new fields
+                updated = False
+                if existing_role.display_order != role.get("display_order"):
+                    existing_role.display_order = role.get("display_order", 100)
+                    updated = True
+                if existing_role.friendly_name != role.get("friendly_name"):
+                    existing_role.friendly_name = role.get("friendly_name")
+                    updated = True
+                if updated:
+                    logging.info(
+                        f"Updated default role: {role['name']} (id={role['id']})"
+                    )
         db.commit()
 
 
@@ -5054,6 +5162,7 @@ if __name__ == "__main__":
     migrate_cleanup_duplicate_wallet_settings()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
+    migrate_role_table()
     setup_default_roles()
     setup_default_scopes()
     setup_default_role_scopes()

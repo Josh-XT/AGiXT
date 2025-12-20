@@ -3,7 +3,10 @@
 
 # # AGiXT Python SDK Tests
 #
-# ## Register a user
+# This test suite runs all tests for both "company_admin" (role_id=2) and "user" (role_id=3)
+# roles to ensure proper scope validation.
+#
+# ## Setup and Imports
 
 # In[8]:
 
@@ -16,11 +19,137 @@ from agixtsdk import AGiXTSDK
 import requests
 import os
 import re
+import pyotp
+from dataclasses import dataclass, field
+from typing import Optional, Dict, List, Any
 
 
-def display_content(content):
+# ============================================
+# Test Context and User Management
+# ============================================
+
+
+@dataclass
+class UserContext:
+    """Stores context for a test user"""
+
+    email: str
+    role_name: str
+    role_id: int
+    sdk: AGiXTSDK = None
+    otp_uri: str = ""
+    mfa_token: str = ""
+    user_id: str = ""
+    company_id: str = ""
+    agent_id: str = ""  # ID of agent created by this user
+    agent_name: str = ""  # Name of agent created by this user
+
+
+@dataclass
+class TestContext:
+    """Manages test context for multi-role testing"""
+
+    base_uri: str = "http://localhost:7437"
+    verbose: bool = True
+    admin_user: UserContext = None
+    regular_user: UserContext = None
+    current_user: UserContext = None
+    test_results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    def set_current_user(self, user: UserContext):
+        """Switch the current test user context"""
+        self.current_user = user
+        print(f"\n{'='*60}")
+        print(f"🔄 Switched to user: {user.email} (role: {user.role_name})")
+        print(f"{'='*60}\n")
+
+    def record_result(
+        self,
+        test_name: str,
+        role: str,
+        success: bool,
+        error: str = None,
+        expected_to_fail: bool = False,
+    ):
+        """Record a test result"""
+        if test_name not in self.test_results:
+            self.test_results[test_name] = {}
+        self.test_results[test_name][role] = {
+            "success": success,
+            "error": error,
+            "expected_to_fail": expected_to_fail,
+            "passed": success if not expected_to_fail else not success,
+        }
+
+    def print_summary(self):
+        """Print summary of all test results"""
+        print("\n" + "=" * 80)
+        print("TEST RESULTS SUMMARY")
+        print("=" * 80)
+
+        passed = 0
+        failed = 0
+
+        for test_name, roles in self.test_results.items():
+            print(f"\n📋 {test_name}:")
+            for role, result in roles.items():
+                status = "✅ PASS" if result["passed"] else "❌ FAIL"
+                expected = " (expected to fail)" if result["expected_to_fail"] else ""
+                error = (
+                    f" - {result['error']}"
+                    if result["error"] and not result["passed"]
+                    else ""
+                )
+                print(f"   {role}: {status}{expected}{error}")
+                if result["passed"]:
+                    passed += 1
+                else:
+                    failed += 1
+
+        print(f"\n{'='*80}")
+        print(f"Total: {passed} passed, {failed} failed")
+        print(f"{'='*80}\n")
+
+        return failed  # Return number of failures for exit code
+
+
+# Define which tests should fail for the "user" role (due to scope restrictions)
+# These are operations that require admin privileges
+ADMIN_ONLY_TESTS = {
+    "create_agent",
+    "delete_agent",
+    "rename_agent",
+    "update_agent_settings",
+    "update_agent_commands",
+    "toggle_command",
+    "create_chain",
+    "delete_chain",
+    "rename_chain",
+    "add_chain_step",
+    "update_chain_step",
+    "move_chain_step",
+    "delete_chain_step",
+    "run_chain",
+    "create_prompt",
+    "update_prompt",
+    "delete_prompt",
+    "create_webhook",
+    "update_webhook",
+    "delete_webhook",
+    "wipe_agent_memories",
+    "invite_user",
+}
+
+# Initialize test context
+ctx = TestContext()
+
+
+def display_content(content, headers=None):
+    """Display content with media handling"""
     outputs_url = f"http://localhost:7437/outputs/"
     os.makedirs("outputs", exist_ok=True)
+    if headers is None and ctx.current_user:
+        headers = ctx.current_user.sdk.headers
     try:
         from IPython.display import Audio, display, Image, Video
     except:
@@ -35,7 +164,7 @@ def display_content(content):
         for url in urls:
             file_name = url.split("/")[-1]
             url = f"{outputs_url}{file_name}"
-            data = requests.get(url, headers=agixt.headers).content
+            data = requests.get(url, headers=headers).content
             if url.endswith(".jpg") or url.endswith(".png"):
                 content = content.replace(url, "")
                 display(Image(url=url))
@@ -48,37 +177,263 @@ def display_content(content):
     print(content)
 
 
-failures = 0
+def run_test(test_name: str, test_func, expected_to_fail_for_user: bool = False):
+    """
+    Run a test for the current user context, handling expected failures for restricted roles.
+
+    Args:
+        test_name: Name of the test for logging
+        test_func: Function to execute
+        expected_to_fail_for_user: If True, the test is expected to fail for "user" role
+    """
+    role = ctx.current_user.role_name
+    should_fail = expected_to_fail_for_user and role == "user"
+
+    try:
+        result = test_func()
+        if should_fail:
+            print(
+                f"⚠️ [{role}] {test_name}: Succeeded but was expected to fail (scope issue?)"
+            )
+            ctx.record_result(test_name, role, success=True, expected_to_fail=True)
+        else:
+            print(f"✅ [{role}] {test_name}: Passed")
+            ctx.record_result(test_name, role, success=True)
+        return result
+    except Exception as e:
+        error_msg = str(e)
+        if should_fail:
+            # Check if it's a permission error (403, 401, or scope-related)
+            if (
+                "403" in error_msg
+                or "401" in error_msg
+                or "Unauthorized" in error_msg
+                or "scope" in error_msg.lower()
+                or "permission" in error_msg.lower()
+            ):
+                print(
+                    f"✅ [{role}] {test_name}: Correctly denied (as expected for user role)"
+                )
+                ctx.record_result(
+                    test_name,
+                    role,
+                    success=False,
+                    error=error_msg,
+                    expected_to_fail=True,
+                )
+            else:
+                print(
+                    f"❌ [{role}] {test_name}: Failed with unexpected error: {error_msg}"
+                )
+                ctx.record_result(
+                    test_name,
+                    role,
+                    success=False,
+                    error=error_msg,
+                    expected_to_fail=True,
+                )
+        else:
+            print(f"❌ [{role}] {test_name}: Failed - {error_msg}")
+            ctx.record_result(test_name, role, success=False, error=error_msg)
+        return None
+
+
+def register_user(email: str, first_name: str, last_name: str) -> tuple:
+    """Register a new user and return (sdk, otp_uri, mfa_token)"""
+    sdk = AGiXTSDK(base_uri=ctx.base_uri, verbose=ctx.verbose)
+    failures = 0
+
+    while failures < 100:
+        try:
+            otp_uri = sdk.register_user(
+                email=email, first_name=first_name, last_name=last_name
+            )
+            mfa_token = str(otp_uri).split("secret=")[1].split("&")[0]
+            return sdk, otp_uri, mfa_token
+        except Exception as e:
+            print(f"Registration attempt failed: {e}")
+            failures += 1
+            time.sleep(5)
+
+    raise Exception(f"Failed to register user {email} after {failures} attempts")
+
+
+def invite_and_register_user(
+    admin_sdk: AGiXTSDK,
+    company_id: str,
+    email: str,
+    first_name: str,
+    last_name: str,
+    role_id: int = 3,
+) -> tuple:
+    """
+    Invite a user to a company and register them.
+
+    Returns: (sdk, invitation_response)
+    """
+    # Create invitation using admin's token
+    invitation_data = {"email": email, "company_id": company_id, "role_id": role_id}
+
+    response = requests.post(
+        f"{ctx.base_uri}/v1/invitations",
+        json=invitation_data,
+        headers=admin_sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to create invitation: {response.status_code} - {response.text}"
+        )
+
+    invitation = response.json()
+    invitation_id = invitation.get("id")
+    invitation_link = invitation.get("invitation_link", "")
+
+    print(f"✅ Created invitation for {email} with role_id={role_id}")
+    print(f"   Invitation ID: {invitation_id}")
+
+    # If user already exists (is_accepted=True), we can just login
+    if invitation.get("is_accepted"):
+        print(f"   User already exists, logging in...")
+        # User exists, need to login - but we need their MFA token
+        # For testing, we'll register a fresh user instead
+        pass
+
+    # Register the new user with the invitation
+    sdk = AGiXTSDK(base_uri=ctx.base_uri, verbose=ctx.verbose)
+
+    # The registration endpoint accepts invitation_id
+    register_response = requests.post(
+        f"{ctx.base_uri}/v1/user",
+        json={
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "invitation_id": invitation_id if invitation_id != "none" else "",
+        },
+    )
+
+    if register_response.status_code != 200:
+        raise Exception(
+            f"Failed to register invited user: {register_response.status_code} - {register_response.text}"
+        )
+
+    reg_data = register_response.json()
+
+    if "otp_uri" in reg_data:
+        mfa_token = str(reg_data["otp_uri"]).split("secret=")[1].split("&")[0]
+        totp = pyotp.TOTP(mfa_token)
+        sdk.login(email=email, otp=totp.now())
+        print(f"✅ Registered and logged in invited user: {email}")
+        return sdk, reg_data["otp_uri"], mfa_token, invitation
+    else:
+        raise Exception(f"Unexpected registration response: {reg_data}")
+
+
+# ============================================
+# Setup: Register Admin User (Company Admin)
+# ============================================
+
 random_string = "".join(
     random.choices(string.ascii_uppercase + string.digits, k=10)
 ).lower()
-test_email = f"{random_string}@test.com"
-agixt = AGiXTSDK(base_uri="http://localhost:7437", verbose=True)
+admin_email = f"{random_string}_admin@test.com"
 
-while failures < 100:
-    try:
-        otp_uri = agixt.register_user(
-            email=test_email, first_name="Test", last_name="User"
-        )
-        openai.base_url = "http://localhost:7437/v1/"
-        openai.api_key = agixt.headers["Authorization"]
-        openai.api_type = "openai"
-        break
-    except Exception as e:
-        print(e)
-        failures += 1
-        time.sleep(5)
+print("=" * 60)
+print("SETTING UP ADMIN USER (Company Admin - role_id=2)")
+print("=" * 60)
 
-# Show QR code for MFA setup
+admin_sdk, admin_otp_uri, admin_mfa_token = register_user(
+    email=admin_email, first_name="Admin", last_name="User"
+)
+
+# Get admin user details to find company_id
+admin_user_details = admin_sdk.get_user()
+admin_company_id = None
+if admin_user_details and admin_user_details.get("companies"):
+    admin_company_id = admin_user_details["companies"][0]["id"]
+    admin_user_id = admin_user_details.get("id", "")
+    print(f"✅ Admin user company_id: {admin_company_id}")
+
+ctx.admin_user = UserContext(
+    email=admin_email,
+    role_name="company_admin",
+    role_id=2,
+    sdk=admin_sdk,
+    otp_uri=admin_otp_uri,
+    mfa_token=admin_mfa_token,
+    user_id=admin_user_id,
+    company_id=admin_company_id,
+)
+
+# ============================================
+# Setup: Invite and Register Regular User
+# ============================================
+
+print("\n" + "=" * 60)
+print("SETTING UP REGULAR USER (User - role_id=3)")
+print("=" * 60)
+
+user_email = f"{random_string}_user@test.com"
+
+try:
+    user_sdk, user_otp_uri, user_mfa_token, invitation = invite_and_register_user(
+        admin_sdk=admin_sdk,
+        company_id=admin_company_id,
+        email=user_email,
+        first_name="Regular",
+        last_name="User",
+        role_id=3,  # "user" role
+    )
+
+    user_details = user_sdk.get_user()
+    user_id = user_details.get("id", "") if user_details else ""
+
+    ctx.regular_user = UserContext(
+        email=user_email,
+        role_name="user",
+        role_id=3,
+        sdk=user_sdk,
+        otp_uri=user_otp_uri,
+        mfa_token=user_mfa_token,
+        user_id=user_id,
+        company_id=admin_company_id,  # Same company as admin
+    )
+    print(f"✅ Regular user setup complete: {user_email}")
+except Exception as e:
+    print(f"⚠️ Failed to set up regular user: {e}")
+    print("   Tests will only run for admin user")
+    ctx.regular_user = None
+
+# Set initial context to admin user
+ctx.set_current_user(ctx.admin_user)
+
+# Setup openai client for current user
+openai.base_url = "http://localhost:7437/v1/"
+openai.api_key = ctx.current_user.sdk.headers["Authorization"]
+openai.api_type = "openai"
+
+# For backward compatibility, maintain these global variables
+agixt = ctx.current_user.sdk
+test_email = ctx.current_user.email
+
+# Show QR code for MFA setup (admin user)
 import qrcode
-from IPython.display import Image
 
 qr = qrcode.QRCode()
-qr.add_data(otp_uri)
+qr.add_data(admin_otp_uri)
 qr.make(fit=True)
 img = qr.make_image(fill="black", back_color="white")
 img.save("qr.png")
-Image(filename="qr.png")
+print(f"QR code saved to qr.png for MFA setup")
+
+# Display in Jupyter if available
+try:
+    from IPython.display import Image as IPImage
+
+    IPImage(filename="qr.png")
+except ImportError:
+    pass
 
 
 # ## Confirm user exists
@@ -1624,3 +1979,558 @@ response = openai.chat.completions.create(
     user="Windows Vulnerabilities",
 )
 display_content(response.choices[0].message.content)
+
+
+# ============================================
+# DUAL-ROLE TEST RUNNER
+# ============================================
+# This section runs comprehensive tests for both company_admin and user roles
+# to validate scope-based access controls.
+
+# In[ ]:
+
+
+print("\n" + "=" * 80)
+print("STARTING DUAL-ROLE SCOPE VALIDATION TESTS")
+print("=" * 80)
+print("\nThis test suite validates that scopes are properly enforced for both:")
+print("  - company_admin (role_id=2): Full management access")
+print("  - user (role_id=3): Limited read/execute access")
+print("=" * 80 + "\n")
+
+
+# Define test functions that will be run for both roles
+def test_user_operations():
+    """Test basic user operations (should work for all roles)"""
+    sdk = ctx.current_user.sdk
+
+    # Get user details
+    user = sdk.get_user()
+    assert user is not None, "Failed to get user details"
+    print(f"   Got user: {user.get('email', 'N/A')}")
+
+    # Update user name
+    update = sdk.update_user(first_name="Test", last_name="Updated")
+    assert update is not None, "Failed to update user"
+    print(f"   Updated user name")
+
+    return True
+
+
+def test_get_providers():
+    """Test getting providers (should work for all roles)"""
+    sdk = ctx.current_user.sdk
+
+    providers = sdk.get_providers()
+    assert providers is not None, "Failed to get providers"
+    print(
+        f"   Got {len(providers) if isinstance(providers, list) else 'N/A'} providers"
+    )
+
+    return True
+
+
+def test_get_agents():
+    """Test getting agents list (should work for all roles with agents:read)"""
+    sdk = ctx.current_user.sdk
+
+    agents = sdk.get_agents()
+    assert agents is not None, "Failed to get agents"
+    print(f"   Got {len(agents)} agents")
+
+    return agents
+
+
+def test_create_agent():
+    """Test creating an agent (admin only - requires agents:write)"""
+    sdk = ctx.current_user.sdk
+    role = ctx.current_user.role_name
+    agent_name = f"test_agent_{role}_{random_string}"
+
+    response = sdk.add_agent(
+        agent_name=agent_name,
+        settings={
+            "mode": "prompt",
+            "prompt_category": "Default",
+            "prompt_name": "Think About It",
+            "persona": "",
+        },
+    )
+
+    agent_id = response.get("id") or response.get("agent_id")
+    assert agent_id, f"Failed to create agent, response: {response}"
+
+    # Store the agent info in the user context
+    ctx.current_user.agent_id = agent_id
+    ctx.current_user.agent_name = agent_name
+
+    print(f"   Created agent: {agent_name} (id: {agent_id})")
+    return agent_id
+
+
+def test_rename_agent():
+    """Test renaming an agent (admin only - requires agents:write)"""
+    sdk = ctx.current_user.sdk
+    agent_id = ctx.current_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent to rename - create_agent must run first")
+
+    new_name = f"renamed_{ctx.current_user.agent_name}"
+    response = sdk.rename_agent(agent_id=agent_id, new_name=new_name)
+
+    ctx.current_user.agent_name = new_name
+    print(f"   Renamed agent to: {new_name}")
+    return response
+
+
+def test_update_agent_settings():
+    """Test updating agent settings (admin only - requires agents:write)"""
+    sdk = ctx.current_user.sdk
+    agent_id = ctx.current_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent to update - create_agent must run first")
+
+    config = sdk.get_agentconfig(agent_id=agent_id)
+    settings = config.get("settings", {})
+    settings["AI_TEMPERATURE"] = 0.8
+
+    response = sdk.update_agent_settings(agent_id=agent_id, settings=settings)
+    print(f"   Updated agent settings")
+    return response
+
+
+def test_get_agent_config():
+    """Test getting agent config (should work with agents:read)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available to get config")
+
+    config = sdk.get_agentconfig(agent_id=agent_id)
+    assert config is not None, "Failed to get agent config"
+    print(
+        f"   Got agent config with keys: {list(config.keys()) if isinstance(config, dict) else 'N/A'}"
+    )
+    return config
+
+
+def test_create_conversation():
+    """Test creating a conversation (should work for all roles with conversations:write)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for conversation")
+
+    conv_name = f"test_conv_{ctx.current_user.role_name}_{random_string}"
+    response = sdk.new_conversation(agent_id=agent_id, conversation_name=conv_name)
+
+    conv_id = response.get("id")
+    assert conv_id, f"Failed to create conversation, response: {response}"
+
+    print(f"   Created conversation: {conv_name} (id: {conv_id})")
+    return conv_id
+
+
+def test_get_conversations():
+    """Test getting conversations (should work for all roles with conversations:read)"""
+    sdk = ctx.current_user.sdk
+
+    conversations = sdk.get_conversations()
+    assert conversations is not None, "Failed to get conversations"
+    print(f"   Got {len(conversations)} conversations")
+    return conversations
+
+
+def test_create_chain():
+    """Test creating a chain (admin only - requires chains:write)"""
+    sdk = ctx.current_user.sdk
+    chain_name = f"test_chain_{ctx.current_user.role_name}_{random_string}"
+
+    response = sdk.add_chain(chain_name=chain_name)
+
+    chain_id = response.get("id")
+    assert chain_id, f"Failed to create chain, response: {response}"
+
+    print(f"   Created chain: {chain_name} (id: {chain_id})")
+    return chain_id
+
+
+def test_get_chains():
+    """Test getting chains (should work for all roles with chains:read)"""
+    sdk = ctx.current_user.sdk
+
+    chains = sdk.get_chains()
+    assert chains is not None, "Failed to get chains"
+    print(f"   Got {len(chains)} chains")
+    return chains
+
+
+def test_create_prompt():
+    """Test creating a prompt (admin only - requires prompts:write)"""
+    sdk = ctx.current_user.sdk
+    prompt_name = f"test_prompt_{ctx.current_user.role_name}_{random_string}"
+
+    response = sdk.add_prompt(
+        prompt_name=prompt_name,
+        prompt="This is a test prompt about {subject}",
+        prompt_category="Default",
+    )
+
+    prompt_id = response.get("id")
+    assert prompt_id, f"Failed to create prompt, response: {response}"
+
+    print(f"   Created prompt: {prompt_name} (id: {prompt_id})")
+    return prompt_id
+
+
+def test_get_prompts():
+    """Test getting prompts (should work for all roles with prompts:read)"""
+    sdk = ctx.current_user.sdk
+
+    prompts = sdk.get_prompts(prompt_category="Default")
+    assert prompts is not None, "Failed to get prompts"
+    print(f"   Got {len(prompts)} prompts in Default category")
+    return prompts
+
+
+def test_create_webhook():
+    """Test creating an outgoing webhook (admin only - requires webhooks:write)"""
+    sdk = ctx.current_user.sdk
+
+    webhook_data = {
+        "name": f"test_webhook_{ctx.current_user.role_name}_{random_string}",
+        "description": "Test webhook for role validation",
+        "target_url": "https://httpbin.org/post",
+        "event_types": ["agent.created", "agent.deleted"],
+        "active": True,
+        "headers": {"Content-Type": "application/json"},
+        "secret": "test-secret",
+    }
+
+    response = requests.post(
+        f"{ctx.base_uri}/api/webhooks/outgoing",
+        json=webhook_data,
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to create webhook: {response.status_code} - {response.text}"
+        )
+
+    webhook = response.json()
+    print(f"   Created webhook: {webhook.get('name')} (id: {webhook.get('id')})")
+    return webhook
+
+
+def test_get_webhooks():
+    """Test getting webhooks (should work for all roles with webhooks:read)"""
+    sdk = ctx.current_user.sdk
+
+    response = requests.get(
+        f"{ctx.base_uri}/api/webhooks/outgoing",
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to get webhooks: {response.status_code} - {response.text}"
+        )
+
+    webhooks = response.json()
+    print(f"   Got {len(webhooks)} webhooks")
+    return webhooks
+
+
+def test_delete_agent():
+    """Test deleting an agent (admin only - requires agents:delete)"""
+    sdk = ctx.current_user.sdk
+    agent_id = ctx.current_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent to delete - create_agent must run first")
+
+    response = sdk.delete_agent(agent_id=agent_id)
+
+    ctx.current_user.agent_id = None
+    ctx.current_user.agent_name = None
+
+    print(f"   Deleted agent")
+    return response
+
+
+def test_invite_user():
+    """Test inviting a user (admin only - requires users:write)"""
+    sdk = ctx.current_user.sdk
+
+    # Generate a random email for the invitation
+    invite_email = f"invite_test_{random_string}_{ctx.current_user.role_name}@test.com"
+
+    invitation_data = {
+        "email": invite_email,
+        "company_id": ctx.current_user.company_id,
+        "role_id": 3,  # Invite as regular user
+    }
+
+    response = requests.post(
+        f"{ctx.base_uri}/v1/invitations",
+        json=invitation_data,
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to create invitation: {response.status_code} - {response.text}"
+        )
+
+    invitation = response.json()
+    print(f"   Created invitation for: {invite_email}")
+    return invitation
+
+
+def test_execute_command():
+    """Test executing an agent command (should work for all roles with extensions:execute)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available to execute command")
+
+    try:
+        response = sdk.execute_command(
+            agent_id=agent_id,
+            command_name="Write to File",
+            command_args={
+                "filename": f"test_{ctx.current_user.role_name}.txt",
+                "text": "Test content",
+            },
+            conversation_id="",
+        )
+        print(f"   Executed command successfully")
+        return response
+    except Exception as e:
+        # This command might not be enabled, which is okay
+        if "not found" in str(e).lower() or "disabled" in str(e).lower():
+            print(f"   Command not available (expected for some setups)")
+            return None
+        raise
+
+
+def test_learn_text():
+    """Test learning text (should work for all roles with memories:write)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for learning")
+
+    response = sdk.learn_text(
+        agent_id=agent_id,
+        user_input=f"What is the test for {ctx.current_user.role_name}?",
+        text=f"This is test content learned by {ctx.current_user.role_name} role.",
+        collection_number="0",
+    )
+
+    print(f"   Learned text successfully")
+    return response
+
+
+def test_get_memories():
+    """Test getting agent memories (should work for all roles with memories:read)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for getting memories")
+
+    memories = sdk.get_agent_memories(
+        agent_id=agent_id,
+        user_input="test",
+        limit=5,
+        min_relevance_score=0.0,
+        collection_number="0",
+    )
+
+    print(f"   Got {len(memories)} memories")
+    return memories
+
+
+def test_wipe_memories():
+    """Test wiping agent memories (admin only - requires memories:delete or full control)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for wiping memories")
+
+    response = sdk.wipe_agent_memories(agent_id=agent_id, collection_number="0")
+
+    print(f"   Wiped agent memories")
+    return response
+
+
+# In[ ]:
+
+
+# Run all tests for each role
+def run_all_role_tests():
+    """Run comprehensive tests for both admin and user roles"""
+
+    # List of tests with their expected behavior for user role
+    # (test_func, test_name, expected_to_fail_for_user)
+    tests = [
+        # Basic operations - should work for all roles
+        (test_user_operations, "user_operations", False),
+        (test_get_providers, "get_providers", False),
+        (test_get_agents, "get_agents", False),
+        (test_get_conversations, "get_conversations", False),
+        (test_get_chains, "get_chains", False),
+        (test_get_prompts, "get_prompts", False),
+        # Agent operations
+        (test_create_agent, "create_agent", True),  # Requires agents:write
+        (test_get_agent_config, "get_agent_config", False),  # Requires agents:read
+        (test_rename_agent, "rename_agent", True),  # Requires agents:write
+        (
+            test_update_agent_settings,
+            "update_agent_settings",
+            True,
+        ),  # Requires agents:write
+        # Conversation operations
+        (
+            test_create_conversation,
+            "create_conversation",
+            False,
+        ),  # conversations:write is allowed
+        # Chain operations
+        (test_create_chain, "create_chain", True),  # Requires chains:write
+        # Prompt operations
+        (test_create_prompt, "create_prompt", True),  # Requires prompts:write
+        # Webhook operations
+        (test_create_webhook, "create_webhook", True),  # Requires webhooks:write
+        (
+            test_get_webhooks,
+            "get_webhooks",
+            True,
+        ),  # Requires webhooks:read (user role doesn't have this)
+        # User management
+        (test_invite_user, "invite_user", True),  # Requires users:write
+        # Extension/Command operations
+        (
+            test_execute_command,
+            "execute_command",
+            False,
+        ),  # extensions:execute is allowed
+        # Memory operations
+        (test_learn_text, "learn_text", False),  # memories:write is allowed
+        (test_get_memories, "get_memories", False),  # memories:read is allowed
+        (
+            test_wipe_memories,
+            "wipe_memories",
+            True,
+        ),  # Requires memories:delete (not in user role)
+        # Cleanup - run last
+        (test_delete_agent, "delete_agent", True),  # Requires agents:delete
+    ]
+
+    # Test users to iterate through
+    test_users = [ctx.admin_user]
+    if ctx.regular_user:
+        test_users.append(ctx.regular_user)
+    else:
+        print("⚠️ Regular user not available, only testing admin role")
+
+    for user in test_users:
+        ctx.set_current_user(user)
+
+        # Update global references for backward compatibility
+        global agixt, test_email
+        agixt = user.sdk
+        test_email = user.email
+
+        # Update openai client
+        openai.api_key = user.sdk.headers["Authorization"]
+
+        print(f"\n📋 Running tests for {user.role_name} ({user.email})")
+        print("-" * 60)
+
+        for test_func, test_name, expected_to_fail_for_user in tests:
+            run_test(test_name, test_func, expected_to_fail_for_user)
+
+    # Print summary and return failure count
+    return ctx.print_summary()
+
+
+# Execute the dual-role test suite
+test_failures = run_all_role_tests()
+
+
+# In[ ]:
+
+
+# ============================================
+# CLEANUP
+# ============================================
+
+print("\n" + "=" * 60)
+print("CLEANUP: Removing test resources")
+print("=" * 60)
+
+# Clean up any remaining test resources
+for user in [ctx.admin_user, ctx.regular_user]:
+    if user is None:
+        continue
+
+    # Delete any remaining agents created during tests
+    if user.agent_id:
+        try:
+            user.sdk.delete_agent(agent_id=user.agent_id)
+            print(f"✅ Deleted test agent for {user.role_name}")
+        except Exception as e:
+            print(f"⚠️ Could not delete agent for {user.role_name}: {e}")
+
+# Clean up test webhooks
+try:
+    response = requests.get(
+        f"{ctx.base_uri}/api/webhooks/outgoing",
+        headers=ctx.admin_user.sdk.headers,
+    )
+    if response.status_code == 200:
+        webhooks = response.json()
+        for webhook in webhooks:
+            if random_string in webhook.get("name", ""):
+                requests.delete(
+                    f"{ctx.base_uri}/api/webhooks/outgoing/{webhook['id']}",
+                    headers=ctx.admin_user.sdk.headers,
+                )
+                print(f"✅ Deleted test webhook: {webhook['name']}")
+except Exception as e:
+    print(f"⚠️ Could not clean up webhooks: {e}")
+
+print("\n✅ Cleanup complete")
+print("=" * 60)
+
+# Exit with appropriate code based on test results
+import sys
+
+if test_failures > 0:
+    print(f"\n❌ Exiting with code 1 due to {test_failures} test failure(s)")
+    sys.exit(1)
+else:
+    print("\n✅ All tests passed!")
+    sys.exit(0)
