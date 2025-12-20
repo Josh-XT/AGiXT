@@ -652,7 +652,7 @@ class WebhookEventEmitter:
         """Transform payload for Discord webhook format - handles any event type"""
         try:
             event_type = payload.get("event_type", "Unknown Event")
-            agent_name = payload.get("agent_name", "AGiXT Agent")
+            agent_name = payload.get("agent_name", "XT")
             timestamp = payload.get("timestamp", "")
             data = payload.get("data", {})
             user_id = payload.get("user_id", "Unknown User")
@@ -893,7 +893,7 @@ class WebhookManager:
         """Transform payload for Discord webhook format - handles any event type"""
         try:
             event_type = payload.get("event_type", "Unknown Event")
-            agent_name = payload.get("agent_name", "AGiXT Agent")
+            agent_name = payload.get("agent_name", "XT")
             timestamp = payload.get("timestamp", "")
             data = payload.get("data", {})
             user_id = payload.get("user_id", "Unknown User")

@@ -656,6 +656,8 @@ class MagicalAuth:
         """
         Get all scopes available to the current user for a specific company.
         This combines scopes from their default role and any custom roles.
+        Also includes wildcard patterns from default_role_scopes for proper 
+        frontend scope checking (e.g., ext:* for company admins).
 
         Args:
             company_id: The company to check scopes for. Defaults to user's current company.
@@ -663,6 +665,8 @@ class MagicalAuth:
         Returns:
             set: A set of scope names the user has access to.
         """
+        from DB import default_role_scopes as db_default_role_scopes
+
         if self.user_id is None:
             return set()
 
@@ -693,14 +697,22 @@ class MagicalAuth:
                 # The frontend and has_scope() will treat '*' as having all scopes
                 return {"*"}
 
-            # Get scopes from default role
-            default_role_scopes = (
+            # Get scopes from default role (expanded individual scopes)
+            default_role_scopes_db = (
                 db.query(Scope)
                 .join(DefaultRoleScope, DefaultRoleScope.scope_id == Scope.id)
                 .filter(DefaultRoleScope.role_id == role_id)
                 .all()
             )
-            scopes.update(s.name for s in default_role_scopes)
+            scopes.update(s.name for s in default_role_scopes_db)
+
+            # Also include wildcard patterns from default_role_scopes definition
+            # This ensures frontend can properly check wildcards like ext:*
+            if role_id in db_default_role_scopes:
+                for pattern in db_default_role_scopes[role_id]:
+                    # Include wildcard patterns that end with :* or contain :*:
+                    if pattern.endswith(":*") or ":*:" in pattern or pattern == "*":
+                        scopes.add(pattern)
 
             # Get scopes from custom roles assigned to this user in this company
             custom_role_scopes = (
@@ -3883,7 +3895,7 @@ class MagicalAuth:
                 agixt.login(email=company_email, otp=totp.now())
                 default_agent = get_default_agent()
                 agixt.add_agent(
-                    agent_name="AGiXT",
+                    agent_name=agent_name,
                     settings=(
                         default_agent["settings"] if "settings" in default_agent else {}
                     ),
