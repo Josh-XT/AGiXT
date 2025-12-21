@@ -11,14 +11,54 @@ provider rotation system when configured with a valid API key.
 """
 
 import base64
+import json
 import logging
 import time
+import requests
 
 from Extensions import Extensions
-from Globals import getenv, install_package_if_missing
+from Globals import getenv
 
-install_package_if_missing("openai")
-import openai as openai_module
+
+class StreamChunk:
+    """Wrapper class to provide OpenAI SDK-like interface for streaming chunks."""
+
+    def __init__(self, data: dict):
+        self._data = data
+        self.choices = [StreamChoice(c) for c in data.get("choices", [])]
+
+
+class StreamChoice:
+    """Wrapper for streaming choice data."""
+
+    def __init__(self, choice_data: dict):
+        self.delta = StreamDelta(choice_data.get("delta", {}))
+        self.finish_reason = choice_data.get("finish_reason")
+
+
+class StreamDelta:
+    """Wrapper for streaming delta data."""
+
+    def __init__(self, delta_data: dict):
+        self.content = delta_data.get("content")
+        self.role = delta_data.get("role")
+
+
+def parse_sse_stream(response):
+    """Parse Server-Sent Events stream and yield StreamChunk objects."""
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+        if line_str.startswith("data: "):
+            data_str = line_str[6:]  # Remove "data: " prefix
+            if data_str.strip() == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                yield StreamChunk(data)
+            except json.JSONDecodeError:
+                continue
 
 
 class xai(Extensions):
@@ -98,15 +138,12 @@ class xai(Extensions):
         """Check if this provider is properly configured"""
         return self.configured
 
-    def _get_client(self):
-        """Get configured OpenAI-compatible client for xAI"""
-        import httpx
-
-        return openai_module.OpenAI(
-            base_url=self.API_URI,
-            api_key=self.XAI_API_KEY,
-            timeout=httpx.Timeout(300.0, read=300.0, write=30.0, connect=10.0),
-        )
+    def _get_headers(self):
+        """Get request headers for xAI API calls"""
+        return {
+            "Authorization": f"Bearer {self.XAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
 
     async def inference(
         self,
@@ -132,7 +169,8 @@ class xai(Extensions):
         if not self.configured:
             raise Exception("xAI provider not configured - missing API key")
 
-        client = self._get_client()
+        headers = self._get_headers()
+        api_url = self.API_URI.rstrip("/") + "/chat/completions"
 
         # Build messages with optional vision content
         messages = []
@@ -167,20 +205,26 @@ class xai(Extensions):
             time.sleep(self.WAIT_BETWEEN_REQUESTS)
 
         try:
-            response = client.chat.completions.create(
-                model=self.AI_MODEL,
-                messages=messages,
-                temperature=float(self.AI_TEMPERATURE),
-                max_tokens=4096,
-                top_p=float(self.AI_TOP_P),
-                n=1,
-                stream=stream,
-            )
+            payload = {
+                "model": self.AI_MODEL,
+                "messages": messages,
+                "temperature": float(self.AI_TEMPERATURE),
+                "max_tokens": 4096,
+                "top_p": float(self.AI_TOP_P),
+                "n": 1,
+                "stream": stream,
+            }
 
             if stream:
-                return response
+                resp = requests.post(
+                    api_url, headers=headers, json=payload, stream=True, timeout=300
+                )
+                resp.raise_for_status()
+                return parse_sse_stream(resp)
 
-            return response.choices[0].message.content
+            resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
 
         except Exception as e:
             self.failure_count += 1

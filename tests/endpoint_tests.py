@@ -1135,6 +1135,192 @@ def test_get_conversations():
     return conversations
 
 
+def test_chat_completions():
+    """Test chat completions endpoint (non-streaming) - should work for all roles"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for chat completions")
+
+    # Create a simple test message
+    messages = [{"role": "user", "content": "Say 'test successful' and nothing else."}]
+
+    start_time = time.time()
+    response = requests.post(
+        f"{ctx.base_uri}/v1/chat/completions",
+        json={
+            "model": agent_id,
+            "messages": messages,
+            "max_tokens": 50,
+            "stream": False,
+        },
+        headers=sdk.headers,
+        timeout=60,
+    )
+    duration_ms = (time.time() - start_time) * 1000
+
+    # Record timing
+    timing_tracker.record(
+        EndpointTiming(
+            endpoint="/v1/chat/completions",
+            method="POST",
+            duration_ms=duration_ms,
+            test_name="chat_completions",
+            role=ctx.current_user.role_name,
+            success=response.status_code == 200,
+            status_code=response.status_code,
+        )
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Chat completions failed: {response.status_code} - {response.text}"
+        )
+
+    result = response.json()
+    assert "choices" in result, f"Invalid response format: {result}"
+    assert len(result["choices"]) > 0, "No choices in response"
+
+    content = result["choices"][0].get("message", {}).get("content", "")
+    print(f"   Chat completion response ({duration_ms:.0f}ms): {content[:50]}...")
+    return result
+
+
+def test_chat_completions_streaming():
+    """Test chat completions endpoint (streaming) - should work for all roles"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for streaming chat completions")
+
+    messages = [
+        {
+            "role": "user",
+            "content": "Count from 1 to 5 with commas between each number.",
+        }
+    ]
+
+    start_time = time.time()
+    response = requests.post(
+        f"{ctx.base_uri}/v1/chat/completions",
+        json={
+            "model": agent_id,
+            "messages": messages,
+            "max_tokens": 50,
+            "stream": True,
+        },
+        headers=sdk.headers,
+        stream=True,
+        timeout=60,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Streaming chat completions failed: {response.status_code} - {response.text}"
+        )
+
+    # Collect streamed chunks
+    chunks = []
+    content_parts = []
+    first_chunk_time = None
+
+    for line in response.iter_lines():
+        if line:
+            line_str = line.decode("utf-8")
+            if line_str.startswith("data: "):
+                if first_chunk_time is None:
+                    first_chunk_time = time.time()
+                data = line_str[6:]  # Remove "data: " prefix
+                if data == "[DONE]":
+                    break
+                try:
+                    import json
+
+                    chunk = json.loads(data)
+                    chunks.append(chunk)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    if "content" in delta:
+                        content_parts.append(delta["content"])
+                except json.JSONDecodeError:
+                    pass
+
+    total_duration_ms = (time.time() - start_time) * 1000
+    time_to_first_chunk_ms = (
+        (first_chunk_time - start_time) * 1000
+        if first_chunk_time
+        else total_duration_ms
+    )
+
+    # Record timing (time to first chunk is most important for streaming)
+    timing_tracker.record(
+        EndpointTiming(
+            endpoint="/v1/chat/completions (streaming)",
+            method="POST",
+            duration_ms=time_to_first_chunk_ms,
+            test_name="chat_completions_streaming",
+            role=ctx.current_user.role_name,
+            success=len(chunks) > 0,
+            status_code=response.status_code,
+        )
+    )
+
+    full_content = "".join(content_parts)
+    print(
+        f"   Streaming response ({len(chunks)} chunks, TTFC: {time_to_first_chunk_ms:.0f}ms, total: {total_duration_ms:.0f}ms): {full_content[:50]}..."
+    )
+
+    assert len(chunks) > 0, "No chunks received from streaming response"
+    return {"chunks": len(chunks), "content": full_content}
+
+
+def test_get_companies():
+    """Test getting user's companies - should work for all roles"""
+    sdk = ctx.current_user.sdk
+
+    response = timed_get(
+        f"{ctx.base_uri}/v1/companies",
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to get companies: {response.status_code} - {response.text}"
+        )
+
+    companies = response.json()
+    print(f"   Got {len(companies)} companies")
+    return companies
+
+
+def test_get_token_balance():
+    """Test getting token balance - should work for all roles"""
+    sdk = ctx.current_user.sdk
+    company_id = ctx.current_user.company_id
+
+    if not company_id:
+        raise Exception("No company_id available")
+
+    response = timed_get(
+        f"{ctx.base_uri}/v1/billing/tokens/balance?company_id={company_id}&sync=false",
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to get token balance: {response.status_code} - {response.text}"
+        )
+
+    balance = response.json()
+    print(f"   Token balance: {balance.get('available_tokens', 'N/A')} tokens")
+    return balance
+
+
 def test_create_chain():
     """Test creating a chain (admin only - requires chains:write)"""
     sdk = ctx.current_user.sdk
@@ -1567,6 +1753,36 @@ def run_all_role_tests():
             False,
             False,
         ),  # All authenticated users can create conversations
+        # Chat completions (inference) - should work for all roles
+        (
+            test_chat_completions,
+            "chat_completions",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can use chat completions
+        (
+            test_chat_completions_streaming,
+            "chat_completions_streaming",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can use streaming chat completions
+        # Company and billing operations
+        (
+            test_get_companies,
+            "get_companies",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can get their companies
+        (
+            test_get_token_balance,
+            "get_token_balance",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can get token balance
         # Chain operations
         (test_create_chain, "create_chain", True, True, False),  # Requires chains:write
         # Prompt operations

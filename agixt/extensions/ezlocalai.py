@@ -11,6 +11,7 @@ provider rotation system when configured with a valid API URI.
 """
 
 import base64
+import json
 import logging
 import random
 import re
@@ -18,10 +19,48 @@ import uuid
 import requests
 import numpy as np
 from Extensions import Extensions
-from Globals import getenv, install_package_if_missing
+from Globals import getenv
 
-install_package_if_missing("openai")
-import openai
+
+class StreamChunk:
+    """Wrapper class to provide OpenAI SDK-like interface for streaming chunks."""
+
+    def __init__(self, data: dict):
+        self._data = data
+        self.choices = [StreamChoice(c) for c in data.get("choices", [])]
+
+
+class StreamChoice:
+    """Wrapper for streaming choice data."""
+
+    def __init__(self, choice_data: dict):
+        self.delta = StreamDelta(choice_data.get("delta", {}))
+        self.finish_reason = choice_data.get("finish_reason")
+
+
+class StreamDelta:
+    """Wrapper for streaming delta data."""
+
+    def __init__(self, delta_data: dict):
+        self.content = delta_data.get("content")
+        self.role = delta_data.get("role")
+
+
+def parse_sse_stream(response):
+    """Parse Server-Sent Events stream and yield StreamChunk objects."""
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+        if line_str.startswith("data: "):
+            data_str = line_str[6:]  # Remove "data: " prefix
+            if data_str.strip() == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                yield StreamChunk(data)
+            except json.JSONDecodeError:
+                continue
 
 
 class ezlocalai(Extensions):
@@ -183,16 +222,12 @@ class ezlocalai(Extensions):
         if not model:
             model = "default"
 
-        import httpx
-        from openai import OpenAI
-
         # Use a dummy API key if none is set
         api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
-        client = OpenAI(
-            base_url=self.API_URI,
-            api_key=api_key,
-            timeout=httpx.Timeout(300.0, read=300.0, write=30.0, connect=10.0),
-        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
         # Build messages with optional vision content
         messages = []
@@ -229,21 +264,39 @@ class ezlocalai(Extensions):
         )
 
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=int(self.MAX_TOKENS),
-                temperature=float(self.AI_TEMPERATURE),
-                top_p=float(self.AI_TOP_P),
-                n=1,
-                stream=stream,
-            )
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": int(self.MAX_TOKENS),
+                "temperature": float(self.AI_TEMPERATURE),
+                "top_p": float(self.AI_TOP_P),
+                "n": 1,
+                "stream": stream,
+            }
+
+            api_url = self.API_URI.rstrip("/") + "/chat/completions"
 
             if stream:
-                return response
+                # Return a generator for streaming with OpenAI SDK-like interface
+                resp = requests.post(
+                    api_url,
+                    headers=headers,
+                    json=payload,
+                    stream=True,
+                    timeout=300,
+                )
+                resp.raise_for_status()
+                return parse_sse_stream(resp)
 
-            if not isinstance(response, str):
-                response = response.choices[0].message.content
+            resp = requests.post(
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=300,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            response = data["choices"][0]["message"]["content"]
 
             # Clean up response
             if "User:" in response:
@@ -304,19 +357,18 @@ class ezlocalai(Extensions):
         if not self.configured:
             raise Exception("ezLocalai provider not configured")
 
-        from openai import OpenAI
-
-        client = OpenAI(
-            base_url=self.API_URI,
-            api_key=self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none",
-        )
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        api_url = self.API_URI.rstrip("/") + "/audio/transcriptions"
 
         with open(audio_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model=self.TRANSCRIPTION_MODEL,
-                file=audio_file,
+            files = {"file": audio_file}
+            data = {"model": self.TRANSCRIPTION_MODEL}
+            resp = requests.post(
+                api_url, headers=headers, files=files, data=data, timeout=120
             )
-        return transcription.text
+            resp.raise_for_status()
+            return resp.json().get("text", "")
 
     async def translate_audio(self, audio_path: str) -> str:
         """
@@ -331,19 +383,18 @@ class ezlocalai(Extensions):
         if not self.configured:
             raise Exception("ezLocalai provider not configured")
 
-        from openai import OpenAI
-
-        client = OpenAI(
-            base_url=self.API_URI,
-            api_key=self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none",
-        )
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        api_url = self.API_URI.rstrip("/") + "/audio/translations"
 
         with open(audio_path, "rb") as audio_file:
-            translation = client.audio.translations.create(
-                model=self.TRANSCRIPTION_MODEL,
-                file=audio_file,
+            files = {"file": audio_file}
+            data = {"model": self.TRANSCRIPTION_MODEL}
+            resp = requests.post(
+                api_url, headers=headers, files=files, data=data, timeout=120
             )
-        return translation.text
+            resp.raise_for_status()
+            return resp.json().get("text", "")
 
     async def text_to_speech(self, text: str) -> str:
         """
@@ -358,20 +409,22 @@ class ezlocalai(Extensions):
         if not self.configured:
             raise Exception("ezLocalai provider not configured")
 
-        from openai import OpenAI
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/audio/speech"
 
-        client = OpenAI(
-            base_url=self.API_URI,
-            api_key=self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none",
-        )
-
-        tts_response = client.audio.speech.create(
-            model="tts-1",
-            voice=self.VOICE,
-            input=text,
-            extra_body={"language": self.TTS_LANGUAGE},
-        )
-        return base64.b64encode(tts_response.content).decode("utf-8")
+        payload = {
+            "model": "tts-1",
+            "voice": self.VOICE,
+            "input": text,
+            "language": self.TTS_LANGUAGE,
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        return base64.b64encode(resp.content).decode("utf-8")
 
     async def generate_image(self, prompt: str) -> str:
         """
@@ -386,26 +439,29 @@ class ezlocalai(Extensions):
         if not self.configured:
             raise Exception("ezLocalai provider not configured")
 
-        from openai import OpenAI
-
-        client = OpenAI(
-            base_url=self.API_URI,
-            api_key=self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none",
-        )
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/images/generations"
 
         filename = f"{uuid.uuid4()}.png"
         image_path = f"./WORKSPACE/{filename}"
 
-        response = client.images.generate(
-            prompt=prompt,
-            model="stabilityai/sdxl-turbo",
-            n=1,
-            size="512x512",
-            response_format="url",
-        )
+        payload = {
+            "prompt": prompt,
+            "model": "stabilityai/sdxl-turbo",
+            "n": 1,
+            "size": "512x512",
+            "response_format": "url",
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
 
         logging.info(f"Image Generated for prompt: {prompt}")
-        url = response.data[0].url
+        url = data["data"][0]["url"]
 
         with open(image_path, "wb") as f:
             f.write(requests.get(url).content)
@@ -426,18 +482,20 @@ class ezlocalai(Extensions):
         if not self.configured:
             raise Exception("ezLocalai provider not configured")
 
-        from openai import OpenAI
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/embeddings"
 
-        client = OpenAI(
-            base_url=self.API_URI,
-            api_key=self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none",
-        )
-
-        response = client.embeddings.create(
-            input=input,
-            model="bge-m3",
-        )
-        return response.data[0].embedding
+        payload = {
+            "input": input,
+            "model": "bge-m3",
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
 
     # Command methods that can be called by the AI
     async def generate_text_command(

@@ -9,14 +9,54 @@ provider rotation system when configured with a valid API key.
 """
 
 import base64
+import json
 import logging
 import time
+import requests
 
 from Extensions import Extensions
-from Globals import getenv, install_package_if_missing
+from Globals import getenv
 
-install_package_if_missing("openai")
-import openai as openai_module
+
+class StreamChunk:
+    """Wrapper class to provide OpenAI SDK-like interface for streaming chunks."""
+
+    def __init__(self, data: dict):
+        self._data = data
+        self.choices = [StreamChoice(c) for c in data.get("choices", [])]
+
+
+class StreamChoice:
+    """Wrapper for streaming choice data."""
+
+    def __init__(self, choice_data: dict):
+        self.delta = StreamDelta(choice_data.get("delta", {}))
+        self.finish_reason = choice_data.get("finish_reason")
+
+
+class StreamDelta:
+    """Wrapper for streaming delta data."""
+
+    def __init__(self, delta_data: dict):
+        self.content = delta_data.get("content")
+        self.role = delta_data.get("role")
+
+
+def parse_sse_stream(response):
+    """Parse Server-Sent Events stream and yield StreamChunk objects."""
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+        if line_str.startswith("data: "):
+            data_str = line_str[6:]  # Remove "data: " prefix
+            if data_str.strip() == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                yield StreamChunk(data)
+            except json.JSONDecodeError:
+                continue
 
 
 class deepseek(Extensions):
@@ -95,9 +135,11 @@ class deepseek(Extensions):
         if not self.configured:
             raise Exception("Deepseek provider not configured")
 
-        openai_module.base_url = self.API_URI
-        openai_module.api_key = self.DEEPSEEK_API_KEY
-        openai_module.api_type = "openai"
+        headers = {
+            "Authorization": f"Bearer {self.DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/chat/completions"
 
         messages = []
         if images:
@@ -125,18 +167,26 @@ class deepseek(Extensions):
             time.sleep(self.WAIT_BETWEEN_REQUESTS)
 
         try:
-            response = openai_module.chat.completions.create(
-                model=self.AI_MODEL,
-                messages=messages,
-                temperature=float(self.AI_TEMPERATURE),
-                max_tokens=4096,
-                top_p=float(self.AI_TOP_P),
-                n=1,
-                stream=stream,
-            )
+            payload = {
+                "model": self.AI_MODEL,
+                "messages": messages,
+                "temperature": float(self.AI_TEMPERATURE),
+                "max_tokens": 4096,
+                "top_p": float(self.AI_TOP_P),
+                "n": 1,
+                "stream": stream,
+            }
+
             if stream:
-                return response
-            return response.choices[0].message.content
+                resp = requests.post(
+                    api_url, headers=headers, json=payload, stream=True, timeout=300
+                )
+                resp.raise_for_status()
+                return parse_sse_stream(resp)
+
+            resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
         except Exception as e:
             logging.info(f"Deepseek API Error: {e}")
             self.failures += 1
