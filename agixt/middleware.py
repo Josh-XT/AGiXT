@@ -399,7 +399,6 @@ class DiscordErrorMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self.logger = logging.getLogger(__name__)
-        self.webhook_url = getenv("DISCORD_WEBHOOK")
 
     async def dispatch(self, request: Request, call_next):
         try:
@@ -416,8 +415,10 @@ class DiscordErrorMiddleware(BaseHTTPMiddleware):
             auth_header = request.headers.get("authorization", "")
             user_email, user_id = extract_user_from_token(auth_header)
 
-            # Send to Discord if configured
-            if self.webhook_url:
+            # Send to Discord if configured - fetch webhook URL at runtime
+            # to ensure it reads from server config cache (loaded after app startup)
+            webhook_url = getenv("DISCORD_WEBHOOK")
+            if webhook_url:
                 await send_discord_error(
                     e, request, user_email=user_email, user_id=user_id
                 )

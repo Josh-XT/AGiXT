@@ -1169,6 +1169,37 @@ class Prompts:
         session.close()
         return result
 
+    def get_server_prompt_by_id(self, prompt_id: str):
+        """Get a specific server-level prompt by ID. Super admin function."""
+        session = get_session()
+        prompt = (
+            session.query(ServerPrompt).filter(ServerPrompt.id == prompt_id).first()
+        )
+
+        if not prompt:
+            session.close()
+            return None
+
+        try:
+            prompt_args = [arg.name for arg in prompt.arguments]
+        except:
+            prompt_args = []
+
+        result = {
+            "id": str(prompt.id),
+            "name": prompt.name,
+            "category": prompt.category.name if prompt.category else "Default",
+            "content": prompt.content,
+            "description": prompt.description,
+            "arguments": prompt_args,
+            "is_internal": prompt.is_internal,
+            "created_at": str(prompt.created_at) if prompt.created_at else None,
+            "updated_at": str(prompt.updated_at) if prompt.updated_at else None,
+        }
+
+        session.close()
+        return result
+
     def add_server_prompt(
         self,
         name: str,
@@ -1349,6 +1380,48 @@ class Prompts:
                     ),
                 }
             )
+
+        session.close()
+        return result
+
+    def get_company_prompt_by_id(self, prompt_id: str, company_id: str = None):
+        """Get a specific company-level prompt by ID. Company admin function."""
+        target_company = company_id or self.company_id
+        if not target_company:
+            return None
+
+        session = get_session()
+        prompt = (
+            session.query(CompanyPrompt)
+            .filter(
+                CompanyPrompt.id == prompt_id,
+                CompanyPrompt.company_id == target_company,
+            )
+            .first()
+        )
+
+        if not prompt:
+            session.close()
+            return None
+
+        try:
+            prompt_args = [arg.name for arg in prompt.arguments]
+        except:
+            prompt_args = []
+
+        result = {
+            "id": str(prompt.id),
+            "name": prompt.name,
+            "category": prompt.category.name if prompt.category else "Default",
+            "content": prompt.content,
+            "description": prompt.description,
+            "arguments": prompt_args,
+            "server_prompt_id": (
+                str(prompt.server_prompt_id) if prompt.server_prompt_id else None
+            ),
+            "created_at": str(prompt.created_at) if prompt.created_at else None,
+            "updated_at": str(prompt.updated_at) if prompt.updated_at else None,
+        }
 
         session.close()
         return result

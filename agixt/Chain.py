@@ -1987,6 +1987,29 @@ class Chain:
         session.close()
         return result
 
+    def get_server_chain_by_id(self, chain_id: str):
+        """Get a specific server-level chain by ID. Super admin function."""
+        session = get_session()
+        chain = session.query(ServerChain).filter(ServerChain.id == chain_id).first()
+
+        if not chain:
+            session.close()
+            return None
+
+        steps = self._get_chain_steps_data(session, chain, "server")
+        result = {
+            "id": str(chain.id),
+            "name": chain.name,
+            "description": chain.description,
+            "steps": steps,
+            "is_internal": chain.is_internal,
+            "created_at": str(chain.created_at) if chain.created_at else None,
+            "updated_at": str(chain.updated_at) if chain.updated_at else None,
+        }
+
+        session.close()
+        return result
+
     def add_server_chain(
         self, name: str, description: str = "", is_internal: bool = False
     ):
@@ -2192,6 +2215,41 @@ class Chain:
                     ),
                 }
             )
+
+        session.close()
+        return result
+
+    def get_company_chain_by_id(self, chain_id: str, company_id: str = None):
+        """Get a specific company-level chain by ID. Company admin function."""
+        target_company = company_id or self.company_id
+        if not target_company:
+            return None
+
+        session = get_session()
+        chain = (
+            session.query(CompanyChain)
+            .filter(
+                CompanyChain.id == chain_id, CompanyChain.company_id == target_company
+            )
+            .first()
+        )
+
+        if not chain:
+            session.close()
+            return None
+
+        steps = self._get_chain_steps_data(session, chain, "company")
+        result = {
+            "id": str(chain.id),
+            "name": chain.name,
+            "description": chain.description,
+            "steps": steps,
+            "server_chain_id": (
+                str(chain.server_chain_id) if chain.server_chain_id else None
+            ),
+            "created_at": str(chain.created_at) if chain.created_at else None,
+            "updated_at": str(chain.updated_at) if chain.updated_at else None,
+        }
 
         session.close()
         return result

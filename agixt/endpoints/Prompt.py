@@ -262,6 +262,24 @@ async def create_server_prompt_v1(
     )
 
 
+@app.get(
+    "/v1/server/prompt/{prompt_id}",
+    tags=["Server Prompts"],
+    summary="Get a server-level prompt by ID",
+    description="Retrieve a specific server-level prompt by its ID. Super admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("server:prompts"))],
+)
+async def get_server_prompt_v1(
+    prompt_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    prompt = Prompts(user=user).get_server_prompt_by_id(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Server prompt not found")
+    return prompt
+
+
 @app.put(
     "/v1/server/prompt/{prompt_id}",
     tags=["Server Prompts"],
@@ -411,6 +429,24 @@ async def create_company_prompt_v1(
         message=f"Company prompt '{prompt.prompt_name}' created.",
         id=prompt_id,
     )
+
+
+@app.get(
+    "/v1/company/prompt/{prompt_id}",
+    tags=["Company Prompts"],
+    summary="Get a company-level prompt by ID",
+    description="Retrieve a specific company-level prompt by its ID. Company admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("company:prompts"))],
+)
+async def get_company_prompt_v1(
+    prompt_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    prompt = Prompts(user=user).get_company_prompt_by_id(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Company prompt not found")
+    return prompt
 
 
 @app.put(

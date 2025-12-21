@@ -608,6 +608,24 @@ async def create_server_chain_v1(
     )
 
 
+@app.get(
+    "/v1/server/chain/{chain_id}",
+    tags=["Server Chains"],
+    summary="Get a server-level chain by ID",
+    description="Retrieve a specific server-level chain by its ID. Super admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("server:chains"))],
+)
+async def get_server_chain_v1(
+    chain_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    chain = Chain(user=user).get_server_chain_by_id(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail="Server chain not found")
+    return chain
+
+
 @app.put(
     "/v1/server/chain/{chain_id}",
     tags=["Server Chains"],
@@ -747,6 +765,24 @@ async def create_company_chain_v1(
         message=f"Company chain '{chain_name.chain_name}' created.",
         id=chain_id,
     )
+
+
+@app.get(
+    "/v1/company/chain/{chain_id}",
+    tags=["Company Chains"],
+    summary="Get a company-level chain by ID",
+    description="Retrieve a specific company-level chain by its ID. Company admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("company:chains"))],
+)
+async def get_company_chain_v1(
+    chain_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    chain = Chain(user=user).get_company_chain_by_id(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail="Company chain not found")
+    return chain
 
 
 @app.put(

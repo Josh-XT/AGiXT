@@ -212,7 +212,7 @@ def get_oauth_providers():
         module_name = filename.replace(".py", "")
 
         try:
-            client_id = os.getenv(f"{module_name.upper()}_CLIENT_ID")
+            client_id = getenv(f"{module_name.upper()}_CLIENT_ID")
             if client_id:
                 providers.append(
                     {
