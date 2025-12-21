@@ -167,6 +167,12 @@ async def get_user(
     # but Stripe subscription checks happen in background
     user_preferences = auth.get_user_preferences_smart()
     companies = auth.get_user_companies_with_roles()
+
+    # Include scopes for each company to eliminate separate /v1/user/scopes calls
+    for company in companies:
+        company_scopes = auth.get_user_scopes(company["id"])
+        company["scopes"] = list(company_scopes)
+
     return {
         "id": auth.user_id,
         "email": user_data.email,
