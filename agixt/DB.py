@@ -5488,6 +5488,27 @@ SERVER_CONFIG_DEFINITIONS = [
         "is_required": False,
     },
     # ========================================
+    # Email Settings (SendGrid)
+    # ========================================
+    {
+        "name": "SENDGRID_API_KEY",
+        "category": "email",
+        "description": "SendGrid API key for sending emails (magic links, invitations). Get at https://app.sendgrid.com/settings/api_keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "SENDGRID_FROM_EMAIL",
+        "category": "email",
+        "description": "Sender email address for SendGrid emails (must be verified in SendGrid)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
     # Extensions Hub
     # ========================================
     {
@@ -6011,11 +6032,14 @@ if __name__ == "__main__":
         from SeedImports import import_all_data
 
         import_all_data()
+    # Import custom logging config to redact sensitive data
+    from logging_config import LOGGING_CONFIG
+
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
         port=7437,
-        log_level=str(getenv("LOG_LEVEL")).lower(),
+        log_config=LOGGING_CONFIG,
         workers=int(getenv("UVICORN_WORKERS")),
         proxy_headers=True,
     )

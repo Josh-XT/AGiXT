@@ -1424,7 +1424,7 @@ class Agent:
 
             if wallet_needs_creation:
                 # Wallet doesn't exist or is incomplete, create and save it
-                logging.info(
+                logging.debug(
                     f"Solana wallet missing or incomplete for agent {agent.name} ({agent.id}). Creating new wallet..."
                 )
                 try:
@@ -1465,7 +1465,7 @@ class Agent:
                         )
 
                     session.commit()
-                    logging.info(
+                    logging.debug(
                         f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
                     )
 

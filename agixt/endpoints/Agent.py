@@ -330,10 +330,7 @@ async def update_agent_settings_v1(
     update_config = agent.update_agent_config(
         new_config=settings.settings, config_key="settings"
     )
-    config = agent.get_agent_config()
-    logging.info(
-        f"Agent {agent_id} updated. New config: {json.dumps(config, indent=2)}"
-    )
+    logging.debug(f"Agent {agent_id} settings updated")
     return ResponseMessage(message=update_config)
 
 

@@ -593,15 +593,15 @@ class UsageTrackingMiddleware(BaseHTTPMiddleware):
                         size_kb = get_data_size_kb(response_body)
 
                         if size_kb > 0:
-                            self.logger.info(
-                                f"BEFORE tracking - path: {path}, size_kb: {size_kb}, user_id: {auth.user_id}"
+                            self.logger.debug(
+                                f"Usage tracking - path: {path}, size_kb: {size_kb}"
                             )
                             # Track as output tokens (1KB = 1 token)
                             result = auth.increase_token_counts(
                                 input_tokens=0, output_tokens=size_kb
                             )
-                            self.logger.info(
-                                f"AFTER tracking - path: {path}, result: {result}"
+                            self.logger.debug(
+                                f"Usage tracked - path: {path}, result: {result}"
                             )
                     except Exception as e:
                         # Log but don't fail the request

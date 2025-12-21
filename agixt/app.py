@@ -44,10 +44,62 @@ this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
+import re
+
+# Patterns to match JWT tokens and other sensitive data
+SENSITIVE_PATTERNS = [
+    (re.compile(r"(authorization=)[^\s&\"'\]]+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(api_key=)[^\s&\"'\]]+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(token=)[^\s&\"'\]]+", re.IGNORECASE), r"\1[REDACTED]"),
+]
+
+
+def redact_sensitive_data(text):
+    """Redact sensitive data from a string."""
+    if not isinstance(text, str):
+        return text
+    result = text
+    for pattern, replacement in SENSITIVE_PATTERNS:
+        result = pattern.sub(replacement, result)
+    return result
+
+
+# Custom logging filter to redact sensitive information from logs
+class SensitiveDataFilter(logging.Filter):
+    """Filter to redact JWT tokens and other sensitive data from log messages."""
+
+    def filter(self, record):
+        # Handle direct message
+        if record.msg:
+            record.msg = redact_sensitive_data(str(record.msg))
+        # Handle args - uvicorn uses %s formatting with args
+        if record.args:
+            new_args = []
+            for arg in record.args:
+                new_args.append(redact_sensitive_data(str(arg)) if isinstance(arg, str) else arg)
+            record.args = tuple(new_args)
+        return True
+
+
+# Apply filter BEFORE basicConfig to catch all loggers
+sensitive_filter = SensitiveDataFilter()
+
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+# Add the sensitive data filter to root logger and all handlers
+logging.root.addFilter(sensitive_filter)
+for handler in logging.root.handlers:
+    handler.addFilter(sensitive_filter)
+
+# Also add to uvicorn loggers specifically (they may be created lazily)
+for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
+    uvi_logger = logging.getLogger(logger_name)
+    uvi_logger.addFilter(sensitive_filter)
+    for handler in uvi_logger.handlers:
+        handler.addFilter(sensitive_filter)
 workspace_manager = WorkspaceManager()
 task_monitor = TaskMonitor()
 
@@ -61,7 +113,7 @@ async def lifespan(app: FastAPI):
         from Globals import load_server_config_cache
 
         load_server_config_cache()
-        logging.info("Server config cache loaded for worker")
+        logging.debug("Server config cache loaded for worker")
 
         # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
         # to avoid multiple workers trying to clone the same repositories
