@@ -1017,11 +1017,12 @@ class MagicalAuth:
 
             role_id = user_company.role_id
 
-            # Super admin has all scopes - return wildcard
+            # Super admin gets all scopes that exist in the database
+            # This ensures they only see menu items for extensions that are actually installed
+            # (Extensions register their scopes when they load)
             if role_id == 0:
-                # Return '*' wildcard which grants all permissions
-                # The frontend and has_scope() will treat '*' as having all scopes
-                return {"*"}
+                all_scopes = db.query(Scope).all()
+                return {s.name for s in all_scopes}
 
             # Get scopes from default role (expanded individual scopes)
             default_role_scopes_db = (
