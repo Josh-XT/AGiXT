@@ -14,7 +14,12 @@ from ApiClient import (
     get_api_client,
 )
 from MagicalAuth import require_scope
-from Agent import can_user_access_agent, clone_agent as clone_agent_func
+from Agent import (
+    can_user_access_agent,
+    clone_agent as clone_agent_func,
+    get_agent_commands_only,
+)
+from MagicalAuth import get_user_id
 from Models import (
     AgentNewName,
     AgentPrompt,
@@ -653,9 +658,10 @@ async def prompt_agent_v1(
 async def get_commands_v1(
     agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ):
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
-    return {"commands": agent.AGENT_CONFIG["commands"]}
+    # Use lightweight function instead of creating full Agent object
+    user_id = get_user_id(user=user)
+    commands = get_agent_commands_only(agent_id=agent_id, user_id=user_id)
+    return {"commands": commands}
 
 
 @app.patch(

@@ -13,6 +13,8 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Boolean,
+    LargeBinary,
+    Index,
     event,
     or_,
     func,
@@ -550,6 +552,48 @@ class OAuthProvider(Base):
         default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(String, default="", nullable=False)
+
+
+class ResponseCache(Base):
+    """
+    Database-backed response cache for sharing cached responses across all workers.
+
+    This table stores cached API responses with automatic TTL expiration.
+    Using the database instead of in-memory caching allows all uvicorn workers
+    to share the same cache, eliminating redundant API calls and database queries.
+
+    The cache is keyed by user_id + cache_key (hash of path + query string).
+    """
+
+    __tablename__ = "response_cache"
+
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # User ID for per-user cache isolation
+    user_id = Column(String, nullable=False, index=True)
+    # Hash of path + query string
+    cache_key = Column(String, nullable=False, index=True)
+    # Original path (for debugging/monitoring)
+    path = Column(String, nullable=False)
+    # Cached response body (compressed with zlib for efficiency)
+    response_body = Column(LargeBinary, nullable=False)
+    # Content type of the response
+    content_type = Column(String, default="application/json")
+    # HTTP status code
+    status_code = Column(Integer, default=200)
+    # When this cache entry was created
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    # When this entry expires (for efficient cleanup queries)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+    # Composite unique constraint: one cache entry per user+key
+    __table_args__ = (
+        Index("ix_response_cache_user_key", "user_id", "cache_key", unique=True),
+        Index("ix_response_cache_expires", "expires_at"),
+    )
 
 
 class ServerConfig(Base):
@@ -4513,6 +4557,56 @@ def setup_default_role_scopes():
 
         db.commit()
         logging.info("Set up default role scope mappings")
+
+
+def migrate_response_cache_table():
+    """
+    Migration function to create the response_cache table for shared caching across workers.
+    This table stores cached API responses with automatic TTL expiration.
+    """
+    if engine is None:
+        return
+
+    try:
+        inspector = inspect(engine)
+        existing_tables = inspector.get_table_names()
+
+        if "response_cache" not in existing_tables:
+            ResponseCache.__table__.create(engine)
+            logging.info("Created response_cache table")
+        else:
+            logging.debug("response_cache table already exists")
+
+    except Exception as e:
+        logging.error(f"Error migrating response_cache table: {e}")
+
+
+def cleanup_expired_cache():
+    """
+    Remove expired cache entries from the database.
+    Should be called periodically (e.g., on startup, or via scheduled task).
+    """
+    if engine is None:
+        return 0
+
+    try:
+        with get_db_session() as session:
+            from datetime import datetime
+
+            result = session.execute(
+                text("DELETE FROM response_cache WHERE expires_at < :now"),
+                {"now": datetime.utcnow()},
+            )
+            deleted_count = result.rowcount
+            session.commit()
+
+            if deleted_count > 0:
+                logging.info(f"Cleaned up {deleted_count} expired cache entries")
+
+            return deleted_count
+    except Exception as e:
+        logging.warning(f"Error cleaning up expired cache: {e}")
+        return 0
 
 
 def migrate_tiered_prompts_chains_tables():

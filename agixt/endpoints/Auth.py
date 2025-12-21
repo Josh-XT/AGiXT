@@ -163,7 +163,9 @@ async def get_user(
     auth = MagicalAuth(token=token)
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     user_data = auth.login(ip_address=client_ip)
-    user_preferences = auth.get_user_preferences()
+    # Smart preferences: fast token balance check (blocks if no tokens),
+    # but Stripe subscription checks happen in background
+    user_preferences = auth.get_user_preferences_smart()
     companies = auth.get_user_companies_with_roles()
     return {
         "id": auth.user_id,

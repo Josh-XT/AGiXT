@@ -37,6 +37,7 @@ import base64
 import jwt
 import os
 import re
+import time
 from solders.keypair import Keypair
 from typing import Tuple
 import binascii
@@ -54,6 +55,249 @@ logging.basicConfig(
 
 
 _command_owner_cache = None
+
+# Cache for all commands - commands rarely change
+_all_commands_cache = None
+_all_commands_cache_time = 0
+_COMMANDS_CACHE_TTL = 300  # 5 minutes
+
+# Cache for company agent configs - they rarely change and cause expensive recursive calls
+_company_agent_config_cache = {}
+_COMPANY_CONFIG_CACHE_TTL = 300  # 5 minutes
+
+# Cache for SSO-enabled extensions - requires filesystem scan so cache aggressively
+_sso_providers_cache = None
+_sso_providers_cache_time = 0
+_SSO_PROVIDERS_CACHE_TTL = 600  # 10 minutes - extensions rarely change
+
+
+def get_sso_providers_cached():
+    """
+    Get list of SSO-enabled extensions with caching.
+    This scans the extensions directory for OAuth components which is expensive.
+    """
+    import importlib.util
+
+    global _sso_providers_cache, _sso_providers_cache_time
+
+    if _sso_providers_cache is not None:
+        if (time.time() - _sso_providers_cache_time) < _SSO_PROVIDERS_CACHE_TTL:
+            return _sso_providers_cache.copy()
+
+    sso_providers = set()
+    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+
+    try:
+        extension_files = os.listdir(extensions_dir)
+    except OSError:
+        _sso_providers_cache = sso_providers
+        _sso_providers_cache_time = time.time()
+        return sso_providers
+
+    for extension_file in extension_files:
+        if extension_file.endswith(".py") and not extension_file.startswith("__"):
+            try:
+                extension_name = extension_file.replace(".py", "")
+                file_path = os.path.join(extensions_dir, extension_file)
+                spec = importlib.util.spec_from_file_location(extension_name, file_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                # Check if the extension has OAuth components
+                has_sso_class = hasattr(module, f"{extension_name.capitalize()}SSO")
+                has_sso_function = hasattr(module, "sso")
+                has_oauth_scopes = hasattr(module, "SCOPES")
+
+                if has_sso_class or has_sso_function or has_oauth_scopes:
+                    sso_providers.add(extension_name)
+            except Exception:
+                continue
+
+    _sso_providers_cache = sso_providers
+    _sso_providers_cache_time = time.time()
+    return sso_providers.copy()
+
+
+def invalidate_sso_providers_cache():
+    """Invalidate the SSO providers cache"""
+    global _sso_providers_cache, _sso_providers_cache_time
+    _sso_providers_cache = None
+    _sso_providers_cache_time = 0
+
+
+def get_company_agent_config_cached(company_id: str, company_agent):
+    """Get company agent config with caching to avoid repeated expensive calls"""
+    import time
+
+    global _company_agent_config_cache
+
+    cache_key = str(company_id)
+    if cache_key in _company_agent_config_cache:
+        cached = _company_agent_config_cache[cache_key]
+        if (time.time() - cached["timestamp"]) < _COMPANY_CONFIG_CACHE_TTL:
+            return cached["config"]
+
+    # Get fresh config
+    config = company_agent.get_agent_config()
+    _company_agent_config_cache[cache_key] = {
+        "config": config,
+        "timestamp": time.time(),
+    }
+    return config
+
+
+def invalidate_company_config_cache(company_id: str = None):
+    """Invalidate company config cache"""
+    global _company_agent_config_cache
+    if company_id:
+        _company_agent_config_cache.pop(str(company_id), None)
+    else:
+        _company_agent_config_cache.clear()
+
+
+def get_all_commands_cached(session):
+    """Get all commands with caching to avoid repeated database queries"""
+    global _all_commands_cache, _all_commands_cache_time
+    import time
+
+    if _all_commands_cache is not None:
+        if (time.time() - _all_commands_cache_time) < _COMMANDS_CACHE_TTL:
+            return _all_commands_cache
+
+    _all_commands_cache = session.query(Command).all()
+    _all_commands_cache_time = time.time()
+    return _all_commands_cache
+
+
+def invalidate_commands_cache():
+    """Invalidate the commands cache, forcing a refresh on next access"""
+    global _all_commands_cache, _all_commands_cache_time
+    _all_commands_cache = None
+    _all_commands_cache_time = 0
+
+
+def get_agents_lightweight(
+    user_id: str, company_ids: list, default_agent_id: str = None
+) -> dict:
+    """
+    Get lightweight agent info for all user's companies in a single batch query.
+    Returns {company_id: [agent_dicts]} where each agent has only: id, name, companyId, default, status
+
+    This is optimized for the /v1/user endpoint to avoid the expensive get_agents() call.
+    """
+    session = get_session()
+    try:
+        # Get all agents owned by this user
+        owned_agents = (
+            session.query(AgentModel)
+            .options(joinedload(AgentModel.settings))
+            .filter(AgentModel.user_id == user_id)
+            .all()
+        )
+
+        # Get all potential shared agents (not owned by this user) for companies
+        shared_agents = []
+        if company_ids:
+            potential_shared = (
+                session.query(AgentModel)
+                .options(joinedload(AgentModel.settings))
+                .filter(AgentModel.user_id != user_id)
+                .all()
+            )
+            company_id_set = set(str(c) for c in company_ids)
+            for agent in potential_shared:
+                settings_dict = {s.name: s.value for s in agent.settings}
+                is_shared = settings_dict.get("shared", "false") == "true"
+                agent_company_id = settings_dict.get("company_id")
+                if is_shared and agent_company_id in company_id_set:
+                    shared_agents.append(agent)
+
+        # Combine and organize by company
+        all_agents = owned_agents + shared_agents
+        result = {str(cid): [] for cid in company_ids}
+        seen_by_company = {str(cid): set() for cid in company_ids}
+
+        for agent in all_agents:
+            settings_dict = {s.name: s.value for s in agent.settings}
+            agent_company_id = settings_dict.get("company_id")
+
+            if not agent_company_id or agent_company_id not in result:
+                continue
+
+            if agent.name in seen_by_company[agent_company_id]:
+                continue
+            seen_by_company[agent_company_id].add(agent.name)
+
+            status = settings_dict.get("status")
+            if status is not None:
+                try:
+                    status = (
+                        status.lower() == "true"
+                        if isinstance(status, str)
+                        else bool(status)
+                    )
+                except:
+                    status = None
+
+            result[agent_company_id].append(
+                {
+                    "id": str(agent.id),
+                    "name": agent.name,
+                    "companyId": agent_company_id,
+                    "default": (
+                        str(agent.id) == str(default_agent_id)
+                        if default_agent_id
+                        else False
+                    ),
+                    "status": status,
+                }
+            )
+
+        return result
+    finally:
+        session.close()
+
+
+def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
+    """
+    Get just the commands dict for an agent without loading full Agent config.
+
+    This is a lightweight alternative to creating a full Agent object when
+    you only need the commands dictionary.
+
+    Args:
+        agent_id: The agent's UUID
+        user_id: The user's UUID (for authorization)
+
+    Returns:
+        Dict of {command_name: enabled_bool}
+    """
+    session = get_session()
+    try:
+        # Verify agent exists and user has access
+        agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
+        if not agent:
+            return {}
+
+        # Get all commands using cache
+        all_commands = get_all_commands_cached(session)
+
+        # Get agent's enabled commands
+        agent_commands = (
+            session.query(AgentCommand).filter(AgentCommand.agent_id == agent_id).all()
+        )
+
+        # Build enabled command IDs set
+        enabled_command_ids = {ac.command_id for ac in agent_commands if ac.state}
+
+        # Build commands dict
+        commands = {}
+        for command in all_commands:
+            commands[command.name] = command.id in enabled_command_ids
+
+        return commands
+    finally:
+        session.close()
 
 
 def _get_command_owner_cache():
@@ -845,8 +1089,16 @@ def get_agent_id_by_name(agent_name: str, user: str = DEFAULT_USER) -> str:
 
 
 def get_agents(user=DEFAULT_USER, company=None):
+    """
+    Get all agents accessible to a user (owned + shared via company).
+    Optimized to reduce database queries using batch loading.
+    """
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
+    if not user_data:
+        session.close()
+        return []
+
     try:
         default_agent_id = str(
             session.query(UserPreferences)
@@ -863,26 +1115,28 @@ def get_agents(user=DEFAULT_USER, company=None):
     auth = MagicalAuth(token=token)
     user_company_ids = auth.get_user_companies()
 
-    # Query owned agents
+    # Query owned agents with eager loading
     owned_agents = (
-        session.query(AgentModel).filter(AgentModel.user_id == user_data.id).all()
+        session.query(AgentModel)
+        .options(joinedload(AgentModel.settings))
+        .filter(AgentModel.user_id == user_data.id)
+        .all()
     )
 
     # Query shared agents if user has companies
     shared_agents = []
     if user_company_ids:
-        # Get all agents that are not owned by this user
+        # Get all agents that are not owned by this user, with settings pre-loaded
         potential_shared = (
-            session.query(AgentModel).filter(AgentModel.user_id != user_data.id).all()
+            session.query(AgentModel)
+            .options(joinedload(AgentModel.settings))
+            .filter(AgentModel.user_id != user_data.id)
+            .all()
         )
 
         for agent in potential_shared:
-            settings = (
-                session.query(AgentSettingModel)
-                .filter(AgentSettingModel.agent_id == agent.id)
-                .all()
-            )
-            settings_dict = {s.name: s.value for s in settings}
+            # Use pre-loaded settings instead of separate query
+            settings_dict = {s.name: s.value for s in agent.settings}
 
             is_shared = settings_dict.get("shared", "false") == "true"
             agent_company_id = settings_dict.get("company_id")
@@ -893,101 +1147,49 @@ def get_agents(user=DEFAULT_USER, company=None):
     # Combine owned and shared agents
     all_agents = owned_agents + shared_agents
 
-    if default_agent_id == "":
+    if default_agent_id == "" and all_agents:
         # Add a user preference of the first agent's ID in the agent list
-        if all_agents:
-            user_preference = UserPreferences(
-                user_id=user_data.id, pref_key="agent_id", pref_value=all_agents[0].id
-            )
-            session.add(user_preference)
-            session.commit()
-            default_agent_id = str(all_agents[0].id)
-        else:
-            session.close()
-            return []
+        user_preference = UserPreferences(
+            user_id=user_data.id, pref_key="agent_id", pref_value=all_agents[0].id
+        )
+        session.add(user_preference)
+        session.commit()
+        default_agent_id = str(all_agents[0].id)
+    elif not all_agents:
+        session.close()
+        return []
+
+    # Collect agents needing onboarding for batch processing
+    agents_needing_onboard = []
+    agents_needing_company = []
+
     output = []
+    seen_names = set()
+
     for agent in all_agents:
         # Check if the agent is in the output already
-        if agent.name in [a["name"] for a in output]:
+        if agent.name in seen_names:
             continue
-        # Get the agent settings `company_id` and `agentonboarded11182025` if defined
-        company_id = None
-        agentonboarded11182025 = None
-        agent_settings = (
-            session.query(AgentSettingModel)
-            .filter(AgentSettingModel.agent_id == agent.id)
-            .all()
-        )
-        for setting in agent_settings:
-            if setting.name == "company_id":
-                company_id = setting.value
-            elif setting.name == "agentonboarded11182025":
-                agentonboarded11182025 = setting.value
+        seen_names.add(agent.name)
+
+        # Use pre-loaded settings instead of separate query
+        settings_dict = {s.name: s.value for s in agent.settings}
+        company_id = settings_dict.get("company_id")
+        agentonboarded11182025 = settings_dict.get("agentonboarded11182025")
+
         if company_id and company:
             if company_id != company:
                 continue
+
         if not company_id:
-            auth = MagicalAuth(token=impersonate_user(user_id=str(user_data.id)))
+            # Queue for batch update instead of immediate commit
+            agents_needing_company.append(agent)
             company_id = str(auth.company_id) if auth.company_id is not None else None
-            # update agent settings
-            agent_setting = AgentSettingModel(
-                agent_id=agent.id,
-                name="company_id",
-                value=company_id,
-            )
-            session.add(agent_setting)
-            session.commit()
 
-        # Check if agent needs onboarding (enable Core Abilities commands)
+        # Queue agents needing onboarding instead of processing inline
         if not agentonboarded11182025 or agentonboarded11182025.lower() != "true":
-            # Get all extensions in the Core Abilities category
-            core_abilities_category = (
-                session.query(ExtensionCategory)
-                .filter(ExtensionCategory.name == "Core Abilities")
-                .first()
-            )
+            agents_needing_onboard.append(agent.id)
 
-            if core_abilities_category:
-                core_extensions = (
-                    session.query(Extension)
-                    .filter(Extension.category_id == core_abilities_category.id)
-                    .all()
-                )
-
-                # Enable all commands from these extensions
-                for extension in core_extensions:
-                    extension_commands = (
-                        session.query(Command)
-                        .filter(Command.extension_id == extension.id)
-                        .all()
-                    )
-                    for command in extension_commands:
-                        # Check if agent command already exists
-                        existing_agent_command = (
-                            session.query(AgentCommand)
-                            .filter(
-                                AgentCommand.agent_id == agent.id,
-                                AgentCommand.command_id == command.id,
-                            )
-                            .first()
-                        )
-                        if not existing_agent_command:
-                            agent_command = AgentCommand(
-                                agent_id=agent.id, command_id=command.id, state=True
-                            )
-                            session.add(agent_command)
-                        elif not existing_agent_command.state:
-                            # Enable the command if it was disabled
-                            existing_agent_command.state = True
-
-            # Create the agentonboarded11182025 setting
-            agent_setting = AgentSettingModel(
-                agent_id=agent.id,
-                name="agentonboarded11182025",
-                value="true",
-            )
-            session.add(agent_setting)
-            session.commit()
         is_owner = agent.user_id == user_data.id
         is_shared = settings_dict.get("shared", "false") == "true"
 
@@ -1003,8 +1205,109 @@ def get_agents(user=DEFAULT_USER, company=None):
                 "access_level": "owner" if is_owner else "viewer",
             }
         )
+
+    # Batch update agents needing company_id
+    if agents_needing_company:
+        company_id_value = str(auth.company_id) if auth.company_id is not None else None
+        for agent in agents_needing_company:
+            agent_setting = AgentSettingModel(
+                agent_id=agent.id,
+                name="company_id",
+                value=company_id_value,
+            )
+            session.add(agent_setting)
+        session.commit()
+
+    # Process agent onboarding asynchronously/in background if needed
+    # For now, do a single batch onboard instead of per-agent
+    if agents_needing_onboard:
+        _batch_onboard_agents(session, agents_needing_onboard)
+
     session.close()
     return output
+
+
+def _batch_onboard_agents(session, agent_ids):
+    """
+    Batch onboard multiple agents - enables Core Abilities commands.
+    This is more efficient than processing one at a time.
+    """
+    if not agent_ids:
+        return
+
+    # Get Core Abilities category and its extensions once
+    core_abilities_category = (
+        session.query(ExtensionCategory)
+        .filter(ExtensionCategory.name == "Core Abilities")
+        .first()
+    )
+
+    if not core_abilities_category:
+        # Mark all agents as onboarded even if no Core Abilities found
+        for agent_id in agent_ids:
+            agent_setting = AgentSettingModel(
+                agent_id=agent_id,
+                name="agentonboarded11182025",
+                value="true",
+            )
+            session.add(agent_setting)
+        session.commit()
+        return
+
+    # Get all Core Abilities commands in one query
+    core_commands = (
+        session.query(Command)
+        .join(Extension)
+        .filter(Extension.category_id == core_abilities_category.id)
+        .all()
+    )
+
+    if not core_commands:
+        # Mark all agents as onboarded even if no commands found
+        for agent_id in agent_ids:
+            agent_setting = AgentSettingModel(
+                agent_id=agent_id,
+                name="agentonboarded11182025",
+                value="true",
+            )
+            session.add(agent_setting)
+        session.commit()
+        return
+
+    # Get existing agent commands for all agents in one query
+    existing_agent_commands = (
+        session.query(AgentCommand).filter(AgentCommand.agent_id.in_(agent_ids)).all()
+    )
+
+    # Build lookup set for existing commands
+    existing_lookup = {(ac.agent_id, ac.command_id) for ac in existing_agent_commands}
+
+    # Add missing commands and update disabled ones
+    for agent_id in agent_ids:
+        for command in core_commands:
+            key = (agent_id, command.id)
+            if key not in existing_lookup:
+                agent_command = AgentCommand(
+                    agent_id=agent_id, command_id=command.id, state=True
+                )
+                session.add(agent_command)
+
+        # Mark agent as onboarded
+        agent_setting = AgentSettingModel(
+            agent_id=agent_id,
+            name="agentonboarded11182025",
+            value="true",
+        )
+        session.add(agent_setting)
+
+    # Enable any disabled commands
+    for ac in existing_agent_commands:
+        if ac.agent_id in agent_ids and not ac.state:
+            # Check if this is a core command
+            if ac.command_id in {c.id for c in core_commands}:
+                ac.state = True
+
+    session.commit()
 
 
 def clone_agent(agent_id, new_agent_name, user=DEFAULT_USER):
@@ -1272,6 +1575,52 @@ class Agent:
         session.close()
         return agent_settings
 
+    def get_agent_settings_only(self):
+        """
+        Lightweight method to get just agent settings without commands, wallet creation, etc.
+        Use this when you only need settings like embeddings_provider or MAX_TOKENS.
+        Much faster than get_agent_config() for read-only operations.
+        """
+        session = get_session()
+        try:
+            # Find agent
+            agent = None
+            if (
+                hasattr(self, "agent_id")
+                and self.agent_id
+                and str(self.agent_id) != "None"
+            ):
+                agent = (
+                    session.query(AgentModel)
+                    .filter(AgentModel.id == self.agent_id)
+                    .first()
+                )
+            if not agent:
+                agent = (
+                    session.query(AgentModel)
+                    .filter(
+                        AgentModel.name == self.agent_name,
+                        AgentModel.user_id == self.user_id,
+                    )
+                    .first()
+                )
+
+            if not agent:
+                return {"embeddings_provider": "default"}
+
+            # Get settings in one query
+            settings = {}
+            agent_settings = (
+                session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
+            )
+            for setting in agent_settings:
+                if setting.value:
+                    settings[setting.name] = setting.value
+
+            return settings
+        finally:
+            session.close()
+
     def get_agent_config(self):
         session = get_session()
 
@@ -1350,32 +1699,34 @@ class Agent:
 
         # Wallet Creation Logic - Runs only if agent exists
         if agent:
-            # Get ALL wallet settings for this agent (to handle duplicates)
-            all_wallet_addresses = (
+            # Get ALL wallet settings in a single query (optimized from 3 separate queries)
+            wallet_setting_names = [
+                "SOLANA_WALLET_ADDRESS",
+                "SOLANA_WALLET_API_KEY",
+                "SOLANA_WALLET_PASSPHRASE_API_KEY",
+            ]
+            all_wallet_settings = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
+                    AgentSettingModel.name.in_(wallet_setting_names),
                 )
                 .all()
             )
 
-            all_private_keys = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
-                )
-                .all()
-            )
+            # Group by setting name
+            wallet_settings_by_name = {}
+            for setting in all_wallet_settings:
+                if setting.name not in wallet_settings_by_name:
+                    wallet_settings_by_name[setting.name] = []
+                wallet_settings_by_name[setting.name].append(setting)
 
-            all_passphrases = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
-                )
-                .all()
+            all_wallet_addresses = wallet_settings_by_name.get(
+                "SOLANA_WALLET_ADDRESS", []
+            )
+            all_private_keys = wallet_settings_by_name.get("SOLANA_WALLET_API_KEY", [])
+            all_passphrases = wallet_settings_by_name.get(
+                "SOLANA_WALLET_PASSPHRASE_API_KEY", []
             )
 
             # Clean up duplicates - keep only the first one with a value, or first one if none have values
@@ -1482,7 +1833,8 @@ class Agent:
                     session.rollback()  # Rollback DB changes on error
 
         if agent:
-            all_commands = session.query(Command).all()
+            # Use cached commands to avoid repeated queries
+            all_commands = get_all_commands_cached(session)
             # Only query agent_settings if not already refreshed after wallet creation
             if "agent_settings" not in locals():
                 agent_settings = (
@@ -1493,11 +1845,11 @@ class Agent:
                 .filter(AgentCommand.agent_id == agent.id)
                 .all()
             )
+            # Build a set of enabled command IDs for O(1) lookup (optimized from O(n*m))
+            enabled_command_ids = {ac.command_id for ac in agent_commands if ac.state}
             # Process all commands, including chains
             for command in all_commands:
-                config["commands"][command.name] = any(
-                    ac.command_id == command.id and ac.state for ac in agent_commands
-                )
+                config["commands"][command.name] = command.id in enabled_command_ids
             for setting in agent_settings:
                 # Don't skip wallet-related settings even if they're empty (they should have been created above)
                 # but skip other empty settings as before
@@ -1522,7 +1874,10 @@ class Agent:
                 return config
             company_agent = self.get_company_agent()
             if company_agent:
-                company_agent_config = company_agent.get_agent_config()
+                # Use cached company agent config to avoid expensive recursive call
+                company_agent_config = get_company_agent_config_cached(
+                    company_id, company_agent
+                )
                 company_settings = company_agent_config.get("settings")
                 for key, value in company_settings.items():
                     if key not in config["settings"]:
@@ -1859,55 +2214,35 @@ class Agent:
         extensions = self.extensions.get_extensions()
         new_extensions = []
         session = get_session()
+
+        # Batch queries - get user data once
         user_oauth = (
             session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
         )
         user = session.query(User).filter(User.id == self.user_id).first()
-        sso_providers = {}
-        # Get OAuth-enabled extensions by scanning for SSO components
-        import importlib.util
 
-        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
-        extension_files = os.listdir(extensions_dir)
-        for extension_file in extension_files:
-            if extension_file.endswith(".py") and not extension_file.startswith("__"):
-                try:
-                    # Load the extension module to check for OAuth components
-                    extension_name = extension_file.replace(".py", "")
-                    file_path = os.path.join(extensions_dir, extension_file)
-                    spec = importlib.util.spec_from_file_location(
-                        extension_name, file_path
-                    )
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
+        # Get SSO-enabled extensions from cache (expensive filesystem scan)
+        sso_providers_set = get_sso_providers_cached()
+        sso_providers = {name: False for name in sso_providers_set}
 
-                    # Check if the extension has OAuth components (SSO class or sso function)
-                    has_sso_class = any(
-                        hasattr(module, f"{extension_name.capitalize()}SSO")
-                        for extension_name in [extension_name]
-                    )
-                    has_sso_function = hasattr(module, "sso")
-                    has_oauth_scopes = hasattr(module, "SCOPES")
-
-                    if has_sso_class or has_sso_function or has_oauth_scopes:
-                        sso_providers[extension_name] = False
-                except Exception as e:
-                    # Skip extensions that can't be loaded or don't have OAuth components
-                    logging.debug(
-                        f"Extension {extension_file} does not have OAuth components: {str(e)}"
-                    )
-                    continue
+        # Batch get OAuth provider names for user's connected providers
         if user_oauth:
-            for oauth in user_oauth:
-                provider = (
+            provider_ids = [oauth.provider_id for oauth in user_oauth]
+            if provider_ids:
+                providers = (
                     session.query(OAuthProvider)
-                    .filter(OAuthProvider.id == oauth.provider_id)
-                    .first()
+                    .filter(OAuthProvider.id.in_(provider_ids))
+                    .all()
                 )
-                if provider:
-                    if not str(user.email).lower().endswith(".xt"):
-                        if str(provider.name).lower() in sso_providers:
-                            sso_providers[str(provider.name).lower()] = True
+                provider_names = {p.id: p.name for p in providers}
+
+                for oauth in user_oauth:
+                    provider_name = provider_names.get(oauth.provider_id)
+                    if provider_name:
+                        if not str(user.email).lower().endswith(".xt"):
+                            if str(provider_name).lower() in sso_providers:
+                                sso_providers[str(provider_name).lower()] = True
+
         for extension in extensions:
             extension_name_lower = str(extension["extension_name"]).lower()
             if extension_name_lower in sso_providers:

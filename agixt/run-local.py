@@ -11,52 +11,177 @@ import sys
 import signal
 import subprocess
 import logging
+import time
 from datetime import datetime
 from typing import Optional
 from Globals import getenv
 
 
+class StartupTimer:
+    """Track startup timing for performance analysis"""
+
+    def __init__(self):
+        self.start_time = time.perf_counter()
+        self.timings = []
+
+    def mark(self, label: str):
+        """Record a timing checkpoint"""
+        elapsed = (time.perf_counter() - self.start_time) * 1000
+        self.timings.append((label, elapsed))
+        return elapsed
+
+    def section_start(self):
+        """Start timing a section"""
+        return time.perf_counter()
+
+    def section_end(self, label: str, section_start: float):
+        """End timing a section and record it"""
+        elapsed = (time.perf_counter() - section_start) * 1000
+        total = (time.perf_counter() - self.start_time) * 1000
+        self.timings.append((label, total, elapsed))
+        return elapsed
+
+    def report(self, logger):
+        """Print the timing report"""
+        logger.info("=" * 70)
+        logger.info("⏱️  STARTUP TIMING REPORT")
+        logger.info("=" * 70)
+        for entry in self.timings:
+            if len(entry) == 2:
+                label, total = entry
+                logger.info(f"  {label}: {total:.1f}ms total")
+            else:
+                label, total, section = entry
+                logger.info(f"  {label}: {section:.1f}ms (total: {total:.1f}ms)")
+        total_time = (time.perf_counter() - self.start_time) * 1000
+        logger.info("-" * 70)
+        logger.info(
+            f"  TOTAL STARTUP TIME: {total_time:.1f}ms ({total_time/1000:.2f}s)"
+        )
+        logger.info("=" * 70)
+
+
+startup_timer: Optional[StartupTimer] = None
+
+
 async def initialize_database(is_restart=False):
     """Initialize database like DB.py does"""
+    global startup_timer
     try:
         # Import DB module to trigger database initialization
+        section_start = startup_timer.section_start()
         import DB
 
-        # Create tables
-        DB.Base.metadata.create_all(DB.engine)
+        startup_timer.section_end("DB module import", section_start)
 
-        # Run all migrations
+        # Create tables
+        section_start = startup_timer.section_start()
+        DB.Base.metadata.create_all(DB.engine)
+        startup_timer.section_end("Create tables (metadata.create_all)", section_start)
+
+        # Run all migrations - time each one
+        section_start = startup_timer.section_start()
         DB.migrate_company_table()
+        startup_timer.section_end("migrate_company_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_payment_transaction_table()
+        startup_timer.section_end("migrate_payment_transaction_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_extension_table()
+        startup_timer.section_end("migrate_extension_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_webhook_outgoing_table()
+        startup_timer.section_end("migrate_webhook_outgoing_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_user_table()
+        startup_timer.section_end("migrate_user_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_discarded_context_table()
+        startup_timer.section_end("migrate_discarded_context_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_cleanup_duplicate_wallet_settings()
+        startup_timer.section_end(
+            "migrate_cleanup_duplicate_wallet_settings", section_start
+        )
+
+        section_start = startup_timer.section_start()
         DB.migrate_extension_settings_tables()
+        startup_timer.section_end("migrate_extension_settings_tables", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_server_config_categories()
+        startup_timer.section_end("migrate_server_config_categories", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_company_storage_settings_table()
+        startup_timer.section_end(
+            "migrate_company_storage_settings_table", section_start
+        )
+
+        section_start = startup_timer.section_start()
         DB.migrate_tiered_prompts_chains_tables()
+        startup_timer.section_end("migrate_tiered_prompts_chains_tables", section_start)
+
+        section_start = startup_timer.section_start()
+        DB.migrate_response_cache_table()
+        startup_timer.section_end("migrate_response_cache_table", section_start)
+
+        # Clean up expired cache entries on startup
+        section_start = startup_timer.section_start()
+        DB.cleanup_expired_cache()
+        startup_timer.section_end("cleanup_expired_cache", section_start)
 
         # Initialize extension tables
+        section_start = startup_timer.section_start()
         DB.initialize_extension_tables()
+        startup_timer.section_end("initialize_extension_tables", section_start)
 
         # Setup default data
+        section_start = startup_timer.section_start()
         DB.setup_default_extension_categories()
+        startup_timer.section_end("setup_default_extension_categories", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_extensions_to_new_categories()
+        startup_timer.section_end("migrate_extensions_to_new_categories", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_role_table()
+        startup_timer.section_end("migrate_role_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.setup_default_roles()
+        startup_timer.section_end("setup_default_roles", section_start)
+
+        section_start = startup_timer.section_start()
         DB.setup_default_scopes()
+        startup_timer.section_end("setup_default_scopes", section_start)
+
+        section_start = startup_timer.section_start()
         DB.setup_default_role_scopes()
+        startup_timer.section_end("setup_default_role_scopes", section_start)
+
+        section_start = startup_timer.section_start()
         DB.seed_server_config_from_env()
+        startup_timer.section_end("seed_server_config_from_env", section_start)
 
         # Handle seed data - only on initial boot, not on restarts
         if not is_restart:
             seed_data = str(getenv("SEED_DATA")).lower() == "true"
             if seed_data:
+                section_start = startup_timer.section_start()
                 from SeedImports import import_all_data
 
                 import_all_data()
+                startup_timer.section_end("seed_data import_all_data", section_start)
+
+        startup_timer.mark("Database initialization complete")
 
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
@@ -115,11 +240,13 @@ async def check_health() -> bool:
 
 async def start_service(is_restart=False):
     """Start the uvicorn process for the first time."""
-    global uvicorn_process
+    global uvicorn_process, startup_timer
 
     try:
         # Initialize database first (like DB.py does)
+        section_start = startup_timer.section_start()
         await initialize_database(is_restart=is_restart)
+        startup_timer.section_end("Total database initialization", section_start)
 
         # Start uvicorn process with custom logging config to redact sensitive data
         cmd = [
@@ -142,6 +269,7 @@ async def start_service(is_restart=False):
         if os.path.exists("/.dockerenv"):
             work_dir = "/agixt"
 
+        section_start = startup_timer.section_start()
         uvicorn_process = subprocess.Popen(
             cmd,
             cwd=work_dir,
@@ -149,16 +277,59 @@ async def start_service(is_restart=False):
             stderr=None,  # Don't capture errors so we can see what happens
             env=os.environ.copy(),  # Pass through all environment variables
         )
+        startup_timer.section_end("Uvicorn process spawn", section_start)
 
-        # Give it more time to start up, especially after restarts
+        # Wait for uvicorn to be ready by polling the health endpoint
         startup_wait = 15 if is_restart else 10
-        await asyncio.sleep(startup_wait)
+        section_start = startup_timer.section_start()
+
+        # Poll for readiness instead of fixed sleep
+        ready = False
+        poll_interval = 0.5
+        max_wait = startup_wait
+        waited = 0
+
+        while waited < max_wait:
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+
+            # Check if process died
+            if uvicorn_process.poll() is not None:
+                logger.error(
+                    f"Uvicorn process died with return code: {uvicorn_process.poll()}"
+                )
+                raise RuntimeError("Uvicorn failed to start")
+
+            # Try health check
+            try:
+                timeout = aiohttp.ClientTimeout(total=2)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(HEALTH_CHECK_URL) as response:
+                        if response.status == 200:
+                            ready = True
+                            break
+            except:
+                pass  # Keep waiting
+
+        uvicorn_ready_time = startup_timer.section_end(
+            "Uvicorn ready (health check passed)", section_start
+        )
+
+        if not ready:
+            logger.warning(
+                f"Uvicorn not responding to health checks after {max_wait}s, continuing anyway..."
+            )
+        else:
+            logger.info(f"✅ Uvicorn ready in {uvicorn_ready_time:.1f}ms")
 
         if uvicorn_process.poll() is not None:
             logger.error(
                 f"Uvicorn process died immediately with return code: {uvicorn_process.poll()}"
             )
             raise RuntimeError("Uvicorn failed to start")
+
+        # Print the startup timing report
+        startup_timer.report(logger)
 
     except Exception as e:
         logger.error(f"Failed to start service: {e}")
@@ -250,12 +421,18 @@ def signal_handler(signum, frame):
 
 async def main():
     """Main entry point."""
+    global startup_timer
+
+    # Initialize startup timer
+    startup_timer = StartupTimer()
+
     # Set up signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
     # Start the service first
     logger.info("Starting AGiXT service...")
+    startup_timer.mark("Service startup initiated")
     await start_service(is_restart=False)
 
     # Run the monitor

@@ -2351,6 +2351,249 @@ class MagicalAuth:
         session.close()
         return "User role updated successfully."
 
+    def get_user_preferences_lightweight(self):
+        """
+        Get basic user preferences without billing/subscription checks.
+        Use this for fast user profile fetches where billing isn't critical.
+        For billing-sensitive operations, use get_user_preferences() instead.
+        """
+        session = get_session()
+        try:
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == self.user_id)
+                .all()
+            )
+            prefs = {x.pref_key: x.pref_value for x in user_preferences}
+
+            # Set defaults
+            if "input_tokens" not in prefs:
+                prefs["input_tokens"] = 0
+            if "output_tokens" not in prefs:
+                prefs["output_tokens"] = 0
+            if "phone_number" not in prefs:
+                prefs["phone_number"] = ""
+
+            # Remove sensitive/duplicate fields
+            for key in ["email", "first_name", "last_name"]:
+                prefs.pop(key, None)
+
+            return prefs
+        finally:
+            session.close()
+
+    def get_user_preferences_smart(self):
+        """
+        Smart user preferences fetch with optimized billing checks:
+        - Fast token balance check (DB query) is synchronous
+        - If no tokens AND billing enabled → 402 immediately (synchronous)
+        - If user has tokens → Return quickly, Stripe checks run in background
+
+        This is ideal for the /v1/user endpoint where speed is critical but
+        we still need to enforce the token balance paywall.
+        """
+        import asyncio
+        import threading
+
+        session = get_session()
+        try:
+            # Fast queries first
+            user = session.query(User).filter(User.id == self.user_id).first()
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == self.user_id)
+                .all()
+            )
+            user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+
+            # Set defaults
+            if "input_tokens" not in user_preferences:
+                user_preferences["input_tokens"] = 0
+            if "output_tokens" not in user_preferences:
+                user_preferences["output_tokens"] = 0
+            if "phone_number" not in user_preferences:
+                user_preferences["phone_number"] = ""
+
+            # Get billing config
+            wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+            price_service = PriceService()
+            try:
+                token_price = price_service.get_token_price()
+            except Exception:
+                token_price = 1
+
+            billing_enabled = token_price > 0
+            wallet_paywall_enabled = (
+                bool(wallet_address)
+                and str(wallet_address).lower() != "none"
+                and billing_enabled
+            )
+
+            # CRITICAL: Fast token balance check - this MUST be synchronous
+            # If user has no tokens and billing is enabled, block with 402
+            if wallet_paywall_enabled:
+                has_sufficient_balance = self._has_sufficient_token_balance(
+                    session, user_companies
+                )
+                if not has_sufficient_balance:
+                    # No tokens and billing enabled - enforce paywall immediately
+                    user.is_active = False
+                    session.commit()
+                    logging.info(
+                        f"{self.email} has insufficient token balance at {self.company_id}"
+                    )
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": "Insufficient token balance. Please top up your tokens.",
+                            "customer_session": {
+                                "client_secret": None,
+                                "company_id": self.company_id,
+                            },
+                            "wallet_address": wallet_address,
+                            "token_price_per_million_usd": float(token_price),
+                        },
+                    )
+                # User has tokens - add wallet info to response
+                user_preferences["wallet_address"] = wallet_address
+                user_preferences["token_price_per_million_usd"] = float(token_price)
+
+            # User requirements check (fast)
+            user_requirements = self.registration_requirements()
+            missing_requirements = []
+            if user_requirements:
+                for key, value in user_requirements.items():
+                    if key not in user_preferences and key != "stripe_id":
+                        missing_requirements.append({key: value})
+
+            if "verify_email" not in user_preferences and getenv("SENDGRID_API_KEY"):
+                missing_requirements.append({"verify_email": True})
+                # Don't block on sending email verification - do it async
+                threading.Thread(
+                    target=self._send_email_verification_async, daemon=True
+                ).start()
+            elif "verify_email" in user_preferences:
+                del user_preferences["verify_email"]
+
+            if missing_requirements:
+                user_preferences["missing_requirements"] = missing_requirements
+
+            # Clean up sensitive fields
+            for key in ["email", "first_name", "last_name", "missing_requirements"]:
+                if key in user_preferences and key != "missing_requirements":
+                    del user_preferences[key]
+
+            # Background Stripe subscription check - only if billing is not paused
+            # This doesn't block the response since user already has token balance
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            api_key = getenv("STRIPE_API_KEY")
+            if (
+                not billing_paused
+                and api_key
+                and api_key.lower() != "none"
+                and user.email != getenv("DEFAULT_USER")
+                and not user.email.endswith(".xt")
+            ):
+                # Fire-and-forget Stripe check in background thread
+                user_email = user.email
+                user_id = self.user_id
+                stripe_id = user_preferences.get("stripe_id")
+                company_ids = [uc.company_id for uc in user_companies]
+
+                def _background_stripe_check():
+                    try:
+                        self._background_stripe_subscription_check(
+                            api_key, user_email, user_id, stripe_id, company_ids
+                        )
+                    except Exception as e:
+                        logging.debug(f"Background Stripe check failed: {e}")
+
+                threading.Thread(target=_background_stripe_check, daemon=True).start()
+
+            return user_preferences
+        finally:
+            session.close()
+
+    def _send_email_verification_async(self):
+        """Send email verification link in background"""
+        try:
+            self.send_email_verification_link()
+        except Exception as e:
+            logging.debug(f"Background email verification failed: {e}")
+
+    def _background_stripe_subscription_check(
+        self,
+        api_key: str,
+        user_email: str,
+        user_id: str,
+        stripe_id: str,
+        company_ids: list,
+    ):
+        """
+        Background Stripe subscription check.
+        Updates user's is_active status and stripe_id preference if needed.
+        This runs async and doesn't block the response.
+        """
+        import stripe
+
+        stripe.api_key = api_key
+
+        session = get_session()
+        try:
+            has_subscription = False
+
+            # Check user's own subscription
+            if stripe_id:
+                relevant_subscriptions = self.get_subscribed_products(
+                    api_key, user_email
+                )
+                if relevant_subscriptions:
+                    has_subscription = True
+
+            # Check company admin subscriptions if user doesn't have one
+            if not has_subscription and company_ids:
+                for company_id in company_ids:
+                    company_admins = (
+                        session.query(User)
+                        .join(UserCompany, User.id == UserCompany.user_id)
+                        .filter(UserCompany.company_id == company_id)
+                        .filter(UserCompany.role_id <= 2)
+                        .all()
+                    )
+                    for admin in company_admins:
+                        admin_prefs = (
+                            session.query(UserPreferences)
+                            .filter(UserPreferences.user_id == admin.id)
+                            .filter(UserPreferences.pref_key == "stripe_id")
+                            .first()
+                        )
+                        if admin_prefs:
+                            admin_subscriptions = self.get_subscribed_products(
+                                api_key, admin.email
+                            )
+                            if admin_subscriptions:
+                                has_subscription = True
+                                break
+                    if has_subscription:
+                        break
+
+            # Update user active status based on subscription
+            if has_subscription:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user and not user.is_active:
+                    user.is_active = True
+                    session.commit()
+                    logging.debug(f"User {user_email} marked active via subscription")
+        except Exception as e:
+            logging.debug(f"Background Stripe check error: {e}")
+        finally:
+            session.close()
+
     def get_user_preferences(self):
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
@@ -2429,9 +2672,11 @@ class MagicalAuth:
 
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            # Only proceed with Stripe checks if we haven't already confirmed active subscription via token balance
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            # Only proceed with Stripe checks if billing is not paused and we haven't already confirmed active subscription via token balance
             if (
-                not has_active_subscription
+                not billing_paused
+                and not has_active_subscription
                 and api_key != ""
                 and api_key is not None
                 and str(api_key).lower() != "none"
@@ -3198,44 +3443,82 @@ class MagicalAuth:
         return response
 
     def get_user_companies_with_roles(self) -> List[dict]:
-        """Get list of company IDs that the user has access to"""
+        """
+        Get list of company IDs that the user has access to.
+        Optimized to use batch queries instead of N+1 pattern.
+        """
+        from Agent import get_agents_lightweight
+
         session = get_session()
         try:
+            # Single query with JOIN to get user_companies and companies together
             user_companies = (
                 session.query(UserCompany)
+                .options(joinedload(UserCompany.company))
                 .filter(UserCompany.user_id == self.user_id)
                 .all()
             )
+
+            if not user_companies:
+                return []
+
+            # Collect company IDs for batch agent query
+            company_ids = [str(uc.company_id) for uc in user_companies]
+
+            # Get default agent ID for this user
+            default_agent_id = None
+            try:
+                pref = (
+                    session.query(UserPreferences)
+                    .filter(UserPreferences.user_id == self.user_id)
+                    .filter(UserPreferences.pref_key == "agent_id")
+                    .first()
+                )
+                if pref:
+                    default_agent_id = str(pref.pref_value)
+            except:
+                pass
+
+            # Get all agents for all companies in one batch query
+            agents_by_company = get_agents_lightweight(
+                user_id=str(self.user_id),
+                company_ids=company_ids,
+                default_agent_id=default_agent_id,
+            )
+
             response = []
             for uc in user_companies:
-                # Use the session to query the company
-                company = (
-                    session.query(Company).filter(Company.id == uc.company_id).first()
-                )
-                if company:
-                    # Make sure to get the dict while the session is still open
-                    company_dict = {}
-                    for key, value in company.__dict__.items():
-                        if not key.startswith("_"):
-                            company_dict[key] = value
+                company = uc.company
+                if not company:
+                    continue
 
-                    company_dict["role_id"] = uc.role_id
-                    # Remove sensitive/large fields from response to reduce payload
-                    if "encryption_key" in company_dict:
-                        company_dict.pop("encryption_key")
-                    if "token" in company_dict:
-                        company_dict.pop("token")
-                    # Remove training_data to reduce payload size - use persona endpoint instead
-                    if "training_data" in company_dict:
-                        company_dict.pop("training_data")
-                    if str(company_dict["id"]) == str(self.company_id):
-                        company_dict["primary"] = True
-                    else:
-                        company_dict["primary"] = False
-                    # Get agents associated with this company and user
-                    agents = get_agents(email=self.email, company=company_dict["id"])
-                    company_dict["agents"] = agents
-                    response.append(company_dict)
+                # Build company dict efficiently
+                company_dict = {
+                    "id": str(company.id),
+                    "company_id": (
+                        str(company.company_id) if company.company_id else None
+                    ),
+                    "name": company.name,
+                    "agent_name": company.agent_name,
+                    "status": company.status,
+                    "address": company.address,
+                    "phone_number": company.phone_number,
+                    "email": company.email,
+                    "website": company.website,
+                    "city": company.city,
+                    "state": company.state,
+                    "zip_code": company.zip_code,
+                    "country": company.country,
+                    "notes": company.notes,
+                    "user_limit": company.user_limit,
+                    "token_balance": company.token_balance,
+                    "token_balance_usd": company.token_balance_usd,
+                    "tokens_used_total": company.tokens_used_total,
+                    "role_id": uc.role_id,
+                    "primary": str(company.id) == str(self.company_id),
+                    "agents": agents_by_company.get(str(company.id), []),
+                }
+                response.append(company_dict)
             return response
         finally:
             session.close()

@@ -22,9 +22,312 @@ import re
 import pyotp
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Any
+from functools import wraps
+from collections import defaultdict
+import statistics
 
 # Get the directory containing this test file for resolving relative paths
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+# ============================================
+# Timing Infrastructure
+# ============================================
+
+
+@dataclass
+class EndpointTiming:
+    """Track timing data for endpoint calls"""
+
+    endpoint: str
+    method: str
+    duration_ms: float
+    test_name: str
+    role: str
+    success: bool
+    status_code: int = 0
+
+
+class TimingTracker:
+    """Collect and analyze endpoint timing data"""
+
+    def __init__(self):
+        self.timings: List[EndpointTiming] = []
+        self.endpoint_stats: Dict[str, List[float]] = defaultdict(list)
+
+    def record(self, timing: EndpointTiming):
+        """Record a timing measurement"""
+        self.timings.append(timing)
+        key = f"{timing.method} {timing.endpoint}"
+        self.endpoint_stats[key].append(timing.duration_ms)
+
+    def print_summary(self):
+        """Print a summary of endpoint timing statistics"""
+        print("\n" + "=" * 80)
+        print("⏱️  ENDPOINT TIMING ANALYSIS")
+        print("=" * 80)
+
+        if not self.timings:
+            print("No timing data collected.")
+            return
+
+        # Calculate statistics per endpoint
+        endpoint_data = []
+        for endpoint, times in self.endpoint_stats.items():
+            if times:
+                endpoint_data.append(
+                    {
+                        "endpoint": endpoint,
+                        "count": len(times),
+                        "avg": statistics.mean(times),
+                        "min": min(times),
+                        "max": max(times),
+                        "total": sum(times),
+                        "median": statistics.median(times),
+                        "stdev": statistics.stdev(times) if len(times) > 1 else 0,
+                    }
+                )
+
+        # Sort by average time (slowest first)
+        endpoint_data.sort(key=lambda x: x["avg"], reverse=True)
+
+        print("\n📊 SLOWEST ENDPOINTS (by average response time):")
+        print("-" * 80)
+        print(
+            f"{'Endpoint':<45} {'Avg (ms)':<10} {'Max (ms)':<10} {'Calls':<6} {'Total (ms)'}"
+        )
+        print("-" * 80)
+
+        for data in endpoint_data[:20]:  # Top 20 slowest
+            print(
+                f"{data['endpoint']:<45} {data['avg']:>8.1f}  {data['max']:>8.1f}  {data['count']:>4}   {data['total']:>10.1f}"
+            )
+
+        # Summary statistics
+        total_time = sum(t.duration_ms for t in self.timings)
+        total_calls = len(self.timings)
+
+        print("\n" + "-" * 80)
+        print(f"Total API calls: {total_calls}")
+        print(f"Total time in API calls: {total_time:.1f}ms ({total_time/1000:.2f}s)")
+        print(
+            f"Average call time: {total_time/total_calls:.1f}ms"
+            if total_calls > 0
+            else ""
+        )
+
+        # Identify problem endpoints (>500ms average)
+        slow_endpoints = [d for d in endpoint_data if d["avg"] > 500]
+        if slow_endpoints:
+            print("\n⚠️  SLOW ENDPOINTS (>500ms average):")
+            for data in slow_endpoints:
+                print(
+                    f"   - {data['endpoint']}: {data['avg']:.1f}ms avg ({data['count']} calls)"
+                )
+
+        # Identify very slow calls (>1000ms)
+        very_slow = [t for t in self.timings if t.duration_ms > 1000]
+        if very_slow:
+            print(f"\n🐌 VERY SLOW CALLS (>1000ms): {len(very_slow)} calls")
+            for t in sorted(very_slow, key=lambda x: x.duration_ms, reverse=True)[:10]:
+                print(
+                    f"   - {t.method} {t.endpoint}: {t.duration_ms:.1f}ms (test: {t.test_name}, role: {t.role})"
+                )
+
+        print("=" * 80 + "\n")
+
+        return endpoint_data
+
+
+# Global timing tracker
+timing_tracker = TimingTracker()
+
+
+def timed_request(method: str, url: str, test_name: str = "", role: str = "", **kwargs):
+    """
+    Make a timed HTTP request and record the timing.
+
+    Returns: (response, duration_ms)
+    """
+    # Extract endpoint from URL
+    endpoint = url.replace("http://localhost:7437", "").replace(
+        "https://localhost:7437", ""
+    )
+    if "?" in endpoint:
+        endpoint = endpoint.split("?")[0]  # Remove query params for grouping
+
+    start_time = time.perf_counter()
+    try:
+        response = requests.request(method, url, **kwargs)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
+        timing_tracker.record(
+            EndpointTiming(
+                endpoint=endpoint,
+                method=method.upper(),
+                duration_ms=duration_ms,
+                test_name=test_name,
+                role=role,
+                success=response.status_code < 400,
+                status_code=response.status_code,
+            )
+        )
+
+        return response, duration_ms
+    except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        timing_tracker.record(
+            EndpointTiming(
+                endpoint=endpoint,
+                method=method.upper(),
+                duration_ms=duration_ms,
+                test_name=test_name,
+                role=role,
+                success=False,
+                status_code=0,
+            )
+        )
+        raise
+
+
+class TimedSDK:
+    """
+    Wrapper around AGiXTSDK that tracks timing for all API calls.
+    Uses monkey-patching of the requests session to capture all HTTP calls.
+    """
+
+    def __init__(self, sdk: AGiXTSDK, test_name: str = "", role: str = ""):
+        self._sdk = sdk
+        self._test_name = test_name
+        self._role = role
+
+    def __getattr__(self, name):
+        """Proxy attribute access to the underlying SDK"""
+        attr = getattr(self._sdk, name)
+        if callable(attr):
+            return self._wrap_method(attr, name)
+        return attr
+
+    def _wrap_method(self, method, method_name):
+        """Wrap a method to track timing"""
+
+        @wraps(method)
+        def wrapper(*args, **kwargs):
+            start_time = time.perf_counter()
+            try:
+                result = method(*args, **kwargs)
+                duration_ms = (time.perf_counter() - start_time) * 1000
+
+                # Record timing for SDK method call
+                timing_tracker.record(
+                    EndpointTiming(
+                        endpoint=f"SDK.{method_name}",
+                        method="SDK",
+                        duration_ms=duration_ms,
+                        test_name=self._test_name,
+                        role=self._role,
+                        success=True,
+                    )
+                )
+
+                return result
+            except Exception as e:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                timing_tracker.record(
+                    EndpointTiming(
+                        endpoint=f"SDK.{method_name}",
+                        method="SDK",
+                        duration_ms=duration_ms,
+                        test_name=self._test_name,
+                        role=self._role,
+                        success=False,
+                    )
+                )
+                raise
+
+        return wrapper
+
+
+def timed_get(url: str, **kwargs):
+    """Make a timed GET request, using current test context"""
+    test_name, role = get_test_context()
+    response, duration = timed_request(
+        "GET", url, test_name=test_name, role=role, **kwargs
+    )
+    return response
+
+
+def timed_post(url: str, **kwargs):
+    """Make a timed POST request, using current test context"""
+    test_name, role = get_test_context()
+    response, duration = timed_request(
+        "POST", url, test_name=test_name, role=role, **kwargs
+    )
+    return response
+
+
+def timed_put(url: str, **kwargs):
+    """Make a timed PUT request, using current test context"""
+    test_name, role = get_test_context()
+    response, duration = timed_request(
+        "PUT", url, test_name=test_name, role=role, **kwargs
+    )
+    return response
+
+
+def timed_delete(url: str, **kwargs):
+    """Make a timed DELETE request, using current test context"""
+    test_name, role = get_test_context()
+    response, duration = timed_request(
+        "DELETE", url, test_name=test_name, role=role, **kwargs
+    )
+    return response
+
+
+def timed_sdk_call(method_name: str, method_callable, *args, **kwargs):
+    """
+    Execute an SDK method and record timing.
+
+    Args:
+        method_name: Name of the SDK method for tracking
+        method_callable: The SDK method to call
+        *args, **kwargs: Arguments to pass to the method
+
+    Returns:
+        The result of the SDK method call
+    """
+    test_name, role = get_test_context()
+    start_time = time.perf_counter()
+
+    try:
+        result = method_callable(*args, **kwargs)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
+        timing_tracker.record(
+            EndpointTiming(
+                endpoint=f"SDK.{method_name}",
+                method="SDK",
+                duration_ms=duration_ms,
+                test_name=test_name,
+                role=role,
+                success=True,
+            )
+        )
+
+        return result
+    except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        timing_tracker.record(
+            EndpointTiming(
+                endpoint=f"SDK.{method_name}",
+                method="SDK",
+                duration_ms=duration_ms,
+                test_name=test_name,
+                role=role,
+                success=False,
+            )
+        )
+        raise
 
 
 # ============================================
@@ -184,6 +487,15 @@ READ_ONLY_RESTRICTED_TESTS = (
 # Initialize test context
 ctx = TestContext()
 
+# Global test context for timing
+_current_test_name = ""
+_current_role = ""
+
+
+def get_test_context():
+    """Get current test name and role for timing"""
+    return _current_test_name, _current_role
+
 
 def display_content(content, headers=None):
     """Display content with media handling"""
@@ -243,15 +555,25 @@ def run_test(
         or (expected_to_fail_for_company_admin and role == "company_admin")
     )
 
+    # Set test context for timing
+    global _current_test_name, _current_role
+    _current_test_name = test_name
+    _current_role = role
+
+    # Track overall test timing
+    test_start = time.perf_counter()
+
     try:
         result = test_func()
+        test_duration = (time.perf_counter() - test_start) * 1000
+
         if should_fail:
             print(
-                f"⚠️ [{role}] {test_name}: SECURITY ISSUE - Operation succeeded but should have been denied for {role} role!"
+                f"⚠️ [{role}] {test_name}: SECURITY ISSUE - Operation succeeded but should have been denied for {role} role! ({test_duration:.1f}ms)"
             )
             ctx.record_result(test_name, role, success=True, expected_to_fail=True)
         else:
-            print(f"✅ [{role}] {test_name}: Passed")
+            print(f"✅ [{role}] {test_name}: Passed ({test_duration:.1f}ms)")
             ctx.record_result(test_name, role, success=True)
         return result
     except Exception as e:
@@ -597,12 +919,14 @@ def test_user_operations():
     sdk = ctx.current_user.sdk
 
     # Get user details
-    user = sdk.get_user()
+    user = timed_sdk_call("get_user", sdk.get_user)
     assert user is not None, "Failed to get user details"
     print(f"   Got user: {user.get('email', 'N/A')}")
 
     # Update user name
-    update = sdk.update_user(first_name="Test", last_name="Updated")
+    update = timed_sdk_call(
+        "update_user", sdk.update_user, first_name="Test", last_name="Updated"
+    )
     assert update is not None, "Failed to update user"
     print(f"   Updated user name")
 
@@ -613,7 +937,7 @@ def test_get_providers():
     """Test getting providers (should work for all roles)"""
     sdk = ctx.current_user.sdk
 
-    providers = sdk.get_providers()
+    providers = timed_sdk_call("get_providers", sdk.get_providers)
     assert providers is not None, "Failed to get providers"
     print(
         f"   Got {len(providers) if isinstance(providers, list) else 'N/A'} providers"
@@ -626,7 +950,7 @@ def test_get_agents():
     """Test getting agents list (should work for all roles with agents:read)"""
     sdk = ctx.current_user.sdk
 
-    agents = sdk.get_agents()
+    agents = timed_sdk_call("get_agents", sdk.get_agents)
     assert agents is not None, "Failed to get agents"
     print(f"   Got {len(agents)} agents")
 
@@ -640,7 +964,9 @@ def test_create_agent():
     agent_name = f"test_agent_{role}_{random_string}"
 
     # Include shared=true and company_id so other company members can access
-    response = sdk.add_agent(
+    response = timed_sdk_call(
+        "add_agent",
+        sdk.add_agent,
         agent_name=agent_name,
         settings={
             "mode": "prompt",
@@ -674,7 +1000,9 @@ def test_rename_agent():
         raise Exception("No agent available to rename")
 
     new_name = f"renamed_{agent_name}_{ctx.current_user.role_name}"
-    response = sdk.rename_agent(agent_id=agent_id, new_name=new_name)
+    response = timed_sdk_call(
+        "rename_agent", sdk.rename_agent, agent_id=agent_id, new_name=new_name
+    )
 
     # Check if we got an error response (SDK returns dict with 'detail' on error)
     if isinstance(response, dict) and "detail" in response:
@@ -697,8 +1025,11 @@ def test_update_agent_settings():
         raise Exception("No agent available to update")
 
     # Try to update settings - this will fail for non-admins
-    response = sdk.update_agent_settings(
-        agent_id=agent_id, settings={"AI_TEMPERATURE": 0.8}
+    response = timed_sdk_call(
+        "update_agent_settings",
+        sdk.update_agent_settings,
+        agent_id=agent_id,
+        settings={"AI_TEMPERATURE": 0.8},
     )
     print(f"   Updated agent settings")
     return response
@@ -714,12 +1045,59 @@ def test_get_agent_config():
     if not agent_id:
         raise Exception("No agent available to get config")
 
-    config = sdk.get_agentconfig(agent_id=agent_id)
+    config = timed_sdk_call("get_agentconfig", sdk.get_agentconfig, agent_id=agent_id)
     assert config is not None, "Failed to get agent config"
     print(
         f"   Got agent config with keys: {list(config.keys()) if isinstance(config, dict) else 'N/A'}"
     )
     return config
+
+
+def test_get_agent_commands():
+    """Test getting agent commands (should work with extensions:read)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available to get commands")
+
+    commands = timed_sdk_call("get_commands", sdk.get_commands, agent_id=agent_id)
+    assert commands is not None, "Failed to get agent commands"
+    command_count = len(commands) if isinstance(commands, (list, dict)) else 0
+    print(f"   Got {command_count} agent commands")
+    return commands
+
+
+def test_get_agent_extensions():
+    """Test getting agent extensions (should work with extensions:read)"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available to get extensions")
+
+    extensions = timed_sdk_call(
+        "get_agent_extensions", sdk.get_agent_extensions, agent_id=agent_id
+    )
+    assert extensions is not None, "Failed to get agent extensions"
+    ext_count = len(extensions) if isinstance(extensions, list) else 0
+    print(f"   Got {ext_count} agent extensions")
+    return extensions
+
+
+def test_get_extensions():
+    """Test getting all extensions (should work with extensions:read)"""
+    sdk = ctx.current_user.sdk
+
+    extensions = timed_sdk_call("get_extensions", sdk.get_extensions)
+    assert extensions is not None, "Failed to get extensions"
+    ext_count = len(extensions) if isinstance(extensions, list) else 0
+    print(f"   Got {ext_count} extensions")
+    return extensions
 
 
 def test_create_conversation():
@@ -733,7 +1111,12 @@ def test_create_conversation():
         raise Exception("No agent available for conversation")
 
     conv_name = f"test_conv_{ctx.current_user.role_name}_{random_string}"
-    response = sdk.new_conversation(agent_id=agent_id, conversation_name=conv_name)
+    response = timed_sdk_call(
+        "new_conversation",
+        sdk.new_conversation,
+        agent_id=agent_id,
+        conversation_name=conv_name,
+    )
 
     conv_id = response.get("id")
     assert conv_id, f"Failed to create conversation, response: {response}"
@@ -746,10 +1129,196 @@ def test_get_conversations():
     """Test getting conversations (should work for all roles with conversations:read)"""
     sdk = ctx.current_user.sdk
 
-    conversations = sdk.get_conversations()
+    conversations = timed_sdk_call("get_conversations", sdk.get_conversations)
     assert conversations is not None, "Failed to get conversations"
     print(f"   Got {len(conversations)} conversations")
     return conversations
+
+
+def test_chat_completions():
+    """Test chat completions endpoint (non-streaming) - should work for all roles"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for chat completions")
+
+    # Create a simple test message
+    messages = [{"role": "user", "content": "Say 'test successful' and nothing else."}]
+
+    start_time = time.time()
+    response = requests.post(
+        f"{ctx.base_uri}/v1/chat/completions",
+        json={
+            "model": agent_id,
+            "messages": messages,
+            "max_tokens": 50,
+            "stream": False,
+        },
+        headers=sdk.headers,
+        timeout=60,
+    )
+    duration_ms = (time.time() - start_time) * 1000
+
+    # Record timing
+    timing_tracker.record(
+        EndpointTiming(
+            endpoint="/v1/chat/completions",
+            method="POST",
+            duration_ms=duration_ms,
+            test_name="chat_completions",
+            role=ctx.current_user.role_name,
+            success=response.status_code == 200,
+            status_code=response.status_code,
+        )
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Chat completions failed: {response.status_code} - {response.text}"
+        )
+
+    result = response.json()
+    assert "choices" in result, f"Invalid response format: {result}"
+    assert len(result["choices"]) > 0, "No choices in response"
+
+    content = result["choices"][0].get("message", {}).get("content", "")
+    print(f"   Chat completion response ({duration_ms:.0f}ms): {content[:50]}...")
+    return result
+
+
+def test_chat_completions_streaming():
+    """Test chat completions endpoint (streaming) - should work for all roles"""
+    sdk = ctx.current_user.sdk
+
+    # Use admin's agent if regular user doesn't have one
+    agent_id = ctx.current_user.agent_id or ctx.admin_user.agent_id
+
+    if not agent_id:
+        raise Exception("No agent available for streaming chat completions")
+
+    messages = [
+        {
+            "role": "user",
+            "content": "Count from 1 to 5 with commas between each number.",
+        }
+    ]
+
+    start_time = time.time()
+    response = requests.post(
+        f"{ctx.base_uri}/v1/chat/completions",
+        json={
+            "model": agent_id,
+            "messages": messages,
+            "max_tokens": 50,
+            "stream": True,
+        },
+        headers=sdk.headers,
+        stream=True,
+        timeout=60,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Streaming chat completions failed: {response.status_code} - {response.text}"
+        )
+
+    # Collect streamed chunks
+    chunks = []
+    content_parts = []
+    first_chunk_time = None
+
+    for line in response.iter_lines():
+        if line:
+            line_str = line.decode("utf-8")
+            if line_str.startswith("data: "):
+                if first_chunk_time is None:
+                    first_chunk_time = time.time()
+                data = line_str[6:]  # Remove "data: " prefix
+                if data == "[DONE]":
+                    break
+                try:
+                    import json
+
+                    chunk = json.loads(data)
+                    chunks.append(chunk)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    if "content" in delta:
+                        content_parts.append(delta["content"])
+                except json.JSONDecodeError:
+                    pass
+
+    total_duration_ms = (time.time() - start_time) * 1000
+    time_to_first_chunk_ms = (
+        (first_chunk_time - start_time) * 1000
+        if first_chunk_time
+        else total_duration_ms
+    )
+
+    # Record timing (time to first chunk is most important for streaming)
+    timing_tracker.record(
+        EndpointTiming(
+            endpoint="/v1/chat/completions (streaming)",
+            method="POST",
+            duration_ms=time_to_first_chunk_ms,
+            test_name="chat_completions_streaming",
+            role=ctx.current_user.role_name,
+            success=len(chunks) > 0,
+            status_code=response.status_code,
+        )
+    )
+
+    full_content = "".join(content_parts)
+    print(
+        f"   Streaming response ({len(chunks)} chunks, TTFC: {time_to_first_chunk_ms:.0f}ms, total: {total_duration_ms:.0f}ms): {full_content[:50]}..."
+    )
+
+    assert len(chunks) > 0, "No chunks received from streaming response"
+    return {"chunks": len(chunks), "content": full_content}
+
+
+def test_get_companies():
+    """Test getting user's companies - should work for all roles"""
+    sdk = ctx.current_user.sdk
+
+    response = timed_get(
+        f"{ctx.base_uri}/v1/companies",
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to get companies: {response.status_code} - {response.text}"
+        )
+
+    companies = response.json()
+    print(f"   Got {len(companies)} companies")
+    return companies
+
+
+def test_get_token_balance():
+    """Test getting token balance - should work for all roles"""
+    sdk = ctx.current_user.sdk
+    company_id = ctx.current_user.company_id
+
+    if not company_id:
+        raise Exception("No company_id available")
+
+    response = timed_get(
+        f"{ctx.base_uri}/v1/billing/tokens/balance?company_id={company_id}&sync=false",
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to get token balance: {response.status_code} - {response.text}"
+        )
+
+    balance = response.json()
+    print(f"   Token balance: {balance.get('available_tokens', 'N/A')} tokens")
+    return balance
 
 
 def test_create_chain():
@@ -757,7 +1326,7 @@ def test_create_chain():
     sdk = ctx.current_user.sdk
     chain_name = f"test_chain_{ctx.current_user.role_name}_{random_string}"
 
-    response = sdk.add_chain(chain_name=chain_name)
+    response = timed_sdk_call("add_chain", sdk.add_chain, chain_name=chain_name)
 
     chain_id = response.get("id")
     assert chain_id, f"Failed to create chain, response: {response}"
@@ -770,7 +1339,7 @@ def test_get_chains():
     """Test getting chains (admin only - Chain.py has is_admin check)"""
     sdk = ctx.current_user.sdk
 
-    chains = sdk.get_chains()
+    chains = timed_sdk_call("get_chains", sdk.get_chains)
     # Check if we got an error response (SDK returns dict with 'detail' on error)
     if isinstance(chains, dict) and "detail" in chains:
         raise Exception(f"Access denied: {chains.get('detail')}")
@@ -784,7 +1353,9 @@ def test_create_prompt():
     sdk = ctx.current_user.sdk
     prompt_name = f"test_prompt_{ctx.current_user.role_name}_{random_string}"
 
-    response = sdk.add_prompt(
+    response = timed_sdk_call(
+        "add_prompt",
+        sdk.add_prompt,
         prompt_name=prompt_name,
         prompt="This is a test prompt about {subject}",
         prompt_category="Default",
@@ -801,7 +1372,7 @@ def test_get_prompts():
     """Test getting prompts (should work for all roles with prompts:read)"""
     sdk = ctx.current_user.sdk
 
-    prompts = sdk.get_prompts(prompt_category="Default")
+    prompts = timed_sdk_call("get_prompts", sdk.get_prompts, prompt_category="Default")
     assert prompts is not None, "Failed to get prompts"
     print(f"   Got {len(prompts)} prompts in Default category")
     return prompts
@@ -816,7 +1387,7 @@ def test_get_company_prompts():
     """Test getting company-level prompts (company_admin)"""
     sdk = ctx.current_user.sdk
 
-    response = requests.get(
+    response = timed_get(
         f"{ctx.base_uri}/v1/company/prompts",
         headers=sdk.headers,
     )
@@ -836,7 +1407,7 @@ def test_create_company_prompt():
     sdk = ctx.current_user.sdk
     prompt_name = f"company_prompt_{ctx.current_user.role_name}_{random_string}"
 
-    response = requests.post(
+    response = timed_post(
         f"{ctx.base_uri}/v1/company/prompt",
         json={
             "prompt_name": prompt_name,
@@ -860,7 +1431,7 @@ def test_get_company_chains():
     """Test getting company-level chains (company_admin)"""
     sdk = ctx.current_user.sdk
 
-    response = requests.get(
+    response = timed_get(
         f"{ctx.base_uri}/v1/company/chains",
         headers=sdk.headers,
     )
@@ -880,7 +1451,7 @@ def test_create_company_chain():
     sdk = ctx.current_user.sdk
     chain_name = f"company_chain_{ctx.current_user.role_name}_{random_string}"
 
-    response = requests.post(
+    response = timed_post(
         f"{ctx.base_uri}/v1/company/chain",
         json={
             "chain_name": chain_name,
@@ -912,7 +1483,7 @@ def test_create_webhook():
         "secret": "test-secret",
     }
 
-    response = requests.post(
+    response = timed_post(
         f"{ctx.base_uri}/api/webhooks/outgoing",
         json=webhook_data,
         headers=sdk.headers,
@@ -932,7 +1503,7 @@ def test_get_webhooks():
     """Test getting webhooks (should work for all roles with webhooks:read)"""
     sdk = ctx.current_user.sdk
 
-    response = requests.get(
+    response = timed_get(
         f"{ctx.base_uri}/api/webhooks/outgoing",
         headers=sdk.headers,
     )
@@ -955,7 +1526,7 @@ def test_delete_agent():
     if not agent_id:
         raise Exception("No agent to delete - create_agent must run first")
 
-    response = sdk.delete_agent(agent_id=agent_id)
+    response = timed_sdk_call("delete_agent", sdk.delete_agent, agent_id=agent_id)
 
     ctx.current_user.agent_id = None
     ctx.current_user.agent_name = None
@@ -977,7 +1548,7 @@ def test_invite_user():
         "role_id": 3,  # Invite as regular user
     }
 
-    response = requests.post(
+    response = timed_post(
         f"{ctx.base_uri}/v1/invitations",
         json=invitation_data,
         headers=sdk.headers,
@@ -1004,7 +1575,9 @@ def test_execute_command():
         raise Exception("No agent available to execute command")
 
     try:
-        response = sdk.execute_command(
+        response = timed_sdk_call(
+            "execute_command",
+            sdk.execute_command,
             agent_id=agent_id,
             command_name="Write to File",
             command_args={
@@ -1039,7 +1612,9 @@ def test_learn_text():
     if not agent_id:
         raise Exception("No agent available for learning")
 
-    response = sdk.learn_text(
+    response = timed_sdk_call(
+        "learn_text",
+        sdk.learn_text,
         agent_id=agent_id,
         user_input=f"What is the test for {ctx.current_user.role_name}?",
         text=f"This is test content learned by {ctx.current_user.role_name} role.",
@@ -1069,7 +1644,9 @@ def test_get_memories():
     if not agent_id:
         raise Exception("No agent available for getting memories")
 
-    memories = sdk.get_agent_memories(
+    memories = timed_sdk_call(
+        "get_agent_memories",
+        sdk.get_agent_memories,
         agent_id=agent_id,
         user_input="test",
         limit=5,
@@ -1091,7 +1668,12 @@ def test_wipe_memories():
     if not agent_id:
         raise Exception("No agent available for wiping memories")
 
-    response = sdk.wipe_agent_memories(agent_id=agent_id, collection_number="0")
+    response = timed_sdk_call(
+        "wipe_agent_memories",
+        sdk.wipe_agent_memories,
+        agent_id=agent_id,
+        collection_number="0",
+    )
 
     print(f"   Wiped agent memories")
     return response
@@ -1134,6 +1716,27 @@ def run_all_role_tests():
             False,
             False,
         ),  # Allowed for users with agents:read scope
+        (
+            test_get_agent_commands,
+            "get_agent_commands",
+            False,
+            False,
+            False,
+        ),  # Allowed for users with extensions:read scope
+        (
+            test_get_agent_extensions,
+            "get_agent_extensions",
+            False,
+            False,
+            False,
+        ),  # Allowed for users with extensions:read scope
+        (
+            test_get_extensions,
+            "get_extensions",
+            False,
+            False,
+            False,
+        ),  # Allowed for users with extensions:read scope
         (test_rename_agent, "rename_agent", True, True, False),  # Requires agents:write
         (
             test_update_agent_settings,
@@ -1150,6 +1753,36 @@ def run_all_role_tests():
             False,
             False,
         ),  # All authenticated users can create conversations
+        # Chat completions (inference) - should work for all roles
+        (
+            test_chat_completions,
+            "chat_completions",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can use chat completions
+        (
+            test_chat_completions_streaming,
+            "chat_completions_streaming",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can use streaming chat completions
+        # Company and billing operations
+        (
+            test_get_companies,
+            "get_companies",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can get their companies
+        (
+            test_get_token_balance,
+            "get_token_balance",
+            False,
+            False,
+            False,
+        ),  # All authenticated users can get token balance
         # Chain operations
         (test_create_chain, "create_chain", True, True, False),  # Requires chains:write
         # Prompt operations
@@ -1275,6 +1908,9 @@ def run_all_role_tests():
 
 # Execute the tri-role test suite
 test_failures = run_all_role_tests()
+
+# Print timing analysis
+timing_tracker.print_summary()
 
 
 # In[ ]:

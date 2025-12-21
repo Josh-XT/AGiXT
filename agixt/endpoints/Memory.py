@@ -53,7 +53,9 @@ async def query_memories_v1(
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
-    agent_config = agent.get_agent_config()
+    # Use lightweight settings-only method for faster memory queries
+    agent_settings = agent.get_agent_settings_only()
+    agent_config = {"settings": agent_settings, "commands": {}}
     memories = await Memories(
         agent_name=agent.agent_name,
         agent_config=agent_config,

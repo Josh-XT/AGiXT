@@ -80,10 +80,10 @@ class AutoTopupCancelRequest(BaseModel):
 )
 async def get_token_balance(
     company_id: str,
-    sync: bool = True,
+    sync: bool = False,
     authorization: str = Header(None),
 ):
-    """Get company token balance - admin only. Automatically syncs payments from Stripe to catch missed webhooks."""
+    """Get company token balance - admin only. Optionally syncs payments from Stripe to catch missed webhooks."""
     auth = MagicalAuth(token=authorization)
     auth.validate_user()
 
@@ -95,13 +95,18 @@ async def get_token_balance(
         )
 
     # Sync payments from Stripe to catch any missed webhooks
+    # Skip if billing is paused
     sync_result = None
     if sync:
-        try:
-            stripe_service = StripePaymentService()
-            sync_result = await stripe_service.sync_payments(company_id=company_id)
-        except Exception as e:
-            logging.warning(f"Failed to sync payments: {e}")
+        from Globals import getenv
+
+        billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+        if not billing_paused:
+            try:
+                stripe_service = StripePaymentService()
+                sync_result = await stripe_service.sync_payments(company_id=company_id)
+            except Exception as e:
+                logging.warning(f"Failed to sync payments: {e}")
 
     balance = auth.get_company_token_balance(company_id)
     if sync_result:
@@ -124,6 +129,13 @@ async def sync_payments_endpoint(
     This checks for subscription invoices, completed checkout sessions, and
     token purchases that were paid but not recorded in the system.
     """
+    from Globals import getenv
+
+    # Skip sync if billing is paused
+    billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+    if billing_paused:
+        return {"message": "Billing is paused, sync skipped", "synced": 0}
+
     auth = MagicalAuth(token=authorization)
     auth.validate_user()
 

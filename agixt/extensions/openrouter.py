@@ -11,14 +11,53 @@ provider rotation system when configured with a valid API key.
 """
 
 import base64
+import json
 import logging
+import requests
 
-import httpx
 from Extensions import Extensions
-from Globals import getenv, install_package_if_missing
+from Globals import getenv
 
-install_package_if_missing("openai")
-import openai as openai_module
+
+class StreamChunk:
+    """Wrapper class to provide OpenAI SDK-like interface for streaming chunks."""
+
+    def __init__(self, data: dict):
+        self._data = data
+        self.choices = [StreamChoice(c) for c in data.get("choices", [])]
+
+
+class StreamChoice:
+    """Wrapper for streaming choice data."""
+
+    def __init__(self, choice_data: dict):
+        self.delta = StreamDelta(choice_data.get("delta", {}))
+        self.finish_reason = choice_data.get("finish_reason")
+
+
+class StreamDelta:
+    """Wrapper for streaming delta data."""
+
+    def __init__(self, delta_data: dict):
+        self.content = delta_data.get("content")
+        self.role = delta_data.get("role")
+
+
+def parse_sse_stream(response):
+    """Parse Server-Sent Events stream and yield StreamChunk objects."""
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+        if line_str.startswith("data: "):
+            data_str = line_str[6:]  # Remove "data: " prefix
+            if data_str.strip() == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                yield StreamChunk(data)
+            except json.JSONDecodeError:
+                continue
 
 
 class openrouter(Extensions):
@@ -88,16 +127,13 @@ class openrouter(Extensions):
     def is_configured(self):
         return self.configured
 
-    def _get_client(self):
-        return openai_module.OpenAI(
-            base_url=self.API_URI,
-            api_key=self.OPENROUTER_API_KEY,
-            timeout=httpx.Timeout(300.0, read=300.0, write=30.0, connect=10.0),
-            default_headers={
-                "HTTP-Referer": getenv("AGIXT_URI"),
-                "X-Title": "AGiXT",
-            },
-        )
+    def _get_headers(self):
+        return {
+            "Authorization": f"Bearer {self.OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": getenv("AGIXT_URI"),
+            "X-Title": "AGiXT",
+        }
 
     async def inference(
         self,
@@ -111,7 +147,8 @@ class openrouter(Extensions):
             raise Exception("OpenRouter provider not configured")
 
         model = self.CODING_MODEL if use_smartest else self.AI_MODEL
-        client = self._get_client()
+        headers = self._get_headers()
+        api_url = self.API_URI.rstrip("/") + "/chat/completions"
 
         messages = []
         if images:
@@ -136,18 +173,26 @@ class openrouter(Extensions):
             messages.append({"role": "user", "content": prompt})
 
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=int(self.MAX_TOKENS),
-                temperature=float(self.AI_TEMPERATURE),
-                top_p=float(self.AI_TOP_P),
-                n=1,
-                stream=stream,
-            )
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": int(self.MAX_TOKENS),
+                "temperature": float(self.AI_TEMPERATURE),
+                "top_p": float(self.AI_TOP_P),
+                "n": 1,
+                "stream": stream,
+            }
+
             if stream:
-                return response
-            return response.choices[0].message.content
+                resp = requests.post(
+                    api_url, headers=headers, json=payload, stream=True, timeout=300
+                )
+                resp.raise_for_status()
+                return parse_sse_stream(resp)
+
+            resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
         except Exception as e:
             self.failure_count += 1
             logging.info(f"OpenRouter API Error: {e}")

@@ -5,6 +5,7 @@ import glob
 import os
 import inspect
 import logging
+import time
 from Globals import getenv
 
 logging.basicConfig(
@@ -13,9 +14,25 @@ logging.basicConfig(
 )
 DISABLED_PROVIDERS = getenv("DISABLED_PROVIDERS").replace(" ", "").split(",")
 
+# Cache for AI provider extensions to avoid expensive file system scanning
+_ai_provider_cache = None
+_ai_provider_cache_time = 0
+_AI_PROVIDER_CACHE_TTL = 300  # 5 minutes cache TTL
 
-def _get_ai_provider_extensions():
-    """Get all extension files with CATEGORY = 'AI Provider'"""
+
+def _get_ai_provider_extensions(use_cache=True):
+    """Get all extension files with CATEGORY = 'AI Provider'
+
+    Args:
+        use_cache: If True, use cached results when available (default: True)
+    """
+    global _ai_provider_cache, _ai_provider_cache_time
+
+    # Return cached result if valid
+    if use_cache and _ai_provider_cache is not None:
+        if (time.time() - _ai_provider_cache_time) < _AI_PROVIDER_CACHE_TTL:
+            return _ai_provider_cache
+
     from ExtensionsHub import (
         find_extension_files,
         import_extension_module,
@@ -51,7 +68,18 @@ def _get_ai_provider_extensions():
         except Exception as e:
             logging.debug(f"Could not inspect extension {filename}: {e}")
 
+    # Update cache
+    _ai_provider_cache = ai_providers
+    _ai_provider_cache_time = time.time()
+
     return ai_providers
+
+
+def invalidate_provider_cache():
+    """Invalidate the provider cache, forcing a refresh on next access"""
+    global _ai_provider_cache, _ai_provider_cache_time
+    _ai_provider_cache = None
+    _ai_provider_cache_time = 0
 
 
 def get_providers():

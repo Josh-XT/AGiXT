@@ -9,14 +9,54 @@ provider rotation system when configured with a valid API key.
 """
 
 import base64
+import json
 import logging
 import time
+import requests
 
 from Extensions import Extensions
-from Globals import getenv, install_package_if_missing
+from Globals import getenv
 
-install_package_if_missing("openai")
-from openai import AzureOpenAI
+
+class StreamChunk:
+    """Wrapper class to provide OpenAI SDK-like interface for streaming chunks."""
+
+    def __init__(self, data: dict):
+        self._data = data
+        self.choices = [StreamChoice(c) for c in data.get("choices", [])]
+
+
+class StreamChoice:
+    """Wrapper for streaming choice data."""
+
+    def __init__(self, choice_data: dict):
+        self.delta = StreamDelta(choice_data.get("delta", {}))
+        self.finish_reason = choice_data.get("finish_reason")
+
+
+class StreamDelta:
+    """Wrapper for streaming delta data."""
+
+    def __init__(self, delta_data: dict):
+        self.content = delta_data.get("content")
+        self.role = delta_data.get("role")
+
+
+def parse_sse_stream(response):
+    """Parse Server-Sent Events stream and yield StreamChunk objects."""
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+        if line_str.startswith("data: "):
+            data_str = line_str[6:]  # Remove "data: " prefix
+            if data_str.strip() == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                yield StreamChunk(data)
+            except json.JSONDecodeError:
+                continue
 
 
 class azure(Extensions):
@@ -100,15 +140,13 @@ class azure(Extensions):
         if not self.configured:
             raise Exception("Azure OpenAI provider not configured")
 
-        if not self.AZURE_OPENAI_ENDPOINT.endswith("/"):
-            self.AZURE_OPENAI_ENDPOINT += "/"
+        base_url = self.AZURE_OPENAI_ENDPOINT.rstrip("/")
+        api_url = f"{base_url}/openai/deployments/{self.AI_MODEL}/chat/completions?api-version=2024-02-01"
 
-        client = AzureOpenAI(
-            api_key=self.AZURE_API_KEY,
-            api_version="2024-02-01",
-            azure_endpoint=self.AZURE_OPENAI_ENDPOINT,
-            azure_deployment=self.AI_MODEL,
-        )
+        headers = {
+            "api-key": self.AZURE_API_KEY,
+            "Content-Type": "application/json",
+        }
 
         messages = []
         if images:
@@ -136,18 +174,25 @@ class azure(Extensions):
             time.sleep(self.WAIT_BETWEEN_REQUESTS)
 
         try:
-            response = client.chat.completions.create(
-                model=self.AI_MODEL,
-                messages=messages,
-                temperature=float(self.AI_TEMPERATURE),
-                max_tokens=4096,
-                top_p=float(self.AI_TOP_P),
-                n=1,
-                stream=stream,
-            )
+            payload = {
+                "messages": messages,
+                "temperature": float(self.AI_TEMPERATURE),
+                "max_tokens": 4096,
+                "top_p": float(self.AI_TOP_P),
+                "n": 1,
+                "stream": stream,
+            }
+
             if stream:
-                return response
-            return response.choices[0].message.content
+                resp = requests.post(
+                    api_url, headers=headers, json=payload, stream=True, timeout=300
+                )
+                resp.raise_for_status()
+                return parse_sse_stream(resp)
+
+            resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
         except Exception as e:
             logging.warning(f"Azure OpenAI API Error: {e}")
             self.failures += 1

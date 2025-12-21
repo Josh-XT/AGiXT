@@ -11,6 +11,7 @@ provider rotation system when configured with a valid API key.
 """
 
 import base64
+import json
 import logging
 import random
 import time
@@ -19,10 +20,48 @@ import uuid
 import requests
 import numpy as np
 from Extensions import Extensions
-from Globals import getenv, install_package_if_missing
+from Globals import getenv
 
-install_package_if_missing("openai")
-import openai as openai_module
+
+class StreamChunk:
+    """Wrapper class to provide OpenAI SDK-like interface for streaming chunks."""
+
+    def __init__(self, data: dict):
+        self._data = data
+        self.choices = [StreamChoice(c) for c in data.get("choices", [])]
+
+
+class StreamChoice:
+    """Wrapper for streaming choice data."""
+
+    def __init__(self, choice_data: dict):
+        self.delta = StreamDelta(choice_data.get("delta", {}))
+        self.finish_reason = choice_data.get("finish_reason")
+
+
+class StreamDelta:
+    """Wrapper for streaming delta data."""
+
+    def __init__(self, delta_data: dict):
+        self.content = delta_data.get("content")
+        self.role = delta_data.get("role")
+
+
+def parse_sse_stream(response):
+    """Parse Server-Sent Events stream and yield StreamChunk objects."""
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+        if line_str.startswith("data: "):
+            data_str = line_str[6:]  # Remove "data: " prefix
+            if data_str.strip() == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                yield StreamChunk(data)
+            except json.JSONDecodeError:
+                continue
 
 
 class openai(Extensions):
@@ -145,19 +184,17 @@ class openai(Extensions):
                 self.API_URI = uri
                 break
 
-    def _get_client(self):
-        """Get configured OpenAI client"""
-        import httpx
+    def _get_headers(self):
+        """Get request headers for OpenAI API calls"""
+        return {
+            "Authorization": f"Bearer {self.OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
 
+    def _get_base_url(self):
+        """Get the base URL for API calls"""
         uri = self.API_URI if self.API_URI else "https://api.openai.com/v1"
-        if not uri.endswith("/"):
-            uri += "/"
-
-        return openai_module.OpenAI(
-            base_url=uri,
-            api_key=self.OPENAI_API_KEY,
-            timeout=httpx.Timeout(300.0, read=300.0, write=30.0, connect=10.0),
-        )
+        return uri.rstrip("/")
 
     async def inference(
         self,
@@ -187,7 +224,8 @@ class openai(Extensions):
         if images:
             model = self.VISION_MODEL
 
-        client = self._get_client()
+        headers = self._get_headers()
+        api_url = self._get_base_url() + "/chat/completions"
 
         # Build messages with optional vision content
         messages = []
@@ -222,19 +260,29 @@ class openai(Extensions):
             time.sleep(self.WAIT_BETWEEN_REQUESTS)
 
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=float(self.AI_TEMPERATURE),
-                top_p=float(self.AI_TOP_P),
-                n=1,
-                stream=stream,
-            )
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": float(self.AI_TEMPERATURE),
+                "top_p": float(self.AI_TOP_P),
+                "n": 1,
+                "stream": stream,
+            }
 
             if stream:
-                return response
+                resp = requests.post(
+                    api_url,
+                    headers=headers,
+                    json=payload,
+                    stream=True,
+                    timeout=300,
+                )
+                resp.raise_for_status()
+                return parse_sse_stream(resp)
 
-            return response.choices[0].message.content
+            resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
 
         except Exception as e:
             self.failure_count += 1
@@ -270,12 +318,17 @@ class openai(Extensions):
         if not self.configured:
             raise Exception("OpenAI provider not configured")
 
-        client = self._get_client()
+        headers = {"Authorization": f"Bearer {self.OPENAI_API_KEY}"}
+        api_url = self._get_base_url() + "/audio/transcriptions"
+
         with open(audio_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model=self.TRANSCRIPTION_MODEL, file=audio_file
+            files = {"file": audio_file}
+            data = {"model": self.TRANSCRIPTION_MODEL}
+            resp = requests.post(
+                api_url, headers=headers, files=files, data=data, timeout=120
             )
-        return transcription.text
+            resp.raise_for_status()
+            return resp.json().get("text", "")
 
     async def translate_audio(self, audio_path: str) -> str:
         """
@@ -290,12 +343,17 @@ class openai(Extensions):
         if not self.configured:
             raise Exception("OpenAI provider not configured")
 
-        client = self._get_client()
+        headers = {"Authorization": f"Bearer {self.OPENAI_API_KEY}"}
+        api_url = self._get_base_url() + "/audio/translations"
+
         with open(audio_path, "rb") as audio_file:
-            translation = client.audio.translations.create(
-                model=self.TRANSCRIPTION_MODEL, file=audio_file
+            files = {"file": audio_file}
+            data = {"model": self.TRANSCRIPTION_MODEL}
+            resp = requests.post(
+                api_url, headers=headers, files=files, data=data, timeout=120
             )
-        return translation.text
+            resp.raise_for_status()
+            return resp.json().get("text", "")
 
     async def text_to_speech(self, text: str) -> bytes:
         """
@@ -310,13 +368,17 @@ class openai(Extensions):
         if not self.configured:
             raise Exception("OpenAI provider not configured")
 
-        client = self._get_client()
-        tts_response = client.audio.speech.create(
-            model="tts-1",
-            voice=self.VOICE,
-            input=text,
-        )
-        return tts_response.content
+        headers = self._get_headers()
+        api_url = self._get_base_url() + "/audio/speech"
+
+        payload = {
+            "model": "tts-1",
+            "voice": self.VOICE,
+            "input": text,
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp.content
 
     async def generate_image(self, prompt: str) -> str:
         """
@@ -334,17 +396,22 @@ class openai(Extensions):
         filename = f"{uuid.uuid4()}.png"
         image_path = f"./WORKSPACE/{filename}"
 
-        client = self._get_client()
-        response = client.images.generate(
-            prompt=prompt,
-            model="dall-e-3",
-            n=1,
-            size="1024x1024",
-            response_format="url",
-        )
+        headers = self._get_headers()
+        api_url = self._get_base_url() + "/images/generations"
+
+        payload = {
+            "prompt": prompt,
+            "model": "dall-e-3",
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "url",
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
 
         logging.info(f"[OpenAI] Image generated for prompt: {prompt}")
-        url = response.data[0].url
+        url = data["data"][0]["url"]
 
         with open(image_path, "wb") as f:
             f.write(requests.get(url).content)
@@ -365,12 +432,16 @@ class openai(Extensions):
         if not self.configured:
             raise Exception("OpenAI provider not configured")
 
-        client = self._get_client()
-        response = client.embeddings.create(
-            input=input_text,
-            model="text-embedding-3-small",
-        )
-        return response.data[0].embedding
+        headers = self._get_headers()
+        api_url = self._get_base_url() + "/embeddings"
+
+        payload = {
+            "input": input_text,
+            "model": "text-embedding-3-small",
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
 
     # Command methods for AI to use this provider directly
     async def generate_response_command(self, prompt: str) -> str:

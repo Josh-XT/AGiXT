@@ -3,7 +3,6 @@ import uuid
 import requests
 import os
 import re
-from openai import OpenAI
 from typing import Type
 from pydantic import BaseModel
 from Extensions import Extensions
@@ -95,23 +94,27 @@ class automation_helpers(Extensions):
         except:
             top_p = 1.0
 
-        client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-        )
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = base_url.rstrip("/") + "/chat/completions"
+
+        payload = {
+            "model": model,
+            "messages": [
                 {
                     "role": "user",
                     "content": message_content,
                 }
             ],
-            temperature=temperature,
-            max_tokens=max_output_tokens,
-            top_p=top_p,
-        )
-        return response.choices[0].message.content
+            "temperature": temperature,
+            "max_tokens": max_output_tokens,
+            "top_p": top_p,
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=300)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
 
     async def indent_string(self, string: str, indents: int = 1):
         """
