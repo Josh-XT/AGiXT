@@ -1,14 +1,8 @@
 import logging
+from Globals import install_package_if_missing
 
-try:
-    import psycopg2
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "psycopg2"])
-    import psycopg2
-
+install_package_if_missing("psycopg2")
+import psycopg2
 import psycopg2.extras
 import logging
 from Extensions import Extensions

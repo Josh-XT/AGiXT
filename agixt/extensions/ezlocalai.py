@@ -18,16 +18,10 @@ import uuid
 import requests
 import numpy as np
 from Extensions import Extensions
-from Globals import getenv
+from Globals import getenv, install_package_if_missing
 
-try:
-    import openai
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
-    import openai
+install_package_if_missing("openai")
+import openai
 
 
 class ezlocalai(Extensions):

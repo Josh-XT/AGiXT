@@ -13,35 +13,16 @@ from InternalClient import InternalClient
 from Globals import getenv, get_tokens
 from dataclasses import dataclass
 import logging
+from Globals import install_package_if_missing
 
-# get stuff
+# Install dependencies if missing
+install_package_if_missing("black")
+install_package_if_missing("GitPython", "git")
+install_package_if_missing("PyGithub", "github")
 
-try:
-    import black
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "black"])
-    import black
-
-try:
-    import git
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "GitPython"])
-    import git
-
-try:
-    from github import Github, RateLimitExceededException
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyGithub"])
-    from github import Github, RateLimitExceededException
+import black
+import git
+from github import Github, RateLimitExceededException
 import xml.etree.ElementTree as ET
 
 """

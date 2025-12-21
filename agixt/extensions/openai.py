@@ -19,16 +19,10 @@ import uuid
 import requests
 import numpy as np
 from Extensions import Extensions
-from Globals import getenv
+from Globals import getenv, install_package_if_missing
 
-try:
-    import openai as openai_module
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
-    import openai as openai_module
+install_package_if_missing("openai")
+import openai as openai_module
 
 
 class openai(Extensions):

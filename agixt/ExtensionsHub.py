@@ -38,6 +38,8 @@ class ExtensionsHub:
         if self._extension_paths_cache is not None:
             return self._extension_paths_cache
 
+        import sys
+
         search_paths = []
 
         # Always include the default extensions directory
@@ -62,6 +64,12 @@ class ExtensionsHub:
                     hub_path = os.path.join(self.extensions_dir, hub_dir_name)
                     if os.path.exists(hub_path):
                         search_paths.append(os.path.abspath(hub_path))
+
+        # Add all extension search paths to sys.path so extensions can import each other
+        for path in search_paths:
+            if path not in sys.path:
+                sys.path.insert(0, path)
+                logging.debug(f"Added extension path to sys.path: {path}")
 
         self._extension_paths_cache = search_paths
         return search_paths

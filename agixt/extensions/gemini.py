@@ -16,27 +16,13 @@ import os
 import uuid
 from pathlib import Path
 from Extensions import Extensions
-from Globals import getenv
+from Globals import getenv, install_package_if_missing
 
-try:
-    import google.generativeai as genai
-except ImportError:
-    import sys
-    import subprocess
+install_package_if_missing("google-generativeai", "google.generativeai")
+install_package_if_missing("gTTS", "gtts")
 
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "google-generativeai"]
-    )
-    import google.generativeai as genai
-
-try:
-    import gtts as ts
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "gTTS"])
-    import gtts as ts
+import google.generativeai as genai
+import gtts as ts
 
 
 class gemini(Extensions):

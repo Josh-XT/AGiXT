@@ -4,8 +4,6 @@ from email.mime.application import MIMEApplication
 from base64 import urlsafe_b64encode
 from datetime import datetime, timedelta
 import os
-import sys
-import subprocess
 import mimetypes
 import email
 from base64 import urlsafe_b64decode
@@ -17,22 +15,14 @@ from typing import Dict, List, Any, Optional
 from fastapi import HTTPException
 from Extensions import Extensions
 from MagicalAuth import MagicalAuth
-from Globals import getenv
+from Globals import getenv, install_package_if_missing
 
-try:
-    from googleapiclient.discovery import build
-except:
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "google-api-python-client"]
-    )
-    from googleapiclient.discovery import build
+install_package_if_missing("google-api-python-client", "googleapiclient")
+install_package_if_missing("google-ads", "google.ads.googleads")
+
+from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
-
-try:
-    from google.ads.googleads.client import GoogleAdsClient
-except:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-ads"])
-    from google.ads.googleads.client import GoogleAdsClient
+from google.ads.googleads.client import GoogleAdsClient
 
 """
 Required environment variables:

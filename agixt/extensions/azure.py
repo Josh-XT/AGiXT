@@ -13,16 +13,10 @@ import logging
 import time
 
 from Extensions import Extensions
-from Globals import getenv
+from Globals import getenv, install_package_if_missing
 
-try:
-    from openai import AzureOpenAI
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
-    from openai import AzureOpenAI
+install_package_if_missing("openai")
+from openai import AzureOpenAI
 
 
 class azure(Extensions):

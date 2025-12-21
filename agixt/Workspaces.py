@@ -1,14 +1,11 @@
-try:
-    from libcloud.storage.types import Provider, ContainerDoesNotExistError
-except ImportError:
-    import sys
-    import subprocess
+from Globals import getenv, install_package_if_missing
 
-    # `fasteners`` is required for libcloud to work, but libcloud doesn't install it.
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "fasteners"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "apache-libcloud"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "watchdog"])
-    from libcloud.storage.types import Provider, ContainerDoesNotExistError
+# Install cloud storage dependencies if missing
+install_package_if_missing("fasteners")
+install_package_if_missing("apache-libcloud", "libcloud")
+install_package_if_missing("watchdog")
+
+from libcloud.storage.types import Provider, ContainerDoesNotExistError
 from libcloud.storage.providers import get_driver
 from contextlib import contextmanager
 from typing import Optional, Union, TextIO, BinaryIO, Generator, List, Dict, Any
@@ -23,7 +20,6 @@ import os
 import tempfile
 import shutil
 import logging
-from Globals import getenv
 from pathlib import Path
 from datetime import datetime, timezone
 import hashlib

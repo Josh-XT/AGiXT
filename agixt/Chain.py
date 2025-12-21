@@ -250,6 +250,7 @@ class Chain:
             webhook_emitter.emit_event(
                 event_type="chain.created",
                 user_id=self.user,
+                company_id=str(self.company_id) if self.company_id else None,
                 data={
                     "chain_id": chain_id,
                     "chain_name": chain_name,
@@ -278,6 +279,7 @@ class Chain:
                 webhook_emitter.emit_event(
                     event_type="chain.updated",
                     user_id=self.user,
+                    company_id=str(self.company_id) if self.company_id else None,
                     data={
                         "chain_id": str(chain.id),
                         "old_name": old_name,
@@ -734,6 +736,7 @@ class Chain:
                 webhook_emitter.emit_event(
                     event_type="chain.deleted",
                     user_id=self.user,
+                    company_id=str(self.company_id) if self.company_id else None,
                     data={
                         "chain_id": chain_id,
                         "chain_name": chain_name,
@@ -905,6 +908,7 @@ class Chain:
                 webhook_emitter.emit_event(
                     event_type="chain.updated",
                     user_id=self.user,
+                    company_id=str(self.company_id) if self.company_id else None,
                     data={
                         "chain_id": str(chain.id),
                         "chain_name": chain_name,
@@ -1215,6 +1219,7 @@ class Chain:
             await webhook_emitter.emit_event(
                 event_type="chain.step.completed",
                 user_id=self.user,
+                company_id=str(self.company_id) if self.company_id else None,
                 data={
                     "chain_name": chain_name,
                     "chain_run_id": str(chain_run_id),
@@ -1244,6 +1249,7 @@ class Chain:
         await webhook_emitter.emit_event(
             event_type="chain.execution.started",
             user_id=self.user,
+            company_id=str(self.company_id) if self.company_id else None,
             data={
                 "chain_id": str(chain_data["id"]),
                 "chain_name": chain_name,
@@ -1457,6 +1463,7 @@ class Chain:
             webhook_emitter.emit_event(
                 event_type="chain.deleted",
                 user_id=self.user,
+                company_id=str(self.company_id) if self.company_id else None,
                 data={
                     "chain_id": str(chain_id),
                     "chain_name": chain_name,
@@ -1492,6 +1499,7 @@ class Chain:
             webhook_emitter.emit_event(
                 event_type="chain.updated",
                 user_id=self.user,
+                company_id=str(self.company_id) if self.company_id else None,
                 data={
                     "chain_id": str(chain_id),
                     "old_name": old_name,

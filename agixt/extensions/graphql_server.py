@@ -3,17 +3,11 @@ from typing import Optional
 import json
 from Extensions import Extensions
 from datetime import datetime
+from Globals import install_package_if_missing
 
-try:
-    from gql import gql, Client
-    from gql.transport.requests import RequestsHTTPTransport
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "gql[requests]"])
-    from gql import gql, Client
-    from gql.transport.requests import RequestsHTTPTransport
+install_package_if_missing("gql[requests]", "gql")
+from gql import gql, Client
+from gql.transport.requests import RequestsHTTPTransport
 
 
 class graphql_server(Extensions):
