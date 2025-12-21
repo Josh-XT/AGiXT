@@ -262,6 +262,67 @@ async def create_server_prompt_v1(
     )
 
 
+# Categories must be defined BEFORE {prompt_id} to avoid route conflicts
+@app.get(
+    "/v1/server/prompt/categories",
+    tags=["Server Prompts"],
+    summary="Get all server-level prompt categories",
+    description="Retrieve all server-level prompt categories. Super admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("server:prompts"))],
+)
+async def get_server_prompt_categories_v1(
+    include_internal: bool = False,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    categories = Prompts(user=user).get_server_prompt_categories(
+        include_internal=include_internal
+    )
+    return {"categories": categories}
+
+
+@app.post(
+    "/v1/server/prompt/category",
+    tags=["Server Prompts"],
+    summary="Create a server-level prompt category",
+    description="Create a new server-level prompt category. Super admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("server:prompts"))],
+)
+async def create_server_prompt_category_v1(
+    name: str,
+    description: str = "",
+    is_internal: bool = False,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    category_id = Prompts(user=user).add_server_prompt_category(
+        name=name, description=description, is_internal=is_internal
+    )
+    return ResponseMessage(
+        message=f"Server prompt category created with ID: {category_id}"
+    )
+
+
+@app.delete(
+    "/v1/server/prompt/category/{category_id}",
+    tags=["Server Prompts"],
+    response_model=ResponseMessage,
+    summary="Delete a server-level prompt category",
+    description="Delete a server-level prompt category by ID. Super admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("server:prompts"))],
+)
+async def delete_server_prompt_category_v1(
+    category_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    try:
+        Prompts(user=user).delete_server_prompt_category(category_id=category_id)
+        return ResponseMessage(message="Server prompt category deleted.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.get(
     "/v1/server/prompt/{prompt_id}",
     tags=["Server Prompts"],
@@ -327,66 +388,6 @@ async def delete_server_prompt_v1(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.get(
-    "/v1/server/prompt/categories",
-    tags=["Server Prompts"],
-    summary="Get all server-level prompt categories",
-    description="Retrieve all server-level prompt categories. Super admin only.",
-    dependencies=[Depends(verify_api_key), Depends(require_scope("server:prompts"))],
-)
-async def get_server_prompt_categories_v1(
-    include_internal: bool = False,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-):
-    categories = Prompts(user=user).get_server_prompt_categories(
-        include_internal=include_internal
-    )
-    return {"categories": categories}
-
-
-@app.post(
-    "/v1/server/prompt/category",
-    tags=["Server Prompts"],
-    summary="Create a server-level prompt category",
-    description="Create a new server-level prompt category. Super admin only.",
-    dependencies=[Depends(verify_api_key), Depends(require_scope("server:prompts"))],
-)
-async def create_server_prompt_category_v1(
-    name: str,
-    description: str = "",
-    is_internal: bool = False,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
-    category_id = Prompts(user=user).add_server_prompt_category(
-        name=name, description=description, is_internal=is_internal
-    )
-    return ResponseMessage(
-        message=f"Server prompt category created with ID: {category_id}"
-    )
-
-
-@app.delete(
-    "/v1/server/prompt/category/{category_id}",
-    tags=["Server Prompts"],
-    response_model=ResponseMessage,
-    summary="Delete a server-level prompt category",
-    description="Delete a server-level prompt category by ID. Super admin only.",
-    dependencies=[Depends(verify_api_key), Depends(require_scope("server:prompts"))],
-)
-async def delete_server_prompt_category_v1(
-    category_id: str,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
-    try:
-        Prompts(user=user).delete_server_prompt_category(category_id=category_id)
-        return ResponseMessage(message="Server prompt category deleted.")
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
 # =========================================================================
 # Company-level prompt management (company admin only)
 # =========================================================================
@@ -429,6 +430,85 @@ async def create_company_prompt_v1(
         message=f"Company prompt '{prompt.prompt_name}' created.",
         id=prompt_id,
     )
+
+
+# Categories must be defined BEFORE {prompt_id} to avoid route conflicts
+@app.get(
+    "/v1/company/prompt/categories",
+    tags=["Company Prompts"],
+    summary="Get all company-level prompt categories",
+    description="Retrieve all company-level prompt categories. Company admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("company:prompts"))],
+)
+async def get_company_prompt_categories_v1(
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    categories = Prompts(user=user).get_company_prompt_categories()
+    return {"categories": categories}
+
+
+@app.post(
+    "/v1/company/prompt/category",
+    tags=["Company Prompts"],
+    summary="Create a company-level prompt category",
+    description="Create a new company-level prompt category. Company admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("company:prompts"))],
+)
+async def create_company_prompt_category_v1(
+    name: str,
+    description: str = "",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    category_id = Prompts(user=user).add_company_prompt_category(
+        name=name, description=description
+    )
+    return ResponseMessage(
+        message=f"Company prompt category created with ID: {category_id}"
+    )
+
+
+@app.delete(
+    "/v1/company/prompt/category/{category_id}",
+    tags=["Company Prompts"],
+    response_model=ResponseMessage,
+    summary="Delete a company-level prompt category",
+    description="Delete a company-level prompt category by ID. Company admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("company:prompts"))],
+)
+async def delete_company_prompt_category_v1(
+    category_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    try:
+        Prompts(user=user).delete_company_prompt_category(category_id=category_id)
+        return ResponseMessage(message="Company prompt category deleted.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post(
+    "/v1/company/prompt/share/{prompt_id}",
+    tags=["Company Prompts"],
+    summary="Share a user prompt to company",
+    description="Share a user's prompt to the company level. Company admin only.",
+    dependencies=[Depends(verify_api_key), Depends(require_scope("prompts:share"))],
+)
+async def share_prompt_to_company_v1(
+    prompt_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> PromptResponse:
+    try:
+        new_prompt_id = Prompts(user=user).share_prompt_to_company(prompt_id=prompt_id)
+        return PromptResponse(
+            message="Prompt shared to company.",
+            id=new_prompt_id,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get(
@@ -490,83 +570,5 @@ async def delete_company_prompt_v1(
     try:
         Prompts(user=user).delete_company_prompt(prompt_id=prompt_id)
         return ResponseMessage(message="Company prompt deleted.")
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@app.post(
-    "/v1/company/prompt/share/{prompt_id}",
-    tags=["Company Prompts"],
-    summary="Share a user prompt to company",
-    description="Share a user's prompt to the company level. Company admin only.",
-    dependencies=[Depends(verify_api_key), Depends(require_scope("prompts:share"))],
-)
-async def share_prompt_to_company_v1(
-    prompt_id: str,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> PromptResponse:
-    try:
-        new_prompt_id = Prompts(user=user).share_prompt_to_company(prompt_id=prompt_id)
-        return PromptResponse(
-            message="Prompt shared to company.",
-            id=new_prompt_id,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get(
-    "/v1/company/prompt/categories",
-    tags=["Company Prompts"],
-    summary="Get all company-level prompt categories",
-    description="Retrieve all company-level prompt categories. Company admin only.",
-    dependencies=[Depends(verify_api_key), Depends(require_scope("company:prompts"))],
-)
-async def get_company_prompt_categories_v1(
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-):
-    categories = Prompts(user=user).get_company_prompt_categories()
-    return {"categories": categories}
-
-
-@app.post(
-    "/v1/company/prompt/category",
-    tags=["Company Prompts"],
-    summary="Create a company-level prompt category",
-    description="Create a new company-level prompt category. Company admin only.",
-    dependencies=[Depends(verify_api_key), Depends(require_scope("company:prompts"))],
-)
-async def create_company_prompt_category_v1(
-    name: str,
-    description: str = "",
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
-    category_id = Prompts(user=user).add_company_prompt_category(
-        name=name, description=description
-    )
-    return ResponseMessage(
-        message=f"Company prompt category created with ID: {category_id}"
-    )
-
-
-@app.delete(
-    "/v1/company/prompt/category/{category_id}",
-    tags=["Company Prompts"],
-    response_model=ResponseMessage,
-    summary="Delete a company-level prompt category",
-    description="Delete a company-level prompt category by ID. Company admin only.",
-    dependencies=[Depends(verify_api_key), Depends(require_scope("company:prompts"))],
-)
-async def delete_company_prompt_category_v1(
-    category_id: str,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-) -> ResponseMessage:
-    try:
-        Prompts(user=user).delete_company_prompt_category(category_id=category_id)
-        return ResponseMessage(message="Company prompt category deleted.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
