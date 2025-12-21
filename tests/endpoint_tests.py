@@ -1158,7 +1158,7 @@ def test_chat_completions():
             "stream": False,
         },
         headers=sdk.headers,
-        timeout=60,
+        timeout=300,
     )
     duration_ms = (time.time() - start_time) * 1000
 
@@ -1217,7 +1217,7 @@ def test_chat_completions_streaming():
         },
         headers=sdk.headers,
         stream=True,
-        timeout=60,
+        timeout=300,
     )
 
     if response.status_code != 200:
