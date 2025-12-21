@@ -14,7 +14,11 @@ from ApiClient import (
     get_api_client,
 )
 from MagicalAuth import require_scope
-from Agent import can_user_access_agent, clone_agent as clone_agent_func, get_agent_commands_only
+from Agent import (
+    can_user_access_agent,
+    clone_agent as clone_agent_func,
+    get_agent_commands_only,
+)
 from MagicalAuth import get_user_id
 from Models import (
     AgentNewName,

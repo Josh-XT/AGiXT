@@ -1080,7 +1080,9 @@ def test_get_agent_extensions():
     if not agent_id:
         raise Exception("No agent available to get extensions")
 
-    extensions = timed_sdk_call("get_agent_extensions", sdk.get_agent_extensions, agent_id=agent_id)
+    extensions = timed_sdk_call(
+        "get_agent_extensions", sdk.get_agent_extensions, agent_id=agent_id
+    )
     assert extensions is not None, "Failed to get agent extensions"
     ext_count = len(extensions) if isinstance(extensions, list) else 0
     print(f"   Got {ext_count} agent extensions")

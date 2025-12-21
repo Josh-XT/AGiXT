@@ -261,14 +261,14 @@ def get_agents_lightweight(
 def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
     """
     Get just the commands dict for an agent without loading full Agent config.
-    
+
     This is a lightweight alternative to creating a full Agent object when
     you only need the commands dictionary.
-    
+
     Args:
         agent_id: The agent's UUID
         user_id: The user's UUID (for authorization)
-        
+
     Returns:
         Dict of {command_name: enabled_bool}
     """
@@ -278,25 +278,23 @@ def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
         agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
         if not agent:
             return {}
-        
+
         # Get all commands using cache
         all_commands = get_all_commands_cached(session)
-        
+
         # Get agent's enabled commands
         agent_commands = (
-            session.query(AgentCommand)
-            .filter(AgentCommand.agent_id == agent_id)
-            .all()
+            session.query(AgentCommand).filter(AgentCommand.agent_id == agent_id).all()
         )
-        
+
         # Build enabled command IDs set
         enabled_command_ids = {ac.command_id for ac in agent_commands if ac.state}
-        
+
         # Build commands dict
         commands = {}
         for command in all_commands:
             commands[command.name] = command.id in enabled_command_ids
-        
+
         return commands
     finally:
         session.close()
