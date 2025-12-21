@@ -22,6 +22,8 @@ from DB import (
     PersonalAccessToken,
     PersonalAccessTokenAgentAccess,
     PersonalAccessTokenCompanyAccess,
+    CompanyExtensionCommand,
+    CompanyExtensionSetting,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -1033,13 +1035,60 @@ class MagicalAuth:
             )
             scopes.update(s.name for s in default_role_scopes_db)
 
-            # Also include wildcard patterns from default_role_scopes definition
-            # This ensures frontend can properly check wildcards like ext:*
+            # Handle wildcard patterns from default_role_scopes definition
+            # For ext:* wildcards, we expand to only include scopes for extensions
+            # that are actually configured/imported for this company
             if role_id in db_default_role_scopes:
+                has_ext_wildcard = "ext:*" in db_default_role_scopes[role_id]
+
                 for pattern in db_default_role_scopes[role_id]:
-                    # Include wildcard patterns that end with :* or contain :*:
+                    # Skip ext:* - we'll handle it specially below
+                    if pattern == "ext:*":
+                        continue
+                    # Include other wildcard patterns (but not ext:* variants that should be company-scoped)
                     if pattern.endswith(":*") or ":*:" in pattern or pattern == "*":
-                        scopes.add(pattern)
+                        # Don't include ext:*:action patterns as they should also be company-scoped
+                        if not pattern.startswith("ext:"):
+                            scopes.add(pattern)
+
+                # If role has ext:* wildcard, expand to only extensions configured for this company
+                if has_ext_wildcard:
+                    # Get extension names that are configured for this company
+                    # (via CompanyExtensionCommand or CompanyExtensionSetting)
+                    configured_extensions = set()
+
+                    # Get from CompanyExtensionCommand
+                    ext_commands = (
+                        db.query(CompanyExtensionCommand.extension_name)
+                        .filter(CompanyExtensionCommand.company_id == company_id)
+                        .distinct()
+                        .all()
+                    )
+                    configured_extensions.update(ec[0] for ec in ext_commands)
+
+                    # Get from CompanyExtensionSetting
+                    ext_settings = (
+                        db.query(CompanyExtensionSetting.extension_name)
+                        .filter(CompanyExtensionSetting.company_id == company_id)
+                        .distinct()
+                        .all()
+                    )
+                    configured_extensions.update(es[0] for es in ext_settings)
+
+                    # Add ext scopes only for configured extensions
+                    if configured_extensions:
+                        # Get all ext:* scopes from DB that match configured extensions
+                        ext_scopes = (
+                            db.query(Scope).filter(Scope.name.like("ext:%")).all()
+                        )
+                        for scope in ext_scopes:
+                            # Parse the scope name to get extension name
+                            # Format: ext:extension_name:... or ext:extension_name:feature:action
+                            parts = scope.name.split(":")
+                            if len(parts) >= 2:
+                                ext_name = parts[1]
+                                if ext_name in configured_extensions:
+                                    scopes.add(scope.name)
 
             # Get scopes from custom roles assigned to this user in this company
             custom_role_scopes = (
