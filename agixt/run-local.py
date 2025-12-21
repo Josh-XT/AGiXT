@@ -121,7 +121,7 @@ async def start_service(is_restart=False):
         # Initialize database first (like DB.py does)
         await initialize_database(is_restart=is_restart)
 
-        # Start uvicorn process
+        # Start uvicorn process with custom logging config to redact sensitive data
         cmd = [
             sys.executable,
             "-m",
@@ -131,8 +131,8 @@ async def start_service(is_restart=False):
             "0.0.0.0",
             "--port",
             "7437",
-            "--log-level",
-            str(getenv("LOG_LEVEL")).lower(),
+            "--log-config",
+            "logging_config.yaml",
             "--workers",
             str(getenv("UVICORN_WORKERS")),
             "--proxy-headers",

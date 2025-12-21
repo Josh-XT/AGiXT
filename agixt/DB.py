@@ -5048,6 +5048,15 @@ SERVER_CONFIG_DEFINITIONS = [
         "is_sensitive": True,
         "is_required": False,
     },
+    {
+        "name": "MICROSOFT_TENANT_ID",
+        "category": "oauth",
+        "description": "Microsoft Tenant ID (required for app-only email sending, use 'common' for multi-tenant apps)",
+        "value_type": "string",
+        "default_value": "common",
+        "is_sensitive": False,
+        "is_required": False,
+    },
     # GitHub OAuth
     {
         "name": "GITHUB_CLIENT_ID",
@@ -5484,6 +5493,85 @@ SERVER_CONFIG_DEFINITIONS = [
         "description": "Solana RPC URL for payment verification",
         "value_type": "url",
         "default_value": "https://api.mainnet-beta.solana.com",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Email Settings
+    # ========================================
+    {
+        "name": "EMAIL_PROVIDER",
+        "category": "email",
+        "description": "Email provider to use for sending emails (magic links, invitations). Options: auto, sendgrid, mailgun, microsoft, google. 'auto' will use the first configured provider found.",
+        "value_type": "string",
+        "default_value": "auto",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # SendGrid
+    {
+        "name": "SENDGRID_API_KEY",
+        "category": "email",
+        "description": "SendGrid API key for sending emails. Get at https://app.sendgrid.com/settings/api_keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "SENDGRID_FROM_EMAIL",
+        "category": "email",
+        "description": "Sender email address for SendGrid (must be verified in SendGrid)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Mailgun
+    {
+        "name": "MAILGUN_API_KEY",
+        "category": "email",
+        "description": "Mailgun API key for sending emails. Get at https://app.mailgun.com/app/account/security/api_keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "MAILGUN_DOMAIN",
+        "category": "email",
+        "description": "Mailgun domain for sending emails (e.g., mg.yourdomain.com)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "MAILGUN_FROM_EMAIL",
+        "category": "email",
+        "description": "Sender email address for Mailgun emails",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Microsoft Graph API Email (uses OAuth credentials from oauth category)
+    {
+        "name": "MICROSOFT_EMAIL_ADDRESS",
+        "category": "email",
+        "description": "Microsoft 365 email address to send from (requires MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET in OAuth settings, plus Mail.Send permission)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Google Gmail API Email (uses OAuth credentials from oauth category)
+    {
+        "name": "GOOGLE_EMAIL_ADDRESS",
+        "category": "email",
+        "description": "Gmail address to send from (requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in OAuth settings, plus Gmail API enabled)",
+        "value_type": "string",
+        "default_value": "",
         "is_sensitive": False,
         "is_required": False,
     },
@@ -6011,11 +6099,14 @@ if __name__ == "__main__":
         from SeedImports import import_all_data
 
         import_all_data()
+    # Import custom logging config to redact sensitive data
+    from logging_config import LOGGING_CONFIG
+
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
         port=7437,
-        log_level=str(getenv("LOG_LEVEL")).lower(),
+        log_config=LOGGING_CONFIG,
         workers=int(getenv("UVICORN_WORKERS")),
         proxy_headers=True,
     )

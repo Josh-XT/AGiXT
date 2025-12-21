@@ -346,11 +346,11 @@ class WebhookEventEmitter:
         session = get_session()
 
         try:
-            # If no company_id in the event, log warning and skip webhook processing
-            # Also check for string "None" which can happen if str(None) was called
+            # If no company_id in the event, skip webhook processing silently
+            # This can happen for internal events that don't have a company context
             if not event.company_id or event.company_id == "None":
-                logger.warning(
-                    f"Event {event.event_type} has no valid company_id (got: {event.company_id!r}), skipping webhook processing"
+                logger.debug(
+                    f"Event {event.event_type} has no company_id, skipping webhook processing"
                 )
                 return
 

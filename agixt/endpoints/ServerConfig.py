@@ -9,7 +9,7 @@ import os
 from fastapi import APIRouter, Header, HTTPException, Depends
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
-from MagicalAuth import MagicalAuth, verify_api_key
+from MagicalAuth import MagicalAuth, verify_api_key, send_email
 from DB import (
     ServerConfig,
     get_session,
@@ -1673,3 +1673,95 @@ async def delete_company_storage_settings(
             return {"status": "success", "message": "Custom storage settings removed"}
 
         return {"status": "success", "message": "No custom storage settings to remove"}
+
+
+class TestEmailRequest(BaseModel):
+    """Request to test email sending with a specific provider."""
+
+    provider: str = Field(
+        ..., description="Provider to test: sendgrid, mailgun, microsoft, google"
+    )
+
+
+class TestEmailResponse(BaseModel):
+    """Response from email test."""
+
+    success: bool
+    provider: Optional[str] = None
+    error: Optional[str] = None
+    message: str
+
+
+@app.post(
+    "/v1/server/email/test",
+    tags=["Server Config"],
+    response_model=TestEmailResponse,
+    summary="Test email configuration (super admin only)",
+    description="Send a test email to the logged-in user to verify email provider configuration.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def test_email_provider(
+    request: TestEmailRequest,
+    authorization: str = Header(None),
+):
+    """
+    Test email configuration by sending a test email to the logged-in user.
+
+    The test will temporarily use the specified provider regardless of EMAIL_PROVIDER setting.
+    """
+    auth = verify_super_admin(authorization)
+    user_email = auth.email
+    app_name = getenv("APP_NAME") or "AGiXT"
+
+    # Build test email content
+    subject = f"[{app_name}] Email Provider Test"
+    body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2 style="color: #2563eb;">Email Test Successful! ✓</h2>
+        <p>This is a test email from <strong>{app_name}</strong>.</p>
+        <p><strong>Provider:</strong> {request.provider}</p>
+        <p><strong>Recipient:</strong> {user_email}</p>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+            If you received this email, your email provider is configured correctly.
+        </p>
+    </body>
+    </html>
+    """
+
+    # Temporarily override the email provider for this test
+    # We set it in the environment which takes priority in getenv()
+    import os
+
+    original_provider = os.environ.get("EMAIL_PROVIDER", "")
+    os.environ["EMAIL_PROVIDER"] = request.provider
+
+    try:
+        # Send test email with detailed results
+        result = send_email(
+            email=user_email,
+            subject=subject,
+            body=body,
+            return_details=True,
+        )
+
+        if result["success"]:
+            return TestEmailResponse(
+                success=True,
+                provider=result["provider"],
+                error=None,
+                message=f"Test email sent successfully via {result['provider']} to {user_email}",
+            )
+        else:
+            return TestEmailResponse(
+                success=False,
+                provider=request.provider,
+                error=result["error"],
+                message=f"Failed to send test email via {request.provider}",
+            )
+    finally:
+        # Restore original provider setting
+        if original_provider:
+            os.environ["EMAIL_PROVIDER"] = original_provider
+        elif "EMAIL_PROVIDER" in os.environ:
+            del os.environ["EMAIL_PROVIDER"]
