@@ -87,24 +87,24 @@ Required environment variables:
 def send_email(email: str, subject: str, body: str, return_details: bool = False):
     """
     Send an email using the configured email provider.
-    
+
     Provider selection:
     - If EMAIL_PROVIDER is set to a specific provider, use that provider
     - If EMAIL_PROVIDER is 'auto' (default), try providers in order: sendgrid, mailgun, microsoft, google
-    
+
     Args:
         email: Recipient email address
         subject: Email subject
         body: HTML email body
         return_details: If True, return dict with success, provider, and error info
-    
+
     Returns:
         bool: True if email was sent successfully, False otherwise (when return_details=False)
         dict: {"success": bool, "provider": str, "error": str} (when return_details=True)
     """
     provider = getenv("EMAIL_PROVIDER").lower() if getenv("EMAIL_PROVIDER") else "auto"
     result = {"success": False, "provider": None, "error": None}
-    
+
     # Define provider check functions - each returns (success, error_message) or None if not configured
     def try_sendgrid():
         sendgrid_api_key = getenv("SENDGRID_API_KEY")
@@ -116,7 +116,9 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
             if not sendgrid_from_email:
                 missing.append("SENDGRID_FROM_EMAIL")
             if provider == "sendgrid":
-                logging.warning(f"[Email] SendGrid selected but missing: {', '.join(missing)}")
+                logging.warning(
+                    f"[Email] SendGrid selected but missing: {', '.join(missing)}"
+                )
             return None, f"Missing configuration: {', '.join(missing)}"
         try:
             message = Mail(
@@ -136,7 +138,7 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
             error_msg = f"SendGrid error: {str(e)}"
             logging.error(f"[Email] {error_msg}")
             return False, error_msg
-    
+
     def try_mailgun():
         mailgun_api_key = getenv("MAILGUN_API_KEY")
         mailgun_domain = getenv("MAILGUN_DOMAIN")
@@ -150,7 +152,9 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
             if not mailgun_from_email:
                 missing.append("MAILGUN_FROM_EMAIL")
             if provider == "mailgun":
-                logging.warning(f"[Email] Mailgun selected but missing: {', '.join(missing)}")
+                logging.warning(
+                    f"[Email] Mailgun selected but missing: {', '.join(missing)}"
+                )
             return None, f"Missing configuration: {', '.join(missing)}"
         try:
             response = requests.post(
@@ -166,14 +170,16 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
             if response.status_code == 200:
                 logging.debug(f"[Email] Sent via Mailgun to {email}")
                 return True, None
-            error_msg = f"Mailgun returned status {response.status_code}: {response.text}"
+            error_msg = (
+                f"Mailgun returned status {response.status_code}: {response.text}"
+            )
             logging.warning(f"[Email] {error_msg}")
             return False, error_msg
         except Exception as e:
             error_msg = f"Mailgun error: {str(e)}"
             logging.error(f"[Email] {error_msg}")
             return False, error_msg
-    
+
     def try_microsoft():
         """Send email using Microsoft Graph API with app-only authentication."""
         ms_client_id = getenv("MICROSOFT_CLIENT_ID")
@@ -188,12 +194,16 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
             if not ms_email:
                 missing.append("MICROSOFT_EMAIL_ADDRESS (Email settings)")
             if provider == "microsoft":
-                logging.warning(f"[Email] Microsoft selected but missing: {', '.join(missing)}")
+                logging.warning(
+                    f"[Email] Microsoft selected but missing: {', '.join(missing)}"
+                )
             return None, f"Missing configuration: {', '.join(missing)}"
         try:
             # Get OAuth token using client credentials flow
             tenant_id = getenv("MICROSOFT_TENANT_ID") or "common"
-            token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+            token_url = (
+                f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+            )
             token_response = requests.post(
                 token_url,
                 data={
@@ -207,9 +217,9 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
                 error_msg = f"Microsoft token error: {token_response.text}"
                 logging.error(f"[Email] {error_msg}")
                 return False, error_msg
-            
+
             access_token = token_response.json().get("access_token")
-            
+
             # Send email via Graph API
             email_data = {
                 "message": {
@@ -219,7 +229,7 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
                 },
                 "saveToSentItems": "true",
             }
-            
+
             # Use /users/{email}/sendMail for app-only auth
             send_url = f"https://graph.microsoft.com/v1.0/users/{ms_email}/sendMail"
             response = requests.post(
@@ -230,18 +240,20 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
                 },
                 json=email_data,
             )
-            
+
             if response.status_code == 202:
                 logging.debug(f"[Email] Sent via Microsoft to {email}")
                 return True, None
-            error_msg = f"Microsoft returned status {response.status_code}: {response.text}"
+            error_msg = (
+                f"Microsoft returned status {response.status_code}: {response.text}"
+            )
             logging.warning(f"[Email] {error_msg}")
             return False, error_msg
         except Exception as e:
             error_msg = f"Microsoft error: {str(e)}"
             logging.error(f"[Email] {error_msg}")
             return False, error_msg
-    
+
     def try_google():
         """Send email using Gmail API with service account or app credentials."""
         google_client_id = getenv("GOOGLE_CLIENT_ID")
@@ -256,15 +268,17 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
             if not google_email:
                 missing.append("GOOGLE_EMAIL_ADDRESS (Email settings)")
             if provider == "google":
-                logging.warning(f"[Email] Google selected but missing: {', '.join(missing)}")
+                logging.warning(
+                    f"[Email] Google selected but missing: {', '.join(missing)}"
+                )
             return None, f"Missing configuration: {', '.join(missing)}"
-        
+
         # Note: Google Gmail API requires user-delegated OAuth tokens with gmail.send scope
         # This is more complex than Microsoft's client credentials flow
         error_msg = "Google Gmail API requires user-delegated OAuth tokens. Consider using SendGrid, Mailgun, or Microsoft for system emails."
         logging.warning(f"[Email] {error_msg}")
         return False, error_msg
-    
+
     # Provider map
     providers = {
         "sendgrid": try_sendgrid,
@@ -272,12 +286,12 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
         "microsoft": try_microsoft,
         "google": try_google,
     }
-    
+
     def make_result(success, provider_name, error):
         if return_details:
             return {"success": success, "provider": provider_name, "error": error}
         return success
-    
+
     try:
         if provider != "auto" and provider in providers:
             # Use specific provider
@@ -286,7 +300,7 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
                 logging.error(f"[Email] Provider '{provider}' is not configured")
                 return make_result(False, provider, error)
             return make_result(success, provider, error)
-        
+
         # Auto mode: try providers in order
         last_error = None
         for name, try_provider in providers.items():
@@ -298,11 +312,11 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
                 last_error = error
                 continue
             # success is None means provider not configured, try next
-        
+
         # No providers configured or all failed
         if last_error:
             return make_result(False, None, last_error)
-        
+
         no_config_error = (
             "No email provider configured. Configure one of: "
             "SendGrid (SENDGRID_API_KEY + SENDGRID_FROM_EMAIL), "
