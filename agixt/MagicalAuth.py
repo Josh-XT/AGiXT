@@ -3530,10 +3530,12 @@ class MagicalAuth:
                 pass
 
             # Get all agents for all companies in one batch query
+            # Include commands to avoid separate /v1/agent/{id}/command calls from front end
             agents_by_company = get_agents_lightweight(
                 user_id=str(self.user_id),
                 company_ids=company_ids,
                 default_agent_id=default_agent_id,
+                include_commands=True,
             )
 
             response = []

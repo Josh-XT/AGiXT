@@ -177,11 +177,14 @@ def invalidate_commands_cache():
 
 
 def get_agents_lightweight(
-    user_id: str, company_ids: list, default_agent_id: str = None
+    user_id: str, company_ids: list, default_agent_id: str = None, include_commands: bool = False
 ) -> dict:
     """
     Get lightweight agent info for all user's companies in a single batch query.
-    Returns {company_id: [agent_dicts]} where each agent has only: id, name, companyId, default, status
+    Returns {company_id: [agent_dicts]} where each agent has: id, name, companyId, default, status
+    
+    If include_commands=True, also includes 'commands' dict with {command_name: enabled_bool}
+    for each agent. This is useful for the /v1/user endpoint to avoid separate API calls.
 
     This is optimized for the /v1/user endpoint to avoid the expensive get_agents() call.
     """
@@ -216,6 +219,42 @@ def get_agents_lightweight(
         all_agents = owned_agents + shared_agents
         result = {str(cid): [] for cid in company_ids}
         seen_by_company = {str(cid): set() for cid in company_ids}
+        
+        # If including commands, batch-fetch all command data
+        commands_by_agent = {}
+        if include_commands and all_agents:
+            agent_ids = [str(a.id) for a in all_agents]
+            
+            # Get all commands (cached)
+            all_commands = get_all_commands_cached(session)
+            command_id_to_name = {c.id: c.name for c in all_commands}
+            
+            # Get enabled commands for all agents in one query
+            agent_commands = (
+                session.query(AgentCommand)
+                .filter(AgentCommand.agent_id.in_(agent_ids))
+                .filter(AgentCommand.state == True)
+                .all()
+            )
+            
+            # Build {agent_id: set of enabled command names}
+            enabled_by_agent = {}
+            for ac in agent_commands:
+                agent_id_str = str(ac.agent_id)
+                if agent_id_str not in enabled_by_agent:
+                    enabled_by_agent[agent_id_str] = set()
+                cmd_name = command_id_to_name.get(ac.command_id)
+                if cmd_name:
+                    enabled_by_agent[agent_id_str].add(cmd_name)
+            
+            # Build commands dict for each agent
+            for agent in all_agents:
+                agent_id_str = str(agent.id)
+                enabled_commands = enabled_by_agent.get(agent_id_str, set())
+                commands_by_agent[agent_id_str] = {
+                    cmd_name: cmd_name in enabled_commands 
+                    for cmd_name in command_id_to_name.values()
+                }
 
         for agent in all_agents:
             settings_dict = {s.name: s.value for s in agent.settings}
@@ -239,19 +278,23 @@ def get_agents_lightweight(
                 except:
                     status = None
 
-            result[agent_company_id].append(
-                {
-                    "id": str(agent.id),
-                    "name": agent.name,
-                    "companyId": agent_company_id,
-                    "default": (
-                        str(agent.id) == str(default_agent_id)
-                        if default_agent_id
-                        else False
-                    ),
-                    "status": status,
-                }
-            )
+            agent_dict = {
+                "id": str(agent.id),
+                "name": agent.name,
+                "companyId": agent_company_id,
+                "default": (
+                    str(agent.id) == str(default_agent_id)
+                    if default_agent_id
+                    else False
+                ),
+                "status": status,
+            }
+            
+            # Add commands if requested
+            if include_commands:
+                agent_dict["commands"] = commands_by_agent.get(str(agent.id), {})
+            
+            result[agent_company_id].append(agent_dict)
 
         return result
     finally:
