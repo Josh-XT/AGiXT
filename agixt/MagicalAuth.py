@@ -212,7 +212,7 @@ def get_oauth_providers():
         module_name = filename.replace(".py", "")
 
         try:
-            client_id = os.getenv(f"{module_name.upper()}_CLIENT_ID")
+            client_id = getenv(f"{module_name.upper()}_CLIENT_ID")
             if client_id:
                 providers.append(
                     {
@@ -447,7 +447,18 @@ def require_all_scopes(*required_scopes):
     return scope_checker
 
 
-def get_user_id(user: str):
+def get_user_id(user):
+    """Get user ID from user (can be email string or user dict from verify_api_key)."""
+    # Handle dict from verify_api_key
+    if isinstance(user, dict):
+        if "id" in user:
+            return user["id"]
+        elif "email" in user:
+            user = user["email"]
+        else:
+            raise HTTPException(status_code=404, detail="User not found in dict.")
+
+    # Handle string (email)
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     if user_data is None:
@@ -460,6 +471,54 @@ def get_user_id(user: str):
         raise HTTPException(status_code=404, detail=f"User {user} not found.")
     session.close()
     return user_id
+
+
+def get_user_company_id(user):
+    """Get the company_id for a user (can be email string or user dict from verify_api_key)."""
+    # Handle dict from verify_api_key
+    if isinstance(user, dict):
+        user_id = user.get("id")
+        if user_id:
+            # Look up company from UserCompany table
+            session = get_session()
+            try:
+                user_company = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == user_id)
+                    .first()
+                )
+                if user_company and user_company.company_id is not None:
+                    company_id_str = str(user_company.company_id)
+                    if company_id_str.lower() in ["none", "null", ""]:
+                        return None
+                    return company_id_str
+                return None
+            finally:
+                session.close()
+        elif "email" in user:
+            user = user["email"]
+        else:
+            return None
+
+    # Handle string (email) - look up user first, then company
+    session = get_session()
+    try:
+        user_data = session.query(User).filter(User.email == user).first()
+        if user_data is None:
+            return None
+        user_company = (
+            session.query(UserCompany)
+            .filter(UserCompany.user_id == user_data.id)
+            .first()
+        )
+        if user_company and user_company.company_id is not None:
+            company_id_str = str(user_company.company_id)
+            if company_id_str.lower() in ["none", "null", ""]:
+                return None
+            return company_id_str
+        return None
+    finally:
+        session.close()
 
 
 def get_user_company_id_by_email(email: str):

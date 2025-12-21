@@ -167,6 +167,11 @@ ADMIN_ONLY_TESTS = {
     # User management
     "invite_user",
     # Note: execute_command is now allowed for users with extensions:execute scope
+    # Tiered prompts and chains - company level requires company_admin
+    "get_company_prompts",
+    "create_company_prompt",
+    "get_company_chains",
+    "create_company_chain",
 }
 
 # Tests that should also fail for read_only_user (role_id=6)
@@ -218,6 +223,7 @@ def run_test(
     test_func,
     expected_to_fail_for_user: bool = False,
     expected_to_fail_for_read_only: bool = False,
+    expected_to_fail_for_company_admin: bool = False,
 ):
     """
     Run a test for the current user context, handling expected failures for restricted roles.
@@ -227,11 +233,14 @@ def run_test(
         test_func: Function to execute
         expected_to_fail_for_user: If True, the test is expected to fail for "user" role
         expected_to_fail_for_read_only: If True, the test is expected to fail for "read_only_user" role
+        expected_to_fail_for_company_admin: If True, the test is expected to fail for "company_admin" role
     """
     role = ctx.current_user.role_name
     # Determine if this test should fail for the current role
-    should_fail = (expected_to_fail_for_user and role == "user") or (
-        expected_to_fail_for_read_only and role == "read_only_user"
+    should_fail = (
+        (expected_to_fail_for_user and role == "user")
+        or (expected_to_fail_for_read_only and role == "read_only_user")
+        or (expected_to_fail_for_company_admin and role == "company_admin")
     )
 
     try:
@@ -798,6 +807,97 @@ def test_get_prompts():
     return prompts
 
 
+# ============================================
+# Tiered Prompts and Chains Tests (Company Level)
+# ============================================
+
+
+def test_get_company_prompts():
+    """Test getting company-level prompts (company_admin)"""
+    sdk = ctx.current_user.sdk
+
+    response = requests.get(
+        f"{ctx.base_uri}/v1/company/prompts",
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to get company prompts: {response.status_code} - {response.text}"
+        )
+
+    prompts = response.json()
+    print(f"   Got {len(prompts.get('prompts', []))} company prompts")
+    return prompts
+
+
+def test_create_company_prompt():
+    """Test creating a company-level prompt (company_admin)"""
+    sdk = ctx.current_user.sdk
+    prompt_name = f"company_prompt_{ctx.current_user.role_name}_{random_string}"
+
+    response = requests.post(
+        f"{ctx.base_uri}/v1/company/prompt",
+        json={
+            "prompt_name": prompt_name,
+            "prompt": "Company level test prompt about {topic}",
+            "prompt_category": "Default",
+        },
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to create company prompt: {response.status_code} - {response.text}"
+        )
+
+    result = response.json()
+    print(f"   Created company prompt: {prompt_name}")
+    return result
+
+
+def test_get_company_chains():
+    """Test getting company-level chains (company_admin)"""
+    sdk = ctx.current_user.sdk
+
+    response = requests.get(
+        f"{ctx.base_uri}/v1/company/chains",
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to get company chains: {response.status_code} - {response.text}"
+        )
+
+    chains = response.json()
+    print(f"   Got {len(chains.get('chains', []))} company chains")
+    return chains
+
+
+def test_create_company_chain():
+    """Test creating a company-level chain (company_admin)"""
+    sdk = ctx.current_user.sdk
+    chain_name = f"company_chain_{ctx.current_user.role_name}_{random_string}"
+
+    response = requests.post(
+        f"{ctx.base_uri}/v1/company/chain",
+        json={
+            "chain_name": chain_name,
+        },
+        headers=sdk.headers,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Failed to create company chain: {response.status_code} - {response.text}"
+        )
+
+    result = response.json()
+    print(f"   Created company chain: {chain_name}")
+    return result
+
+
 def test_create_webhook():
     """Test creating an outgoing webhook (admin only - requires webhooks:write)"""
     sdk = ctx.current_user.sdk
@@ -1005,79 +1105,128 @@ def run_all_role_tests():
     """Run comprehensive tests for company_admin, user, and read_only_user roles"""
 
     # List of tests with their expected behavior for each restricted role
-    # Format: (test_func, test_name, expected_to_fail_for_user, expected_to_fail_for_read_only)
+    # Format: (test_func, test_name, expected_to_fail_for_user, expected_to_fail_for_read_only, expected_to_fail_for_company_admin)
     #
     # Role scopes reference:
-    # - company_admin (role_id=2): Full company management
+    # - company_admin (role_id=2): Full company management, but NOT server:prompts or server:chains
     # - user (role_id=3): agents:read/execute, conversations:*, memories:read/write, chains:read/execute, prompts:read, extensions:read/execute
     # - read_only_user (role_id=6): Only read access - agents:read, conversations:read, memories:read, chains:read, prompts:read, extensions:read
     tests = [
         # Basic operations - should work for all roles (read-only endpoints)
-        (test_user_operations, "user_operations", False, False),
-        (test_get_providers, "get_providers", False, False),
-        (test_get_agents, "get_agents", False, False),
-        (test_get_conversations, "get_conversations", False, False),
+        (test_user_operations, "user_operations", False, False, False),
+        (test_get_providers, "get_providers", False, False, False),
+        (test_get_agents, "get_agents", False, False, False),
+        (test_get_conversations, "get_conversations", False, False, False),
         (
             test_get_chains,
             "get_chains",
             False,
             False,
+            False,
         ),  # Both user and read_only have chains:read
-        (test_get_prompts, "get_prompts", False, False),
+        (test_get_prompts, "get_prompts", False, False, False),
         # Agent operations
-        (test_create_agent, "create_agent", True, True),  # Requires agents:write
+        (test_create_agent, "create_agent", True, True, False),  # Requires agents:write
         (
             test_get_agent_config,
             "get_agent_config",
             False,
             False,
+            False,
         ),  # Allowed for users with agents:read scope
-        (test_rename_agent, "rename_agent", True, True),  # Requires agents:write
+        (test_rename_agent, "rename_agent", True, True, False),  # Requires agents:write
         (
             test_update_agent_settings,
             "update_agent_settings",
             True,
             True,
+            False,
         ),  # Requires agents:write
         # Conversation operations
         (
             test_create_conversation,
             "create_conversation",
             False,
-            False,  # read_only CAN create conversations
+            False,
+            False,
         ),  # All authenticated users can create conversations
         # Chain operations
-        (test_create_chain, "create_chain", True, True),  # Requires chains:write
+        (test_create_chain, "create_chain", True, True, False),  # Requires chains:write
         # Prompt operations
-        (test_create_prompt, "create_prompt", True, True),  # Requires prompts:write
+        (
+            test_create_prompt,
+            "create_prompt",
+            True,
+            True,
+            False,
+        ),  # Requires prompts:write
         # Webhook operations (all have is_admin check)
-        (test_create_webhook, "create_webhook", True, True),  # is_admin check
-        (test_get_webhooks, "get_webhooks", True, True),  # is_admin check
+        (test_create_webhook, "create_webhook", True, True, False),  # is_admin check
+        (test_get_webhooks, "get_webhooks", True, True, False),  # is_admin check
         # User management
-        (test_invite_user, "invite_user", True, True),  # Requires users:write
+        (test_invite_user, "invite_user", True, True, False),  # Requires users:write
         # Extension/Command operations - user has extensions:execute, read_only does not
         (
             test_execute_command,
             "execute_command",
-            False,  # user has extensions:execute scope
-            True,  # read_only does NOT have execute
-        ),
+            False,
+            True,
+            False,
+        ),  # user has extensions:execute scope, read_only does NOT
         # Memory operations - user has memories:read/write, read_only has only memories:read
         (
             test_learn_text,
             "learn_text",
             False,
             True,
+            False,
         ),  # user has memories:write, read_only does not
-        (test_get_memories, "get_memories", False, False),  # Both have memories:read
+        (
+            test_get_memories,
+            "get_memories",
+            False,
+            False,
+            False,
+        ),  # Both have memories:read
         (
             test_wipe_memories,
             "wipe_memories",
-            True,  # Requires admin (DELETE operation)
             True,
+            True,
+            False,
         ),  # Requires admin (DELETE operation)
         # NOTE: delete_agent removed from test loop - handled in cleanup
         # The admin's agent must remain available for non-admin role tests
+        # Tiered Prompts and Chains tests
+        # Company-level operations (company_admin can access, user and read_only cannot)
+        (
+            test_get_company_prompts,
+            "get_company_prompts",
+            True,
+            True,
+            False,
+        ),  # company_admin can access
+        (
+            test_create_company_prompt,
+            "create_company_prompt",
+            True,
+            True,
+            False,
+        ),  # company_admin can access
+        (
+            test_get_company_chains,
+            "get_company_chains",
+            True,
+            True,
+            False,
+        ),  # company_admin can access
+        (
+            test_create_company_chain,
+            "create_company_chain",
+            True,
+            True,
+            False,
+        ),  # company_admin can access
     ]
 
     # Test users to iterate through
@@ -1110,12 +1259,14 @@ def run_all_role_tests():
             test_name,
             expected_to_fail_for_user,
             expected_to_fail_for_read_only,
+            expected_to_fail_for_company_admin,
         ) in tests:
             run_test(
                 test_name,
                 test_func,
                 expected_to_fail_for_user,
                 expected_to_fail_for_read_only,
+                expected_to_fail_for_company_admin,
             )
 
     # Print summary and return failure count

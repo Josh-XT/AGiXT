@@ -36,6 +36,7 @@ async def initialize_database(is_restart=False):
         DB.migrate_extension_settings_tables()
         DB.migrate_server_config_categories()
         DB.migrate_company_storage_settings_table()
+        DB.migrate_tiered_prompts_chains_tables()
 
         # Initialize extension tables
         DB.initialize_extension_tables()

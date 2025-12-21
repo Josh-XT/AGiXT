@@ -73,6 +73,7 @@ class PublicConfigResponse(BaseModel):
     app_description: str
     app_uri: str
     agixt_server: str
+    agent_name: str
     footer_message: str
     allow_email_sign_in: bool
     file_upload_enabled: bool
@@ -130,6 +131,7 @@ async def get_public_config():
         agixt_server=getenv(
             "AGIXT_SERVER", getenv("AGIXT_URI", "http://localhost:7437")
         ),
+        agent_name=getenv("AGENT_NAME", getenv("AGIXT_AGENT", "XT")),
         footer_message=getenv("AGIXT_FOOTER_MESSAGE", "AGiXT 2025"),
         allow_email_sign_in=getenv("ALLOW_EMAIL_SIGN_IN", "true").lower() == "true",
         file_upload_enabled=getenv("AGIXT_FILE_UPLOAD_ENABLED", "true").lower()
@@ -681,12 +683,12 @@ async def get_server_extension_settings(
             # Check database first, then fall back to environment variable
             current_value = db_data.get("value") if db_key in db_values else None
             if current_value is None:
-                # Fall back to environment variable - check primary name first
-                env_value = os.getenv(setting_key)
+                # Fall back to server config (checks env vars then database)
+                env_value = getenv(setting_key)
                 if not env_value:
                     # Check alternative env var names
                     for alt_name in ALT_ENV_VAR_NAMES.get(setting_key, []):
-                        env_value = os.getenv(alt_name)
+                        env_value = getenv(alt_name)
                         if env_value:
                             break
                 if env_value:
@@ -1107,7 +1109,7 @@ def find_extension_files():
                 extension_files.append(os.path.join(extensions_dir, f))
 
     # Check extensions hub if configured
-    hub_path = os.getenv("EXTENSIONS_HUB_PATH")
+    hub_path = getenv("EXTENSIONS_HUB_PATH")
     if hub_path and os.path.exists(hub_path):
         for f in os.listdir(hub_path):
             if f.endswith(".py") and not f.startswith("_"):
@@ -1179,9 +1181,9 @@ async def get_server_oauth_providers(
         client_id_key = f"{provider_upper}_CLIENT_ID"
         client_secret_key = f"{provider_upper}_CLIENT_SECRET"
 
-        # Get current values from environment
-        client_id = os.getenv(client_id_key)
-        client_secret = os.getenv(client_secret_key)
+        # Get current values from server config (checks env vars then database)
+        client_id = getenv(client_id_key)
+        client_secret = getenv(client_secret_key)
 
         settings = [
             OAuthProviderSetting(
