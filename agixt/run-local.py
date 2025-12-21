@@ -128,6 +128,15 @@ async def initialize_database(is_restart=False):
         DB.migrate_tiered_prompts_chains_tables()
         startup_timer.section_end("migrate_tiered_prompts_chains_tables", section_start)
 
+        section_start = startup_timer.section_start()
+        DB.migrate_response_cache_table()
+        startup_timer.section_end("migrate_response_cache_table", section_start)
+
+        # Clean up expired cache entries on startup
+        section_start = startup_timer.section_start()
+        DB.cleanup_expired_cache()
+        startup_timer.section_end("cleanup_expired_cache", section_start)
+
         # Initialize extension tables
         section_start = startup_timer.section_start()
         DB.initialize_extension_tables()

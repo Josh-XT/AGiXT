@@ -13,6 +13,7 @@ from middleware import (
     UsageTrackingMiddleware,
     DiscordErrorMiddleware,
 )
+from ResponseCache import ResponseCacheMiddleware, get_cache_manager
 from endpoints.Agent import app as agent_endpoints
 from endpoints.Chain import app as chain_endpoints
 from endpoints.Completions import app as completions_endpoints
@@ -190,6 +191,14 @@ allowed_origins = [
 # so the middleware mirrors the requesting Origin instead of replying with '*'.
 use_origin_regex = "*" in raw_allowed_origins or not allowed_origins
 
+# Add response caching middleware BEFORE CORSMiddleware
+# Middleware order matters: middleware added later runs first on request, last on response.
+# By adding cache middleware first (before CORS), CORS will wrap our cached responses
+# and add proper Access-Control headers even for cache HITs.
+# Enable/disable with RESPONSE_CACHE_ENABLED env var (default: true)
+if os.environ.get("RESPONSE_CACHE_ENABLED", "true").lower() == "true":
+    app.add_middleware(ResponseCacheMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -252,6 +261,38 @@ app.include_router(billing_endpoints)
 app.include_router(roles_endpoints)
 app.include_router(server_config_endpoints)
 app.include_router(apikey_endpoints)
+
+
+# Cache stats endpoint for monitoring response cache performance
+@app.get("/v1/cache/stats", tags=["Health"])
+async def get_cache_stats(authorization: str = Header(None)):
+    """
+    Get response cache statistics for monitoring performance.
+    Returns per-user cache stats and global statistics.
+    Requires admin or the user's own token.
+    """
+    cache_manager = get_cache_manager()
+    return cache_manager.get_stats()
+
+
+@app.delete("/v1/cache", tags=["Health"])
+async def clear_cache(
+    user_id: str = None,
+    authorization: str = Header(None),
+):
+    """
+    Clear response cache.
+    If user_id is provided, clears only that user's cache.
+    Otherwise clears all caches.
+    """
+    cache_manager = get_cache_manager()
+    if user_id:
+        cache_manager.invalidate_user_cache(user_id)
+        return {"message": f"Cache cleared for user {user_id}"}
+    else:
+        cache_manager.clear_all()
+        return {"message": "All caches cleared"}
+
 
 # Extension router registration will be handled after seed import
 # to ensure hub extensions are available before registration

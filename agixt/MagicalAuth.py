@@ -2488,11 +2488,13 @@ class MagicalAuth:
                 if key in user_preferences and key != "missing_requirements":
                     del user_preferences[key]
 
-            # Background Stripe subscription check - only if user has tokens
+            # Background Stripe subscription check - only if billing is not paused
             # This doesn't block the response since user already has token balance
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
             api_key = getenv("STRIPE_API_KEY")
             if (
-                api_key
+                not billing_paused
+                and api_key
                 and api_key.lower() != "none"
                 and user.email != getenv("DEFAULT_USER")
                 and not user.email.endswith(".xt")
@@ -2670,9 +2672,11 @@ class MagicalAuth:
 
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            # Only proceed with Stripe checks if we haven't already confirmed active subscription via token balance
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            # Only proceed with Stripe checks if billing is not paused and we haven't already confirmed active subscription via token balance
             if (
-                not has_active_subscription
+                not billing_paused
+                and not has_active_subscription
                 and api_key != ""
                 and api_key is not None
                 and str(api_key).lower() != "none"
