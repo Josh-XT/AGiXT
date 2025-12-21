@@ -447,7 +447,7 @@ class ResponseCacheManager:
                 "invalidations": self._stats["invalidations"],
                 "db_errors": self._stats["db_errors"],
                 "storage": "database",
-                "error": str(e),
+                "error": "Failed to retrieve cache statistics",
             }
 
 
