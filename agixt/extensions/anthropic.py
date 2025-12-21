@@ -16,16 +16,10 @@ import time
 
 import httpx
 from Extensions import Extensions
-from Globals import getenv
+from Globals import getenv, install_package_if_missing
 
-try:
-    import anthropic
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "anthropic"])
-    import anthropic
+install_package_if_missing("anthropic")
+import anthropic
 
 
 class anthropic(Extensions):

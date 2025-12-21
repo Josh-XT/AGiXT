@@ -248,7 +248,7 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
-                    logging.info(
+                    logging.debug(
                         f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']})"
                     )
 
@@ -287,10 +287,10 @@ class AIProviderManager:
         provider_token_limits = {
             name: provider["max_tokens"] for name, provider in self.providers.items()
         }
-        logging.info(
+        logging.debug(
             f"[AIProviderManager] Provider token limits: {provider_token_limits}"
         )
-        logging.info(
+        logging.debug(
             f"[AIProviderManager] Request requires {tokens} tokens for service '{service}'"
         )
 
@@ -298,12 +298,12 @@ class AIProviderManager:
         suitable = {}
         for name, provider in self.providers.items():
             if name in self.failed_providers:
-                logging.info(f"[AIProviderManager] Skipping failed provider: {name}")
+                logging.debug(f"[AIProviderManager] Skipping failed provider: {name}")
                 continue
             if service not in provider["services"]:
                 continue
             if tokens > 0 and provider["max_tokens"] < tokens:
-                logging.info(
+                logging.debug(
                     f"[AIProviderManager] Provider {name} filtered out: max_tokens={provider['max_tokens']} < required={tokens}"
                 )
                 continue
@@ -322,7 +322,7 @@ class AIProviderManager:
         suitable_with_tokens = {
             name: provider["max_tokens"] for name, provider in suitable.items()
         }
-        logging.info(
+        logging.debug(
             f"[AIProviderManager] Suitable providers for {tokens} tokens: {suitable_with_tokens}"
         )
 
@@ -330,7 +330,7 @@ class AIProviderManager:
         if use_smartest:
             for tier in self.intelligence_tiers:
                 if tier in suitable:
-                    logging.info(
+                    logging.debug(
                         f"[AIProviderManager] Selected smartest provider: {tier} (max_tokens: {suitable[tier]['max_tokens']})"
                     )
                     return suitable[tier]["instance"]
@@ -338,7 +338,7 @@ class AIProviderManager:
         # Otherwise, select provider with lowest max_tokens that can handle the request
         # (prefer to use smaller/cheaper providers for smaller requests)
         selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
-        logging.info(
+        logging.debug(
             f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens"
         )
         return suitable[selected_name]["instance"]
@@ -464,23 +464,11 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
 
     # Emit webhook event for agent creation (async without await since this is sync function)
     import asyncio
-    from DB import UserCompany
 
-    # Try to get the user's company_id
-    company_id = None
-    try:
-        user_company = (
-            session.query(UserCompany)
-            .filter(UserCompany.user_id == str(user_id))
-            .first()
-        )
-        company_id = (
-            str(user_company.company_id)
-            if user_company and user_company.company_id is not None
-            else None
-        )
-    except Exception as e:
-        log_silenced_exception(e, "add_agent: getting user company_id")
+    # Use the company_id already set in provider_settings
+    company_id = provider_settings.get("company_id")
+    if company_id and str(company_id).lower() in ["none", "null", ""]:
+        company_id = None
 
     try:
         asyncio.create_task(
@@ -494,7 +482,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=str(user_id),
-                company_id=company_id,
+                company_id=str(company_id) if company_id else None,
             )
         )
     except Exception as e:
@@ -1589,6 +1577,11 @@ class Agent:
             )
         provider_name = provider.__class__.__name__.replace("aiprovider_", "")
 
+        # Log inference request with selected provider
+        logging.info(
+            f"[Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens"
+        )
+
         # Emit webhook event for inference start
         await webhook_emitter.emit_event(
             event_type="agent.inference.started",
@@ -1627,6 +1620,12 @@ class Agent:
                 self.auth.increase_token_counts(
                     input_tokens=input_tokens, output_tokens=output_tokens
                 )
+
+                # Log inference completion with token counts
+                logging.info(
+                    f"[Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
+                )
+
                 answer = str(answer).replace("\\_", "_")
                 if answer.endswith("\n\n"):
                     answer = answer[:-2]
@@ -1686,6 +1685,11 @@ class Agent:
         if provider is None:
             return ""
 
+        provider_name = provider.__class__.__name__.replace("aiprovider_", "")
+        logging.info(
+            f"[Vision Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens"
+        )
+
         try:
             answer = await provider.inference(
                 prompt=prompt,
@@ -1697,6 +1701,11 @@ class Agent:
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens
             )
+
+            logging.info(
+                f"[Vision Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
+            )
+
             answer = str(answer).replace("\\_", "_")
             if answer.endswith("\n\n"):
                 answer = answer[:-2]
@@ -2119,6 +2128,7 @@ class Agent:
                             "timestamp": datetime.now().isoformat(),
                         },
                         user_id=str(self.user_id),
+                        company_id=str(self.company_id) if self.company_id else None,
                     )
                 )
             except:

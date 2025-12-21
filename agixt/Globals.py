@@ -1,10 +1,53 @@
 import os
+import sys
 import json
+import subprocess
+import importlib.util
 import tiktoken
 from dotenv import load_dotenv
 from multiprocessing import Manager
 
 load_dotenv()
+
+# Cache for installed packages to avoid repeated checks
+_installed_packages_cache = set()
+
+
+def install_package_if_missing(package_name: str, import_name: str = None) -> bool:
+    """
+    Install a package only if it's not already installed.
+
+    Args:
+        package_name: The pip package name to install (e.g., "PyGithub")
+        import_name: The import name if different from package name (e.g., "github")
+
+    Returns:
+        True if package was installed, False if already present
+    """
+    global _installed_packages_cache
+
+    # Use import_name for checking if provided, otherwise use package_name
+    check_name = import_name or package_name
+
+    # Check cache first
+    if check_name in _installed_packages_cache:
+        return False
+
+    # Check if module can be imported
+    spec = importlib.util.find_spec(check_name)
+    if spec is not None:
+        _installed_packages_cache.add(check_name)
+        return False
+
+    # Package not found, install it
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", package_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _installed_packages_cache.add(check_name)
+    return True
+
 
 # Global state for Machine Control Extension WebSocket connections
 # Use multiprocessing.Manager to create a truly shared dict across ALL Python contexts

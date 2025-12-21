@@ -1,27 +1,11 @@
 import logging
 import json
+import base64
+import requests
 from datetime import datetime
 from typing import List, Dict, Optional, Union
 from Extensions import Extensions
-
-try:
-    import requests
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
-    import requests
-
-try:
-    from requests.auth import HTTPBasicAuth
-except ImportError:
-    from requests.auth import HTTPBasicAuth
-
-try:
-    import base64
-except ImportError:
-    import base64
+from requests.auth import HTTPBasicAuth
 
 
 class wordpress(Extensions):
