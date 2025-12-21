@@ -85,49 +85,211 @@ Required environment variables:
 
 
 def send_email(email: str, subject: str, body: str):
-    try:
-        # SendGrid
+    """
+    Send an email using the configured email provider.
+    
+    Provider selection:
+    - If EMAIL_PROVIDER is set to a specific provider, use that provider
+    - If EMAIL_PROVIDER is 'auto' (default), try providers in order: sendgrid, mailgun, microsoft, google
+    
+    Returns:
+        bool: True if email was sent successfully, False otherwise
+    """
+    provider = getenv("EMAIL_PROVIDER").lower() if getenv("EMAIL_PROVIDER") else "auto"
+    
+    # Define provider check functions
+    def try_sendgrid():
         sendgrid_api_key = getenv("SENDGRID_API_KEY")
         sendgrid_from_email = getenv("SENDGRID_FROM_EMAIL")
-        if sendgrid_api_key and sendgrid_from_email:
+        if not sendgrid_api_key or not sendgrid_from_email:
+            if provider == "sendgrid":
+                missing = []
+                if not sendgrid_api_key:
+                    missing.append("SENDGRID_API_KEY")
+                if not sendgrid_from_email:
+                    missing.append("SENDGRID_FROM_EMAIL")
+                logging.warning(f"[Email] SendGrid selected but missing: {', '.join(missing)}")
+            return None
+        try:
             message = Mail(
                 from_email=sendgrid_from_email,
                 to_emails=email,
                 subject=subject,
                 html_content=body,
             )
-            try:
-                response = SendGridAPIClient(sendgrid_api_key).send(message)
-            except Exception as e:
-                return False
-            if response.status_code != 202:
-                return False
-            return True
-        # Mailgun
+            response = SendGridAPIClient(sendgrid_api_key).send(message)
+            if response.status_code == 202:
+                logging.debug(f"[Email] Sent via SendGrid to {email}")
+                return True
+            logging.warning(f"[Email] SendGrid returned status {response.status_code}")
+            return False
+        except Exception as e:
+            logging.error(f"[Email] SendGrid error: {str(e)}")
+            return False
+    
+    def try_mailgun():
         mailgun_api_key = getenv("MAILGUN_API_KEY")
         mailgun_domain = getenv("MAILGUN_DOMAIN")
         mailgun_from_email = getenv("MAILGUN_FROM_EMAIL")
-        if mailgun_api_key and mailgun_domain and mailgun_from_email:
-            try:
-                response = requests.post(
-                    f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
-                    auth=("api", mailgun_api_key),
-                    data={
-                        "from": mailgun_from_email,
-                        "to": email,
-                        "subject": subject,
-                        "html": body,
-                    },
-                )
-            except Exception as e:
+        if not mailgun_api_key or not mailgun_domain or not mailgun_from_email:
+            if provider == "mailgun":
+                missing = []
+                if not mailgun_api_key:
+                    missing.append("MAILGUN_API_KEY")
+                if not mailgun_domain:
+                    missing.append("MAILGUN_DOMAIN")
+                if not mailgun_from_email:
+                    missing.append("MAILGUN_FROM_EMAIL")
+                logging.warning(f"[Email] Mailgun selected but missing: {', '.join(missing)}")
+            return None
+        try:
+            response = requests.post(
+                f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
+                auth=("api", mailgun_api_key),
+                data={
+                    "from": mailgun_from_email,
+                    "to": email,
+                    "subject": subject,
+                    "html": body,
+                },
+            )
+            if response.status_code == 200:
+                logging.debug(f"[Email] Sent via Mailgun to {email}")
+                return True
+            logging.warning(f"[Email] Mailgun returned status {response.status_code}: {response.text}")
+            return False
+        except Exception as e:
+            logging.error(f"[Email] Mailgun error: {str(e)}")
+            return False
+    
+    def try_microsoft():
+        """Send email using Microsoft Graph API with app-only authentication."""
+        ms_client_id = getenv("MICROSOFT_CLIENT_ID")
+        ms_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
+        ms_email = getenv("MICROSOFT_EMAIL_ADDRESS")
+        if not ms_client_id or not ms_client_secret or not ms_email:
+            if provider == "microsoft":
+                missing = []
+                if not ms_client_id:
+                    missing.append("MICROSOFT_CLIENT_ID (OAuth settings)")
+                if not ms_client_secret:
+                    missing.append("MICROSOFT_CLIENT_SECRET (OAuth settings)")
+                if not ms_email:
+                    missing.append("MICROSOFT_EMAIL_ADDRESS (Email settings)")
+                logging.warning(f"[Email] Microsoft selected but missing: {', '.join(missing)}")
+            return None
+        try:
+            # Get OAuth token using client credentials flow
+            tenant_id = getenv("MICROSOFT_TENANT_ID") or "common"
+            token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+            token_response = requests.post(
+                token_url,
+                data={
+                    "client_id": ms_client_id,
+                    "client_secret": ms_client_secret,
+                    "scope": "https://graph.microsoft.com/.default",
+                    "grant_type": "client_credentials",
+                },
+            )
+            if token_response.status_code != 200:
+                logging.error(f"[Email] Microsoft token error: {token_response.text}")
                 return False
-            if response.status_code != 200:
+            
+            access_token = token_response.json().get("access_token")
+            
+            # Send email via Graph API
+            email_data = {
+                "message": {
+                    "subject": subject,
+                    "body": {"contentType": "HTML", "content": body},
+                    "toRecipients": [{"emailAddress": {"address": email}}],
+                },
+                "saveToSentItems": "true",
+            }
+            
+            # Use /users/{email}/sendMail for app-only auth
+            send_url = f"https://graph.microsoft.com/v1.0/users/{ms_email}/sendMail"
+            response = requests.post(
+                send_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=email_data,
+            )
+            
+            if response.status_code == 202:
+                logging.debug(f"[Email] Sent via Microsoft to {email}")
+                return True
+            logging.warning(f"[Email] Microsoft returned status {response.status_code}: {response.text}")
+            return False
+        except Exception as e:
+            logging.error(f"[Email] Microsoft error: {str(e)}")
+            return False
+    
+    def try_google():
+        """Send email using Gmail API with service account or app credentials."""
+        google_client_id = getenv("GOOGLE_CLIENT_ID")
+        google_client_secret = getenv("GOOGLE_CLIENT_SECRET")
+        google_email = getenv("GOOGLE_EMAIL_ADDRESS")
+        if not google_client_id or not google_client_secret or not google_email:
+            if provider == "google":
+                missing = []
+                if not google_client_id:
+                    missing.append("GOOGLE_CLIENT_ID (OAuth settings)")
+                if not google_client_secret:
+                    missing.append("GOOGLE_CLIENT_SECRET (OAuth settings)")
+                if not google_email:
+                    missing.append("GOOGLE_EMAIL_ADDRESS (Email settings)")
+                logging.warning(f"[Email] Google selected but missing: {', '.join(missing)}")
+            return None
+        
+        # Note: Google Gmail API requires user-delegated OAuth tokens with gmail.send scope
+        # This is more complex than Microsoft's client credentials flow
+        # For now, we log that Google email requires user OAuth setup
+        logging.warning(
+            "[Email] Google Gmail API requires user-delegated OAuth tokens. "
+            "Consider using SendGrid, Mailgun, or Microsoft for system emails."
+        )
+        return None
+    
+    # Provider map
+    providers = {
+        "sendgrid": try_sendgrid,
+        "mailgun": try_mailgun,
+        "microsoft": try_microsoft,
+        "google": try_google,
+    }
+    
+    try:
+        if provider != "auto" and provider in providers:
+            # Use specific provider
+            result = providers[provider]()
+            if result is None:
+                logging.error(f"[Email] Provider '{provider}' is not configured")
                 return False
-            return True
-
-        # None
+            return result
+        
+        # Auto mode: try providers in order
+        for name, try_provider in providers.items():
+            result = try_provider()
+            if result is True:
+                return True
+            elif result is False:
+                # Provider was configured but failed
+                continue
+            # result is None means provider not configured, try next
+        
+        # No providers configured
+        logging.warning(
+            "[Email] No email provider configured. Configure one of: "
+            "SendGrid (SENDGRID_API_KEY + SENDGRID_FROM_EMAIL), "
+            "Mailgun (MAILGUN_API_KEY + MAILGUN_DOMAIN + MAILGUN_FROM_EMAIL), "
+            "Microsoft (MICROSOFT_CLIENT_ID + MICROSOFT_CLIENT_SECRET + MICROSOFT_EMAIL_ADDRESS)"
+        )
         return False
-    except:
+    except Exception as e:
+        logging.error(f"[Email] Unexpected error: {str(e)}")
         return False
 
 
