@@ -1,3 +1,4 @@
+import os
 import logging
 import jwt
 import hashlib
@@ -73,7 +74,7 @@ def validate_personal_access_token(token: str):
 
 def verify_api_key(authorization: str = Header(None)):
     USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     DEFAULT_USER = getenv("DEFAULT_USER")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":

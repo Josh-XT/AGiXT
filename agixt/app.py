@@ -113,10 +113,17 @@ async def lifespan(app: FastAPI):
         # Load server configuration cache on worker startup
         # This is critical because uvicorn workers are forked processes
         # and the cache loaded in the main process is not available in workers
-        from Globals import load_server_config_cache
+        from Globals import load_server_config_cache, getenv
+        import os
 
         load_server_config_cache()
         logging.debug("Server config cache loaded for worker")
+
+        # Debug: Log AGIXT_API_KEY status at startup
+        raw_api_key = os.getenv("AGIXT_API_KEY")
+        getenv_api_key = getenv("AGIXT_API_KEY")
+        logging.info(f"[Startup Debug] AGIXT_API_KEY from os.getenv: {'[SET]' if raw_api_key else '[NOT SET]'} (length: {len(raw_api_key) if raw_api_key else 0})")
+        logging.info(f"[Startup Debug] AGIXT_API_KEY from getenv(): {'[SET]' if getenv_api_key else '[NOT SET]'} (length: {len(getenv_api_key) if getenv_api_key else 0})")
 
         # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
         # to avoid multiple workers trying to clone the same repositories

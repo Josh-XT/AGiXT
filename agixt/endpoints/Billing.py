@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Header, HTTPException, Depends, Query
 from typing import Optional, List
 from pydantic import BaseModel, Field
@@ -912,11 +913,10 @@ async def issue_company_credits(
     Raises:
         HTTPException: If unauthorized, company not found, or invalid amount
     """
-    from Globals import getenv
     from decimal import Decimal
 
     # Verify AGiXT API Key
-    agixt_api_key = getenv("AGIXT_API_KEY")
+    agixt_api_key = os.getenv("AGIXT_API_KEY", "")
     provided_key = str(authorization).replace("Bearer ", "").replace("bearer ", "")
 
     if not agixt_api_key or provided_key != agixt_api_key:
@@ -1214,9 +1214,7 @@ async def set_super_admin(
     Returns:
         Success message with user details
     """
-    from Globals import getenv
-
-    agixt_api_key = getenv("AGIXT_API_KEY")
+    agixt_api_key = os.getenv("AGIXT_API_KEY", "")
     provided_key = str(authorization).replace("Bearer ", "").replace("bearer ", "")
 
     is_api_key_auth = agixt_api_key and provided_key == agixt_api_key

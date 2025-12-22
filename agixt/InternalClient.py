@@ -8,6 +8,7 @@ The class implements lazy loading to avoid circular imports - components are onl
 when they are first needed.
 """
 
+import os
 import logging
 from typing import Dict, List, Any, Optional
 from Globals import getenv
@@ -555,7 +556,7 @@ class InternalClient:
                 return None
 
             # Generate JWT token - similar to what MagicalAuth.send_magic_link returns
-            agixt_api_key = getenv("AGIXT_API_KEY")
+            agixt_api_key = os.getenv("AGIXT_API_KEY", "")
             token_data = {
                 "sub": str(user.id),
                 "email": user.email,

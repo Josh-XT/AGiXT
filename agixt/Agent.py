@@ -416,7 +416,7 @@ def create_solana_wallet() -> Tuple[str, str, str]:
 
 
 def impersonate_user(user_id: str):
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     # Get users email
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
@@ -540,8 +540,8 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
-                    logging.debug(
-                        f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']})"
+                    logging.info(
+                        f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']}, services: {self.providers[provider_name]['services']})"
                     )
 
             except Exception as e:
@@ -552,6 +552,17 @@ class AIProviderManager:
         if not self.providers:
             logging.warning(
                 "[AIProviderManager] No AI Provider extensions configured. Will fall back to legacy providers."
+            )
+        else:
+            # Log summary of all discovered providers
+            provider_summary = {
+                name: f"{p['max_tokens']} tokens"
+                for name, p in sorted(
+                    self.providers.items(), key=lambda x: x[1]["max_tokens"]
+                )
+            }
+            logging.info(
+                f"[AIProviderManager] Initialized with {len(self.providers)} providers (sorted by max_tokens): {provider_summary}"
             )
 
     def get_provider_for_service(
@@ -1957,6 +1968,7 @@ class Agent:
         images: list = [],
         use_smartest: bool = False,
         stream: bool = False,
+        max_retries: int = 3,
     ):
         if not prompt:
             return ""
@@ -1966,107 +1978,136 @@ class Agent:
         self.auth.check_billing_balance()
 
         input_tokens = get_tokens(prompt)
+        service = "vision" if images else "llm"
+        last_error = None
 
-        # Get provider from AI Provider Manager (intelligent rotation built-in)
-        provider = self.ai_provider_manager.get_provider_for_service(
-            service="vision" if images else "llm",
-            tokens=input_tokens,
-            use_smartest=use_smartest,
-        )
-        if provider is None:
-            raise HTTPException(
-                status_code=503,
-                detail="No AI providers available for inference",
+        # Retry loop - try different providers on failure
+        for attempt in range(max_retries):
+            # Get provider from AI Provider Manager (intelligent rotation built-in)
+            provider = self.ai_provider_manager.get_provider_for_service(
+                service=service,
+                tokens=input_tokens,
+                use_smartest=use_smartest,
             )
-        provider_name = provider.__class__.__name__.replace("aiprovider_", "")
-
-        # Log inference request with selected provider
-        logging.info(
-            f"[Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens"
-        )
-
-        # Emit webhook event for inference start
-        await webhook_emitter.emit_event(
-            event_type="agent.inference.started",
-            data={
-                "agent_id": str(self.agent_id),
-                "agent_name": self.agent_name,
-                "user_id": str(self.user_id),
-                "provider": provider_name,
-                "input_tokens": input_tokens,
-                "use_smartest": use_smartest,
-                "has_images": len(images) > 0,
-                "timestamp": datetime.now().isoformat(),
-            },
-            user_id=str(self.user_id),
-        )
-
-        try:
-            if stream:
-                # For streaming, return the stream object for the caller to handle
-                return await provider.inference(
-                    prompt=prompt,
-                    tokens=input_tokens,
-                    images=images,
-                    stream=True,
-                    use_smartest=use_smartest,
+            if provider is None:
+                if attempt == 0:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="No AI providers available for inference",
+                    )
+                # No more providers available after failures
+                logging.warning(
+                    f"[Inference] No more providers available after {attempt} failed attempt(s)"
                 )
-            else:
-                # Non-streaming path
-                answer = await provider.inference(
-                    prompt=prompt,
-                    tokens=input_tokens,
-                    images=images,
-                    use_smartest=use_smartest,
-                )
-                output_tokens = get_tokens(answer)
-                self.auth.increase_token_counts(
-                    input_tokens=input_tokens, output_tokens=output_tokens
-                )
+                break
 
-                # Log inference completion with token counts
-                logging.info(
-                    f"[Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
-                )
+            provider_name = provider.__class__.__name__.replace("aiprovider_", "")
 
-                answer = str(answer).replace("\\_", "_")
-                if answer.endswith("\n\n"):
-                    answer = answer[:-2]
+            # Log inference request with selected provider
+            logging.info(
+                f"[Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens (attempt {attempt + 1}/{max_retries})"
+            )
 
-                # Emit webhook event for successful inference
-                await webhook_emitter.emit_event(
-                    event_type="agent.inference.completed",
-                    data={
-                        "agent_id": str(self.agent_id),
-                        "agent_name": self.agent_name,
-                        "user_id": str(self.user_id),
-                        "provider": provider_name,
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                    user_id=str(self.user_id),
-                )
-        except Exception as e:
-            logging.error(f"Error in inference: {str(e)}")
-            # Mark provider as failed for rotation tracking
-            self.ai_provider_manager.mark_provider_failed(provider_name)
-            answer = "<answer>Unable to process request.</answer>"
-
-            # Emit webhook event for failed inference
+            # Emit webhook event for inference start
             await webhook_emitter.emit_event(
-                event_type="agent.inference.failed",
+                event_type="agent.inference.started",
                 data={
                     "agent_id": str(self.agent_id),
                     "agent_name": self.agent_name,
                     "user_id": str(self.user_id),
                     "provider": provider_name,
-                    "error": str(e),
+                    "input_tokens": input_tokens,
+                    "use_smartest": use_smartest,
+                    "has_images": len(images) > 0,
+                    "attempt": attempt + 1,
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=str(self.user_id),
             )
-        return answer
+
+            try:
+                if stream:
+                    # For streaming, return the stream object for the caller to handle
+                    # Note: streaming doesn't support retry since we return the stream directly
+                    return await provider.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        stream=True,
+                        use_smartest=use_smartest,
+                    )
+                else:
+                    # Non-streaming path
+                    answer = await provider.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        use_smartest=use_smartest,
+                    )
+                    output_tokens = get_tokens(answer)
+                    self.auth.increase_token_counts(
+                        input_tokens=input_tokens, output_tokens=output_tokens
+                    )
+
+                    # Log inference completion with token counts
+                    logging.info(
+                        f"[Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
+                    )
+
+                    answer = str(answer).replace("\\_", "_")
+                    if answer.endswith("\n\n"):
+                        answer = answer[:-2]
+
+                    # Emit webhook event for successful inference
+                    await webhook_emitter.emit_event(
+                        event_type="agent.inference.completed",
+                        data={
+                            "agent_id": str(self.agent_id),
+                            "agent_name": self.agent_name,
+                            "user_id": str(self.user_id),
+                            "provider": provider_name,
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                        user_id=str(self.user_id),
+                    )
+                    return answer
+
+            except Exception as e:
+                last_error = str(e)
+                logging.error(f"Error in inference with provider '{provider_name}': {last_error}")
+                # Mark provider as failed for rotation tracking
+                self.ai_provider_manager.mark_provider_failed(provider_name)
+
+                # Emit webhook event for failed inference
+                await webhook_emitter.emit_event(
+                    event_type="agent.inference.failed",
+                    data={
+                        "agent_id": str(self.agent_id),
+                        "agent_name": self.agent_name,
+                        "user_id": str(self.user_id),
+                        "provider": provider_name,
+                        "error": last_error,
+                        "attempt": attempt + 1,
+                        "will_retry": attempt + 1 < max_retries,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                    user_id=str(self.user_id),
+                )
+
+                # If not the last attempt, log that we're retrying
+                if attempt + 1 < max_retries:
+                    logging.info(
+                        f"[Inference] Provider '{provider_name}' failed, attempting rotation to next provider..."
+                    )
+                continue
+
+        # All retries exhausted
+        logging.error(
+            f"[Inference] All {max_retries} provider attempts failed. Last error: {last_error}"
+        )
+        return "<answer>Unable to process request.</answer>"
 
     async def vision_inference(
         self, prompt: str, images: list = [], use_smartest: bool = False

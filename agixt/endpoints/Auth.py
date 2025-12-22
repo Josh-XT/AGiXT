@@ -289,7 +289,7 @@ async def logout_user(
 
     # Decode token to get expiration time
     try:
-        AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+        AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
         decoded = jwt.decode(
             jwt=token,
             key=AGIXT_API_KEY,
@@ -533,7 +533,7 @@ async def accept_tos(
 )
 async def get_pkce_challenge_simple():
     """Generate code_verifier and code_challenge, embed verifier in state."""
-    api_key = getenv("AGIXT_API_KEY")
+    api_key = os.getenv("AGIXT_API_KEY", "")
     if not api_key:
         raise HTTPException(
             status_code=500, detail="Server misconfiguration: Missing AGIXT_API_KEY"
@@ -544,7 +544,7 @@ async def get_pkce_challenge_simple():
         "code_challenge": base64.urlsafe_b64encode(code_verifier_digest)
         .decode("utf-8")
         .rstrip("="),
-        "state": encrypt(getenv("AGIXT_API_KEY"), {"verifier": code_verifier}),
+        "state": encrypt(os.getenv("AGIXT_API_KEY", ""), {"verifier": code_verifier}),
     }
 
 
@@ -565,7 +565,7 @@ async def oauth_login(
     state = data.get("state")
     if state:
         try:
-            code_verifier = decrypt(getenv("AGIXT_API_KEY"), state).get("verifier")
+            code_verifier = decrypt(os.getenv("AGIXT_API_KEY", ""), state).get("verifier")
         except Exception as e:
             logging.error(f"Failed to decode code_verifier from state: {str(e)}")
 

@@ -344,9 +344,9 @@ def is_admin(email: str = "USER", api_key: str = None):
     Returns:
         bool: True if user has admin access, False otherwise
     """
-    from Globals import getenv
+    import os
 
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     if api_key is None:
         api_key = ""
     api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
@@ -457,7 +457,7 @@ def get_sso_instance(provider: str):
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
-    if api_key == getenv("AGIXT_API_KEY"):
+    if api_key == os.getenv("AGIXT_API_KEY", ""):
         return True
     api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
     session = get_session()
@@ -507,7 +507,7 @@ def get_admin_user():
 
 
 def verify_api_key(authorization: str = Header(None)):
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
         if authorization == AGIXT_API_KEY:
@@ -751,7 +751,7 @@ def get_user_by_email(email: str):
 
 def impersonate_user(email: str):
     # Get token for the user
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     token = jwt.encode(
         {
             "sub": str(get_user_id(email)),
@@ -894,7 +894,7 @@ def get_agents(email, company=None):
 
 class MagicalAuth:
     def __init__(self, token: str = None):
-        encryption_key = getenv("AGIXT_API_KEY")
+        encryption_key = os.getenv("AGIXT_API_KEY", "")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
         token = (
@@ -5744,7 +5744,7 @@ def refresh_expiring_oauth_tokens():
                         "email": user.email,
                         "exp": datetime.now() + timedelta(hours=1),
                     },
-                    getenv("AGIXT_API_KEY"),
+                    os.getenv("AGIXT_API_KEY", ""),
                     algorithm="HS256",
                 )
 
