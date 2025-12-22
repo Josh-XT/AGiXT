@@ -134,7 +134,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
     default_values = {
         "AGIXT_URI": "http://localhost:7437",
         "APP_URI": "http://localhost:3437",
-        "AGIXT_API_KEY": "None",
+        "AGIXT_API_KEY": "",
         "EZLOCALAI_URI": "http://localhost:8091/v1/",
         "EZLOCALAI_API_KEY": "",
         "AGENT_NAME": "AGiXT",

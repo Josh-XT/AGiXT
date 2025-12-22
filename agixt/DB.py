@@ -148,15 +148,50 @@ try:
             f"for {UVICORN_WORKERS} workers. Consider increasing DB_POOL_MULTIPLIER or DB_POOL_SIZE."
         )
 
-    engine = create_engine(
-        DATABASE_URI,
-        pool_size=DB_POOL_SIZE,
-        max_overflow=DB_MAX_OVERFLOW,
-        pool_timeout=DB_POOL_TIMEOUT,
-        pool_recycle=DB_POOL_RECYCLE,
-        pool_pre_ping=True,  # Verify connections before use
-        echo=False,  # Set to True for SQL debugging
-    )
+    # SQLite requires different settings than PostgreSQL
+    if DATABASE_TYPE == "sqlite":
+        # SQLite doesn't support connection pooling the same way as PostgreSQL
+        # Use StaticPool or NullPool for better concurrency handling
+        from sqlalchemy.pool import StaticPool
+
+        engine = create_engine(
+            DATABASE_URI,
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30,  # Wait up to 30 seconds for locks
+            },
+            poolclass=StaticPool,  # Single connection shared across threads
+            echo=False,
+        )
+
+        # Configure SQLite for better concurrency with WAL mode and other optimizations
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            # WAL mode allows concurrent reads while writing
+            cursor.execute("PRAGMA journal_mode=WAL")
+            # Synchronous NORMAL is a good balance of safety and performance
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            # Increase cache size for better performance (negative = KB, so -64000 = 64MB)
+            cursor.execute("PRAGMA cache_size=-64000")
+            # Enable foreign keys
+            cursor.execute("PRAGMA foreign_keys=ON")
+            # Set busy timeout to 30 seconds (in milliseconds)
+            cursor.execute("PRAGMA busy_timeout=30000")
+            # Use memory for temp storage
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.close()
+
+    else:
+        engine = create_engine(
+            DATABASE_URI,
+            pool_size=DB_POOL_SIZE,
+            max_overflow=DB_MAX_OVERFLOW,
+            pool_timeout=DB_POOL_TIMEOUT,
+            pool_recycle=DB_POOL_RECYCLE,
+            pool_pre_ping=True,  # Verify connections before use
+            echo=False,  # Set to True for SQL debugging
+        )
 
     # Test connection immediately
     connection = engine.connect()
