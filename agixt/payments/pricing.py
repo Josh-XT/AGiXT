@@ -219,14 +219,26 @@ class PriceService:
         """Get the current token price per million USD.
 
         Returns 0 if billing is paused, otherwise returns the configured price.
+
+        Note: This reads directly from the database to ensure consistency
+        across all workers without requiring server restart.
         """
         try:
-            # Check if billing is paused
-            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            # Import here to avoid circular imports
+            from DB import get_server_config
+
+            # Check if billing is paused - read directly from DB for consistency
+            billing_paused = (
+                get_server_config("BILLING_PAUSED", "false") or "false"
+            ).lower() == "true"
             if billing_paused:
                 return Decimal("0")
 
-            token_price = Decimal(str(getenv("TOKEN_PRICE_PER_MILLION_USD", "0")))
+            # Read token price directly from DB for consistency across workers
+            token_price_str = (
+                get_server_config("TOKEN_PRICE_PER_MILLION_USD", "0") or "0"
+            )
+            token_price = Decimal(str(token_price_str))
             # Return the actual value, including 0 (which means billing disabled)
             return token_price if token_price >= 0 else Decimal("0")
         except Exception:
