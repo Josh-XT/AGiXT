@@ -1691,13 +1691,13 @@ print(output)
 
     async def get_datetime(self) -> str:
         """
-        Get the current date and time
+        Get the current date and time in the user's timezone
 
         Returns:
         str: The current date and time in the format "YYYY-MM-DD HH:MM:SS"
         """
-        return "Current date and time: " + convert_time(
-            datetime.datetime.now(), user_id=self.user_id
+        return "Current date and time: " + get_current_user_time(
+            user_id=self.user_id
         ).strftime("%Y-%m-%d %H:%M:%S")
 
     async def create_agixt_chain(self, natural_language_request: str):
