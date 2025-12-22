@@ -525,13 +525,15 @@ class AIProviderManager:
                     hasattr(provider_instance, "configured")
                     and provider_instance.configured
                 ):
+                    # Ensure max_tokens is always an integer for proper comparison
+                    raw_max_tokens = (
+                        provider_instance.get_max_tokens()
+                        if hasattr(provider_instance, "get_max_tokens")
+                        else 32000
+                    )
                     self.providers[provider_name] = {
                         "instance": provider_instance,
-                        "max_tokens": (
-                            provider_instance.get_max_tokens()
-                            if hasattr(provider_instance, "get_max_tokens")
-                            else 32000
-                        ),
+                        "max_tokens": int(raw_max_tokens) if raw_max_tokens else 32000,
                         "services": (
                             provider_instance.services()
                             if hasattr(provider_instance, "services")
@@ -612,24 +614,24 @@ class AIProviderManager:
         suitable_with_tokens = {
             name: provider["max_tokens"] for name, provider in suitable.items()
         }
-        logging.debug(
-            f"[AIProviderManager] Suitable providers for {tokens} tokens: {suitable_with_tokens}"
+        logging.info(
+            f"[AIProviderManager] Suitable providers for {tokens} tokens (service={service}): {suitable_with_tokens}"
         )
 
         # If use_smartest, try intelligence tiers in order
         if use_smartest:
             for tier in self.intelligence_tiers:
                 if tier in suitable:
-                    logging.debug(
-                        f"[AIProviderManager] Selected smartest provider: {tier} (max_tokens: {suitable[tier]['max_tokens']})"
+                    logging.info(
+                        f"[AIProviderManager] Selected smartest provider: {tier} (max_tokens: {suitable[tier]['max_tokens']}) for {tokens} tokens"
                     )
                     return suitable[tier]["instance"]
 
         # Otherwise, select provider with lowest max_tokens that can handle the request
         # (prefer to use smaller/cheaper providers for smaller requests)
         selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
-        logging.debug(
-            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens"
+        logging.info(
+            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens - chose smallest suitable"
         )
         return suitable[selected_name]["instance"]
 
