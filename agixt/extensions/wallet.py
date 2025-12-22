@@ -553,7 +553,7 @@ class wallet(Extensions):
                 for symbol, details in SUPPORTED_CURRENCIES.items()
             ]
             return {
-                "base_price_usd": float(self.price_service.base_price_usd),
+                "base_price_usd": float(self.price_service.get_token_price()),
                 "wallet_address": getenv("PAYMENT_WALLET_ADDRESS"),
                 "currencies": currencies,
             }
