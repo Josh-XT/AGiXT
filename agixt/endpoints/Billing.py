@@ -2503,3 +2503,545 @@ async def admin_merge_companies(
         )
     finally:
         session.close()
+
+
+# ============================================
+# SUPER ADMIN ENDPOINTS - Token Usage Analytics
+# ============================================
+
+
+class AnalyticsDateRange(BaseModel):
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+
+@app.get(
+    "/v1/admin/analytics/usage",
+    tags=["Admin", "Analytics"],
+    summary="Get server-wide token usage analytics (super admin only)",
+    description="Returns aggregated token usage statistics across all companies and users. Works regardless of billing status.",
+)
+async def admin_get_usage_analytics(
+    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    sort_by: Optional[str] = Query(
+        "total_tokens", description="Sort by: total_tokens, input_tokens, output_tokens"
+    ),
+    sort_direction: Optional[str] = Query(
+        "desc", description="Sort direction: asc, desc"
+    ),
+    limit: int = Query(100, description="Max companies to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    authorization: str = Header(None),
+):
+    """
+    Get server-wide token usage analytics (super admin only).
+
+    Returns aggregated token usage per company including:
+    - Total tokens used per company (from CompanyTokenUsage audit trail)
+    - Per-user breakdown within each company
+    - Total input/output tokens
+    - User count per company
+
+    This endpoint works regardless of whether billing is enabled.
+    """
+    from sqlalchemy import func, case
+
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super admin role required.",
+        )
+
+    session = get_session()
+    try:
+        # Parse date filters
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format")
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format")
+
+        # Get all companies with user counts
+        companies = session.query(Company).all()
+        company_data = {}
+
+        for company in companies:
+            company_id = str(company.id)
+
+            # Get user count for this company
+            user_count = (
+                session.query(UserCompany)
+                .filter(UserCompany.company_id == company.id)
+                .count()
+            )
+
+            # Build query for CompanyTokenUsage
+            usage_query = session.query(
+                func.coalesce(func.sum(CompanyTokenUsage.input_tokens), 0).label(
+                    "input_tokens"
+                ),
+                func.coalesce(func.sum(CompanyTokenUsage.output_tokens), 0).label(
+                    "output_tokens"
+                ),
+                func.coalesce(func.sum(CompanyTokenUsage.total_tokens), 0).label(
+                    "total_tokens"
+                ),
+                func.count(CompanyTokenUsage.id).label("usage_count"),
+            ).filter(CompanyTokenUsage.company_id == company.id)
+
+            if start_dt:
+                usage_query = usage_query.filter(
+                    CompanyTokenUsage.timestamp >= start_dt
+                )
+            if end_dt:
+                usage_query = usage_query.filter(CompanyTokenUsage.timestamp <= end_dt)
+
+            usage_result = usage_query.first()
+
+            # Also get cumulative from UserPreferences for users in this company
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.company_id == company.id)
+                .all()
+            )
+            cumulative_input = 0
+            cumulative_output = 0
+
+            for uc in user_companies:
+                input_pref = (
+                    session.query(UserPreferences)
+                    .filter(
+                        UserPreferences.user_id == uc.user_id,
+                        UserPreferences.pref_key == "input_tokens",
+                    )
+                    .first()
+                )
+                output_pref = (
+                    session.query(UserPreferences)
+                    .filter(
+                        UserPreferences.user_id == uc.user_id,
+                        UserPreferences.pref_key == "output_tokens",
+                    )
+                    .first()
+                )
+                if input_pref:
+                    try:
+                        cumulative_input += int(input_pref.pref_value)
+                    except (ValueError, TypeError):
+                        pass
+                if output_pref:
+                    try:
+                        cumulative_output += int(output_pref.pref_value)
+                    except (ValueError, TypeError):
+                        pass
+
+            company_data[company_id] = {
+                "company_id": company_id,
+                "company_name": company.name,
+                "status": getattr(company, "status", True),
+                "user_count": user_count,
+                "token_balance": getattr(company, "token_balance", 0) or 0,
+                "token_balance_usd": getattr(company, "token_balance_usd", 0) or 0,
+                "tokens_used_total": getattr(company, "tokens_used_total", 0) or 0,
+                # Audit trail usage (from CompanyTokenUsage)
+                "audit_input_tokens": (
+                    int(usage_result.input_tokens) if usage_result else 0
+                ),
+                "audit_output_tokens": (
+                    int(usage_result.output_tokens) if usage_result else 0
+                ),
+                "audit_total_tokens": (
+                    int(usage_result.total_tokens) if usage_result else 0
+                ),
+                "audit_usage_count": (
+                    int(usage_result.usage_count) if usage_result else 0
+                ),
+                # Cumulative usage (from UserPreferences)
+                "cumulative_input_tokens": cumulative_input,
+                "cumulative_output_tokens": cumulative_output,
+                "cumulative_total_tokens": cumulative_input + cumulative_output,
+            }
+
+        # Convert to list and sort
+        company_list = list(company_data.values())
+
+        # Determine sort key
+        if sort_by == "input_tokens":
+            sort_key = "cumulative_input_tokens"
+        elif sort_by == "output_tokens":
+            sort_key = "cumulative_output_tokens"
+        else:
+            sort_key = "cumulative_total_tokens"
+
+        reverse = sort_direction.lower() == "desc"
+        company_list.sort(key=lambda x: x.get(sort_key, 0), reverse=reverse)
+
+        # Calculate totals
+        total_input = sum(c["cumulative_input_tokens"] for c in company_list)
+        total_output = sum(c["cumulative_output_tokens"] for c in company_list)
+        total_tokens = total_input + total_output
+
+        # Apply pagination
+        total_companies = len(company_list)
+        paginated = company_list[offset : offset + limit]
+
+        return {
+            "companies": paginated,
+            "total": total_companies,
+            "limit": limit,
+            "offset": offset,
+            "summary": {
+                "total_input_tokens": total_input,
+                "total_output_tokens": total_output,
+                "total_tokens": total_tokens,
+                "total_companies": total_companies,
+                "total_users": sum(c["user_count"] for c in company_list),
+            },
+            "date_range": {
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting usage analytics: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get usage analytics: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+@app.get(
+    "/v1/admin/analytics/usage/company/{company_id}",
+    tags=["Admin", "Analytics"],
+    summary="Get detailed token usage for a specific company (super admin only)",
+    description="Returns per-user token usage breakdown for a company.",
+)
+async def admin_get_company_usage_analytics(
+    company_id: str,
+    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    authorization: str = Header(None),
+):
+    """
+    Get detailed token usage analytics for a specific company (super admin only).
+
+    Returns per-user breakdown including:
+    - User email and name
+    - Input/output/total tokens per user
+    - Recent usage records from audit trail
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super admin role required.",
+        )
+
+    session = get_session()
+    try:
+        # Verify company exists
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Parse date filters
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format")
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format")
+
+        # Get all users in this company
+        user_companies = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id == company_id)
+            .all()
+        )
+
+        users_data = []
+        for uc in user_companies:
+            user = session.query(User).filter(User.id == uc.user_id).first()
+            if not user:
+                continue
+
+            # Get user role
+            from DB import UserRole
+
+            role = session.query(UserRole).filter(UserRole.id == uc.role_id).first()
+            role_name = role.friendly_name if role else f"Role {uc.role_id}"
+
+            # Get cumulative tokens from UserPreferences
+            input_pref = (
+                session.query(UserPreferences)
+                .filter(
+                    UserPreferences.user_id == uc.user_id,
+                    UserPreferences.pref_key == "input_tokens",
+                )
+                .first()
+            )
+            output_pref = (
+                session.query(UserPreferences)
+                .filter(
+                    UserPreferences.user_id == uc.user_id,
+                    UserPreferences.pref_key == "output_tokens",
+                )
+                .first()
+            )
+            input_tokens = 0
+            output_tokens = 0
+            if input_pref:
+                try:
+                    input_tokens = int(input_pref.pref_value)
+                except (ValueError, TypeError):
+                    pass
+            if output_pref:
+                try:
+                    output_tokens = int(output_pref.pref_value)
+                except (ValueError, TypeError):
+                    pass
+
+            # Get audit trail usage for this user in this company
+            audit_query = session.query(CompanyTokenUsage).filter(
+                CompanyTokenUsage.company_id == company_id,
+                CompanyTokenUsage.user_id == uc.user_id,
+            )
+            if start_dt:
+                audit_query = audit_query.filter(
+                    CompanyTokenUsage.timestamp >= start_dt
+                )
+            if end_dt:
+                audit_query = audit_query.filter(CompanyTokenUsage.timestamp <= end_dt)
+
+            audit_records = (
+                audit_query.order_by(desc(CompanyTokenUsage.timestamp)).limit(50).all()
+            )
+
+            users_data.append(
+                {
+                    "user_id": str(uc.user_id),
+                    "email": user.email,
+                    "first_name": getattr(user, "first_name", ""),
+                    "last_name": getattr(user, "last_name", ""),
+                    "role_id": uc.role_id,
+                    "role_name": role_name,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                    "recent_usage": [
+                        {
+                            "timestamp": (
+                                r.timestamp.isoformat() if r.timestamp else None
+                            ),
+                            "input_tokens": r.input_tokens,
+                            "output_tokens": r.output_tokens,
+                            "total_tokens": r.total_tokens,
+                        }
+                        for r in audit_records
+                    ],
+                }
+            )
+
+        # Sort by total tokens descending
+        users_data.sort(key=lambda x: x["total_tokens"], reverse=True)
+
+        # Calculate company totals
+        total_input = sum(u["input_tokens"] for u in users_data)
+        total_output = sum(u["output_tokens"] for u in users_data)
+
+        return {
+            "company": {
+                "id": str(company.id),
+                "name": company.name,
+                "status": getattr(company, "status", True),
+                "token_balance": getattr(company, "token_balance", 0) or 0,
+                "token_balance_usd": getattr(company, "token_balance_usd", 0) or 0,
+                "tokens_used_total": getattr(company, "tokens_used_total", 0) or 0,
+            },
+            "users": users_data,
+            "summary": {
+                "total_users": len(users_data),
+                "total_input_tokens": total_input,
+                "total_output_tokens": total_output,
+                "total_tokens": total_input + total_output,
+            },
+            "date_range": {
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting company usage analytics: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get company usage analytics: {str(e)}"
+        )
+    finally:
+        session.close()
+
+
+@app.get(
+    "/v1/admin/analytics/usage/users",
+    tags=["Admin", "Analytics"],
+    summary="Get all users' token usage across the server (super admin only)",
+    description="Returns a flat list of all users with their token usage, sorted by usage.",
+)
+async def admin_get_all_users_usage(
+    sort_by: Optional[str] = Query(
+        "total_tokens", description="Sort by: total_tokens, input_tokens, output_tokens"
+    ),
+    sort_direction: Optional[str] = Query(
+        "desc", description="Sort direction: asc, desc"
+    ),
+    limit: int = Query(100, description="Max users to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    authorization: str = Header(None),
+):
+    """
+    Get all users' token usage across the server (super admin only).
+
+    Returns a flat list of all users with:
+    - User details (email, name)
+    - Company association
+    - Total input/output/tokens
+    """
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super admin role required.",
+        )
+
+    session = get_session()
+    try:
+        # Get all users
+        users = session.query(User).all()
+        users_data = []
+
+        for user in users:
+            # Get user's company
+            user_company = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == user.id)
+                .first()
+            )
+            company = None
+            company_name = "No Company"
+            if user_company:
+                company = (
+                    session.query(Company)
+                    .filter(Company.id == user_company.company_id)
+                    .first()
+                )
+                if company:
+                    company_name = company.name
+
+            # Get cumulative tokens from UserPreferences
+            input_pref = (
+                session.query(UserPreferences)
+                .filter(
+                    UserPreferences.user_id == user.id,
+                    UserPreferences.pref_key == "input_tokens",
+                )
+                .first()
+            )
+            output_pref = (
+                session.query(UserPreferences)
+                .filter(
+                    UserPreferences.user_id == user.id,
+                    UserPreferences.pref_key == "output_tokens",
+                )
+                .first()
+            )
+            input_tokens = 0
+            output_tokens = 0
+            if input_pref:
+                try:
+                    input_tokens = int(input_pref.pref_value)
+                except (ValueError, TypeError):
+                    pass
+            if output_pref:
+                try:
+                    output_tokens = int(output_pref.pref_value)
+                except (ValueError, TypeError):
+                    pass
+
+            users_data.append(
+                {
+                    "user_id": str(user.id),
+                    "email": user.email,
+                    "first_name": getattr(user, "first_name", ""),
+                    "last_name": getattr(user, "last_name", ""),
+                    "company_id": (
+                        str(user_company.company_id) if user_company else None
+                    ),
+                    "company_name": company_name,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                }
+            )
+
+        # Determine sort key
+        if sort_by == "input_tokens":
+            sort_key = "input_tokens"
+        elif sort_by == "output_tokens":
+            sort_key = "output_tokens"
+        else:
+            sort_key = "total_tokens"
+
+        reverse = sort_direction.lower() == "desc"
+        users_data.sort(key=lambda x: x.get(sort_key, 0), reverse=reverse)
+
+        # Calculate totals
+        total_input = sum(u["input_tokens"] for u in users_data)
+        total_output = sum(u["output_tokens"] for u in users_data)
+        total_tokens = total_input + total_output
+
+        # Apply pagination
+        total_users = len(users_data)
+        paginated = users_data[offset : offset + limit]
+
+        return {
+            "users": paginated,
+            "total": total_users,
+            "limit": limit,
+            "offset": offset,
+            "summary": {
+                "total_input_tokens": total_input,
+                "total_output_tokens": total_output,
+                "total_tokens": total_tokens,
+                "total_users": total_users,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting all users usage: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get all users usage: {str(e)}"
+        )
+    finally:
+        session.close()
