@@ -444,6 +444,13 @@ class AIProviderManager:
 
     Discovers configured AI Provider extensions, handles provider selection based on
     token limits and service requirements, and implements fallback logic.
+
+    Settings hierarchy (highest to lowest priority):
+    1. Agent settings (user-level)
+    2. Company settings (via company agent)
+    3. Server config (database)
+    4. Environment variables
+    5. Default values
     """
 
     def __init__(self, agent_settings: dict, extensions_instance=None):
@@ -481,12 +488,119 @@ class AIProviderManager:
         # Discover and load AI Provider extensions
         self._discover_providers()
 
+    def _get_merged_provider_settings(self):
+        """
+        Merge settings from all configuration levels for AI providers.
+
+        Priority (highest to lowest):
+        1. Agent settings with non-empty values
+        2. Server config (via getenv which checks server config cache)
+        3. Default values
+
+        This ensures server-level configuration is respected when agent
+        settings don't have explicit overrides.
+        """
+        # Start with server/environment defaults for all known AI provider settings
+        # These are the settings that AI providers typically need
+        provider_setting_keys = [
+            # Anthropic
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_MAX_TOKENS",
+            # Azure
+            "AZURE_API_KEY",
+            "AZURE_MODEL",
+            "AZURE_MAX_TOKENS",
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_DEPLOYMENT_NAME",
+            "AZURE_TEMPERATURE",
+            "AZURE_TOP_P",
+            # DeepSeek
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_MODEL",
+            "DEEPSEEK_MAX_TOKENS",
+            # Google/Gemini
+            "GOOGLE_API_KEY",
+            "GOOGLE_MODEL",
+            "GOOGLE_MAX_TOKENS",
+            "GOOGLE_AI_MODEL",
+            "GOOGLE_TEMPERATURE",
+            "GOOGLE_TOP_P",
+            # OpenAI
+            "OPENAI_API_KEY",
+            "OPENAI_MODEL",
+            "OPENAI_MAX_TOKENS",
+            "OPENAI_BASE_URI",
+            # xAI
+            "XAI_API_KEY",
+            "XAI_MODEL",
+            "XAI_MAX_TOKENS",
+            # ezLocalai
+            "EZLOCALAI_API_KEY",
+            "EZLOCALAI_API_URI",
+            "EZLOCALAI_URI",
+            "EZLOCALAI_AI_MODEL",
+            "EZLOCALAI_CODING_MODEL",
+            "EZLOCALAI_MAX_TOKENS",
+            "EZLOCALAI_TEMPERATURE",
+            "EZLOCALAI_TOP_P",
+            "EZLOCALAI_VOICE",
+            "EZLOCALAI_LANGUAGE",
+            "EZLOCALAI_TRANSCRIPTION_MODEL",
+            # OpenRouter
+            "OPENROUTER_API_KEY",
+            "OPENROUTER_MODEL",
+            "OPENROUTER_MAX_TOKENS",
+            # DeepInfra
+            "DEEPINFRA_API_KEY",
+            "DEEPINFRA_MODEL",
+            "DEEPINFRA_MAX_TOKENS",
+            # HuggingFace
+            "HUGGINGFACE_API_KEY",
+            "HUGGINGFACE_MODEL",
+            "HUGGINGFACE_MAX_TOKENS",
+            # Chutes
+            "CHUTES_API_KEY",
+            "CHUTES_MODEL",
+            "CHUTES_MAX_TOKENS",
+        ]
+
+        merged_settings = {}
+
+        # First, get server/environment values for all provider settings
+        for key in provider_setting_keys:
+            server_value = getenv(key, "")
+            if server_value and server_value != "":
+                merged_settings[key] = server_value
+
+        # Then overlay agent settings (higher priority) - but only non-empty values
+        for key, value in self.agent_settings.items():
+            # Skip empty/None values so server config can take precedence
+            if value is None or value == "" or value == "None":
+                continue
+            # For max_tokens, also skip obviously invalid values (like 1)
+            if "_MAX_TOKENS" in key and str(value).isdigit() and int(value) < 100:
+                logging.debug(
+                    f"[AIProviderManager] Ignoring invalid {key}={value}, using server config"
+                )
+                continue
+            merged_settings[key] = value
+
+        return merged_settings
+
     def _discover_providers(self):
         """Discover all configured AI Provider extensions by their CATEGORY attribute"""
         from ExtensionsHub import (
             find_extension_files,
             import_extension_module,
             get_extension_class_name,
+        )
+
+        # Get merged settings from all configuration levels
+        merged_settings = self._get_merged_provider_settings()
+
+        logging.debug(
+            f"[AIProviderManager] Merged provider settings keys: {list(merged_settings.keys())}"
         )
 
         extension_files = find_extension_files()
@@ -517,8 +631,8 @@ class AIProviderManager:
                 ):
                     continue
 
-                # Instantiate with agent settings
-                provider_instance = provider_class(**self.agent_settings)
+                # Instantiate with merged settings (respecting hierarchy)
+                provider_instance = provider_class(**merged_settings)
 
                 # Only add if configured
                 if (
