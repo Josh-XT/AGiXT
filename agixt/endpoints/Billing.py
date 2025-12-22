@@ -1221,7 +1221,7 @@ async def set_super_admin(
 
     is_api_key_auth = agixt_api_key and provided_key == agixt_api_key
     is_super_admin_auth = False
-
+    logging.info(f"{agixt_api_key} vs {provided_key}")
     # Check if it's a JWT from a super admin
     if not is_api_key_auth:
         try:
