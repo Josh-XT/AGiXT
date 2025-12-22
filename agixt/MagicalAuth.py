@@ -1,3 +1,4 @@
+from decimal import Decimal
 from DB import (
     User,
     FailedLogins,
@@ -2818,8 +2819,8 @@ class MagicalAuth:
                                     logging.info(
                                         f"No active subscriptions for this app detected."
                                     )
-                                    # Only enforce subscription locking when subscription billing enabled
-                                    if subscription_billing_enabled:
+                                    # Only enforce subscription locking when billing enabled
+                                    if billing_enabled:
                                         if getenv("STRIPE_PRICING_TABLE_ID"):
                                             c_session = stripe.CustomerSession.create(
                                                 customer=user_preferences["stripe_id"],
