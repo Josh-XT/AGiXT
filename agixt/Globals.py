@@ -96,6 +96,10 @@ def load_server_config_cache():
     """
     Load all server config values from the database into cache.
     This is called once during startup after the database is initialized.
+
+    Note: We cache ALL values including empty strings, so we can distinguish
+    between "key not set" and "key explicitly set to empty" (which is used
+    to disable providers at the server level).
     """
     global _server_config_cache, _server_config_cache_loaded
 
@@ -109,8 +113,10 @@ def load_server_config_cache():
         with get_session() as db:
             configs = db.query(ServerConfig).all()
             for config in configs:
-                if config.value:
-                    if config.is_sensitive:
+                # Cache all values including empty strings
+                # Empty string means "explicitly cleared at server level"
+                if config.value is not None:
+                    if config.is_sensitive and config.value:
                         _server_config_cache[config.name] = decrypt_config_value(
                             config.value
                         )
@@ -128,6 +134,17 @@ def invalidate_server_config_cache():
     global _server_config_cache, _server_config_cache_loaded
     _server_config_cache = {}
     _server_config_cache_loaded = False
+
+
+def server_config_has_key(var_name: str) -> bool:
+    """
+    Check if a key exists in server config cache (regardless of its value).
+    This is used to determine if server admin explicitly set a value (even empty).
+    """
+    global _server_config_cache, _server_config_cache_loaded
+    if not _server_config_cache_loaded:
+        load_server_config_cache()
+    return var_name in _server_config_cache
 
 
 def getenv(var_name: str, default_value: str = "") -> str:
@@ -257,37 +274,20 @@ def get_data_size_kb(data) -> int:
 
 
 def get_default_agent_settings():
+    """
+    Get default agent settings.
+
+    NOTE: Provider API keys and provider-specific settings are intentionally NOT included here.
+    Provider settings should be resolved at inference time from the hierarchy:
+    1. Server extension settings (admin configured)
+    2. Company agent settings (company admin configured)
+    3. User preferences (if applicable)
+
+    This ensures that when server admins change API keys, all agents automatically use
+    the new keys without needing to update each agent's settings individually.
+    """
     agent_settings = {
-        "ANTHROPIC_API_KEY": getenv("ANTHROPIC_API_KEY"),
-        "ANTHROPIC_MODEL": getenv("ANTHROPIC_MODEL"),
-        "AZURE_MODEL": getenv("AZURE_MODEL"),
-        "AZURE_API_KEY": getenv("AZURE_API_KEY"),
-        "AZURE_OPENAI_ENDPOINT": getenv("AZURE_OPENAI_ENDPOINT"),
-        "AZURE_DEPLOYMENT_NAME": getenv("AZURE_MODEL"),
-        "AZURE_TEMPERATURE": 0.7,
-        "AZURE_TOP_P": 0.95,
-        "DEEPSEEK_API_KEY": getenv("DEEPSEEK_API_KEY"),
-        "DEEPSEEK_MODEL": getenv("DEEPSEEK_MODEL"),
-        "GOOGLE_API_KEY": getenv("GOOGLE_API_KEY"),
-        "GOOGLE_MODEL": getenv("GOOGLE_MODEL"),
-        "GOOGLE_TEMPERATURE": 0.7,
-        "GOOGLE_TOP_P": 0.95,
-        "EZLOCALAI_API_KEY": getenv("EZLOCALAI_API_KEY"),
-        "EZLOCALAI_API_URI": getenv("EZLOCALAI_API_URI", getenv("EZLOCALAI_URI")),
-        "EZLOCALAI_VOICE": getenv("EZLOCALAI_VOICE"),
-        "EZLOCALAI_TEMPERATURE": 1.33,
-        "EZLOCALAI_TOP_P": 0.95,
-        "OPENAI_API_KEY": getenv("OPENAI_API_KEY"),
-        "OPENAI_MODEL": getenv("OPENAI_MODEL"),
-        "XAI_API_KEY": getenv("XAI_API_KEY"),
-        "XAI_MODEL": getenv("XAI_MODEL"),
-        "EZLOCALAI_MAX_TOKENS": getenv("EZLOCALAI_MAX_TOKENS"),
-        "DEEPSEEK_MAX_TOKENS": getenv("DEEPSEEK_MAX_TOKENS"),
-        "AZURE_MAX_TOKENS": getenv("AZURE_MAX_TOKENS"),
-        "XAI_MAX_TOKENS": getenv("XAI_MAX_TOKENS"),
-        "OPENAI_MAX_TOKENS": getenv("OPENAI_MAX_TOKENS"),
-        "ANTHROPIC_MAX_TOKENS": getenv("ANTHROPIC_MAX_TOKENS"),
-        "GOOGLE_MAX_TOKENS": getenv("GOOGLE_MAX_TOKENS"),
+        # Non-provider settings that should be stored at agent level
         "SMARTEST_PROVIDER": "anthropic",
         "mode": "prompt",
         "prompt_name": "Think About It",

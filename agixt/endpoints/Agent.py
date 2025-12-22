@@ -239,19 +239,45 @@ async def get_providers_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, str]:
+    from DB import ServerExtensionSetting, get_session, decrypt_config_value
+    from Globals import getenv
+
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
-    agent_settings = agent.AGENT_CONFIG["settings"]
     providers = get_providers_with_details()
+
+    # Get server-level extension settings (API keys configured by admin)
+    server_api_keys = {}
+    with get_session() as db:
+        db_settings = (
+            db.query(ServerExtensionSetting)
+            .filter(ServerExtensionSetting.setting_key.like("%_API_KEY"))
+            .all()
+        )
+        for setting in db_settings:
+            value = setting.setting_value
+            if setting.is_sensitive and value:
+                value = decrypt_config_value(value)
+            if value:  # Only store if actually has a value
+                server_api_keys[setting.setting_key] = value
+
     new_providers = {}
-    # Check each provider against agent settings for a match to see if the key is defined in agent settings and is not empty
-    # If it is, set connected = True, else connected = False
+    # Check each provider against server extension settings to determine connected status
+    # A provider is "connected" only if it has an API key configured at the server level
     for provider_name, provider_details in providers.items():
         provider_settings = provider_details["settings"]
         connected = False
         for key in provider_settings:
-            if key in agent_settings and agent_settings[key] != "":
-                connected = True
+            if key.endswith("_API_KEY"):
+                # Check if this API key is set at server level
+                if key in server_api_keys:
+                    connected = True
+                    break
+                # Also check environment variable fallback
+                env_value = getenv(key)
+                if env_value:
+                    connected = True
+                    break
         new_providers[provider_name] = {
             "connected": connected,
             **provider_details,

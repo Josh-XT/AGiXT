@@ -493,52 +493,59 @@ class AIProviderManager:
         Merge settings from all configuration levels for AI providers.
 
         Priority (highest to lowest):
-        1. Agent settings with non-empty values
-        2. Server config (via getenv which checks server config cache)
-        3. Default values
+        1. Server extension settings (admin configured API keys in ServerExtensionSetting table)
+        2. Environment variables (for local development/overrides)
+        3. Default values from provider extensions
 
-        This ensures server-level configuration is respected when agent
-        settings don't have explicit overrides.
+        Provider API keys and settings should NOT be stored at the agent level.
+        They are resolved at inference time from the server extension settings.
+        This ensures that when server admins change API keys, all agents automatically
+        use the new keys without needing to update each agent's settings individually.
         """
-        # Start with server/environment defaults for all known AI provider settings
-        # These are the settings that AI providers typically need
+        from DB import ServerExtensionSetting, get_session, decrypt_config_value
+
+        # Map of setting keys to extension names for lookup
+        # This maps the setting key pattern to the extension name used in ServerExtensionSetting
         provider_setting_keys = [
             # Anthropic
             "ANTHROPIC_API_KEY",
-            "ANTHROPIC_MODEL",
+            "ANTHROPIC_AI_MODEL",
             "ANTHROPIC_MAX_TOKENS",
+            "ANTHROPIC_TEMPERATURE",
             # Azure
             "AZURE_API_KEY",
-            "AZURE_MODEL",
-            "AZURE_MAX_TOKENS",
             "AZURE_OPENAI_ENDPOINT",
             "AZURE_DEPLOYMENT_NAME",
+            "AZURE_MAX_TOKENS",
             "AZURE_TEMPERATURE",
             "AZURE_TOP_P",
             # DeepSeek
             "DEEPSEEK_API_KEY",
             "DEEPSEEK_MODEL",
             "DEEPSEEK_MAX_TOKENS",
+            "DEEPSEEK_TEMPERATURE",
+            "DEEPSEEK_TOP_P",
             # Google/Gemini
             "GOOGLE_API_KEY",
-            "GOOGLE_MODEL",
-            "GOOGLE_MAX_TOKENS",
             "GOOGLE_AI_MODEL",
+            "GOOGLE_MAX_TOKENS",
             "GOOGLE_TEMPERATURE",
-            "GOOGLE_TOP_P",
             # OpenAI
             "OPENAI_API_KEY",
-            "OPENAI_MODEL",
+            "OPENAI_API_URI",
+            "OPENAI_AI_MODEL",
             "OPENAI_MAX_TOKENS",
-            "OPENAI_BASE_URI",
+            "OPENAI_TEMPERATURE",
+            "OPENAI_TOP_P",
             # xAI
             "XAI_API_KEY",
-            "XAI_MODEL",
+            "XAI_AI_MODEL",
             "XAI_MAX_TOKENS",
+            "XAI_TEMPERATURE",
+            "XAI_TOP_P",
             # ezLocalai
             "EZLOCALAI_API_KEY",
             "EZLOCALAI_API_URI",
-            "EZLOCALAI_URI",
             "EZLOCALAI_AI_MODEL",
             "EZLOCALAI_CODING_MODEL",
             "EZLOCALAI_MAX_TOKENS",
@@ -549,12 +556,16 @@ class AIProviderManager:
             "EZLOCALAI_TRANSCRIPTION_MODEL",
             # OpenRouter
             "OPENROUTER_API_KEY",
-            "OPENROUTER_MODEL",
+            "OPENROUTER_AI_MODEL",
             "OPENROUTER_MAX_TOKENS",
+            "OPENROUTER_TEMPERATURE",
+            "OPENROUTER_TOP_P",
             # DeepInfra
             "DEEPINFRA_API_KEY",
             "DEEPINFRA_MODEL",
             "DEEPINFRA_MAX_TOKENS",
+            "DEEPINFRA_TEMPERATURE",
+            "DEEPINFRA_TOP_P",
             # HuggingFace
             "HUGGINGFACE_API_KEY",
             "HUGGINGFACE_MODEL",
@@ -563,28 +574,60 @@ class AIProviderManager:
             "CHUTES_API_KEY",
             "CHUTES_MODEL",
             "CHUTES_MAX_TOKENS",
+            "CHUTES_TEMPERATURE",
+            "CHUTES_TOP_P",
+            # ElevenLabs
+            "ELEVENLABS_API_KEY",
+            "ELEVENLABS_VOICE",
         ]
 
         merged_settings = {}
 
-        # First, get server/environment values for all provider settings
-        for key in provider_setting_keys:
-            server_value = getenv(key, "")
-            if server_value and server_value != "":
-                merged_settings[key] = server_value
+        # First, get server extension settings from database (admin configured)
+        # This is the authoritative source for provider API keys
+        with get_session() as session:
+            server_ext_settings = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
+                .all()
+            )
+            for setting in server_ext_settings:
+                value = setting.setting_value
+                if setting.is_sensitive and value:
+                    value = decrypt_config_value(value)
+                if value:  # Only add non-empty values
+                    merged_settings[setting.setting_key] = value
 
-        # Then overlay agent settings (higher priority) - but only non-empty values
-        for key, value in self.agent_settings.items():
-            # Skip empty/None values so server config can take precedence
-            if value is None or value == "" or value == "None":
-                continue
-            # For max_tokens, also skip obviously invalid values (like 1)
-            if "_MAX_TOKENS" in key and str(value).isdigit() and int(value) < 100:
-                logging.debug(
-                    f"[AIProviderManager] Ignoring invalid {key}={value}, using server config"
-                )
-                continue
-            merged_settings[key] = value
+        # Then check environment variables (for local dev overrides)
+        for key in provider_setting_keys:
+            if key not in merged_settings:
+                env_value = os.getenv(key)
+                if env_value:
+                    merged_settings[key] = env_value
+
+        # Add non-provider agent settings (like mode, persona, etc.)
+        # These are settings that should be stored at agent level
+        non_provider_keys = [
+            "mode",
+            "prompt_name",
+            "prompt_category",
+            "persona",
+            "tts",
+            "websearch",
+            "websearch_depth",
+            "analyze_user_input",
+            "complexity_scaling_enabled",
+            "thinking_budget_enabled",
+            "thinking_budget_override",
+            "answer_review_enabled",
+            "planning_phase_enabled",
+            "SMARTEST_PROVIDER",
+        ]
+        for key in non_provider_keys:
+            if key in self.agent_settings and self.agent_settings[key]:
+                merged_settings[key] = self.agent_settings[key]
+
+        return merged_settings
 
         return merged_settings
 
