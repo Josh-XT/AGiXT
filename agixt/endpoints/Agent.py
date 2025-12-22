@@ -551,6 +551,16 @@ async def prompt_agent_v1(
             agent_prompt.prompt_args["log_output"] = False
         else:
             conversation_name = agent_prompt.prompt_args["conversation_name"]
+            # Handle case where SDK passes dict instead of string (e.g., full conversation object)
+            if isinstance(conversation_name, dict):
+                if "id" in conversation_name:
+                    conversation_name = str(conversation_name["id"])
+                elif "name" in conversation_name:
+                    conversation_name = str(conversation_name["name"])
+                else:
+                    conversation_name = None
+            elif conversation_name is not None:
+                conversation_name = str(conversation_name)
             del agent_prompt.prompt_args["conversation_name"]
         if "user_input" not in agent_prompt.prompt_args:
             agent_prompt.prompt_args["user_input"] = ""
