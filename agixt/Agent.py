@@ -2076,7 +2076,9 @@ class Agent:
 
             except Exception as e:
                 last_error = str(e)
-                logging.error(f"Error in inference with provider '{provider_name}': {last_error}")
+                logging.error(
+                    f"Error in inference with provider '{provider_name}': {last_error}"
+                )
                 # Mark provider as failed for rotation tracking
                 self.ai_provider_manager.mark_provider_failed(provider_name)
 

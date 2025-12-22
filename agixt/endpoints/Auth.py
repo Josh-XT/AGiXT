@@ -565,7 +565,9 @@ async def oauth_login(
     state = data.get("state")
     if state:
         try:
-            code_verifier = decrypt(os.getenv("AGIXT_API_KEY", ""), state).get("verifier")
+            code_verifier = decrypt(os.getenv("AGIXT_API_KEY", ""), state).get(
+                "verifier"
+            )
         except Exception as e:
             logging.error(f"Failed to decode code_verifier from state: {str(e)}")
 
