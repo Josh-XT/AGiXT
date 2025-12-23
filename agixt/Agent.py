@@ -2461,13 +2461,13 @@ class Agent:
     async def text_to_speech_stream(self, text: str):
         """
         Stream TTS audio as it's generated, chunk by chunk.
-        
+
         This enables real-time playback without waiting for the entire audio
         to be generated. Dramatically reduces time-to-first-word.
-        
+
         Args:
             text: Text to convert to speech
-            
+
         Yields:
             bytes: Binary audio data chunks
         """
@@ -2485,9 +2485,9 @@ class Agent:
                 status_code=400,
                 detail="No TTS provider configured for this agent.",
             )
-        
+
         # Check if provider supports streaming
-        if not hasattr(tts_provider, 'text_to_speech_stream'):
+        if not hasattr(tts_provider, "text_to_speech_stream"):
             raise HTTPException(
                 status_code=400,
                 detail="TTS provider does not support streaming.",

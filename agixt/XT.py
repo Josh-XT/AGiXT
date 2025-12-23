@@ -3742,48 +3742,61 @@ Your response (true or false):"""
                                     ],
                                 }
                                 yield f"data: {json.dumps(chunk)}\n\n"
-                            
+
                             # Stream TTS for complete answer if TTS mode is enabled
                             if tts_mode in ("audio_only", "interleaved"):
                                 try:
                                     import struct
+
                                     raw_buffer = b""
                                     header_sent = False
-                                    
-                                    async for audio_chunk in self.agent.text_to_speech_stream(content):
+
+                                    async for (
+                                        audio_chunk
+                                    ) in self.agent.text_to_speech_stream(content):
                                         raw_buffer += audio_chunk
-                                        
+
                                         # Parse header first (8 bytes)
                                         if not header_sent and len(raw_buffer) >= 8:
                                             header_data = raw_buffer[:8]
                                             raw_buffer = raw_buffer[8:]
                                             header_sent = True
                                             tts_sent_header = True
-                                            
+
                                             tts_header_chunk = {
                                                 "id": chunk_id,
                                                 "object": "audio.header",
                                                 "created": created_time,
                                                 "model": self.agent_name,
-                                                "audio": base64.b64encode(header_data).decode("utf-8"),
+                                                "audio": base64.b64encode(
+                                                    header_data
+                                                ).decode("utf-8"),
                                             }
                                             yield f"data: {json.dumps(tts_header_chunk)}\n\n"
-                                        
+
                                         # Parse data packets: 4-byte size + PCM data
                                         while header_sent and len(raw_buffer) >= 4:
-                                            packet_size = struct.unpack('<I', raw_buffer[:4])[0]
+                                            packet_size = struct.unpack(
+                                                "<I", raw_buffer[:4]
+                                            )[0]
                                             if packet_size == 0:
                                                 raw_buffer = raw_buffer[4:]
                                                 break
                                             if len(raw_buffer) >= 4 + packet_size:
-                                                pcm_data = raw_buffer[4:4+packet_size]
-                                                raw_buffer = raw_buffer[4+packet_size:]
+                                                pcm_data = raw_buffer[
+                                                    4 : 4 + packet_size
+                                                ]
+                                                raw_buffer = raw_buffer[
+                                                    4 + packet_size :
+                                                ]
                                                 audio_data_chunk = {
                                                     "id": chunk_id,
                                                     "object": "audio.chunk",
                                                     "created": created_time,
                                                     "model": self.agent_name,
-                                                    "audio": base64.b64encode(pcm_data).decode("utf-8"),
+                                                    "audio": base64.b64encode(
+                                                        pcm_data
+                                                    ).decode("utf-8"),
                                                 }
                                                 yield f"data: {json.dumps(audio_data_chunk)}\n\n"
                                             else:
@@ -3793,7 +3806,7 @@ Your response (true or false):"""
                     else:
                         # Progressive answer streaming - send each token
                         has_streamed_progressively = True
-                        
+
                         # Stream text chunk (unless audio_only mode)
                         if tts_mode != "audio_only":
                             chunk = {
@@ -3810,7 +3823,7 @@ Your response (true or false):"""
                                 ],
                             }
                             yield f"data: {json.dumps(chunk)}\n\n"
-                        
+
                         # Buffer text for TTS - will be generated at end for smooth audio
                         if tts_mode in ("audio_only", "interleaved"):
                             tts_buffer += content
@@ -3907,25 +3920,28 @@ Your response (true or false):"""
             # Handle conversation rename for new conversations
             if self.conversation_name == "-":
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
-            
+
             # Generate TTS for all buffered text at once for smooth continuous audio
             if tts_mode in ("audio_only", "interleaved") and tts_buffer.strip():
                 try:
                     import struct
+
                     # Buffer to accumulate incoming bytes and parse properly
                     raw_buffer = b""
                     header_sent = False
-                    
-                    async for audio_chunk in self.agent.text_to_speech_stream(tts_buffer.strip()):
+
+                    async for audio_chunk in self.agent.text_to_speech_stream(
+                        tts_buffer.strip()
+                    ):
                         raw_buffer += audio_chunk
-                        
+
                         # Parse header first (8 bytes)
                         if not header_sent and len(raw_buffer) >= 8:
                             header_data = raw_buffer[:8]
                             raw_buffer = raw_buffer[8:]
                             header_sent = True
                             tts_sent_header = True
-                            
+
                             tts_header_chunk = {
                                 "id": chunk_id,
                                 "object": "audio.header",
@@ -3934,22 +3950,22 @@ Your response (true or false):"""
                                 "audio": base64.b64encode(header_data).decode("utf-8"),
                             }
                             yield f"data: {json.dumps(tts_header_chunk)}\n\n"
-                        
+
                         # Parse data packets: 4-byte size + PCM data
                         while header_sent and len(raw_buffer) >= 4:
                             # Read packet size
-                            packet_size = struct.unpack('<I', raw_buffer[:4])[0]
-                            
+                            packet_size = struct.unpack("<I", raw_buffer[:4])[0]
+
                             # Check for end marker
                             if packet_size == 0:
                                 raw_buffer = raw_buffer[4:]
                                 break
-                            
+
                             # Check if we have the full packet
                             if len(raw_buffer) >= 4 + packet_size:
-                                pcm_data = raw_buffer[4:4+packet_size]
-                                raw_buffer = raw_buffer[4+packet_size:]
-                                
+                                pcm_data = raw_buffer[4 : 4 + packet_size]
+                                raw_buffer = raw_buffer[4 + packet_size :]
+
                                 # Yield the PCM data
                                 audio_data_chunk = {
                                     "id": chunk_id,
@@ -3962,10 +3978,10 @@ Your response (true or false):"""
                             else:
                                 # Not enough data yet, wait for more
                                 break
-                                
+
                 except Exception as e:
                     logging.warning(f"TTS streaming error: {e}")
-            
+
             # Send TTS end marker if we sent any TTS data
             if tts_sent_header:
                 tts_end_chunk = {
