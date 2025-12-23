@@ -3692,9 +3692,49 @@ Your response (true or false):"""
             # Track if we've streamed any answer content progressively
             has_streamed_progressively = False
 
-            # TTS streaming state - buffer all text, generate TTS at end for smooth audio
-            tts_buffer = ""  # Buffer for accumulating text for TTS
+            # TTS streaming state - stream TTS sentence-by-sentence for real-time audio
+            tts_sentence_buffer = ""  # Buffer for accumulating current sentence
             tts_sent_header = False  # Track if we've sent TTS header
+            tts_pending_audio = (
+                []
+            )  # Queue of (sentence, generator) tuples for concurrent TTS
+
+            # Helper to detect sentence boundaries
+            def has_complete_sentence(text):
+                """Check if text contains a complete sentence ending."""
+                import re
+
+                # Match sentence endings: . ! ? followed by space or end, or newlines
+                # But ignore abbreviations like "Dr." "Mr." "e.g." etc.
+                abbrevs = (
+                    r"(?<![A-Z][a-z])\.\s|(?<![a-z]\.[a-z])\.(?:\s|$)|[!?]\s|[!?]$|\n"
+                )
+                matches = list(re.finditer(abbrevs, text))
+                return len(matches) > 0
+
+            def extract_complete_sentences(text):
+                """Extract complete sentences and return (sentences, remainder)."""
+                import re
+
+                # Find the last sentence boundary
+                boundaries = [".", "!", "?", "\n"]
+                last_boundary = -1
+                for i, char in enumerate(text):
+                    if char in boundaries:
+                        # Check it's not an abbreviation
+                        if char == "." and i > 0 and i < len(text) - 1:
+                            # Simple check: if followed by uppercase or space+uppercase, it's a sentence end
+                            next_char = text[i + 1] if i + 1 < len(text) else " "
+                            if next_char in " \n" or next_char.isupper():
+                                last_boundary = i
+                        else:
+                            last_boundary = i
+
+                if last_boundary >= 0:
+                    sentences = text[: last_boundary + 1].strip()
+                    remainder = text[last_boundary + 1 :].lstrip()
+                    return sentences, remainder
+                return "", text
 
             async for event in self.agent_interactions.run_stream(
                 user_input=new_prompt,
@@ -3723,6 +3763,9 @@ Your response (true or false):"""
                     if is_complete:
                         # Final answer received - store it
                         final_answer = content
+                        logging.info(
+                            f"[chat_stream] Complete answer received (has_streamed_progressively={has_streamed_progressively}): {content[:100]}..."
+                        )
                         # Only send if we haven't been streaming progressively
                         # This handles command results that return in one shot
                         if not has_streamed_progressively:
@@ -3789,16 +3832,26 @@ Your response (true or false):"""
                                                 raw_buffer = raw_buffer[
                                                     4 + packet_size :
                                                 ]
-                                                audio_data_chunk = {
-                                                    "id": chunk_id,
-                                                    "object": "audio.chunk",
-                                                    "created": created_time,
-                                                    "model": self.agent_name,
-                                                    "audio": base64.b64encode(
-                                                        pcm_data
-                                                    ).decode("utf-8"),
-                                                }
-                                                yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+
+                                                # Break large audio chunks into smaller pieces for streaming
+                                                # ESP32 has limited buffer size, so send max 4KB at a time
+                                                MAX_CHUNK_SIZE = 4096
+                                                for offset in range(
+                                                    0, len(pcm_data), MAX_CHUNK_SIZE
+                                                ):
+                                                    chunk_piece = pcm_data[
+                                                        offset : offset + MAX_CHUNK_SIZE
+                                                    ]
+                                                    audio_data_chunk = {
+                                                        "id": chunk_id,
+                                                        "object": "audio.chunk",
+                                                        "created": created_time,
+                                                        "model": self.agent_name,
+                                                        "audio": base64.b64encode(
+                                                            chunk_piece
+                                                        ).decode("utf-8"),
+                                                    }
+                                                    yield f"data: {json.dumps(audio_data_chunk)}\n\n"
                                             else:
                                                 break
                                 except Exception as e:
@@ -3806,6 +3859,9 @@ Your response (true or false):"""
                     else:
                         # Progressive answer streaming - send each token
                         has_streamed_progressively = True
+                        logging.debug(
+                            f"[chat_stream] Progressive token: {repr(content[:50])}"
+                        )
 
                         # Stream text chunk (unless audio_only mode)
                         if tts_mode != "audio_only":
@@ -3824,9 +3880,92 @@ Your response (true or false):"""
                             }
                             yield f"data: {json.dumps(chunk)}\n\n"
 
-                        # Buffer text for TTS - will be generated at end for smooth audio
+                        # Buffer text for TTS and stream sentence-by-sentence
                         if tts_mode in ("audio_only", "interleaved"):
-                            tts_buffer += content
+                            tts_sentence_buffer += content
+                            logging.debug(
+                                f"[TTS] Buffer: {repr(tts_sentence_buffer[:100])}"
+                            )
+
+                            # Check if we have a complete sentence to stream
+                            sentences, remainder = extract_complete_sentences(
+                                tts_sentence_buffer
+                            )
+                            if sentences:
+                                logging.info(
+                                    f"[TTS] Streaming sentence: {sentences[:80]}..."
+                                )
+                                tts_sentence_buffer = remainder
+
+                                # Stream TTS for the complete sentence(s)
+                                try:
+                                    import struct
+
+                                    raw_buffer = b""
+
+                                    async for (
+                                        audio_chunk
+                                    ) in self.agent.text_to_speech_stream(sentences):
+                                        raw_buffer += audio_chunk
+
+                                        # Parse header first (8 bytes) - only once
+                                        if not tts_sent_header and len(raw_buffer) >= 8:
+                                            header_data = raw_buffer[:8]
+                                            raw_buffer = raw_buffer[8:]
+                                            tts_sent_header = True
+
+                                            tts_header_chunk = {
+                                                "id": chunk_id,
+                                                "object": "audio.header",
+                                                "created": created_time,
+                                                "model": self.agent_name,
+                                                "audio": base64.b64encode(
+                                                    header_data
+                                                ).decode("utf-8"),
+                                            }
+                                            yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+
+                                        # Parse data packets: 4-byte size + PCM data
+                                        while tts_sent_header and len(raw_buffer) >= 4:
+                                            packet_size = struct.unpack(
+                                                "<I", raw_buffer[:4]
+                                            )[0]
+                                            if packet_size == 0:
+                                                raw_buffer = raw_buffer[4:]
+                                                break
+                                            if len(raw_buffer) >= 4 + packet_size:
+                                                pcm_data = raw_buffer[
+                                                    4 : 4 + packet_size
+                                                ]
+                                                raw_buffer = raw_buffer[
+                                                    4 + packet_size :
+                                                ]
+
+                                                # Break large audio chunks into smaller pieces for streaming
+                                                # ESP32 has limited buffer size, so send max 4KB at a time
+                                                MAX_CHUNK_SIZE = 4096
+                                                for offset in range(
+                                                    0, len(pcm_data), MAX_CHUNK_SIZE
+                                                ):
+                                                    chunk_piece = pcm_data[
+                                                        offset : offset + MAX_CHUNK_SIZE
+                                                    ]
+                                                    audio_data_chunk = {
+                                                        "id": chunk_id,
+                                                        "object": "audio.chunk",
+                                                        "created": created_time,
+                                                        "model": self.agent_name,
+                                                        "audio": base64.b64encode(
+                                                            chunk_piece
+                                                        ).decode("utf-8"),
+                                                    }
+                                                    yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                            else:
+                                                break
+                                except Exception as e:
+                                    logging.warning(
+                                        f"TTS sentence streaming error: {e}"
+                                    )
 
                 # Stream progressive thinking/reflection content
                 elif event_type in (
@@ -3921,25 +4060,26 @@ Your response (true or false):"""
             if self.conversation_name == "-":
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
 
-            # Generate TTS for all buffered text at once for smooth continuous audio
-            if tts_mode in ("audio_only", "interleaved") and tts_buffer.strip():
+            # Generate TTS for any remaining buffered text (partial sentences at end)
+            if (
+                tts_mode in ("audio_only", "interleaved")
+                and tts_sentence_buffer.strip()
+            ):
                 try:
                     import struct
 
                     # Buffer to accumulate incoming bytes and parse properly
                     raw_buffer = b""
-                    header_sent = False
 
                     async for audio_chunk in self.agent.text_to_speech_stream(
-                        tts_buffer.strip()
+                        tts_sentence_buffer.strip()
                     ):
                         raw_buffer += audio_chunk
 
-                        # Parse header first (8 bytes)
-                        if not header_sent and len(raw_buffer) >= 8:
+                        # Parse header first (8 bytes) - only if not already sent
+                        if not tts_sent_header and len(raw_buffer) >= 8:
                             header_data = raw_buffer[:8]
                             raw_buffer = raw_buffer[8:]
-                            header_sent = True
                             tts_sent_header = True
 
                             tts_header_chunk = {
@@ -3952,7 +4092,7 @@ Your response (true or false):"""
                             yield f"data: {json.dumps(tts_header_chunk)}\n\n"
 
                         # Parse data packets: 4-byte size + PCM data
-                        while header_sent and len(raw_buffer) >= 4:
+                        while tts_sent_header and len(raw_buffer) >= 4:
                             # Read packet size
                             packet_size = struct.unpack("<I", raw_buffer[:4])[0]
 
@@ -3966,15 +4106,23 @@ Your response (true or false):"""
                                 pcm_data = raw_buffer[4 : 4 + packet_size]
                                 raw_buffer = raw_buffer[4 + packet_size :]
 
-                                # Yield the PCM data
-                                audio_data_chunk = {
-                                    "id": chunk_id,
-                                    "object": "audio.chunk",
-                                    "created": created_time,
-                                    "model": self.agent_name,
-                                    "audio": base64.b64encode(pcm_data).decode("utf-8"),
-                                }
-                                yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                # Break large audio chunks into smaller pieces for streaming
+                                # ESP32 has limited buffer size, so send max 4KB at a time
+                                MAX_CHUNK_SIZE = 4096
+                                for offset in range(0, len(pcm_data), MAX_CHUNK_SIZE):
+                                    chunk_piece = pcm_data[
+                                        offset : offset + MAX_CHUNK_SIZE
+                                    ]
+                                    audio_data_chunk = {
+                                        "id": chunk_id,
+                                        "object": "audio.chunk",
+                                        "created": created_time,
+                                        "model": self.agent_name,
+                                        "audio": base64.b64encode(chunk_piece).decode(
+                                            "utf-8"
+                                        ),
+                                    }
+                                    yield f"data: {json.dumps(audio_data_chunk)}\n\n"
                             else:
                                 # Not enough data yet, wait for more
                                 break
