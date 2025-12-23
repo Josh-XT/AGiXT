@@ -551,11 +551,12 @@ class WorkspaceManager(SecurityValidationMixin):
                 raise ValueError(f"{component_type} too long")
             return component
 
-        # Validate agent_id and get the hashed folder name (matches Agent.py pattern)
+        # Validate agent_id - use raw agent_id to match Agent.py behavior
         validated_agent_id = sanitize_path_component(
             self.validate_identifier(agent_id, "agent_id"), "agent_id"
         )
-        agent_folder = self._get_agent_folder_name(validated_agent_id)
+        # Use raw agent_id directly - Agent.py stores files using raw agent_id, not hashed
+        agent_folder = validated_agent_id
 
         filename = sanitize_path_component(self.validate_filename(filename), "filename")
         conversation_id = (
@@ -590,7 +591,8 @@ class WorkspaceManager(SecurityValidationMixin):
     ) -> str:
         """Get the object path in the storage backend with validation"""
         agent_id = self.validate_identifier(agent_id, "agent_id")
-        agent_folder = self._get_agent_folder_name(agent_id)
+        # Use raw agent_id directly to match Agent.py behavior
+        agent_folder = agent_id
         filename = self.validate_filename(filename)
 
         if conversation_id:
