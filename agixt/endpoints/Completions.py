@@ -349,6 +349,51 @@ async def text_to_speech(
     return {"url": audio_data}
 
 
+# Streaming Text to Speech endpoint
+@app.post(
+    "/v1/audio/speech/stream",
+    tags=["Audio"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Stream Text-to-Speech Audio",
+    description="Stream TTS audio as it's generated. Returns raw PCM audio stream with header information.",
+)
+async def text_to_speech_stream(
+    tts: TextToSpeech,
+    authorization: str = Header(None),
+    user: str = Depends(verify_api_key),
+):
+    """
+    Stream TTS audio as it's generated, chunk by chunk.
+
+    Response format (binary stream):
+    - Header (8 bytes): sample_rate (uint32), bits (uint16), channels (uint16)
+    - Data chunks: chunk_size (uint32) + raw PCM data
+    - End marker: chunk_size = 0
+
+    Audio format: 24kHz, 16-bit, mono PCM
+    """
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
+
+    if agent.TTS_PROVIDER is None:
+        raise HTTPException(status_code=400, detail="No TTS provider available")
+
+    async def audio_stream_generator():
+        async for chunk in agent.text_to_speech_stream(text=tts.input):
+            yield chunk
+
+    return StreamingResponse(
+        audio_stream_generator(),
+        media_type="application/octet-stream",
+        headers={
+            "X-Audio-Format": "pcm",
+            "X-Sample-Rate": "24000",
+            "X-Bits-Per-Sample": "16",
+            "X-Channels": "1",
+        },
+    )
+
+
 # Image Generation endpoint
 # https://platform.openai.com/docs/api-reference/images
 @app.post(

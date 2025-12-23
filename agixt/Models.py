@@ -265,6 +265,9 @@ class ChatCompletions(BaseModel):
     frequency_penalty: Optional[float] = 0.0
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = "-"  # This is the conversation name, defaults to "-"
+    # TTS streaming options for real-time audio output
+    # "off" = no TTS (default), "audio_only" = stream only audio, "interleaved" = stream both text and audio
+    tts_mode: Optional[str] = "off"
 
 
 class TextToSpeech(BaseModel):

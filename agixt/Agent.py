@@ -2458,6 +2458,64 @@ class Agent:
                 output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
                 return output_url
 
+    async def text_to_speech_stream(self, text: str):
+        """
+        Stream TTS audio as it's generated, chunk by chunk.
+        
+        This enables real-time playback without waiting for the entire audio
+        to be generated. Dramatically reduces time-to-first-word.
+        
+        Args:
+            text: Text to convert to speech
+            
+        Yields:
+            bytes: Binary audio data chunks
+        """
+        if not text:
+            raise HTTPException(
+                status_code=400,
+                detail="No text provided for text-to-speech.",
+            )
+
+        # Get TTS provider from AI Provider Manager
+        tts_provider = self.ai_provider_manager.get_provider_for_service("tts")
+
+        if tts_provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No TTS provider configured for this agent.",
+            )
+        
+        # Check if provider supports streaming
+        if not hasattr(tts_provider, 'text_to_speech_stream'):
+            raise HTTPException(
+                status_code=400,
+                detail="TTS provider does not support streaming.",
+            )
+
+        # Clean text for TTS
+        if "```" in text:
+            text = re.sub(
+                r"```[^```]+```",
+                "See the chat for the full code block.",
+                text,
+            )
+        if "https://" in text:
+            text = re.sub(
+                r"https://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+        if "http://" in text:
+            text = re.sub(
+                r"http://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+
+        async for chunk in tts_provider.text_to_speech_stream(text=text):
+            yield chunk
+
     def get_agent_extensions(self):
         extensions = self.extensions.get_extensions()
         new_extensions = []

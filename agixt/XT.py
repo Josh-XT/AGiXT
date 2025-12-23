@@ -3209,6 +3209,9 @@ Your response (true or false):"""
         running_command = None
         additional_context = ""
         command_overrides = None
+        # TTS streaming mode: "off", "audio_only", or "interleaved"
+        tts_mode = getattr(prompt, "tts_mode", "off") or "off"
+        logging.info(f"[chat_completions_stream] tts_mode = {tts_mode}")
 
         if prompt.tools:
             command_overrides = prompt.tools
@@ -3689,6 +3692,10 @@ Your response (true or false):"""
             # Track if we've streamed any answer content progressively
             has_streamed_progressively = False
 
+            # TTS streaming state - buffer all text, generate TTS at end for smooth audio
+            tts_buffer = ""  # Buffer for accumulating text for TTS
+            tts_sent_header = False  # Track if we've sent TTS header
+
             async for event in self.agent_interactions.run_stream(
                 user_input=new_prompt,
                 prompt_category=prompt_category,
@@ -3719,6 +3726,76 @@ Your response (true or false):"""
                         # Only send if we haven't been streaming progressively
                         # This handles command results that return in one shot
                         if not has_streamed_progressively:
+                            # Stream text chunk (unless audio_only mode)
+                            if tts_mode != "audio_only":
+                                chunk = {
+                                    "id": chunk_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": created_time,
+                                    "model": self.agent_name,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {"content": content},
+                                            "finish_reason": None,
+                                        }
+                                    ],
+                                }
+                                yield f"data: {json.dumps(chunk)}\n\n"
+                            
+                            # Stream TTS for complete answer if TTS mode is enabled
+                            if tts_mode in ("audio_only", "interleaved"):
+                                try:
+                                    import struct
+                                    raw_buffer = b""
+                                    header_sent = False
+                                    
+                                    async for audio_chunk in self.agent.text_to_speech_stream(content):
+                                        raw_buffer += audio_chunk
+                                        
+                                        # Parse header first (8 bytes)
+                                        if not header_sent and len(raw_buffer) >= 8:
+                                            header_data = raw_buffer[:8]
+                                            raw_buffer = raw_buffer[8:]
+                                            header_sent = True
+                                            tts_sent_header = True
+                                            
+                                            tts_header_chunk = {
+                                                "id": chunk_id,
+                                                "object": "audio.header",
+                                                "created": created_time,
+                                                "model": self.agent_name,
+                                                "audio": base64.b64encode(header_data).decode("utf-8"),
+                                            }
+                                            yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+                                        
+                                        # Parse data packets: 4-byte size + PCM data
+                                        while header_sent and len(raw_buffer) >= 4:
+                                            packet_size = struct.unpack('<I', raw_buffer[:4])[0]
+                                            if packet_size == 0:
+                                                raw_buffer = raw_buffer[4:]
+                                                break
+                                            if len(raw_buffer) >= 4 + packet_size:
+                                                pcm_data = raw_buffer[4:4+packet_size]
+                                                raw_buffer = raw_buffer[4+packet_size:]
+                                                audio_data_chunk = {
+                                                    "id": chunk_id,
+                                                    "object": "audio.chunk",
+                                                    "created": created_time,
+                                                    "model": self.agent_name,
+                                                    "audio": base64.b64encode(pcm_data).decode("utf-8"),
+                                                }
+                                                yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                            else:
+                                                break
+                                except Exception as e:
+                                    logging.warning(f"TTS streaming error: {e}")
+                    else:
+                        # Progressive answer streaming - send each token
+                        has_streamed_progressively = True
+                        
+                        # Stream text chunk (unless audio_only mode)
+                        if tts_mode != "audio_only":
                             chunk = {
                                 "id": chunk_id,
                                 "object": "chat.completion.chunk",
@@ -3733,23 +3810,10 @@ Your response (true or false):"""
                                 ],
                             }
                             yield f"data: {json.dumps(chunk)}\n\n"
-                    else:
-                        # Progressive answer streaming - send each token
-                        has_streamed_progressively = True
-                        chunk = {
-                            "id": chunk_id,
-                            "object": "chat.completion.chunk",
-                            "created": created_time,
-                            "model": self.agent_name,
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "delta": {"content": content},
-                                    "finish_reason": None,
-                                }
-                            ],
-                        }
-                        yield f"data: {json.dumps(chunk)}\n\n"
+                        
+                        # Buffer text for TTS - will be generated at end for smooth audio
+                        if tts_mode in ("audio_only", "interleaved"):
+                            tts_buffer += content
 
                 # Stream progressive thinking/reflection content
                 elif event_type in (
@@ -3843,6 +3907,74 @@ Your response (true or false):"""
             # Handle conversation rename for new conversations
             if self.conversation_name == "-":
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
+            
+            # Generate TTS for all buffered text at once for smooth continuous audio
+            if tts_mode in ("audio_only", "interleaved") and tts_buffer.strip():
+                try:
+                    import struct
+                    # Buffer to accumulate incoming bytes and parse properly
+                    raw_buffer = b""
+                    header_sent = False
+                    
+                    async for audio_chunk in self.agent.text_to_speech_stream(tts_buffer.strip()):
+                        raw_buffer += audio_chunk
+                        
+                        # Parse header first (8 bytes)
+                        if not header_sent and len(raw_buffer) >= 8:
+                            header_data = raw_buffer[:8]
+                            raw_buffer = raw_buffer[8:]
+                            header_sent = True
+                            tts_sent_header = True
+                            
+                            tts_header_chunk = {
+                                "id": chunk_id,
+                                "object": "audio.header",
+                                "created": created_time,
+                                "model": self.agent_name,
+                                "audio": base64.b64encode(header_data).decode("utf-8"),
+                            }
+                            yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+                        
+                        # Parse data packets: 4-byte size + PCM data
+                        while header_sent and len(raw_buffer) >= 4:
+                            # Read packet size
+                            packet_size = struct.unpack('<I', raw_buffer[:4])[0]
+                            
+                            # Check for end marker
+                            if packet_size == 0:
+                                raw_buffer = raw_buffer[4:]
+                                break
+                            
+                            # Check if we have the full packet
+                            if len(raw_buffer) >= 4 + packet_size:
+                                pcm_data = raw_buffer[4:4+packet_size]
+                                raw_buffer = raw_buffer[4+packet_size:]
+                                
+                                # Yield the PCM data
+                                audio_data_chunk = {
+                                    "id": chunk_id,
+                                    "object": "audio.chunk",
+                                    "created": created_time,
+                                    "model": self.agent_name,
+                                    "audio": base64.b64encode(pcm_data).decode("utf-8"),
+                                }
+                                yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                            else:
+                                # Not enough data yet, wait for more
+                                break
+                                
+                except Exception as e:
+                    logging.warning(f"TTS streaming error: {e}")
+            
+            # Send TTS end marker if we sent any TTS data
+            if tts_sent_header:
+                tts_end_chunk = {
+                    "id": chunk_id,
+                    "object": "audio.end",
+                    "created": created_time,
+                    "model": self.agent_name,
+                }
+                yield f"data: {json.dumps(tts_end_chunk)}\n\n"
 
         except Exception as e:
             logging.error(f"Streaming error: {str(e)}")

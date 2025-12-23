@@ -426,6 +426,81 @@ class ezlocalai(Extensions):
         resp.raise_for_status()
         return base64.b64encode(resp.content).decode("utf-8")
 
+    async def text_to_speech_stream(self, text: str):
+        """
+        Stream TTS audio as it's generated from ezLocalai.
+        
+        This enables real-time playback without waiting for the entire audio
+        to be generated. Dramatically reduces time-to-first-word for long text.
+        
+        Yields binary chunks in format:
+        - Header (8 bytes): sample_rate (uint32), bits (uint16), channels (uint16)
+        - Data chunks: chunk_size (uint32) + raw PCM data
+        - End marker: chunk_size = 0
+        
+        Args:
+            text: Text to convert to speech
+            
+        Yields:
+            bytes: Binary audio data chunks (PCM format)
+        """
+        if not self.configured:
+            raise Exception("ezLocalai provider not configured")
+
+        import httpx
+        
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/audio/speech/stream"
+
+        payload = {
+            "model": "tts-1",
+            "voice": self.VOICE,
+            "input": text,
+            "language": self.TTS_LANGUAGE,
+        }
+        
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            async with client.stream("POST", api_url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes(chunk_size=4096):
+                    yield chunk
+
+    async def tts_websocket_session(self):
+        """
+        Create a persistent WebSocket session for real-time TTS streaming.
+        
+        Returns a TTSWebSocketSession that can be used to:
+        1. Send text incrementally
+        2. Flush to generate TTS
+        3. Receive audio chunks as they're generated
+        
+        Usage:
+            async with provider.tts_websocket_session() as session:
+                await session.send_text("Hello")
+                await session.send_text(" world!")
+                async for chunk in session.flush():
+                    # Process audio chunk
+                    pass
+        """
+        import websockets
+        
+        if not self.configured:
+            raise Exception("ezLocalai provider not configured")
+        
+        # Convert http(s) to ws(s)
+        ws_url = self.API_URI.rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
+        ws_url += "/v1/audio/speech/ws"
+        
+        return TTSWebSocketSession(
+            url=ws_url,
+            voice=self.VOICE,
+            language=self.TTS_LANGUAGE,
+        )
+
     async def generate_image(self, prompt: str) -> str:
         """
         Generate an image using ezLocalai.
@@ -557,3 +632,86 @@ class ezlocalai(Extensions):
             Transcribed text from the audio
         """
         return await self.transcribe_audio(audio_path=audio_url)
+
+
+class TTSWebSocketSession:
+    """
+    A persistent WebSocket session for real-time TTS streaming.
+    
+    This keeps the connection open between text chunks, reducing latency
+    by eliminating HTTP connection overhead for each TTS request.
+    """
+    
+    def __init__(self, url: str, voice: str = "default", language: str = "en"):
+        self.url = url
+        self.voice = voice
+        self.language = language
+        self.ws = None
+        self.header_received = False
+        
+    async def __aenter__(self):
+        import websockets
+        self.ws = await websockets.connect(self.url)
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.ws:
+            try:
+                # Signal done
+                await self.ws.send('{"done": true}')
+                # Drain any remaining audio
+                try:
+                    while True:
+                        data = await asyncio.wait_for(self.ws.recv(), timeout=1.0)
+                        if not data or data == b"":
+                            break
+                except asyncio.TimeoutError:
+                    pass
+            except:
+                pass
+            await self.ws.close()
+            
+    async def send_text(self, text: str, flush: bool = False):
+        """
+        Send text to the TTS session.
+        
+        Args:
+            text: Text to add to the buffer
+            flush: If True, trigger TTS generation for accumulated text
+        """
+        if self.ws:
+            import json
+            await self.ws.send(json.dumps({
+                "text": text,
+                "voice": self.voice,
+                "language": self.language,
+                "flush": flush
+            }))
+            
+    async def flush(self):
+        """
+        Flush the text buffer and yield audio chunks.
+        
+        Yields:
+            bytes: Audio data chunks
+        """
+        if not self.ws:
+            return
+            
+        import json
+        await self.ws.send(json.dumps({
+            "flush": True,
+            "voice": self.voice,
+            "language": self.language
+        }))
+        
+        # Receive audio chunks until we get empty bytes
+        while True:
+            try:
+                data = await self.ws.recv()
+                if isinstance(data, bytes):
+                    if len(data) == 0:
+                        break
+                    yield data
+            except:
+                break
