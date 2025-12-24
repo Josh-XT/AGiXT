@@ -47,7 +47,7 @@ webhook_emitter = WebhookEventEmitter()
 def extract_top_level_answer(response: str) -> str:
     """
     Extract the content from a top-level <answer>...</answer> block.
-    
+
     This properly handles cases where <answer> appears inside <thinking> blocks:
     - <thinking>The <answer> block format...</thinking><answer>Real answer</answer>
       → Returns "Real answer"
@@ -55,10 +55,10 @@ def extract_top_level_answer(response: str) -> str:
       → Returns "Simple answer"
     - <thinking>I'll use <answer>example</answer> format</thinking>
       → Returns "" (no top-level answer)
-    
+
     Args:
         response: The full response text
-        
+
     Returns:
         str: The extracted answer content, or empty string if no top-level answer
     """
@@ -66,11 +66,11 @@ def extract_top_level_answer(response: str) -> str:
     answer_opens = []
     for match in re.finditer(r"<answer>", response, re.IGNORECASE):
         open_pos = match.start()
-        
+
         # Check if this is a real tag (not just mentioned in text)
         if not is_real_answer_tag(response, open_pos):
             continue
-            
+
         # Check if this answer is at top level (not inside thinking/reflection)
         text_before = response[:open_pos]
         thinking_depth = len(
@@ -79,33 +79,33 @@ def extract_top_level_answer(response: str) -> str:
         reflection_depth = len(
             re.findall(r"<reflection>", text_before, re.IGNORECASE)
         ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
-        
+
         if thinking_depth == 0 and reflection_depth == 0:
             answer_opens.append(match)
-    
+
     if not answer_opens:
         return ""
-    
+
     # Use the LAST top-level answer (in case model restarts its answer)
     last_answer = answer_opens[-1]
     answer_start = last_answer.end()
-    
-    # Find the matching </answer> 
+
+    # Find the matching </answer>
     text_after = response[answer_start:]
     answer_depth = 1
     pos = 0
-    
+
     while pos < len(text_after):
         next_open_lower = text_after.lower().find("<answer>", pos)
         next_close_lower = text_after.lower().find("</answer>", pos)
-        
+
         next_open = float("inf") if next_open_lower == -1 else next_open_lower
         next_close = float("inf") if next_close_lower == -1 else next_close_lower
-        
+
         if next_open == float("inf") and next_close == float("inf"):
             # No closing tag found, return everything after <answer>
             return text_after.strip()
-            
+
         if next_open < next_close:
             answer_depth += 1
             pos = next_open + len("<answer>")
@@ -114,7 +114,7 @@ def extract_top_level_answer(response: str) -> str:
             if answer_depth == 0:
                 return text_after[:next_close].strip()
             pos = next_close + len("</answer>")
-    
+
     # No closing found, return everything
     return text_after.strip()
 
@@ -3502,7 +3502,7 @@ Analyze the actual output shown and continue with your response.
         final_answer = ""
         if "<answer>" in self.response.lower():
             final_answer = extract_top_level_answer(self.response)
-        
+
         if not final_answer:
             # No top-level answer found, use full response
             final_answer = self.response
