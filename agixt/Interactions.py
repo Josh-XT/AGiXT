@@ -20,7 +20,12 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
-from MagicalAuth import MagicalAuth, convert_time, get_current_user_time, impersonate_user
+from MagicalAuth import (
+    MagicalAuth,
+    convert_time,
+    get_current_user_time,
+    impersonate_user,
+)
 from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
 from middleware import log_silenced_exception
@@ -916,9 +921,9 @@ class Interactions:
             logging.info(
                 f"[format_prompt] Context reduced. New estimated tokens: {new_tokens}"
             )
-        user_datetime=get_current_user_time(user_id=self.user_id).strftime(
-                "%B %d, %Y %I:%M %p"
-            )
+        user_datetime = get_current_user_time(user_id=self.user_id).strftime(
+            "%B %d, %Y %I:%M %p"
+        )
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -926,7 +931,7 @@ class Interactions:
             COMMANDS=agent_commands,
             context=context,
             command_list=agent_commands,
-            date=f"{user_datetime} (This and other timestamps are in the users local timezone)"
+            date=f"{user_datetime} (This and other timestamps are in the users local timezone)",
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
             conversation_history=conversation_history,
