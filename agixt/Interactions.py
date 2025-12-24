@@ -681,11 +681,19 @@ class Interactions:
                         and not str(interaction["message"]).startswith("[ACTIVITY]")
                         and not str(interaction["message"]).startswith("[SUBACTIVITY]")
                     ):
-                        timestamp = (
+                        raw_timestamp = (
                             interaction["timestamp"]
                             if "timestamp" in interaction
-                            else ""
+                            else None
                         )
+                        # Format timestamp consistently with the {date} variable for readability
+                        if raw_timestamp:
+                            if hasattr(raw_timestamp, "strftime"):
+                                timestamp = raw_timestamp.strftime("%B %d, %Y %I:%M %p")
+                            else:
+                                timestamp = str(raw_timestamp)
+                        else:
+                            timestamp = ""
                         role = interaction["role"] if "role" in interaction else ""
                         message = (
                             interaction["message"] if "message" in interaction else ""
@@ -952,6 +960,13 @@ You have access to context management commands to reduce token usage:
 **CRITICAL:** Context is at {tokens:,} tokens. Response quality may degrade. Consider discarding older activities to reduce context size.
 """
             formatted_prompt = formatted_prompt + context_guidance
+
+        # Add TTS filler speech instructions if provided
+        # This enables the model to use <speak> tags for voice feedback during thinking
+        tts_filler = args.get("tts_filler_instructions", "")
+        if tts_filler:
+            logging.info("[format_prompt] Adding TTS filler instructions to prompt")
+            formatted_prompt = formatted_prompt + "\n" + tts_filler
 
         return formatted_prompt, prompt, tokens
 
@@ -2313,6 +2328,46 @@ Web Search, Read File, Write to File, Execute Python Code"""
         # Remove selected_commands from kwargs if present to avoid duplicate parameter
         kwargs.pop("selected_commands", None)
 
+        # Add TTS filler instructions if TTS mode is enabled
+        # This allows the model to generate <speak> tags with filler phrases during thinking
+        tts_enabled = str(kwargs.get("tts", "false")).lower() == "true"
+        logging.info(
+            f"[run_stream] TTS check - kwargs.tts={kwargs.get('tts')}, tts_enabled={tts_enabled}"
+        )
+        if not tts_enabled:
+            # Also check agent settings for tts_provider
+            agent_settings = self.agent.AGENT_CONFIG.get("settings", {})
+            tts_provider = agent_settings.get("tts_provider", "")
+            tts_enabled = tts_provider and tts_provider not in ("None", "", None)
+            logging.info(
+                f"[run_stream] TTS check from agent settings - tts_provider={tts_provider}, tts_enabled={tts_enabled}"
+            )
+
+        if tts_enabled:
+            logging.info("[run_stream] Adding TTS filler instructions to kwargs")
+            kwargs[
+                "tts_filler_instructions"
+            ] = """
+**VOICE MODE - IMMEDIATE RESPONSE REQUIRED**
+
+The user is speaking to you and will hear your response aloud. You MUST begin with TWO `<speak>` tags IMMEDIATELY - before ANY thinking, commands, or processing:
+
+1. **FIRST <speak>** (within your first 10 tokens): A brief acknowledgment (2-4 words)
+   Examples: `<speak>Got it.</speak>` or `<speak>Sure thing.</speak>` or `<speak>One moment.</speak>`
+
+2. **SECOND <speak>** (before <thinking>): Tell them what you're doing (4-8 words)
+   Examples: `<speak>Let me check the time for you.</speak>` or `<speak>Looking that up now.</speak>`
+
+Then proceed with your `<thinking>` tag.
+
+Example response start:
+`<speak>Sure.</speak><speak>Let me check on that for you.</speak><thinking>...`
+
+This prevents awkward silence - the user hears feedback within 1 second while you process.
+"""
+        else:
+            kwargs["tts_filler_instructions"] = ""
+
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -2426,6 +2481,7 @@ Example: If user says "list my files", use:
         # Process the stream
         full_response = ""
         processed_thinking_ids = set()
+        processed_speak_ids = set()  # Track processed speak tags for TTS filler speech
         in_answer = False
         answer_content = ""
         thinking_content = ""  # Track streamed thinking content
@@ -2827,6 +2883,31 @@ Example: If user says "list my files", use:
                     count_id = f"count:{hash(count_content)}"
                     if count_id not in processed_thinking_ids:
                         processed_thinking_ids.add(count_id)
+
+                # Process <speak> tags for TTS filler speech - yield immediately for speech
+                # These are short filler phrases like "Let me check on that" that should be
+                # spoken immediately while the model continues thinking
+                # LIMIT: Only allow 2 speak tags max (quick ack + description) to prevent
+                # the model from generating excessive filler speech
+                MAX_SPEAK_TAGS = 2
+                speak_pattern = r"<speak>(.*?)</speak>"
+                for match in re.finditer(
+                    speak_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    speak_content = match.group(1).strip()
+                    speak_id = f"speak:{hash(speak_content)}"
+                    if speak_id not in processed_speak_ids and speak_content:
+                        # Stop processing speak tags after we've hit the limit
+                        if len(processed_speak_ids) >= MAX_SPEAK_TAGS:
+                            break
+                        processed_speak_ids.add(speak_id)
+                        # Yield speak event for immediate TTS playback
+                        # Don't log to conversation - these are transient filler speech
+                        yield {
+                            "type": "speak",
+                            "content": speak_content,
+                            "complete": True,
+                        }
 
                 # Progressive streaming of thinking content (stream as it's generated)
                 if thinking_depth > 0 and not is_executing:
@@ -3586,6 +3667,10 @@ Analyze the actual output shown and continue with your response.
         )
         final_answer = re.sub(
             r"<count>.*?</count>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove <speak> tags - these are TTS filler speech and shouldn't appear in final response
+        final_answer = re.sub(
+            r"<speak>.*?</speak>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
         final_answer = final_answer.strip()
 

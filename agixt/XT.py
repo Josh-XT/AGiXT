@@ -3752,6 +3752,7 @@ Your response (true or false):"""
                 use_smartest=use_smartest,
                 thinking_id=thinking_id,  # Pass the thinking_id to avoid creating a duplicate
                 command_overrides=command_overrides,  # Pass command overrides to enable specific commands
+                tts=tts or tts_mode != "off",  # Pass TTS flag for filler speech instructions
                 **prompt_args,
             ):
                 event_type = event.get("type", "")
@@ -3803,6 +3804,18 @@ Your response (true or false):"""
                                         "",
                                         tts_content,
                                         flags=re.IGNORECASE,
+                                    )
+                                    # Remove audio HTML tags and URLs that shouldn't be spoken
+                                    tts_content = re.sub(
+                                        r"<audio[^>]*>.*?</audio>",
+                                        "",
+                                        tts_content,
+                                        flags=re.IGNORECASE | re.DOTALL,
+                                    )
+                                    tts_content = re.sub(
+                                        r"https?://[^\s<>]+",
+                                        "",
+                                        tts_content,
                                     )
                                     tts_content = re.sub(
                                         r"\s+", " ", tts_content
@@ -3927,6 +3940,18 @@ Your response (true or false):"""
                                     sentences,
                                     flags=re.IGNORECASE,
                                 )
+                                # Remove audio HTML tags and URLs that shouldn't be spoken
+                                sentences = re.sub(
+                                    r"<audio[^>]*>.*?</audio>",
+                                    "",
+                                    sentences,
+                                    flags=re.IGNORECASE | re.DOTALL,
+                                )
+                                sentences = re.sub(
+                                    r"https?://[^\s<>]+",
+                                    "",
+                                    sentences,
+                                )
                                 # Clean up whitespace left by tag removal
                                 sentences = re.sub(r"\s+", " ", sentences).strip()
 
@@ -4028,6 +4053,73 @@ Your response (true or false):"""
                         "complete": is_complete,
                     }
                     yield f"data: {json.dumps(activity_chunk)}\n\n"
+
+                # Handle speak events for TTS filler speech during thinking
+                # These are brief phrases like "Let me check on that" spoken while processing
+                # Audio flows continuously with the main answer - no end marker here
+                elif event_type == "speak" and content:
+                    if tts_mode in ("audio_only", "interleaved"):
+                        logging.info(f"[TTS] Speaking filler: {content}")
+                        try:
+                            import struct
+
+                            filler_buffer = b""
+                            filler_header_sent = False
+
+                            async for audio_chunk in self.agent.text_to_speech_stream(content):
+                                filler_buffer += audio_chunk
+
+                                # Parse header first (8 bytes) - only once per stream
+                                if not tts_sent_header and len(filler_buffer) >= 8:
+                                    header_data = filler_buffer[:8]
+                                    filler_buffer = filler_buffer[8:]
+                                    filler_header_sent = True
+                                    # Mark main header as sent since format is same
+                                    tts_sent_header = True
+
+                                    tts_header_chunk = {
+                                        "id": chunk_id,
+                                        "object": "audio.header",
+                                        "created": created_time,
+                                        "model": self.agent_name,
+                                        "audio": base64.b64encode(header_data).decode("utf-8"),
+                                    }
+                                    yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+
+                                # If we already sent header before, skip this one
+                                if tts_sent_header and not filler_header_sent and len(filler_buffer) >= 8:
+                                    filler_buffer = filler_buffer[8:]
+                                    filler_header_sent = True
+
+                                # Parse data packets: 4-byte size + PCM data
+                                while (tts_sent_header or filler_header_sent) and len(filler_buffer) >= 4:
+                                    packet_size = struct.unpack("<I", filler_buffer[:4])[0]
+                                    if packet_size == 0:
+                                        filler_buffer = filler_buffer[4:]
+                                        break
+                                    if len(filler_buffer) >= 4 + packet_size:
+                                        pcm_data = filler_buffer[4 : 4 + packet_size]
+                                        filler_buffer = filler_buffer[4 + packet_size :]
+
+                                        # Break large audio chunks into smaller pieces for streaming
+                                        MAX_CHUNK_SIZE = 4096
+                                        for offset in range(0, len(pcm_data), MAX_CHUNK_SIZE):
+                                            chunk_piece = pcm_data[offset : offset + MAX_CHUNK_SIZE]
+                                            audio_data_chunk = {
+                                                "id": chunk_id,
+                                                "object": "audio.chunk",
+                                                "created": created_time,
+                                                "model": self.agent_name,
+                                                "audio": base64.b64encode(chunk_piece).decode("utf-8"),
+                                            }
+                                            yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                    else:
+                                        break
+                            
+                            # No audio.end here - let it flow continuously with answer TTS
+                            logging.info(f"[TTS] Filler speech sent")
+                        except Exception as e:
+                            logging.warning(f"TTS speak filler error: {e}")
 
                 # Handle remote command requests - need client-side execution
                 elif event_type == "remote_command_request":
