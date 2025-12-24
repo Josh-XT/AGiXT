@@ -44,6 +44,81 @@ logging.basicConfig(
 webhook_emitter = WebhookEventEmitter()
 
 
+def extract_top_level_answer(response: str) -> str:
+    """
+    Extract the content from a top-level <answer>...</answer> block.
+
+    This properly handles cases where <answer> appears inside <thinking> blocks:
+    - <thinking>The <answer> block format...</thinking><answer>Real answer</answer>
+      → Returns "Real answer"
+    - <answer>Simple answer</answer>
+      → Returns "Simple answer"
+    - <thinking>I'll use <answer>example</answer> format</thinking>
+      → Returns "" (no top-level answer)
+
+    Args:
+        response: The full response text
+
+    Returns:
+        str: The extracted answer content, or empty string if no top-level answer
+    """
+    # Find all <answer> tags
+    answer_opens = []
+    for match in re.finditer(r"<answer>", response, re.IGNORECASE):
+        open_pos = match.start()
+
+        # Check if this is a real tag (not just mentioned in text)
+        if not is_real_answer_tag(response, open_pos):
+            continue
+
+        # Check if this answer is at top level (not inside thinking/reflection)
+        text_before = response[:open_pos]
+        thinking_depth = len(
+            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+        reflection_depth = len(
+            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+
+        if thinking_depth == 0 and reflection_depth == 0:
+            answer_opens.append(match)
+
+    if not answer_opens:
+        return ""
+
+    # Use the LAST top-level answer (in case model restarts its answer)
+    last_answer = answer_opens[-1]
+    answer_start = last_answer.end()
+
+    # Find the matching </answer>
+    text_after = response[answer_start:]
+    answer_depth = 1
+    pos = 0
+
+    while pos < len(text_after):
+        next_open_lower = text_after.lower().find("<answer>", pos)
+        next_close_lower = text_after.lower().find("</answer>", pos)
+
+        next_open = float("inf") if next_open_lower == -1 else next_open_lower
+        next_close = float("inf") if next_close_lower == -1 else next_close_lower
+
+        if next_open == float("inf") and next_close == float("inf"):
+            # No closing tag found, return everything after <answer>
+            return text_after.strip()
+
+        if next_open < next_close:
+            answer_depth += 1
+            pos = next_open + len("<answer>")
+        else:
+            answer_depth -= 1
+            if answer_depth == 0:
+                return text_after[:next_close].strip()
+            pos = next_close + len("</answer>")
+
+    # No closing found, return everything
+    return text_after.strip()
+
+
 def is_real_answer_tag(response: str, match_start: int) -> bool:
     """
     Determine if an <answer> tag at the given position is a real XML tag
@@ -606,11 +681,19 @@ class Interactions:
                         and not str(interaction["message"]).startswith("[ACTIVITY]")
                         and not str(interaction["message"]).startswith("[SUBACTIVITY]")
                     ):
-                        timestamp = (
+                        raw_timestamp = (
                             interaction["timestamp"]
                             if "timestamp" in interaction
-                            else ""
+                            else None
                         )
+                        # Format timestamp consistently with the {date} variable for readability
+                        if raw_timestamp:
+                            if hasattr(raw_timestamp, "strftime"):
+                                timestamp = raw_timestamp.strftime("%B %d, %Y %I:%M %p")
+                            else:
+                                timestamp = str(raw_timestamp)
+                        else:
+                            timestamp = ""
                         role = interaction["role"] if "role" in interaction else ""
                         message = (
                             interaction["message"] if "message" in interaction else ""
@@ -877,6 +960,13 @@ You have access to context management commands to reduce token usage:
 **CRITICAL:** Context is at {tokens:,} tokens. Response quality may degrade. Consider discarding older activities to reduce context size.
 """
             formatted_prompt = formatted_prompt + context_guidance
+
+        # Add TTS filler speech instructions if provided
+        # This enables the model to use <speak> tags for voice feedback during thinking
+        tts_filler = args.get("tts_filler_instructions", "")
+        if tts_filler:
+            logging.info("[format_prompt] Adding TTS filler instructions to prompt")
+            formatted_prompt = formatted_prompt + "\n" + tts_filler
 
         return formatted_prompt, prompt, tokens
 
@@ -1443,33 +1533,12 @@ Example: memories, persona, files"""
         # Commands that should always be available
         always_include = ["Get Datetime"]
 
-        # Split commands into two batches to reduce token count per call
-        # Parse the commands_prompt into individual command entries
-        command_lines = commands_prompt.strip().split("\n")
-        mid_point = len(command_lines) // 2
-        batch1_lines = command_lines[:mid_point]
-        batch2_lines = command_lines[mid_point:]
+        # Token-aware batching: Split commands into batches under 30k tokens each
+        # This prevents the model from needing to load with excessive context in ezlocalai
+        MAX_BATCH_TOKENS = 30000
 
-        batch1_prompt = "\n".join(batch1_lines)
-        batch2_prompt = "\n".join(batch2_lines)
-
-        # Get conversation for logging
-        c = Conversations(
-            conversation_name=conversation_name,
-            user=self.user,
-        )
-
-        if not thinking_id and log_output:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-
-        valid_commands = []
-
-        # Process both batches in parallel for speed using DIRECT inference (not run())
-        # This avoids pulling in all memories/context which bloats token count
-        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
-            try:
-                # Build a lightweight prompt directly without format_prompt overhead
-                selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
+        # Calculate base prompt template tokens (without the batch content)
+        base_selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
 
 ## User's Request
 {user_input}
@@ -1477,7 +1546,7 @@ Example: memories, persona, files"""
 ## Context
 {context}
 
-{batch_prompt}
+{{BATCH_COMMANDS}}
 
 ## Your Task
 Based on the user's request and context above, select which commands would be most helpful for the assistant to have available when responding to this request.
@@ -1496,6 +1565,74 @@ Do not include any other text, explanation, or formatting.
 
 Example response format:
 Web Search, Read File, Write to File, Execute Python Code"""
+
+        # Calculate the base prompt overhead (tokens used by template, user input, context)
+        base_overhead_tokens = get_tokens(
+            base_selection_prompt.replace("{BATCH_COMMANDS}", "")
+        )
+        available_tokens_per_batch = MAX_BATCH_TOKENS - base_overhead_tokens
+
+        logging.info(
+            f"[select_commands_for_task] Base overhead: {base_overhead_tokens} tokens, "
+            f"available per batch: {available_tokens_per_batch} tokens"
+        )
+
+        # Parse commands_prompt into individual command blocks (by extension sections)
+        # Format: ### ExtensionName\nDescription\n- **CmdName**: CmdDesc\n...
+        command_blocks = []
+        current_block = []
+        current_block_tokens = 0
+
+        for line in commands_prompt.strip().split("\n"):
+            line_tokens = get_tokens(line + "\n")
+
+            # If adding this line would exceed the batch limit, save current block and start new
+            if (
+                current_block
+                and (current_block_tokens + line_tokens) > available_tokens_per_batch
+            ):
+                command_blocks.append("\n".join(current_block))
+                current_block = [line]
+                current_block_tokens = line_tokens
+            else:
+                current_block.append(line)
+                current_block_tokens += line_tokens
+
+        # Don't forget the last block
+        if current_block:
+            command_blocks.append("\n".join(current_block))
+
+        logging.info(
+            f"[select_commands_for_task] Split {len(all_command_names)} commands into "
+            f"{len(command_blocks)} batches based on {MAX_BATCH_TOKENS} token limit"
+        )
+
+        # Log individual batch sizes for debugging
+        for i, block in enumerate(command_blocks):
+            block_tokens = get_tokens(block)
+            logging.info(
+                f"[select_commands_for_task] Batch {i+1}: {block_tokens} tokens"
+            )
+
+        # Get conversation for logging
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+        )
+
+        if not thinking_id and log_output:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        valid_commands = []
+
+        # Process batches in parallel for speed using DIRECT inference (not run())
+        # This avoids pulling in all memories/context which bloats token count
+        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
+            try:
+                # Build a lightweight prompt directly without format_prompt overhead
+                selection_prompt = base_selection_prompt.replace(
+                    "{BATCH_COMMANDS}", batch_prompt
+                )
 
                 # Direct inference call - bypasses format_prompt and all its context loading
                 selection_response = await self.agent.inference(
@@ -1525,13 +1662,16 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 )
                 return []
 
-        # Run both batches in parallel
+        # Run all batches in parallel and combine results
         try:
-            batch1_results, batch2_results = await asyncio.gather(
-                select_from_batch(batch1_prompt, 1),
-                select_from_batch(batch2_prompt, 2),
+            batch_results = await asyncio.gather(
+                *[
+                    select_from_batch(block, i + 1)
+                    for i, block in enumerate(command_blocks)
+                ]
             )
-            valid_commands = batch1_results + batch2_results
+            for result in batch_results:
+                valid_commands.extend(result)
         except Exception as e:
             logging.error(
                 f"[select_commands_for_task] Error in parallel selection: {e}"
@@ -2188,6 +2328,46 @@ Web Search, Read File, Write to File, Execute Python Code"""
         # Remove selected_commands from kwargs if present to avoid duplicate parameter
         kwargs.pop("selected_commands", None)
 
+        # Add TTS filler instructions if TTS mode is enabled
+        # This allows the model to generate <speak> tags with filler phrases during thinking
+        tts_enabled = str(kwargs.get("tts", "false")).lower() == "true"
+        logging.info(
+            f"[run_stream] TTS check - kwargs.tts={kwargs.get('tts')}, tts_enabled={tts_enabled}"
+        )
+        if not tts_enabled:
+            # Also check agent settings for tts_provider
+            agent_settings = self.agent.AGENT_CONFIG.get("settings", {})
+            tts_provider = agent_settings.get("tts_provider", "")
+            tts_enabled = tts_provider and tts_provider not in ("None", "", None)
+            logging.info(
+                f"[run_stream] TTS check from agent settings - tts_provider={tts_provider}, tts_enabled={tts_enabled}"
+            )
+
+        if tts_enabled:
+            logging.info("[run_stream] Adding TTS filler instructions to kwargs")
+            kwargs[
+                "tts_filler_instructions"
+            ] = """
+**VOICE MODE - IMMEDIATE RESPONSE REQUIRED**
+
+The user is speaking to you and will hear your response aloud. You MUST begin with TWO `<speak>` tags IMMEDIATELY - before ANY thinking, commands, or processing:
+
+1. **FIRST <speak>** (within your first 10 tokens): A brief acknowledgment (2-4 words)
+   Examples: `<speak>Got it.</speak>` or `<speak>Sure thing.</speak>` or `<speak>One moment.</speak>`
+
+2. **SECOND <speak>** (before <thinking>): Tell them what you're doing (4-8 words)
+   Examples: `<speak>Let me check the time for you.</speak>` or `<speak>Looking that up now.</speak>`
+
+Then proceed with your `<thinking>` tag.
+
+Example response start:
+`<speak>Sure.</speak><speak>Let me check on that for you.</speak><thinking>...`
+
+This prevents awkward silence - the user hears feedback within 1 second while you process.
+"""
+        else:
+            kwargs["tts_filler_instructions"] = ""
+
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -2301,6 +2481,7 @@ Example: If user says "list my files", use:
         # Process the stream
         full_response = ""
         processed_thinking_ids = set()
+        processed_speak_ids = set()  # Track processed speak tags for TTS filler speech
         in_answer = False
         answer_content = ""
         thinking_content = ""  # Track streamed thinking content
@@ -2702,6 +2883,31 @@ Example: If user says "list my files", use:
                     count_id = f"count:{hash(count_content)}"
                     if count_id not in processed_thinking_ids:
                         processed_thinking_ids.add(count_id)
+
+                # Process <speak> tags for TTS filler speech - yield immediately for speech
+                # These are short filler phrases like "Let me check on that" that should be
+                # spoken immediately while the model continues thinking
+                # LIMIT: Only allow 2 speak tags max (quick ack + description) to prevent
+                # the model from generating excessive filler speech
+                MAX_SPEAK_TAGS = 2
+                speak_pattern = r"<speak>(.*?)</speak>"
+                for match in re.finditer(
+                    speak_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    speak_content = match.group(1).strip()
+                    speak_id = f"speak:{hash(speak_content)}"
+                    if speak_id not in processed_speak_ids and speak_content:
+                        # Stop processing speak tags after we've hit the limit
+                        if len(processed_speak_ids) >= MAX_SPEAK_TAGS:
+                            break
+                        processed_speak_ids.add(speak_id)
+                        # Yield speak event for immediate TTS playback
+                        # Don't log to conversation - these are transient filler speech
+                        yield {
+                            "type": "speak",
+                            "content": speak_content,
+                            "complete": True,
+                        }
 
                 # Progressive streaming of thinking content (stream as it's generated)
                 if thinking_depth > 0 and not is_executing:
@@ -3306,6 +3512,9 @@ Analyze the actual output shown and continue with your response.
                                             "complete": True,
                                         }
 
+                            # Reset answer flag when </answer> is detected
+                            if tag_name == "answer":
+                                continuation_in_answer = False
                             continuation_current_tag = None
                             continuation_current_tag_content = ""
                             continuation_current_tag_message_id = None  # Reset
@@ -3419,18 +3628,14 @@ Analyze the actual output shown and continue with your response.
             f"[continuation_loop] Exited loop: count={continuation_count}, max={max_continuation_loops}, has_complete={has_complete_answer(self.response)}, has_answer={'<answer>' in self.response.lower()}"
         )
 
-        # Extract final answer
+        # Extract final answer using proper top-level detection
+        # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
-        if "<answer>" in self.response:
-            answer_match = re.search(
-                r"<answer>(.*?)</answer>", self.response, re.DOTALL | re.IGNORECASE
-            )
-            if answer_match:
-                final_answer = answer_match.group(1).strip()
-            else:
-                # No closing tag, get everything after <answer>
-                final_answer = self.response.split("<answer>")[-1].strip()
-        else:
+        if "<answer>" in self.response.lower():
+            final_answer = extract_top_level_answer(self.response)
+
+        if not final_answer:
+            # No top-level answer found, use full response
             final_answer = self.response
 
         # Clean final answer
@@ -3462,6 +3667,10 @@ Analyze the actual output shown and continue with your response.
         )
         final_answer = re.sub(
             r"<count>.*?</count>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove <speak> tags - these are TTS filler speech and shouldn't appear in final response
+        final_answer = re.sub(
+            r"<speak>.*?</speak>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
         final_answer = final_answer.strip()
 
