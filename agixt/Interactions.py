@@ -1518,33 +1518,12 @@ Example: memories, persona, files"""
         # Commands that should always be available
         always_include = ["Get Datetime"]
 
-        # Split commands into two batches to reduce token count per call
-        # Parse the commands_prompt into individual command entries
-        command_lines = commands_prompt.strip().split("\n")
-        mid_point = len(command_lines) // 2
-        batch1_lines = command_lines[:mid_point]
-        batch2_lines = command_lines[mid_point:]
+        # Token-aware batching: Split commands into batches under 30k tokens each
+        # This prevents the model from needing to load with excessive context in ezlocalai
+        MAX_BATCH_TOKENS = 30000
 
-        batch1_prompt = "\n".join(batch1_lines)
-        batch2_prompt = "\n".join(batch2_lines)
-
-        # Get conversation for logging
-        c = Conversations(
-            conversation_name=conversation_name,
-            user=self.user,
-        )
-
-        if not thinking_id and log_output:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-
-        valid_commands = []
-
-        # Process both batches in parallel for speed using DIRECT inference (not run())
-        # This avoids pulling in all memories/context which bloats token count
-        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
-            try:
-                # Build a lightweight prompt directly without format_prompt overhead
-                selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
+        # Calculate base prompt template tokens (without the batch content)
+        base_selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
 
 ## User's Request
 {user_input}
@@ -1552,7 +1531,7 @@ Example: memories, persona, files"""
 ## Context
 {context}
 
-{batch_prompt}
+{{BATCH_COMMANDS}}
 
 ## Your Task
 Based on the user's request and context above, select which commands would be most helpful for the assistant to have available when responding to this request.
@@ -1571,6 +1550,74 @@ Do not include any other text, explanation, or formatting.
 
 Example response format:
 Web Search, Read File, Write to File, Execute Python Code"""
+
+        # Calculate the base prompt overhead (tokens used by template, user input, context)
+        base_overhead_tokens = get_tokens(
+            base_selection_prompt.replace("{BATCH_COMMANDS}", "")
+        )
+        available_tokens_per_batch = MAX_BATCH_TOKENS - base_overhead_tokens
+
+        logging.info(
+            f"[select_commands_for_task] Base overhead: {base_overhead_tokens} tokens, "
+            f"available per batch: {available_tokens_per_batch} tokens"
+        )
+
+        # Parse commands_prompt into individual command blocks (by extension sections)
+        # Format: ### ExtensionName\nDescription\n- **CmdName**: CmdDesc\n...
+        command_blocks = []
+        current_block = []
+        current_block_tokens = 0
+
+        for line in commands_prompt.strip().split("\n"):
+            line_tokens = get_tokens(line + "\n")
+
+            # If adding this line would exceed the batch limit, save current block and start new
+            if (
+                current_block
+                and (current_block_tokens + line_tokens) > available_tokens_per_batch
+            ):
+                command_blocks.append("\n".join(current_block))
+                current_block = [line]
+                current_block_tokens = line_tokens
+            else:
+                current_block.append(line)
+                current_block_tokens += line_tokens
+
+        # Don't forget the last block
+        if current_block:
+            command_blocks.append("\n".join(current_block))
+
+        logging.info(
+            f"[select_commands_for_task] Split {len(all_command_names)} commands into "
+            f"{len(command_blocks)} batches based on {MAX_BATCH_TOKENS} token limit"
+        )
+
+        # Log individual batch sizes for debugging
+        for i, block in enumerate(command_blocks):
+            block_tokens = get_tokens(block)
+            logging.info(
+                f"[select_commands_for_task] Batch {i+1}: {block_tokens} tokens"
+            )
+
+        # Get conversation for logging
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+        )
+
+        if not thinking_id and log_output:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        valid_commands = []
+
+        # Process batches in parallel for speed using DIRECT inference (not run())
+        # This avoids pulling in all memories/context which bloats token count
+        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
+            try:
+                # Build a lightweight prompt directly without format_prompt overhead
+                selection_prompt = base_selection_prompt.replace(
+                    "{BATCH_COMMANDS}", batch_prompt
+                )
 
                 # Direct inference call - bypasses format_prompt and all its context loading
                 selection_response = await self.agent.inference(
@@ -1600,13 +1647,16 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 )
                 return []
 
-        # Run both batches in parallel
+        # Run all batches in parallel and combine results
         try:
-            batch1_results, batch2_results = await asyncio.gather(
-                select_from_batch(batch1_prompt, 1),
-                select_from_batch(batch2_prompt, 2),
+            batch_results = await asyncio.gather(
+                *[
+                    select_from_batch(block, i + 1)
+                    for i, block in enumerate(command_blocks)
+                ]
             )
-            valid_commands = batch1_results + batch2_results
+            for result in batch_results:
+                valid_commands.extend(result)
         except Exception as e:
             logging.error(
                 f"[select_commands_for_task] Error in parallel selection: {e}"
