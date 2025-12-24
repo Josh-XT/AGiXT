@@ -3791,12 +3791,32 @@ Your response (true or false):"""
                                 try:
                                     import struct
 
+                                    # Clean content for TTS - remove XML tags
+                                    tts_content = re.sub(
+                                        r"</?(?:thinking|reflection|answer|execute|output|step|reward|count)[^>]*>",
+                                        "",
+                                        content,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    tts_content = re.sub(
+                                        r"(?:thinking|reflection|answer|execute|output|step|reward|count)>",
+                                        "",
+                                        tts_content,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    tts_content = re.sub(
+                                        r"\s+", " ", tts_content
+                                    ).strip()
+
+                                    if not tts_content or len(tts_content) < 2:
+                                        continue
+
                                     raw_buffer = b""
                                     header_sent = False
 
                                     async for (
                                         audio_chunk
-                                    ) in self.agent.text_to_speech_stream(content):
+                                    ) in self.agent.text_to_speech_stream(tts_content):
                                         raw_buffer += audio_chunk
 
                                         # Parse header first (8 bytes)
@@ -3892,6 +3912,29 @@ Your response (true or false):"""
                                 tts_sentence_buffer
                             )
                             if sentences:
+                                # Clean TTS sentences - remove any XML tags and fragments
+                                # that shouldn't be spoken aloud
+                                sentences = re.sub(
+                                    r"</?(?:thinking|reflection|answer|execute|output|step|reward|count)[^>]*>",
+                                    "",
+                                    sentences,
+                                    flags=re.IGNORECASE,
+                                )
+                                # Remove partial tag fragments
+                                sentences = re.sub(
+                                    r"(?:thinking|reflection|answer|execute|output|step|reward|count)>",
+                                    "",
+                                    sentences,
+                                    flags=re.IGNORECASE,
+                                )
+                                # Clean up whitespace left by tag removal
+                                sentences = re.sub(r"\s+", " ", sentences).strip()
+
+                                # Skip if after cleaning there's nothing meaningful to speak
+                                if not sentences or len(sentences) < 2:
+                                    tts_sentence_buffer = remainder
+                                    continue
+
                                 logging.info(
                                     f"[TTS] Streaming sentence: {sentences[:80]}..."
                                 )
@@ -4068,64 +4111,85 @@ Your response (true or false):"""
                 try:
                     import struct
 
-                    # Buffer to accumulate incoming bytes and parse properly
-                    raw_buffer = b""
+                    # Clean remaining TTS buffer - remove XML tags
+                    final_tts_text = re.sub(
+                        r"</?(?:thinking|reflection|answer|execute|output|step|reward|count)[^>]*>",
+                        "",
+                        tts_sentence_buffer,
+                        flags=re.IGNORECASE,
+                    )
+                    final_tts_text = re.sub(
+                        r"(?:thinking|reflection|answer|execute|output|step|reward|count)>",
+                        "",
+                        final_tts_text,
+                        flags=re.IGNORECASE,
+                    )
+                    final_tts_text = re.sub(r"\s+", " ", final_tts_text).strip()
 
-                    async for audio_chunk in self.agent.text_to_speech_stream(
-                        tts_sentence_buffer.strip()
-                    ):
-                        raw_buffer += audio_chunk
+                    # Skip if nothing meaningful remains
+                    if final_tts_text and len(final_tts_text) >= 2:
+                        # Buffer to accumulate incoming bytes and parse properly
+                        raw_buffer = b""
 
-                        # Parse header first (8 bytes) - only if not already sent
-                        if not tts_sent_header and len(raw_buffer) >= 8:
-                            header_data = raw_buffer[:8]
-                            raw_buffer = raw_buffer[8:]
-                            tts_sent_header = True
+                        async for audio_chunk in self.agent.text_to_speech_stream(
+                            final_tts_text
+                        ):
+                            raw_buffer += audio_chunk
 
-                            tts_header_chunk = {
-                                "id": chunk_id,
-                                "object": "audio.header",
-                                "created": created_time,
-                                "model": self.agent_name,
-                                "audio": base64.b64encode(header_data).decode("utf-8"),
-                            }
-                            yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+                            # Parse header first (8 bytes) - only if not already sent
+                            if not tts_sent_header and len(raw_buffer) >= 8:
+                                header_data = raw_buffer[:8]
+                                raw_buffer = raw_buffer[8:]
+                                tts_sent_header = True
 
-                        # Parse data packets: 4-byte size + PCM data
-                        while tts_sent_header and len(raw_buffer) >= 4:
-                            # Read packet size
-                            packet_size = struct.unpack("<I", raw_buffer[:4])[0]
+                                tts_header_chunk = {
+                                    "id": chunk_id,
+                                    "object": "audio.header",
+                                    "created": created_time,
+                                    "model": self.agent_name,
+                                    "audio": base64.b64encode(header_data).decode(
+                                        "utf-8"
+                                    ),
+                                }
+                                yield f"data: {json.dumps(tts_header_chunk)}\n\n"
 
-                            # Check for end marker
-                            if packet_size == 0:
-                                raw_buffer = raw_buffer[4:]
-                                break
+                            # Parse data packets: 4-byte size + PCM data
+                            while tts_sent_header and len(raw_buffer) >= 4:
+                                # Read packet size
+                                packet_size = struct.unpack("<I", raw_buffer[:4])[0]
 
-                            # Check if we have the full packet
-                            if len(raw_buffer) >= 4 + packet_size:
-                                pcm_data = raw_buffer[4 : 4 + packet_size]
-                                raw_buffer = raw_buffer[4 + packet_size :]
+                                # Check for end marker
+                                if packet_size == 0:
+                                    raw_buffer = raw_buffer[4:]
+                                    break
 
-                                # Break large audio chunks into smaller pieces for streaming
-                                # ESP32 has limited buffer size, so send max 4KB at a time
-                                MAX_CHUNK_SIZE = 4096
-                                for offset in range(0, len(pcm_data), MAX_CHUNK_SIZE):
-                                    chunk_piece = pcm_data[
-                                        offset : offset + MAX_CHUNK_SIZE
-                                    ]
-                                    audio_data_chunk = {
-                                        "id": chunk_id,
-                                        "object": "audio.chunk",
-                                        "created": created_time,
-                                        "model": self.agent_name,
-                                        "audio": base64.b64encode(chunk_piece).decode(
-                                            "utf-8"
-                                        ),
-                                    }
-                                    yield f"data: {json.dumps(audio_data_chunk)}\n\n"
-                            else:
-                                # Not enough data yet, wait for more
-                                break
+                                # Check if we have the full packet
+                                if len(raw_buffer) >= 4 + packet_size:
+                                    pcm_data = raw_buffer[4 : 4 + packet_size]
+                                    raw_buffer = raw_buffer[4 + packet_size :]
+
+                                    # Break large audio chunks into smaller pieces for streaming
+                                    # ESP32 has limited buffer size, so send max 4KB at a time
+                                    MAX_CHUNK_SIZE = 4096
+                                    for offset in range(
+                                        0, len(pcm_data), MAX_CHUNK_SIZE
+                                    ):
+                                        chunk_piece = pcm_data[
+                                            offset : offset + MAX_CHUNK_SIZE
+                                        ]
+                                        audio_data_chunk = {
+                                            "id": chunk_id,
+                                            "object": "audio.chunk",
+                                            "created": created_time,
+                                            "model": self.agent_name,
+                                            "audio": base64.b64encode(
+                                                chunk_piece
+                                            ).decode("utf-8"),
+                                        }
+                                        yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                else:
+                                    # Not enough data yet, wait for more
+                                    break
 
                 except Exception as e:
                     logging.warning(f"TTS streaming error: {e}")

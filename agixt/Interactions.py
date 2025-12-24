@@ -44,6 +44,81 @@ logging.basicConfig(
 webhook_emitter = WebhookEventEmitter()
 
 
+def extract_top_level_answer(response: str) -> str:
+    """
+    Extract the content from a top-level <answer>...</answer> block.
+    
+    This properly handles cases where <answer> appears inside <thinking> blocks:
+    - <thinking>The <answer> block format...</thinking><answer>Real answer</answer>
+      → Returns "Real answer"
+    - <answer>Simple answer</answer>
+      → Returns "Simple answer"
+    - <thinking>I'll use <answer>example</answer> format</thinking>
+      → Returns "" (no top-level answer)
+    
+    Args:
+        response: The full response text
+        
+    Returns:
+        str: The extracted answer content, or empty string if no top-level answer
+    """
+    # Find all <answer> tags
+    answer_opens = []
+    for match in re.finditer(r"<answer>", response, re.IGNORECASE):
+        open_pos = match.start()
+        
+        # Check if this is a real tag (not just mentioned in text)
+        if not is_real_answer_tag(response, open_pos):
+            continue
+            
+        # Check if this answer is at top level (not inside thinking/reflection)
+        text_before = response[:open_pos]
+        thinking_depth = len(
+            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+        reflection_depth = len(
+            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+        
+        if thinking_depth == 0 and reflection_depth == 0:
+            answer_opens.append(match)
+    
+    if not answer_opens:
+        return ""
+    
+    # Use the LAST top-level answer (in case model restarts its answer)
+    last_answer = answer_opens[-1]
+    answer_start = last_answer.end()
+    
+    # Find the matching </answer> 
+    text_after = response[answer_start:]
+    answer_depth = 1
+    pos = 0
+    
+    while pos < len(text_after):
+        next_open_lower = text_after.lower().find("<answer>", pos)
+        next_close_lower = text_after.lower().find("</answer>", pos)
+        
+        next_open = float("inf") if next_open_lower == -1 else next_open_lower
+        next_close = float("inf") if next_close_lower == -1 else next_close_lower
+        
+        if next_open == float("inf") and next_close == float("inf"):
+            # No closing tag found, return everything after <answer>
+            return text_after.strip()
+            
+        if next_open < next_close:
+            answer_depth += 1
+            pos = next_open + len("<answer>")
+        else:
+            answer_depth -= 1
+            if answer_depth == 0:
+                return text_after[:next_close].strip()
+            pos = next_close + len("</answer>")
+    
+    # No closing found, return everything
+    return text_after.strip()
+
+
 def is_real_answer_tag(response: str, match_start: int) -> bool:
     """
     Determine if an <answer> tag at the given position is a real XML tag
@@ -3306,6 +3381,9 @@ Analyze the actual output shown and continue with your response.
                                             "complete": True,
                                         }
 
+                            # Reset answer flag when </answer> is detected
+                            if tag_name == "answer":
+                                continuation_in_answer = False
                             continuation_current_tag = None
                             continuation_current_tag_content = ""
                             continuation_current_tag_message_id = None  # Reset
@@ -3419,18 +3497,14 @@ Analyze the actual output shown and continue with your response.
             f"[continuation_loop] Exited loop: count={continuation_count}, max={max_continuation_loops}, has_complete={has_complete_answer(self.response)}, has_answer={'<answer>' in self.response.lower()}"
         )
 
-        # Extract final answer
+        # Extract final answer using proper top-level detection
+        # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
-        if "<answer>" in self.response:
-            answer_match = re.search(
-                r"<answer>(.*?)</answer>", self.response, re.DOTALL | re.IGNORECASE
-            )
-            if answer_match:
-                final_answer = answer_match.group(1).strip()
-            else:
-                # No closing tag, get everything after <answer>
-                final_answer = self.response.split("<answer>")[-1].strip()
-        else:
+        if "<answer>" in self.response.lower():
+            final_answer = extract_top_level_answer(self.response)
+        
+        if not final_answer:
+            # No top-level answer found, use full response
             final_answer = self.response
 
         # Clean final answer
