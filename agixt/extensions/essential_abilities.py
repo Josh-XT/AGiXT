@@ -2224,17 +2224,19 @@ print(output)
             prompt (str): The prompt to generate the image from.
 
         Returns:
-            str: The URL of the generated image.
+            str: Instructions with the image URL in markdown format.
         Note:
-            The assistant should send the image URL to the user so they can listen to it, it will embed the image in the chat when the assistant sends the URL.
+            The assistant should display the image to the user using the exact markdown syntax provided in the response.
         """
         from Agent import Agent
 
-        return await Agent(
+        image_url = await Agent(
             agent_id=self.agent_id,
             ApiClient=self.ApiClient,
             user=self.user,
         ).generate_image(prompt=prompt, conversation_id=self.conversation_id)
+
+        return f"Image generated successfully. Display this image to the user using exactly this markdown (do not add anything before it): ![Generated Image]({image_url})"
 
     async def text_to_speech(self, text):
         """
