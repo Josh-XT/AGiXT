@@ -2340,14 +2340,79 @@ class Agent:
             )
         return await provider.translate_audio(audio_path=audio_path)
 
-    async def generate_image(self, prompt: str):
+    async def generate_image(self, prompt: str, conversation_id: str = None):
         provider = self.ai_provider_manager.get_provider_for_service("image")
         if provider is None:
             raise HTTPException(
                 status_code=400,
                 detail="This agent is not configured with an image-capable provider.",
             )
-        return await provider.generate_image(prompt=prompt)
+
+        if not conversation_id or conversation_id == "-":
+            conversation_id = get_conversation_id_by_name(
+                conversation_name="-", user_id=self.user_id
+            )
+
+        # Get the base64 encoded image from the provider
+        image_content = await provider.generate_image(prompt=prompt)
+
+        # Handle the image storage similar to TTS
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+        import tempfile
+        import shutil
+
+        def sanitize_path_component(component: str) -> str:
+            """Sanitize a path component to prevent path traversal attacks"""
+            if not component or not isinstance(component, str):
+                raise ValueError("Invalid path component")
+            sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", str(component))
+            if (
+                not sanitized
+                or sanitized
+                != component.replace("-", "").replace("_", "").replace(" ", "")
+                or ".." in component
+            ):
+                sanitized = re.sub(r"[^a-zA-Z0-9-]", "", str(component))
+            if not sanitized:
+                raise ValueError("Invalid path component after sanitization")
+            return sanitized
+
+        safe_agent_id = sanitize_path_component(self.agent_id)
+        safe_conversation_id = sanitize_path_component(conversation_id)
+
+        with tempfile.TemporaryDirectory() as temp_base:
+            secure_filename = f"image_{timestamp}.png"
+            temp_image_path = f"{temp_base}/{secure_filename}"
+
+            with open(temp_image_path, "wb") as f:
+                f.write(base64.b64decode(image_content))
+
+            workspace_base = os.path.realpath("WORKSPACE")
+
+            def safe_workspace_path(base: str, *components: str) -> str:
+                """Construct a safe path within workspace, preventing traversal."""
+                constructed = os.path.join(base, *components)
+                resolved = os.path.realpath(constructed)
+                if not resolved.startswith(
+                    os.path.realpath(base) + os.sep
+                ) and resolved != os.path.realpath(base):
+                    raise ValueError("Path traversal attempt blocked")
+                return resolved
+
+            workspace_outputs = safe_workspace_path(
+                workspace_base, safe_agent_id, safe_conversation_id
+            )
+            os.makedirs(workspace_outputs, exist_ok=True)
+
+            final_image_path = safe_workspace_path(
+                workspace_base, safe_agent_id, safe_conversation_id, secure_filename
+            )
+            shutil.move(temp_image_path, final_image_path)
+
+            agixt_uri = getenv("AGIXT_URI")
+            output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
+            return output_url
 
     async def text_to_speech(self, text: str, conversation_id: str = None):
         if not text:

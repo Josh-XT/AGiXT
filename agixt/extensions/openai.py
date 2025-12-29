@@ -388,13 +388,10 @@ class openai(Extensions):
             prompt: Text description of the image to generate
 
         Returns:
-            URL to the generated image
+            Base64 encoded image data
         """
         if not self.configured:
             raise Exception("OpenAI provider not configured")
-
-        filename = f"{uuid.uuid4()}.png"
-        image_path = f"./WORKSPACE/{filename}"
 
         headers = self._get_headers()
         api_url = self._get_base_url() + "/images/generations"
@@ -413,11 +410,9 @@ class openai(Extensions):
         logging.info(f"[OpenAI] Image generated for prompt: {prompt}")
         url = data["data"][0]["url"]
 
-        with open(image_path, "wb") as f:
-            f.write(requests.get(url).content)
-
-        agixt_uri = getenv("AGIXT_URI")
-        return f"{agixt_uri}/outputs/{filename}"
+        # Download the image and return as base64
+        image_data = requests.get(url).content
+        return base64.b64encode(image_data).decode("utf-8")
 
     def embeddings(self, input_text) -> np.ndarray:
         """

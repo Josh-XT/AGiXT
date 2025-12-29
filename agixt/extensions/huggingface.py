@@ -184,9 +184,6 @@ class huggingface(Extensions):
         if not self.configured:
             raise Exception("Huggingface provider not configured")
 
-        filename = f"{uuid.uuid4()}.png"
-        image_path = f"./WORKSPACE/{filename}"
-
         headers = {}
         if self.HUGGINGFACE_API_KEY:
             headers["Authorization"] = f"Bearer {self.HUGGINGFACE_API_KEY}"
@@ -198,11 +195,8 @@ class huggingface(Extensions):
                 json={"inputs": prompt},
             )
             image_data = response.content
-            image = Image.open(io.BytesIO(image_data))
-            image.save(image_path)
-
-            agixt_uri = getenv("AGIXT_URI")
-            return f"{agixt_uri}/outputs/{filename}"
+            # Return as base64 encoded string
+            return base64.b64encode(image_data).decode("utf-8")
         except Exception as e:
             logging.error(f"Error generating image: {e}")
             raise Exception(f"Error generating image: {e}")
