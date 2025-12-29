@@ -515,7 +515,7 @@ class ezlocalai(Extensions):
             prompt: Image generation prompt
 
         Returns:
-            URL to the generated image
+            Base64 encoded image data
         """
         if not self.configured:
             raise Exception("ezLocalai provider not configured")
@@ -526,9 +526,6 @@ class ezlocalai(Extensions):
             "Content-Type": "application/json",
         }
         api_url = self.API_URI.rstrip("/") + "/images/generations"
-
-        filename = f"{uuid.uuid4()}.png"
-        image_path = f"./WORKSPACE/{filename}"
 
         payload = {
             "prompt": prompt,
@@ -544,10 +541,9 @@ class ezlocalai(Extensions):
         logging.info(f"Image Generated for prompt: {prompt}")
         url = data["data"][0]["url"]
 
-        with open(image_path, "wb") as f:
-            f.write(requests.get(url).content)
-
-        agixt_uri = getenv("AGIXT_URI")
+        # Download the image and return as base64
+        image_data = requests.get(url).content
+        return base64.b64encode(image_data).decode("utf-8")
         return f"{agixt_uri}/outputs/{filename}"
 
     def embeddings(self, input) -> np.ndarray:

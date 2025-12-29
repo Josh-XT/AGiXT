@@ -2228,10 +2228,13 @@ print(output)
         Note:
             The assistant should send the image URL to the user so they can listen to it, it will embed the image in the chat when the assistant sends the URL.
         """
-        return self.ApiClient.generate_image(
-            prompt=prompt,
-            model=self.agent_name,
-        )
+        from Agent import Agent
+
+        return await Agent(
+            agent_id=self.agent_id,
+            ApiClient=self.ApiClient,
+            user=self.user,
+        ).generate_image(prompt=prompt, conversation_id=self.conversation_id)
 
     async def text_to_speech(self, text):
         """
