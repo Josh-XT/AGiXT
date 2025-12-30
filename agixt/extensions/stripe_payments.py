@@ -640,7 +640,7 @@ class stripe_payments(Extensions):
                                 )
                                 if not app_name:
                                     app_name = getenv("APP_NAME") or "AGiXT"
-                                    
+
                                 pricing_model = (
                                     pricing_config.get("pricing_model")
                                     if pricing_config
@@ -649,32 +649,58 @@ class stripe_payments(Extensions):
 
                                 # For seat-based billing, apply any available credits first
                                 credits_applied = 0.0
-                                if pricing_model in ["per_user", "per_capacity", "per_location"]:
+                                if pricing_model in [
+                                    "per_user",
+                                    "per_capacity",
+                                    "per_location",
+                                ]:
                                     # Check if company has credits to apply
                                     available_credits = company.token_balance_usd or 0.0
                                     if available_credits > 0:
                                         # Apply credits up to the subscription amount
-                                        credits_applied = min(available_credits, amount_usd)
-                                        company.token_balance_usd = available_credits - credits_applied
-                                        
+                                        credits_applied = min(
+                                            available_credits, amount_usd
+                                        )
+                                        company.token_balance_usd = (
+                                            available_credits - credits_applied
+                                        )
+
                                         # Also deduct proportional tokens
-                                        if company.token_balance and company.token_balance > 0:
+                                        if (
+                                            company.token_balance
+                                            and company.token_balance > 0
+                                        ):
                                             token_price_per_million = float(
-                                                getenv("TOKEN_PRICE_PER_MILLION_USD", "0.50")
+                                                getenv(
+                                                    "TOKEN_PRICE_PER_MILLION_USD",
+                                                    "0.50",
+                                                )
                                             )
                                             if token_price_per_million > 0:
-                                                tokens_to_deduct = int((credits_applied / token_price_per_million) * 1_000_000)
-                                                company.token_balance = max(0, company.token_balance - tokens_to_deduct)
-                                        
+                                                tokens_to_deduct = int(
+                                                    (
+                                                        credits_applied
+                                                        / token_price_per_million
+                                                    )
+                                                    * 1_000_000
+                                                )
+                                                company.token_balance = max(
+                                                    0,
+                                                    company.token_balance
+                                                    - tokens_to_deduct,
+                                                )
+
                                         logging.info(
                                             f"Applied ${credits_applied:.2f} credits for {app_name} company {company.id}"
                                         )
-                                    
+
                                     # For seat-based, we don't add tokens - the payment is for seat access
                                     # Update company's app tracking and billing date
                                     company.app_name = app_name
-                                    company.last_subscription_billing_date = datetime.now()
-                                    
+                                    company.last_subscription_billing_date = (
+                                        datetime.now()
+                                    )
+
                                     # Create payment transaction record
                                     invoice_id = invoice.get("id", "unknown")
                                     transaction = PaymentTransaction(
@@ -692,14 +718,19 @@ class stripe_payments(Extensions):
                                         status="completed",
                                         reference_code=f"SUB_{subscription_id[:20]}_{invoice_id[:20]}",
                                         app_name=app_name,
-                                        metadata={
-                                            "credits_applied": credits_applied,
-                                            "net_charge": amount_usd - credits_applied,
-                                            "pricing_model": pricing_model,
-                                        } if credits_applied > 0 else {},
+                                        metadata=(
+                                            {
+                                                "credits_applied": credits_applied,
+                                                "net_charge": amount_usd
+                                                - credits_applied,
+                                                "pricing_model": pricing_model,
+                                            }
+                                            if credits_applied > 0
+                                            else {}
+                                        ),
                                     )
                                     session.add(transaction)
-                                    
+
                                     logging.info(
                                         f"Seat-based subscription for {app_name}: ${amount_usd} charged, ${credits_applied:.2f} credits applied for company {company.id}"
                                     )
@@ -711,7 +742,9 @@ class stripe_payments(Extensions):
                                     if token_price_per_million <= 0:
                                         token_price_per_million = 0.50
 
-                                    token_millions = amount_usd / token_price_per_million
+                                    token_millions = (
+                                        amount_usd / token_price_per_million
+                                    )
                                     tokens = int(token_millions * 1_000_000)
 
                                     # Credit tokens to company
@@ -724,7 +757,9 @@ class stripe_payments(Extensions):
 
                                     # Update company's app tracking
                                     company.app_name = app_name
-                                    company.last_subscription_billing_date = datetime.now()
+                                    company.last_subscription_billing_date = (
+                                        datetime.now()
+                                    )
 
                                     # Create payment transaction record with app_name
                                     invoice_id = invoice.get("id", "unknown")

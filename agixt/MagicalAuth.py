@@ -1882,7 +1882,7 @@ class MagicalAuth:
 
         For seat-based billing (per_user, per_capacity, per_location):
             - Checks if current user count < user_limit (paid seats)
-        
+
         For token-based billing (per_token):
             - Checks if company has a positive token balance
 
@@ -1895,15 +1895,19 @@ class MagicalAuth:
         # Check if billing is enabled
         price_service = PriceService()
         token_price = price_service.get_token_price()
-        
+
         # Get pricing config to determine billing model
         hub = ExtensionsHub()
         pricing_config = hub.get_pricing_config()
-        pricing_model = pricing_config.get("pricing_model") if pricing_config else "per_token"
-        
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
         # Check if billing is disabled
-        billing_enabled = token_price > 0 or (pricing_config and pricing_config.get("tiers"))
-        
+        billing_enabled = token_price > 0 or (
+            pricing_config and pricing_config.get("tiers")
+        )
+
         if not billing_enabled:
             # Billing is disabled, allow all operations
             return True
@@ -1922,20 +1926,20 @@ class MagicalAuth:
                     .filter(UserCompany.company_id == company_id)
                     .count()
                 )
-                
+
                 # user_limit represents paid seats
                 user_limit = company.user_limit or 0
-                
+
                 # Allow if current users < paid seats
                 if current_user_count < user_limit:
                     return True
-                
+
                 # Also allow if company has sufficient token balance (as fallback)
                 if company.token_balance and company.token_balance > 0:
                     return True
-                    
+
                 return False
-            
+
             # For token-based billing, check token balance
             if company.token_balance and company.token_balance > 0:
                 return True
