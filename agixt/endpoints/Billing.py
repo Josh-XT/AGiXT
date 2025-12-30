@@ -217,8 +217,7 @@ async def is_billing_enabled() -> Dict[str, Any]:
         # Check if any tier has actual pricing
         tiers = config.get("tiers", [])
         has_paid_tiers = any(
-            tier.get("price_per_unit") is not None
-            or tier.get("custom_pricing", False)
+            tier.get("price_per_unit") is not None or tier.get("custom_pricing", False)
             for tier in tiers
         )
         return {
@@ -258,23 +257,25 @@ class TrialEligibilityResponse(BaseModel):
 
 
 @app.post("/v1/billing/trial/check", tags=["Billing"])
-async def check_trial_eligibility(request: TrialEligibilityRequest) -> TrialEligibilityResponse:
+async def check_trial_eligibility(
+    request: TrialEligibilityRequest,
+) -> TrialEligibilityResponse:
     """
     Check if an email address is eligible for trial credits.
-    
+
     This is a public endpoint (no auth required) so users can check eligibility
     before registration.
-    
+
     Trial eligibility requires:
     1. A business email domain (not gmail, outlook, etc.)
     2. The domain has not already been used for trial credits
     3. Trials are enabled in the pricing configuration
     """
     from TrialService import trial_service
-    
+
     eligible, reason, credits_usd = trial_service.check_trial_eligibility(request.email)
     is_business = trial_service.is_business_domain(request.email)
-    
+
     return TrialEligibilityResponse(
         eligible=eligible,
         reason=reason,
@@ -294,21 +295,21 @@ async def get_trial_status(
 ):
     """
     Get trial status for a company.
-    
+
     Returns whether trial credits have been used and the amount granted.
     """
     from TrialService import trial_service
-    
+
     auth = MagicalAuth(token=authorization)
     auth.validate_user()
-    
+
     # Verify user has access to this company
     user_companies = auth.get_user_companies()
     if company_id not in user_companies:
         raise HTTPException(
             status_code=403, detail="You do not have access to this company"
         )
-    
+
     return trial_service.get_trial_status(company_id)
 
 
@@ -316,11 +317,11 @@ async def get_trial_status(
 async def get_trial_config():
     """
     Get trial configuration.
-    
+
     This is a public endpoint showing trial settings from pricing configuration.
     """
     from TrialService import trial_service
-    
+
     return trial_service.get_trial_config()
 
 

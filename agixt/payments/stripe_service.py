@@ -430,7 +430,7 @@ class StripePaymentService:
             or getenv("APP_URI")
             or "https://agixt.com"
         )
-        
+
         # Get app name for product naming
         hub = ExtensionsHub()
         pricing_config = hub.get_pricing_config()

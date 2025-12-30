@@ -573,13 +573,17 @@ class stripe_payments(Extensions):
                                 # Get app name for tracking
                                 from ExtensionsHub import ExtensionsHub
                                 from datetime import datetime
-                                
+
                                 hub = ExtensionsHub()
                                 pricing_config = hub.get_pricing_config()
-                                app_name = pricing_config.get("app_name") if pricing_config else None
+                                app_name = (
+                                    pricing_config.get("app_name")
+                                    if pricing_config
+                                    else None
+                                )
                                 if not app_name:
                                     app_name = getenv("APP_NAME") or "AGiXT"
-                                
+
                                 # Update company with subscription info
                                 company = (
                                     session.query(Company)
@@ -591,7 +595,9 @@ class stripe_payments(Extensions):
                                     company.auto_topup_amount_usd = amount_usd
                                     company.stripe_subscription_id = subscription_id
                                     company.app_name = app_name
-                                    company.last_subscription_billing_date = datetime.now()
+                                    company.last_subscription_billing_date = (
+                                        datetime.now()
+                                    )
                                     logging.info(
                                         f"Auto top-up subscription activated for {app_name} company {company_id}: ${amount_usd}/month"
                                     )
@@ -622,15 +628,19 @@ class stripe_payments(Extensions):
                                 # Get per-app pricing from extension hub
                                 from ExtensionsHub import ExtensionsHub
                                 from datetime import datetime
-                                
+
                                 hub = ExtensionsHub()
                                 pricing_config = hub.get_pricing_config()
-                                
+
                                 # Get app name from pricing config or environment
-                                app_name = pricing_config.get("app_name") if pricing_config else None
+                                app_name = (
+                                    pricing_config.get("app_name")
+                                    if pricing_config
+                                    else None
+                                )
                                 if not app_name:
                                     app_name = getenv("APP_NAME") or "AGiXT"
-                                
+
                                 # Calculate tokens based on amount using per-app token price
                                 # First try to get from pricing config, then fall back to env
                                 token_price_per_million = float(
@@ -649,7 +659,7 @@ class stripe_payments(Extensions):
                                 company.token_balance_usd = (
                                     company.token_balance_usd or 0.0
                                 ) + amount_usd
-                                
+
                                 # Update company's app tracking
                                 company.app_name = app_name
                                 company.last_subscription_billing_date = datetime.now()

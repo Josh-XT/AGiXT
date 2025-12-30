@@ -427,9 +427,7 @@ async def send_discord_trial_notification(
         {"name": "Domain", "value": f"`{domain}`", "inline": True},
     ]
     if company_name:
-        fields.append(
-            {"name": "Company", "value": company_name, "inline": False}
-        )
+        fields.append({"name": "Company", "value": company_name, "inline": False})
     if company_id:
         fields.append(
             {"name": "Company ID", "value": f"`{company_id}`", "inline": False}
