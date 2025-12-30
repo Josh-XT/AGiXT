@@ -482,16 +482,56 @@ class StripePaymentService:
         return await asyncio.to_thread(_create_checkout)
 
     async def get_auto_topup_status(self, *, company_id: str) -> Dict[str, Any]:
-        """Get the auto top-up subscription status for a company"""
+        """Get the auto top-up subscription status for a company.
+
+        For seat-based pricing models (per_user, per_capacity, per_location):
+        - Returns user_limit as seat_count (paid capacity)
+        - Returns actual_user_count (actual users in company)
+        - Calculates amount_usd based on actual seat count × price per unit
+
+        For token-based pricing:
+        - Returns stored auto_topup_amount_usd
+        """
+        from DB import UserCompany
+
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
 
+            # Determine pricing model
+            pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+            is_seat_based = pricing_model in [
+                "per_user",
+                "per_capacity",
+                "per_location",
+            ]
+
+            # Get actual user count for seat-based billing
+            actual_user_count = 0
+            if is_seat_based:
+                actual_user_count = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id == company_id)
+                    .count()
+                )
+
+            # For seat-based billing, calculate amount from actual seat count
+            if is_seat_based:
+                seat_count = company.user_limit or 1
+                price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+                calculated_amount = seat_count * price_per_unit
+                amount_usd = calculated_amount
+            else:
+                seat_count = 0
+                amount_usd = company.auto_topup_amount_usd
+
             result = {
                 "enabled": company.auto_topup_enabled,
-                "amount_usd": company.auto_topup_amount_usd,
+                "amount_usd": amount_usd,
+                "seat_count": seat_count,
+                "actual_user_count": actual_user_count,
                 "subscription_id": company.stripe_subscription_id,
                 "subscription_status": None,
                 "next_billing_date": None,
@@ -517,6 +557,19 @@ class StripePaymentService:
                             result["next_billing_date"] = datetime.fromtimestamp(
                                 subscription["current_period_end"]
                             ).isoformat()
+
+                        # For seat-based, also get quantity from Stripe subscription if available
+                        if is_seat_based and subscription.get("items"):
+                            items = subscription["items"].get("data", [])
+                            if items:
+                                stripe_quantity = items[0].get("quantity", 1)
+                                # If Stripe quantity differs from user_limit, log warning
+                                if stripe_quantity != seat_count:
+                                    import logging
+
+                                    logging.warning(
+                                        f"Stripe subscription quantity ({stripe_quantity}) differs from user_limit ({seat_count}) for company {company_id}"
+                                    )
                 except Exception:
                     pass
 
@@ -586,6 +639,83 @@ class StripePaymentService:
             stripe.Subscription.cancel(subscription_id)
 
         await asyncio.to_thread(_cancel_subscription)
+
+    async def update_subscription_quantity(
+        self, *, company_id: str, new_quantity: int
+    ) -> Dict[str, Any]:
+        """Update the subscription quantity (seats) for seat-based billing.
+
+        This modifies the existing subscription in Stripe rather than
+        cancelling and recreating it.
+        """
+        import stripe
+
+        if not self.api_key or self.api_key.lower() == "none":
+            raise HTTPException(
+                status_code=400, detail="Stripe API key is not configured"
+            )
+
+        if new_quantity < 1:
+            raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            if not company.stripe_subscription_id:
+                raise HTTPException(
+                    status_code=400, detail="No active subscription found"
+                )
+
+            stripe.api_key = self.api_key
+
+            # Get the subscription to find the subscription item
+            subscription = stripe.Subscription.retrieve(company.stripe_subscription_id)
+
+            if (
+                not subscription
+                or not subscription.items
+                or not subscription.items.data
+            ):
+                raise HTTPException(
+                    status_code=400, detail="Could not retrieve subscription items"
+                )
+
+            # Update the quantity on the first subscription item
+            subscription_item_id = subscription.items.data[0].id
+
+            # Update the subscription item quantity
+            stripe.SubscriptionItem.modify(
+                subscription_item_id,
+                quantity=new_quantity,
+                proration_behavior="create_prorations",  # Prorate charges
+            )
+
+            # Update company user_limit to match new quantity
+            price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+            company.user_limit = new_quantity
+            company.auto_topup_amount_usd = new_quantity * price_per_unit
+            session.commit()
+
+            import logging
+
+            logging.info(
+                f"Updated subscription quantity to {new_quantity} for company {company_id}"
+            )
+
+            return {
+                "success": True,
+                "message": f"Subscription updated to {new_quantity} seats",
+                "company_id": company_id,
+                "new_quantity": new_quantity,
+                "new_amount_usd": new_quantity * price_per_unit,
+            }
+        except stripe.error.InvalidRequestError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        finally:
+            session.close()
 
     async def update_auto_topup_amount(
         self, *, company_id: str, new_amount_usd: float

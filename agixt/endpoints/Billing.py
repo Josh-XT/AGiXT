@@ -977,11 +977,19 @@ async def update_auto_topup(
     authorization: str = Header(None),
 ):
     """
-    Update the monthly auto top-up amount.
+    Update the monthly auto top-up amount or seat count.
 
-    This cancels the existing subscription and creates a new checkout session
-    for the updated amount. The user will need to complete the checkout again.
+    For seat-based pricing (per_user, per_capacity, per_location):
+    - Updates the subscription quantity directly in Stripe
+    - Prorates charges automatically
+    - No checkout needed
+
+    For token-based pricing:
+    - Cancels the existing subscription and creates a new checkout session
+    - User needs to complete checkout again
     """
+    from Globals import getenv
+
     auth = MagicalAuth(token=authorization)
     auth.validate_user()
 
@@ -993,12 +1001,29 @@ async def update_auto_topup(
         )
 
     stripe_service = StripePaymentService()
+
+    # Determine pricing model
+    pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+    is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
+
     try:
-        result = await stripe_service.update_auto_topup_amount(
-            company_id=request.company_id,
-            new_amount_usd=request.amount_usd,
-        )
-        return result
+        if is_seat_based:
+            # For seat-based billing, update quantity directly
+            price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+            new_quantity = max(1, round(request.amount_usd / price_per_unit))
+
+            result = await stripe_service.update_subscription_quantity(
+                company_id=request.company_id,
+                new_quantity=new_quantity,
+            )
+            return result
+        else:
+            # For token-based billing, cancel and recreate (requires checkout)
+            result = await stripe_service.update_auto_topup_amount(
+                company_id=request.company_id,
+                new_amount_usd=request.amount_usd,
+            )
+            return result
     except Exception as e:
         logging.error(f"Error updating auto top-up: {str(e)}")
         raise HTTPException(
