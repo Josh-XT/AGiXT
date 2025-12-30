@@ -6,7 +6,8 @@ import os
 import subprocess
 import logging
 import shutil
-from typing import Optional, List
+import json
+from typing import Optional, List, Dict, Any
 from Globals import getenv
 
 logging.basicConfig(
@@ -27,6 +28,94 @@ class ExtensionsHub:
         self.hub_token = getenv("EXTENSIONS_HUB_TOKEN")
         # Cache for extension search paths
         self._extension_paths_cache = None
+        # Cache for pricing config
+        self._pricing_config_cache = None
+
+    def get_pricing_config(self) -> Optional[Dict[str, Any]]:
+        """
+        Load pricing.json from extension hub if it exists.
+        Returns the pricing configuration for the current app deployment.
+
+        Returns:
+            Dict with pricing configuration, or None if no pricing.json found
+        """
+        if self._pricing_config_cache is not None:
+            return self._pricing_config_cache
+
+        app_name = getenv("APP_NAME")
+        search_paths = self.get_extension_search_paths()
+
+        for path in search_paths:
+            pricing_file = os.path.join(path, "pricing.json")
+            if os.path.exists(pricing_file):
+                try:
+                    with open(pricing_file, "r") as f:
+                        config = json.load(f)
+                        # Verify the pricing config matches the current app
+                        # or return the first one found if no APP_NAME match
+                        config_app_name = config.get("app_name", "")
+                        if config_app_name == app_name or app_name in ["AGiXT", ""]:
+                            self._pricing_config_cache = config
+                            logging.info(
+                                f"Loaded pricing config for {config_app_name} from {pricing_file}"
+                            )
+                            return config
+                except json.JSONDecodeError as e:
+                    logging.error(f"Invalid JSON in pricing file {pricing_file}: {e}")
+                except Exception as e:
+                    logging.error(f"Error loading pricing file {pricing_file}: {e}")
+
+        # No pricing config found - return default token-based pricing
+        logging.debug("No pricing.json found, using default token-based pricing")
+        return None
+
+    def get_default_pricing_config(self) -> Dict[str, Any]:
+        """
+        Get default token-based pricing config when no pricing.json is found.
+
+        Returns:
+            Dict with default token-based pricing configuration
+        """
+        token_price = getenv("TOKEN_PRICE_PER_MILLION_USD")
+        try:
+            token_price_float = float(token_price) if token_price else 0.0
+        except (ValueError, TypeError):
+            token_price_float = 0.0
+
+        return {
+            "app_name": getenv("APP_NAME"),
+            "pricing_model": "per_token",
+            "unit_name": "token",
+            "unit_name_plural": "tokens",
+            "tagline": "AI Agent Platform",
+            "description": "Build and deploy AI agents with memory, tools, and automation.",
+            "tiers": [
+                {
+                    "id": "pay_as_you_go",
+                    "name": "Pay As You Go",
+                    "price_per_unit": token_price_float,
+                    "unit_multiplier": 1000000,
+                    "unit_display": "per million tokens",
+                    "currency": "USD",
+                    "billing_period": "usage",
+                    "description": "Pay only for what you use",
+                    "features": [
+                        "All AI providers",
+                        "Unlimited agents",
+                        "Unlimited automations",
+                        "API access",
+                        "Community support",
+                    ],
+                }
+            ],
+            "trial": {
+                "enabled": token_price_float == 0.0,
+                "type": "free" if token_price_float == 0.0 else None,
+                "description": "Free to use" if token_price_float == 0.0 else None,
+            },
+            "volume_discounts": {"enabled": False},
+            "contracts": {"monthly": False, "annual": False},
+        }
 
     def get_extension_search_paths(self) -> List[str]:
         """

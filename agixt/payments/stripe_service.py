@@ -421,6 +421,7 @@ class StripePaymentService:
     ) -> Dict[str, Any]:
         """Create a Stripe checkout session for a subscription"""
         import stripe
+        from ExtensionsHub import ExtensionsHub
 
         stripe.api_key = self.api_key
 
@@ -429,6 +430,13 @@ class StripePaymentService:
             or getenv("APP_URI")
             or "https://agixt.com"
         )
+        
+        # Get app name for product naming
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        app_name = pricing_config.get("app_name") if pricing_config else None
+        if not app_name:
+            app_name = getenv("APP_NAME") or "AGiXT"
 
         def _create_checkout() -> Dict[str, Any]:
             # Create a price for this specific amount
@@ -443,8 +451,8 @@ class StripePaymentService:
                         "price_data": {
                             "currency": "usd",
                             "product_data": {
-                                "name": "Monthly Token Auto Top-Up",
-                                "description": "Automatic monthly token credit for AI usage",
+                                "name": f"{app_name} Monthly Subscription",
+                                "description": f"Monthly subscription for {app_name}",
                             },
                             "unit_amount": amount_cents,
                             "recurring": {
@@ -458,12 +466,14 @@ class StripePaymentService:
                     "company_id": str(company_id),
                     "type": "auto_topup_subscription",
                     "amount_usd": str(amount_cents / 100),
+                    "app_name": app_name,
                 },
                 subscription_data={
                     "metadata": {
                         "company_id": str(company_id),
                         "type": "auto_topup_subscription",
                         "amount_usd": str(amount_cents / 100),
+                        "app_name": app_name,
                     },
                 },
             )
@@ -485,6 +495,12 @@ class StripePaymentService:
                 "subscription_id": company.stripe_subscription_id,
                 "subscription_status": None,
                 "next_billing_date": None,
+                "app_name": company.app_name,
+                "last_billing_date": (
+                    company.last_subscription_billing_date.isoformat()
+                    if company.last_subscription_billing_date
+                    else None
+                ),
             }
 
             # If there's an active subscription, get more details from Stripe

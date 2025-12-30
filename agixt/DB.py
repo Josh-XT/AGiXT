@@ -435,6 +435,23 @@ class Company(Base):
     stripe_subscription_id = Column(
         String, nullable=True, default=None
     )  # Active subscription ID
+    # Per-app billing tracking
+    app_name = Column(
+        String, nullable=True, default=None
+    )  # The app the company is subscribed to (e.g., "XT Systems", "NurseXT")
+    last_subscription_billing_date = Column(
+        DateTime, nullable=True, default=None
+    )  # Last date subscription was billed
+    # Trial credits tracking
+    trial_credits_granted = Column(
+        Float, nullable=True, default=None
+    )  # USD value of trial credits granted
+    trial_credits_granted_at = Column(
+        DateTime, nullable=True, default=None
+    )  # When trial credits were granted
+    trial_domain = Column(
+        String, nullable=True, default=None
+    )  # The email domain that qualified for trial credits
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -2210,11 +2227,45 @@ class PaymentTransaction(Base):
     memo = Column(String, nullable=True)
     metadata_json = Column(Text, nullable=True)
     expires_at = Column(DateTime, nullable=True)
+    # Per-app billing tracking
+    app_name = Column(
+        String, nullable=True, default=None
+    )  # The app this payment is for (e.g., "XT Systems", "NurseXT")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", backref="payment_transactions")
     company = relationship("Company", backref="payment_transactions")
+
+
+class TrialDomain(Base):
+    """
+    Tracks email domains that have used trial credits.
+    Used to prevent trial abuse by ensuring each business domain only gets trial credits once.
+    """
+
+    __tablename__ = "trial_domain"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    domain = Column(String, nullable=False, unique=True, index=True)
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    credits_granted = Column(Float, nullable=False, default=0.0)  # USD value granted
+    created_at = Column(DateTime, server_default=func.now())
+
+    company = relationship("Company", backref="trial_domains")
+    user = relationship("User", backref="trial_domains")
 
 
 class Memory(Base):
@@ -3446,6 +3497,13 @@ def migrate_company_table():
                 ("auto_topup_amount_usd", "REAL"),
                 ("stripe_customer_id", "TEXT"),
                 ("stripe_subscription_id", "TEXT"),
+                # Per-app billing tracking
+                ("app_name", "TEXT"),
+                ("last_subscription_billing_date", "TIMESTAMP"),
+                # Trial credits tracking
+                ("trial_credits_granted", "REAL"),
+                ("trial_credits_granted_at", "TIMESTAMP"),
+                ("trial_domain", "TEXT"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -3493,6 +3551,13 @@ def migrate_company_table():
                             pg_column_def = "BOOLEAN DEFAULT false"
                         elif column_name == "auto_topup_amount_usd":
                             pg_column_def = "DOUBLE PRECISION"
+                        elif column_name in (
+                            "last_subscription_billing_date",
+                            "trial_credits_granted_at",
+                        ):
+                            pg_column_def = "TIMESTAMP"
+                        elif column_name == "trial_credits_granted":
+                            pg_column_def = "DOUBLE PRECISION"
                         else:
                             pg_column_def = "TEXT"
 
@@ -3509,45 +3574,53 @@ def migrate_company_table():
 
 def migrate_payment_transaction_table():
     """
-    Migration function to add token_amount column to payment_transaction table.
-    This supports the new token-based billing system.
+    Migration function to add token_amount and app_name columns to payment_transaction table.
+    This supports the new token-based billing system and per-app billing tracking.
     """
     if engine is None:
         return
 
     try:
         with get_db_session() as session:
+            columns_to_add = [
+                ("token_amount", "INTEGER"),
+                ("app_name", "TEXT"),
+            ]
+
             if DATABASE_TYPE == "sqlite":
                 # For SQLite, check if column exists
                 result = session.execute(text("PRAGMA table_info(payment_transaction)"))
                 existing_columns = [row[1] for row in result.fetchall()]
 
-                if "token_amount" not in existing_columns:
-                    session.execute(
-                        text(
-                            "ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER"
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE payment_transaction ADD COLUMN {column_name} {column_def}"
+                            )
                         )
-                    )
-                    session.commit()
+                        session.commit()
             else:
                 # For PostgreSQL, check if column exists
-                result = session.execute(
-                    text(
-                        """
-                        SELECT column_name 
-                        FROM information_schema.columns 
-                        WHERE table_name = 'payment_transaction' AND column_name = 'token_amount'
-                    """
-                    )
-                )
-
-                if not result.fetchone():
-                    session.execute(
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
                         text(
-                            "ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER"
-                        )
+                            """
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_name = 'payment_transaction' AND column_name = :column_name
+                        """
+                        ),
+                        {"column_name": column_name},
                     )
-                    session.commit()
+
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f"ALTER TABLE payment_transaction ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
 
     except Exception as e:
         logging.debug(

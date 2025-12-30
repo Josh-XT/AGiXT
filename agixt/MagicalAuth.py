@@ -2100,6 +2100,22 @@ class MagicalAuth:
                         else:
                             company_name = f"{new_user.first_name}'s Team"
                     new_company = self.create_company_with_agent(name=company_name)
+                    
+                    # Grant trial credits for business domains
+                    try:
+                        from TrialService import grant_trial_credits
+                        success, message, credits = grant_trial_credits(
+                            company_id=new_company["id"],
+                            user_id=str(new_user_db.id),
+                            email=self.email,
+                        )
+                        if success:
+                            logging.info(f"Trial credits granted for {self.email}: {message}")
+                        else:
+                            logging.debug(f"Trial credits not granted for {self.email}: {message}")
+                    except Exception as e:
+                        logging.warning(f"Error checking trial eligibility: {e}")
+                        
             # Add default user preferences
             default_preferences = [
                 ("timezone", getenv("TZ")),

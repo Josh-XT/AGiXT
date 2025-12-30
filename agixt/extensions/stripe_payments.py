@@ -570,6 +570,16 @@ class stripe_payments(Extensions):
                             subscription_id = session_data.get("subscription")
 
                             if company_id and subscription_id:
+                                # Get app name for tracking
+                                from ExtensionsHub import ExtensionsHub
+                                from datetime import datetime
+                                
+                                hub = ExtensionsHub()
+                                pricing_config = hub.get_pricing_config()
+                                app_name = pricing_config.get("app_name") if pricing_config else None
+                                if not app_name:
+                                    app_name = getenv("APP_NAME") or "AGiXT"
+                                
                                 # Update company with subscription info
                                 company = (
                                     session.query(Company)
@@ -580,8 +590,10 @@ class stripe_payments(Extensions):
                                     company.auto_topup_enabled = True
                                     company.auto_topup_amount_usd = amount_usd
                                     company.stripe_subscription_id = subscription_id
+                                    company.app_name = app_name
+                                    company.last_subscription_billing_date = datetime.now()
                                     logging.info(
-                                        f"Auto top-up subscription activated for company {company_id}: ${amount_usd}/month"
+                                        f"Auto top-up subscription activated for {app_name} company {company_id}: ${amount_usd}/month"
                                     )
 
                     session.commit()
@@ -607,7 +619,20 @@ class stripe_payments(Extensions):
                             amount_usd = amount_cents / 100.0
 
                             if amount_usd > 0:
-                                # Calculate tokens based on amount
+                                # Get per-app pricing from extension hub
+                                from ExtensionsHub import ExtensionsHub
+                                from datetime import datetime
+                                
+                                hub = ExtensionsHub()
+                                pricing_config = hub.get_pricing_config()
+                                
+                                # Get app name from pricing config or environment
+                                app_name = pricing_config.get("app_name") if pricing_config else None
+                                if not app_name:
+                                    app_name = getenv("APP_NAME") or "AGiXT"
+                                
+                                # Calculate tokens based on amount using per-app token price
+                                # First try to get from pricing config, then fall back to env
                                 token_price_per_million = float(
                                     getenv("TOKEN_PRICE_PER_MILLION_USD", "0.50")
                                 )
@@ -624,8 +649,12 @@ class stripe_payments(Extensions):
                                 company.token_balance_usd = (
                                     company.token_balance_usd or 0.0
                                 ) + amount_usd
+                                
+                                # Update company's app tracking
+                                company.app_name = app_name
+                                company.last_subscription_billing_date = datetime.now()
 
-                                # Create payment transaction record
+                                # Create payment transaction record with app_name
                                 invoice_id = invoice.get("id", "unknown")
                                 transaction = PaymentTransaction(
                                     user_id=None,
@@ -641,11 +670,12 @@ class stripe_payments(Extensions):
                                     stripe_payment_intent_id=invoice_id,
                                     status="completed",
                                     reference_code=f"SUB_{subscription_id[:20]}_{invoice_id[:20]}",
+                                    app_name=app_name,
                                 )
                                 session.add(transaction)
 
                                 logging.info(
-                                    f"Auto top-up: Credited {tokens} tokens (${amount_usd}) to company {company.id}"
+                                    f"Auto top-up for {app_name}: Credited {tokens} tokens (${amount_usd}) to company {company.id}"
                                 )
 
                     session.commit()
