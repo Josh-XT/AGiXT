@@ -709,6 +709,14 @@ class StripePaymentService:
         2. Checkout sessions that completed but weren't processed
         3. Payment intents that succeeded but weren't recorded
 
+        For seat-based pricing models (per_user, per_capacity, per_location):
+        - Updates billing dates
+        - Applies credits toward subscription (if available)
+        - Does NOT add tokens (payment is for seat access)
+
+        For token-based pricing (per_token):
+        - Adds tokens to the account balance
+
         Returns a summary of what was synced.
         """
         import stripe
@@ -725,6 +733,10 @@ class StripePaymentService:
         stripe.api_key = self.api_key
         session = get_session()
         synced = []
+
+        # Determine pricing model
+        pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+        is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
 
         try:
             # Look back 7 days for unprocessed payments
@@ -774,50 +786,118 @@ class StripePaymentService:
                                 )
 
                             if not existing:
-                                # Calculate tokens and credit
                                 amount_usd = invoice.amount_paid / 100.0
                                 if amount_usd > 0:
-                                    token_price = float(
-                                        getenv("TOKEN_PRICE_PER_MILLION_USD", "0.50")
-                                    )
-                                    if token_price <= 0:
-                                        token_price = 0.50
-                                    tokens = int((amount_usd / token_price) * 1_000_000)
+                                    tokens = 0
+                                    credits_applied = 0.0
 
-                                    company.token_balance = (
-                                        company.token_balance or 0
-                                    ) + tokens
-                                    company.token_balance_usd = (
-                                        company.token_balance_usd or 0.0
-                                    ) + amount_usd
+                                    if is_seat_based:
+                                        # Seat-based billing: update billing dates, apply credits
+                                        # Check if credits available to apply
+                                        available_credits = (
+                                            company.token_balance_usd or 0.0
+                                        )
+                                        if available_credits > 0:
+                                            credits_applied = min(
+                                                available_credits, amount_usd
+                                            )
+                                            company.token_balance_usd = (
+                                                available_credits - credits_applied
+                                            )
+                                            logging.info(
+                                                f"Applied ${credits_applied:.2f} credits toward subscription for company {company_id}"
+                                            )
 
-                                    transaction = PaymentTransaction(
-                                        user_id=None,
-                                        company_id=str(company.id),
-                                        seat_count=0,
-                                        token_amount=tokens,
-                                        payment_method="stripe_subscription",
-                                        currency="USD",
-                                        network="stripe",
-                                        amount_usd=amount_usd,
-                                        amount_currency=amount_usd,
-                                        exchange_rate=1.0,
-                                        stripe_payment_intent_id=invoice.id,
-                                        status="completed",
-                                        reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
-                                    )
-                                    session.add(transaction)
-                                    synced.append(
-                                        {
-                                            "type": "subscription",
-                                            "invoice_id": invoice.id,
-                                            "amount_usd": amount_usd,
-                                            "tokens": tokens,
-                                        }
-                                    )
-                                    logging.info(
-                                        f"Synced subscription payment: ${amount_usd} -> {tokens} tokens for company {company_id}"
-                                    )
+                                        # Update billing dates
+                                        company.last_subscription_billing_date = (
+                                            datetime.utcnow()
+                                        )
+                                        if invoice.lines and invoice.lines.data:
+                                            line = invoice.lines.data[0]
+                                            if line.period and line.period.end:
+                                                company.next_subscription_billing_date = datetime.fromtimestamp(
+                                                    line.period.end
+                                                )
+
+                                        transaction = PaymentTransaction(
+                                            user_id=None,
+                                            company_id=str(company.id),
+                                            seat_count=company.user_limit or 1,
+                                            token_amount=0,
+                                            payment_method="stripe_subscription",
+                                            currency="USD",
+                                            network="stripe",
+                                            amount_usd=amount_usd,
+                                            amount_currency=amount_usd,
+                                            exchange_rate=1.0,
+                                            stripe_payment_intent_id=invoice.id,
+                                            status="completed",
+                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
+                                            metadata={
+                                                "credits_applied": credits_applied,
+                                                "pricing_model": pricing_model,
+                                            },
+                                        )
+                                        session.add(transaction)
+                                        synced.append(
+                                            {
+                                                "type": "subscription",
+                                                "invoice_id": invoice.id,
+                                                "amount_usd": amount_usd,
+                                                "tokens": 0,
+                                                "credits_applied": credits_applied,
+                                            }
+                                        )
+                                        logging.info(
+                                            f"Synced seat-based subscription payment: ${amount_usd} (${credits_applied:.2f} credits applied) for company {company_id}"
+                                        )
+                                    else:
+                                        # Token-based billing: add tokens to balance
+                                        token_price = float(
+                                            getenv(
+                                                "TOKEN_PRICE_PER_MILLION_USD", "0.50"
+                                            )
+                                        )
+                                        if token_price <= 0:
+                                            token_price = 0.50
+                                        tokens = int(
+                                            (amount_usd / token_price) * 1_000_000
+                                        )
+
+                                        company.token_balance = (
+                                            company.token_balance or 0
+                                        ) + tokens
+                                        company.token_balance_usd = (
+                                            company.token_balance_usd or 0.0
+                                        ) + amount_usd
+
+                                        transaction = PaymentTransaction(
+                                            user_id=None,
+                                            company_id=str(company.id),
+                                            seat_count=0,
+                                            token_amount=tokens,
+                                            payment_method="stripe_subscription",
+                                            currency="USD",
+                                            network="stripe",
+                                            amount_usd=amount_usd,
+                                            amount_currency=amount_usd,
+                                            exchange_rate=1.0,
+                                            stripe_payment_intent_id=invoice.id,
+                                            status="completed",
+                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
+                                        )
+                                        session.add(transaction)
+                                        synced.append(
+                                            {
+                                                "type": "subscription",
+                                                "invoice_id": invoice.id,
+                                                "amount_usd": amount_usd,
+                                                "tokens": tokens,
+                                            }
+                                        )
+                                        logging.info(
+                                            f"Synced subscription payment: ${amount_usd} -> {tokens} tokens for company {company_id}"
+                                        )
                     except Exception as e:
                         logging.warning(f"Error syncing subscription invoices: {e}")
 
