@@ -421,6 +421,7 @@ class StripePaymentService:
     ) -> Dict[str, Any]:
         """Create a Stripe checkout session for a subscription"""
         import stripe
+        from ExtensionsHub import ExtensionsHub
 
         stripe.api_key = self.api_key
 
@@ -429,6 +430,13 @@ class StripePaymentService:
             or getenv("APP_URI")
             or "https://agixt.com"
         )
+
+        # Get app name for product naming
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        app_name = pricing_config.get("app_name") if pricing_config else None
+        if not app_name:
+            app_name = getenv("APP_NAME") or "AGiXT"
 
         def _create_checkout() -> Dict[str, Any]:
             # Create a price for this specific amount
@@ -443,8 +451,8 @@ class StripePaymentService:
                         "price_data": {
                             "currency": "usd",
                             "product_data": {
-                                "name": "Monthly Token Auto Top-Up",
-                                "description": "Automatic monthly token credit for AI usage",
+                                "name": f"{app_name} Monthly Subscription",
+                                "description": f"Monthly subscription for {app_name}",
                             },
                             "unit_amount": amount_cents,
                             "recurring": {
@@ -458,12 +466,14 @@ class StripePaymentService:
                     "company_id": str(company_id),
                     "type": "auto_topup_subscription",
                     "amount_usd": str(amount_cents / 100),
+                    "app_name": app_name,
                 },
                 subscription_data={
                     "metadata": {
                         "company_id": str(company_id),
                         "type": "auto_topup_subscription",
                         "amount_usd": str(amount_cents / 100),
+                        "app_name": app_name,
                     },
                 },
             )
@@ -472,19 +482,65 @@ class StripePaymentService:
         return await asyncio.to_thread(_create_checkout)
 
     async def get_auto_topup_status(self, *, company_id: str) -> Dict[str, Any]:
-        """Get the auto top-up subscription status for a company"""
+        """Get the auto top-up subscription status for a company.
+
+        For seat-based pricing models (per_user, per_capacity, per_location):
+        - Returns user_limit as seat_count (paid capacity)
+        - Returns actual_user_count (actual users in company)
+        - Calculates amount_usd based on actual seat count × price per unit
+
+        For token-based pricing:
+        - Returns stored auto_topup_amount_usd
+        """
+        from DB import UserCompany
+
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
 
+            # Determine pricing model
+            pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+            is_seat_based = pricing_model in [
+                "per_user",
+                "per_capacity",
+                "per_location",
+            ]
+
+            # Get actual user count for seat-based billing
+            actual_user_count = 0
+            if is_seat_based:
+                actual_user_count = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id == company_id)
+                    .count()
+                )
+
+            # For seat-based billing, calculate amount from actual seat count
+            if is_seat_based:
+                seat_count = company.user_limit or 1
+                price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+                calculated_amount = seat_count * price_per_unit
+                amount_usd = calculated_amount
+            else:
+                seat_count = 0
+                amount_usd = company.auto_topup_amount_usd
+
             result = {
                 "enabled": company.auto_topup_enabled,
-                "amount_usd": company.auto_topup_amount_usd,
+                "amount_usd": amount_usd,
+                "seat_count": seat_count,
+                "actual_user_count": actual_user_count,
                 "subscription_id": company.stripe_subscription_id,
                 "subscription_status": None,
                 "next_billing_date": None,
+                "app_name": company.app_name,
+                "last_billing_date": (
+                    company.last_subscription_billing_date.isoformat()
+                    if company.last_subscription_billing_date
+                    else None
+                ),
             }
 
             # If there's an active subscription, get more details from Stripe
@@ -501,6 +557,19 @@ class StripePaymentService:
                             result["next_billing_date"] = datetime.fromtimestamp(
                                 subscription["current_period_end"]
                             ).isoformat()
+
+                        # For seat-based, also get quantity from Stripe subscription if available
+                        if is_seat_based and subscription.get("items"):
+                            items = subscription["items"].get("data", [])
+                            if items:
+                                stripe_quantity = items[0].get("quantity", 1)
+                                # If Stripe quantity differs from user_limit, log warning
+                                if stripe_quantity != seat_count:
+                                    import logging
+
+                                    logging.warning(
+                                        f"Stripe subscription quantity ({stripe_quantity}) differs from user_limit ({seat_count}) for company {company_id}"
+                                    )
                 except Exception:
                     pass
 
@@ -570,6 +639,83 @@ class StripePaymentService:
             stripe.Subscription.cancel(subscription_id)
 
         await asyncio.to_thread(_cancel_subscription)
+
+    async def update_subscription_quantity(
+        self, *, company_id: str, new_quantity: int
+    ) -> Dict[str, Any]:
+        """Update the subscription quantity (seats) for seat-based billing.
+
+        This modifies the existing subscription in Stripe rather than
+        cancelling and recreating it.
+        """
+        import stripe
+
+        if not self.api_key or self.api_key.lower() == "none":
+            raise HTTPException(
+                status_code=400, detail="Stripe API key is not configured"
+            )
+
+        if new_quantity < 1:
+            raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            if not company.stripe_subscription_id:
+                raise HTTPException(
+                    status_code=400, detail="No active subscription found"
+                )
+
+            stripe.api_key = self.api_key
+
+            # Get the subscription to find the subscription item
+            subscription = stripe.Subscription.retrieve(company.stripe_subscription_id)
+
+            if (
+                not subscription
+                or not subscription.items
+                or not subscription.items.data
+            ):
+                raise HTTPException(
+                    status_code=400, detail="Could not retrieve subscription items"
+                )
+
+            # Update the quantity on the first subscription item
+            subscription_item_id = subscription.items.data[0].id
+
+            # Update the subscription item quantity
+            stripe.SubscriptionItem.modify(
+                subscription_item_id,
+                quantity=new_quantity,
+                proration_behavior="create_prorations",  # Prorate charges
+            )
+
+            # Update company user_limit to match new quantity
+            price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+            company.user_limit = new_quantity
+            company.auto_topup_amount_usd = new_quantity * price_per_unit
+            session.commit()
+
+            import logging
+
+            logging.info(
+                f"Updated subscription quantity to {new_quantity} for company {company_id}"
+            )
+
+            return {
+                "success": True,
+                "message": f"Subscription updated to {new_quantity} seats",
+                "company_id": company_id,
+                "new_quantity": new_quantity,
+                "new_amount_usd": new_quantity * price_per_unit,
+            }
+        except stripe.error.InvalidRequestError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        finally:
+            session.close()
 
     async def update_auto_topup_amount(
         self, *, company_id: str, new_amount_usd: float
@@ -693,6 +839,14 @@ class StripePaymentService:
         2. Checkout sessions that completed but weren't processed
         3. Payment intents that succeeded but weren't recorded
 
+        For seat-based pricing models (per_user, per_capacity, per_location):
+        - Updates billing dates
+        - Applies credits toward subscription (if available)
+        - Does NOT add tokens (payment is for seat access)
+
+        For token-based pricing (per_token):
+        - Adds tokens to the account balance
+
         Returns a summary of what was synced.
         """
         import stripe
@@ -709,6 +863,10 @@ class StripePaymentService:
         stripe.api_key = self.api_key
         session = get_session()
         synced = []
+
+        # Determine pricing model
+        pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+        is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
 
         try:
             # Look back 7 days for unprocessed payments
@@ -758,50 +916,118 @@ class StripePaymentService:
                                 )
 
                             if not existing:
-                                # Calculate tokens and credit
                                 amount_usd = invoice.amount_paid / 100.0
                                 if amount_usd > 0:
-                                    token_price = float(
-                                        getenv("TOKEN_PRICE_PER_MILLION_USD", "0.50")
-                                    )
-                                    if token_price <= 0:
-                                        token_price = 0.50
-                                    tokens = int((amount_usd / token_price) * 1_000_000)
+                                    tokens = 0
+                                    credits_applied = 0.0
 
-                                    company.token_balance = (
-                                        company.token_balance or 0
-                                    ) + tokens
-                                    company.token_balance_usd = (
-                                        company.token_balance_usd or 0.0
-                                    ) + amount_usd
+                                    if is_seat_based:
+                                        # Seat-based billing: update billing dates, apply credits
+                                        # Check if credits available to apply
+                                        available_credits = (
+                                            company.token_balance_usd or 0.0
+                                        )
+                                        if available_credits > 0:
+                                            credits_applied = min(
+                                                available_credits, amount_usd
+                                            )
+                                            company.token_balance_usd = (
+                                                available_credits - credits_applied
+                                            )
+                                            logging.info(
+                                                f"Applied ${credits_applied:.2f} credits toward subscription for company {company_id}"
+                                            )
 
-                                    transaction = PaymentTransaction(
-                                        user_id=None,
-                                        company_id=str(company.id),
-                                        seat_count=0,
-                                        token_amount=tokens,
-                                        payment_method="stripe_subscription",
-                                        currency="USD",
-                                        network="stripe",
-                                        amount_usd=amount_usd,
-                                        amount_currency=amount_usd,
-                                        exchange_rate=1.0,
-                                        stripe_payment_intent_id=invoice.id,
-                                        status="completed",
-                                        reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
-                                    )
-                                    session.add(transaction)
-                                    synced.append(
-                                        {
-                                            "type": "subscription",
-                                            "invoice_id": invoice.id,
-                                            "amount_usd": amount_usd,
-                                            "tokens": tokens,
-                                        }
-                                    )
-                                    logging.info(
-                                        f"Synced subscription payment: ${amount_usd} -> {tokens} tokens for company {company_id}"
-                                    )
+                                        # Update billing dates
+                                        company.last_subscription_billing_date = (
+                                            datetime.utcnow()
+                                        )
+                                        if invoice.lines and invoice.lines.data:
+                                            line = invoice.lines.data[0]
+                                            if line.period and line.period.end:
+                                                company.next_subscription_billing_date = datetime.fromtimestamp(
+                                                    line.period.end
+                                                )
+
+                                        transaction = PaymentTransaction(
+                                            user_id=None,
+                                            company_id=str(company.id),
+                                            seat_count=company.user_limit or 1,
+                                            token_amount=0,
+                                            payment_method="stripe_subscription",
+                                            currency="USD",
+                                            network="stripe",
+                                            amount_usd=amount_usd,
+                                            amount_currency=amount_usd,
+                                            exchange_rate=1.0,
+                                            stripe_payment_intent_id=invoice.id,
+                                            status="completed",
+                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
+                                            metadata={
+                                                "credits_applied": credits_applied,
+                                                "pricing_model": pricing_model,
+                                            },
+                                        )
+                                        session.add(transaction)
+                                        synced.append(
+                                            {
+                                                "type": "subscription",
+                                                "invoice_id": invoice.id,
+                                                "amount_usd": amount_usd,
+                                                "tokens": 0,
+                                                "credits_applied": credits_applied,
+                                            }
+                                        )
+                                        logging.info(
+                                            f"Synced seat-based subscription payment: ${amount_usd} (${credits_applied:.2f} credits applied) for company {company_id}"
+                                        )
+                                    else:
+                                        # Token-based billing: add tokens to balance
+                                        token_price = float(
+                                            getenv(
+                                                "TOKEN_PRICE_PER_MILLION_USD", "0.50"
+                                            )
+                                        )
+                                        if token_price <= 0:
+                                            token_price = 0.50
+                                        tokens = int(
+                                            (amount_usd / token_price) * 1_000_000
+                                        )
+
+                                        company.token_balance = (
+                                            company.token_balance or 0
+                                        ) + tokens
+                                        company.token_balance_usd = (
+                                            company.token_balance_usd or 0.0
+                                        ) + amount_usd
+
+                                        transaction = PaymentTransaction(
+                                            user_id=None,
+                                            company_id=str(company.id),
+                                            seat_count=0,
+                                            token_amount=tokens,
+                                            payment_method="stripe_subscription",
+                                            currency="USD",
+                                            network="stripe",
+                                            amount_usd=amount_usd,
+                                            amount_currency=amount_usd,
+                                            exchange_rate=1.0,
+                                            stripe_payment_intent_id=invoice.id,
+                                            status="completed",
+                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
+                                        )
+                                        session.add(transaction)
+                                        synced.append(
+                                            {
+                                                "type": "subscription",
+                                                "invoice_id": invoice.id,
+                                                "amount_usd": amount_usd,
+                                                "tokens": tokens,
+                                            }
+                                        )
+                                        logging.info(
+                                            f"Synced subscription payment: ${amount_usd} -> {tokens} tokens for company {company_id}"
+                                        )
                     except Exception as e:
                         logging.warning(f"Error syncing subscription invoices: {e}")
 

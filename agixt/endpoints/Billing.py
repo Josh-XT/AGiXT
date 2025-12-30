@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, Header, HTTPException, Depends, Query
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 from MagicalAuth import MagicalAuth, verify_api_key
@@ -164,6 +164,165 @@ async def get_token_purchase_quote(request: TokenQuoteRequest):
         return await price_service.get_token_quote_for_currency(
             request.token_millions, request.currency
         )
+
+
+@app.get("/v1/billing/pricing", tags=["Billing"])
+async def get_pricing_config() -> Dict[str, Any]:
+    """
+    Get pricing configuration for the current application.
+
+    Returns pricing model, tiers, trial info, and other billing configuration
+    based on the extension hub's pricing.json or default token-based pricing.
+
+    This endpoint is public (no authentication required) as pricing info
+    is typically displayed on landing pages before user login.
+    """
+    from ExtensionsHub import ExtensionsHub
+
+    hub = ExtensionsHub()
+    config = hub.get_pricing_config()
+
+    if config:
+        return config
+
+    # Return default token-based pricing
+    return hub.get_default_pricing_config()
+
+
+@app.get("/v1/billing/pricing/enabled", tags=["Billing"])
+async def is_billing_enabled() -> Dict[str, Any]:
+    """
+    Check if billing is enabled and what type of billing model is active.
+
+    Returns:
+        Dict with billing_enabled flag and pricing_model type
+    """
+    from ExtensionsHub import ExtensionsHub
+    from Globals import getenv
+
+    # Check if billing is paused globally
+    billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+    if billing_paused:
+        return {
+            "billing_enabled": False,
+            "reason": "paused",
+            "pricing_model": None,
+        }
+
+    hub = ExtensionsHub()
+    config = hub.get_pricing_config()
+
+    if config:
+        # Subscription-based pricing is enabled if we have a pricing.json
+        # Check if any tier has actual pricing
+        tiers = config.get("tiers", [])
+        has_paid_tiers = any(
+            tier.get("price_per_unit") is not None or tier.get("custom_pricing", False)
+            for tier in tiers
+        )
+        return {
+            "billing_enabled": has_paid_tiers,
+            "pricing_model": config.get("pricing_model"),
+            "app_name": config.get("app_name"),
+            "unit_name": config.get("unit_name"),
+        }
+
+    # Check token-based pricing
+    token_price = getenv("TOKEN_PRICE_PER_MILLION_USD")
+    try:
+        token_price_float = float(token_price) if token_price else 0.0
+    except (ValueError, TypeError):
+        token_price_float = 0.0
+
+    return {
+        "billing_enabled": token_price_float > 0,
+        "pricing_model": "per_token" if token_price_float > 0 else None,
+        "token_price_per_million": token_price_float,
+    }
+
+
+class TrialEligibilityRequest(BaseModel):
+    """Request to check trial eligibility for an email address"""
+
+    email: str
+
+
+class TrialEligibilityResponse(BaseModel):
+    """Response for trial eligibility check"""
+
+    eligible: bool
+    reason: str
+    credits_usd: Optional[float] = None
+    is_business_domain: bool
+
+
+@app.post("/v1/billing/trial/check", tags=["Billing"])
+async def check_trial_eligibility(
+    request: TrialEligibilityRequest,
+) -> TrialEligibilityResponse:
+    """
+    Check if an email address is eligible for trial credits.
+
+    This is a public endpoint (no auth required) so users can check eligibility
+    before registration.
+
+    Trial eligibility requires:
+    1. A business email domain (not gmail, outlook, etc.)
+    2. The domain has not already been used for trial credits
+    3. Trials are enabled in the pricing configuration
+    """
+    from TrialService import trial_service
+
+    eligible, reason, credits_usd = trial_service.check_trial_eligibility(request.email)
+    is_business = trial_service.is_business_domain(request.email)
+
+    return TrialEligibilityResponse(
+        eligible=eligible,
+        reason=reason,
+        credits_usd=credits_usd,
+        is_business_domain=is_business,
+    )
+
+
+@app.get(
+    "/v1/billing/trial/status",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_trial_status(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Get trial status for a company.
+
+    Returns whether trial credits have been used and the amount granted.
+    """
+    from TrialService import trial_service
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Verify user has access to this company
+    user_companies = auth.get_user_companies()
+    if company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    return trial_service.get_trial_status(company_id)
+
+
+@app.get("/v1/billing/trial/config", tags=["Billing"])
+async def get_trial_config():
+    """
+    Get trial configuration.
+
+    This is a public endpoint showing trial settings from pricing configuration.
+    """
+    from TrialService import trial_service
+
+    return trial_service.get_trial_config()
 
 
 @app.post(
@@ -529,6 +688,7 @@ async def get_payment_transactions(
                     "memo": txn.memo,
                     "seat_count": txn.seat_count or 0,
                     "token_amount": txn.token_amount,
+                    "app_name": txn.app_name,
                     "metadata": {},
                     "created_at": (
                         txn.created_at.isoformat() if txn.created_at else None
@@ -817,11 +977,19 @@ async def update_auto_topup(
     authorization: str = Header(None),
 ):
     """
-    Update the monthly auto top-up amount.
+    Update the monthly auto top-up amount or seat count.
 
-    This cancels the existing subscription and creates a new checkout session
-    for the updated amount. The user will need to complete the checkout again.
+    For seat-based pricing (per_user, per_capacity, per_location):
+    - Updates the subscription quantity directly in Stripe
+    - Prorates charges automatically
+    - No checkout needed
+
+    For token-based pricing:
+    - Cancels the existing subscription and creates a new checkout session
+    - User needs to complete checkout again
     """
+    from Globals import getenv
+
     auth = MagicalAuth(token=authorization)
     auth.validate_user()
 
@@ -833,12 +1001,29 @@ async def update_auto_topup(
         )
 
     stripe_service = StripePaymentService()
+
+    # Determine pricing model
+    pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+    is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
+
     try:
-        result = await stripe_service.update_auto_topup_amount(
-            company_id=request.company_id,
-            new_amount_usd=request.amount_usd,
-        )
-        return result
+        if is_seat_based:
+            # For seat-based billing, update quantity directly
+            price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+            new_quantity = max(1, round(request.amount_usd / price_per_unit))
+
+            result = await stripe_service.update_subscription_quantity(
+                company_id=request.company_id,
+                new_quantity=new_quantity,
+            )
+            return result
+        else:
+            # For token-based billing, cancel and recreate (requires checkout)
+            result = await stripe_service.update_auto_topup_amount(
+                company_id=request.company_id,
+                new_amount_usd=request.amount_usd,
+            )
+            return result
     except Exception as e:
         logging.error(f"Error updating auto top-up: {str(e)}")
         raise HTTPException(

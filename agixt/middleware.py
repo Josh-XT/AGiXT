@@ -393,6 +393,54 @@ async def send_discord_topup_notification(
     )
 
 
+async def send_discord_trial_notification(
+    email: str,
+    credits_usd: float,
+    domain: str,
+    company_id: str = None,
+    company_name: str = None,
+):
+    """
+    Send notification when trial credits are granted to a new user.
+
+    Args:
+        email: The email of the user who received trial credits
+        credits_usd: The amount in USD granted as trial credits
+        domain: The business domain that qualified for trial
+        company_id: Optional company ID
+        company_name: Optional company name
+    """
+    # Skip test/example emails to avoid spamming Discord
+    if email and (
+        email.lower().endswith("@example.com")
+        or email.lower().endswith("test.com")
+        or "testbusiness" in email.lower()
+    ):
+        logging.debug(f"Skipping Discord trial notification for test email: {email}")
+        return
+
+    agixt_server = getenv("AGIXT_URI", "Unknown Server")
+    app_name = getenv("APP_NAME", "AGiXT")
+
+    fields = [
+        {"name": "Credits Granted", "value": f"${credits_usd:.2f} USD", "inline": True},
+        {"name": "Domain", "value": f"`{domain}`", "inline": True},
+    ]
+    if company_name:
+        fields.append({"name": "Company", "value": company_name, "inline": False})
+    if company_id:
+        fields.append(
+            {"name": "Company ID", "value": f"`{company_id}`", "inline": False}
+        )
+
+    await send_discord_notification(
+        title=f"🎁 Trial Credits Granted on {app_name}",
+        description=f"**Server:** `{agixt_server}`\n**User:** `{email}`",
+        color=10181046,  # Purple - distinct from top-up gold and new user green
+        fields=fields,
+    )
+
+
 class DiscordErrorMiddleware(BaseHTTPMiddleware):
     """Middleware to catch unhandled exceptions and send them to Discord"""
 
