@@ -549,19 +549,27 @@ class StripePaymentService:
             if company.trial_credits_granted and company.trial_credits_granted_at:
                 # Get trial config for duration (using hub already initialized above)
                 trial_config = pricing_config.get("trial", {}) if pricing_config else {}
-                trial_days = trial_config.get("days", 30)
+                trial_days = trial_config.get("days")  # None means no time limit
 
-                trial_end = company.trial_credits_granted_at + timedelta(
-                    days=trial_days
-                )
-                is_trial_active = datetime.utcnow() < trial_end
-                days_remaining = max(0, (trial_end - datetime.utcnow()).days)
+                # Calculate trial end and days remaining only if there's a time limit
+                if trial_days is not None:
+                    trial_end = company.trial_credits_granted_at + timedelta(
+                        days=trial_days
+                    )
+                    is_trial_active = datetime.utcnow() < trial_end
+                    days_remaining = max(0, (trial_end - datetime.utcnow()).days)
+                    trial_end_str = trial_end.isoformat()
+                else:
+                    # No time limit - credits last until used
+                    is_trial_active = (company.token_balance_usd or 0) > 0
+                    days_remaining = None
+                    trial_end_str = None
 
                 trial_info = {
                     "credits_granted": company.trial_credits_granted,
                     "credits_remaining": company.token_balance_usd or 0,
                     "granted_at": company.trial_credits_granted_at.isoformat(),
-                    "trial_end": trial_end.isoformat(),
+                    "trial_end": trial_end_str,
                     "is_active": is_trial_active,
                     "days_remaining": days_remaining,
                     "domain": company.trial_domain,

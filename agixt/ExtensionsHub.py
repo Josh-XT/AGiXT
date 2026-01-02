@@ -237,11 +237,24 @@ class ExtensionsHub:
                     ],
                 }
             ],
-            "trial": {
-                "enabled": token_price_float == 0.0,
-                "type": "free" if token_price_float == 0.0 else None,
-                "description": "Free to use" if token_price_float == 0.0 else None,
-            },
+            "trial": (
+                {
+                    "enabled": token_price_float
+                    > 0.0,  # Enable trial when billing is active
+                    "days": None,  # No time limit - credits last until used
+                    "type": "credits",
+                    "credits_usd": 10.00,  # $10 in credits (~2M tokens) for new business email users
+                    "description": "$10 in free credits for business domains",
+                    "requires_card": False,
+                    "business_domain_only": True,
+                }
+                if token_price_float > 0.0
+                else {
+                    "enabled": True,
+                    "type": "free",
+                    "description": "Free to use",
+                }
+            ),
             "volume_discounts": {"enabled": False},
             "contracts": {"monthly": False, "annual": False},
         }
