@@ -1010,9 +1010,9 @@ def import_all_data():
 
     # Initialize extensions hub first to clone external extensions
     try:
-        from ExtensionsHub import ExtensionsHub
+        from ExtensionsHub import ExtensionsHub, initialize_global_cache
 
-        hub = ExtensionsHub()
+        hub = ExtensionsHub(skip_global_cache=True)
         # Use the synchronous version to avoid event loop conflicts
         hub_success = hub.clone_or_update_hub_sync()
 
@@ -1021,6 +1021,11 @@ def import_all_data():
             from Extensions import invalidate_extension_cache
 
             invalidate_extension_cache()
+
+        # Initialize global cache for extension paths and pricing config
+        # This runs BEFORE workers spawn, so workers can load from cache
+        initialize_global_cache()
+        logging.info("Initialized global extensions cache for worker efficiency")
     except Exception as e:
         logging.warning(f"Failed to initialize extensions hub: {e}")
 

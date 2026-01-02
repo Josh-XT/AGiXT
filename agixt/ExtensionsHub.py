@@ -1,5 +1,9 @@
 """
 ExtensionsHub - Manages cloning and updating of external extension repositories
+
+This module includes a global cache system that allows extension paths and pricing
+configuration to be computed once at application startup (before workers are spawned)
+and shared across all uvicorn workers efficiently.
 """
 
 import os
@@ -15,33 +19,158 @@ logging.basicConfig(
     format=getenv("LOG_FORMAT"),
 )
 
+# Global cache file location - written before workers spawn, read by workers
+_EXTENSIONS_CACHE_FILE = os.path.join(
+    os.path.dirname(__file__), ".extensions_cache.json"
+)
+
+# Module-level globals for in-memory cache (survives across requests in same worker)
+_global_extension_paths: Optional[List[str]] = None
+_global_pricing_config: Optional[Dict[str, Any]] = None
+_global_cache_loaded: bool = False
+
+
+def _load_global_cache():
+    """Load the global cache from file into memory (called once per worker)."""
+    global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+
+    if _global_cache_loaded:
+        return
+
+    if os.path.exists(_EXTENSIONS_CACHE_FILE):
+        try:
+            with open(_EXTENSIONS_CACHE_FILE, "r") as f:
+                cache = json.load(f)
+                _global_extension_paths = cache.get("extension_paths")
+                _global_pricing_config = cache.get("pricing_config")
+                _global_cache_loaded = True
+                logging.debug(f"Loaded extensions cache from {_EXTENSIONS_CACHE_FILE}")
+        except Exception as e:
+            logging.warning(f"Failed to load extensions cache: {e}")
+            _global_cache_loaded = True  # Mark as loaded to avoid repeated failures
+
+
+def _save_global_cache(
+    extension_paths: List[str], pricing_config: Optional[Dict[str, Any]]
+):
+    """Save the global cache to file (called during startup before workers spawn)."""
+    global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+
+    try:
+        cache = {
+            "extension_paths": extension_paths,
+            "pricing_config": pricing_config,
+        }
+        with open(_EXTENSIONS_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+
+        # Also update in-memory cache
+        _global_extension_paths = extension_paths
+        _global_pricing_config = pricing_config
+        _global_cache_loaded = True
+
+        logging.info(f"Saved extensions cache to {_EXTENSIONS_CACHE_FILE}")
+    except Exception as e:
+        logging.warning(f"Failed to save extensions cache: {e}")
+
+
+def invalidate_global_cache():
+    """Invalidate the global cache (e.g., when extensions are updated)."""
+    global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+
+    _global_extension_paths = None
+    _global_pricing_config = None
+    _global_cache_loaded = False
+
+    if os.path.exists(_EXTENSIONS_CACHE_FILE):
+        try:
+            os.remove(_EXTENSIONS_CACHE_FILE)
+            logging.info("Invalidated extensions cache")
+        except Exception as e:
+            logging.warning(f"Failed to remove extensions cache file: {e}")
+
+
+def initialize_global_cache():
+    """
+    Initialize the global extensions cache.
+
+    This should be called ONCE during application startup, BEFORE workers are spawned.
+    It computes extension paths and pricing config, then saves them to a cache file
+    that workers can quickly load.
+
+    Returns:
+        Tuple of (extension_paths, pricing_config)
+    """
+    # Create hub instance that skips global cache (we're building it)
+    hub = ExtensionsHub(skip_global_cache=True)
+
+    # Compute extension paths (this also adds them to sys.path)
+    extension_paths = hub.get_extension_search_paths()
+
+    # Compute pricing config
+    pricing_config = hub.get_pricing_config()
+
+    # Save to global cache file for workers
+    _save_global_cache(extension_paths, pricing_config)
+
+    logging.info(
+        f"Initialized global extensions cache: {len(extension_paths)} paths, "
+        f"pricing_model={pricing_config.get('pricing_model') if pricing_config else 'default'}"
+    )
+
+    return extension_paths, pricing_config
+
 
 class ExtensionsHub:
     """Manages external extension repositories"""
 
-    def __init__(self):
+    def __init__(self, skip_global_cache: bool = False):
+        """
+        Initialize ExtensionsHub.
+
+        Args:
+            skip_global_cache: If True, skip loading from global cache (used during
+                               initial setup before workers spawn)
+        """
         # Ensure we're cloning to the same directory that Extensions.py looks in
         self.extensions_dir = (
             "extensions" if os.path.exists("extensions") else "agixt/extensions"
         )
         self.hub_urls = getenv("EXTENSIONS_HUB")
         self.hub_token = getenv("EXTENSIONS_HUB_TOKEN")
-        # Cache for extension search paths
+        # Instance cache (falls back to global cache)
         self._extension_paths_cache = None
-        # Cache for pricing config
         self._pricing_config_cache = None
+        self._skip_global_cache = skip_global_cache
+
+        # Load global cache on init if not skipping
+        if not skip_global_cache:
+            _load_global_cache()
 
     def get_pricing_config(self) -> Optional[Dict[str, Any]]:
         """
         Load pricing.json from extension hub if it exists.
         Returns the pricing configuration for the current app deployment.
 
+        Uses global cache for efficiency when available (shared across workers).
+
         Returns:
             Dict with pricing configuration, or None if no pricing.json found
         """
+        # Check instance cache first
         if self._pricing_config_cache is not None:
             return self._pricing_config_cache
 
+        # Check global cache (shared across workers)
+        if (
+            not self._skip_global_cache
+            and _global_cache_loaded
+            and _global_pricing_config is not None
+        ):
+            self._pricing_config_cache = _global_pricing_config
+            return self._pricing_config_cache
+
+        # Compute from scratch
         app_name = getenv("APP_NAME")
         search_paths = self.get_extension_search_paths()
 
@@ -121,10 +250,28 @@ class ExtensionsHub:
         """
         Get all paths to search for extensions, including local paths from EXTENSIONS_HUB
 
+        Uses global cache for efficiency when available (shared across workers).
+
         Returns:
             List of absolute paths to search for extensions
         """
+        # Check instance cache first
         if self._extension_paths_cache is not None:
+            return self._extension_paths_cache
+
+        # Check global cache (shared across workers)
+        if (
+            not self._skip_global_cache
+            and _global_cache_loaded
+            and _global_extension_paths is not None
+        ):
+            self._extension_paths_cache = _global_extension_paths
+            # Still need to add to sys.path for this worker
+            import sys
+
+            for path in self._extension_paths_cache:
+                if path not in sys.path:
+                    sys.path.insert(0, path)
             return self._extension_paths_cache
 
         import sys

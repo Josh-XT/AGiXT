@@ -67,3 +67,4 @@ agixt.egg-info/
 xtsystems_extensions
 tests/test_*
 *.server_config_key*
+.extensions_cache.json

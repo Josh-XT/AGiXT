@@ -118,8 +118,12 @@ async def lifespan(app: FastAPI):
         load_server_config_cache()
         logging.debug("Server config cache loaded for worker")
 
-        # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
-        # to avoid multiple workers trying to clone the same repositories
+        # Load extensions hub global cache (pricing config, extension paths)
+        # This was computed and saved during seed imports before workers spawned
+        from ExtensionsHub import _load_global_cache
+
+        _load_global_cache()
+        logging.debug("Extensions hub cache loaded for worker")
 
         workspace_manager.start_file_watcher()
         await task_monitor.start()
