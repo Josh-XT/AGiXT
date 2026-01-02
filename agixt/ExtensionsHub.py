@@ -823,7 +823,8 @@ def reload_extension_hubs():
         "success": True,
         "hub_paths": [],
         "extensions_discovered": 0,
-        "scopes_seeded": 0,
+        "scopes_created": 0,
+        "role_assignments_created": 0,
         "errors": [],
     }
 
@@ -858,30 +859,21 @@ def reload_extension_hubs():
 
         # Step 5: Re-seed extension scopes (the main thing we need for menu visibility)
         try:
-            from DB import seed_default_scopes_for_role, get_session, Role
+            from DB import reseed_extension_scopes
 
-            session = get_session()
-            try:
-                # Re-seed scopes for all roles to pick up new extension scopes
-                roles = session.query(Role).all()
-                scopes_created = 0
-                for role in roles:
-                    try:
-                        created = seed_default_scopes_for_role(role.id, session)
-                        scopes_created += created
-                    except Exception as role_error:
-                        logging.debug(
-                            f"Error seeding scopes for role {role.id}: {role_error}"
-                        )
-
-                results["scopes_seeded"] = scopes_created
-                logging.info(
-                    f"Step 5: Seeded {scopes_created} scopes across {len(roles)} roles"
-                )
-            finally:
-                session.close()
+            reseed_result = reseed_extension_scopes()
+            results["scopes_created"] = reseed_result.get("scopes_created", 0)
+            results["role_assignments_created"] = reseed_result.get(
+                "role_assignments_created", 0
+            )
+            if reseed_result.get("errors"):
+                results["errors"].extend(reseed_result["errors"])
+            logging.info(
+                f"Step 5: Reseeded scopes - {results['scopes_created']} new scopes, "
+                f"{results['role_assignments_created']} new role assignments"
+            )
         except Exception as e:
-            results["errors"].append(f"Failed to seed scopes: {e}")
+            results["errors"].append(f"Failed to reseed scopes: {e}")
             logging.warning(f"Step 5 error: {e}")
 
         # Step 6: Re-register extension routers (for new API endpoints)

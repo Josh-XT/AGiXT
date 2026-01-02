@@ -4667,6 +4667,122 @@ def setup_default_role_scopes():
         logging.info("Set up default role scope mappings")
 
 
+def reseed_extension_scopes():
+    """
+    Re-seed extension scopes when new extensions are added (e.g., via hot-reload).
+    This function:
+    1. Creates any missing extension scopes in the Scope table
+    2. Assigns new scopes to roles based on default_role_scopes patterns
+    
+    Returns:
+        Dict with counts of scopes and role assignments created
+    """
+    results = {
+        "scopes_created": 0,
+        "role_assignments_created": 0,
+        "errors": [],
+    }
+    
+    try:
+        # Generate all extension scopes that should exist
+        extension_scopes = generate_extension_scopes()
+        
+        with get_session() as db:
+            # Step 1: Create any missing scopes
+            existing_scope_names = {s.name for s in db.query(Scope.name).all()}
+            
+            for scope_data in extension_scopes:
+                if scope_data["name"] not in existing_scope_names:
+                    new_scope = Scope(
+                        name=scope_data["name"],
+                        resource=scope_data["resource"],
+                        action=scope_data["action"],
+                        description=scope_data.get("description"),
+                        category=scope_data.get("category"),
+                        is_system=True,
+                    )
+                    db.add(new_scope)
+                    results["scopes_created"] += 1
+            
+            db.commit()
+            
+            # Step 2: Get all scopes (including newly created ones)
+            all_scopes = db.query(Scope).all()
+            scope_map = {s.name: s for s in all_scopes}
+            
+            # Step 3: Assign new extension scopes to roles based on patterns
+            for role_id, scope_patterns in default_role_scopes.items():
+                # Get the role
+                role = db.query(UserRole).filter_by(id=role_id).first()
+                if not role:
+                    continue
+                
+                # Get existing scope assignments for this role
+                existing_assignments = {
+                    rs.scope_id
+                    for rs in db.query(DefaultRoleScope)
+                    .filter_by(role_id=role_id)
+                    .all()
+                }
+                
+                # Expand wildcard patterns
+                scopes_to_assign = set()
+                for pattern in scope_patterns:
+                    if pattern == "*":
+                        # All scopes
+                        scopes_to_assign.update(scope_map.keys())
+                    elif pattern == "ext:*":
+                        # All extension scopes
+                        for scope_name in scope_map.keys():
+                            if scope_name.startswith("ext:"):
+                                scopes_to_assign.add(scope_name)
+                    elif pattern.startswith("ext:*:"):
+                        # Action wildcard for all extensions (e.g., "ext:*:read")
+                        action = pattern.split(":")[-1]
+                        for scope_name in scope_map.keys():
+                            if scope_name.startswith("ext:") and scope_name.endswith(
+                                f":{action}"
+                            ):
+                                scopes_to_assign.add(scope_name)
+                    elif pattern.endswith(":*"):
+                        # Resource wildcard (e.g., "agents:*", "ext:github:*")
+                        resource = pattern[:-2]
+                        for scope_name in scope_map.keys():
+                            if scope_name.startswith(f"{resource}:"):
+                                scopes_to_assign.add(scope_name)
+                    else:
+                        # Exact match
+                        if pattern in scope_map:
+                            scopes_to_assign.add(pattern)
+                
+                # Create missing DefaultRoleScope entries
+                for scope_name in scopes_to_assign:
+                    scope = scope_map.get(scope_name)
+                    if not scope:
+                        continue
+                    
+                    if scope.id not in existing_assignments:
+                        role_scope = DefaultRoleScope(
+                            role_id=role_id,
+                            scope_id=scope.id,
+                        )
+                        db.add(role_scope)
+                        results["role_assignments_created"] += 1
+            
+            db.commit()
+            
+        logging.info(
+            f"Reseeded extension scopes: {results['scopes_created']} scopes created, "
+            f"{results['role_assignments_created']} role assignments created"
+        )
+        
+    except Exception as e:
+        results["errors"].append(str(e))
+        logging.error(f"Error reseeding extension scopes: {e}")
+    
+    return results
+
+
 def migrate_response_cache_table():
     """
     Migration function to create the response_cache table for shared caching across workers.

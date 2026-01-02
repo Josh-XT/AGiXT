@@ -1042,3 +1042,21 @@ def import_all_data():
         register_extension_routers()
     except Exception as e:
         logging.warning(f"Failed to register extension routers: {e}")
+
+    # Reseed extension scopes after hub extensions are discovered
+    # This ensures all extension scopes are created and assigned to roles
+    # even if they weren't available during initial scope setup
+    try:
+        from DB import reseed_extension_scopes
+
+        result = reseed_extension_scopes()
+        if (
+            result.get("scopes_created", 0) > 0
+            or result.get("role_assignments_created", 0) > 0
+        ):
+            logging.info(
+                f"Reseeded extension scopes: {result.get('scopes_created', 0)} new scopes, "
+                f"{result.get('role_assignments_created', 0)} new role assignments"
+            )
+    except Exception as e:
+        logging.warning(f"Failed to reseed extension scopes: {e}")
