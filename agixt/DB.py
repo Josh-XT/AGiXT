@@ -4673,7 +4673,7 @@ def reseed_extension_scopes():
     This function:
     1. Creates any missing extension scopes in the Scope table
     2. Assigns new scopes to roles based on default_role_scopes patterns
-    
+
     Returns:
         Dict with counts of scopes and role assignments created
     """
@@ -4682,15 +4682,15 @@ def reseed_extension_scopes():
         "role_assignments_created": 0,
         "errors": [],
     }
-    
+
     try:
         # Generate all extension scopes that should exist
         extension_scopes = generate_extension_scopes()
-        
+
         with get_session() as db:
             # Step 1: Create any missing scopes
             existing_scope_names = {s.name for s in db.query(Scope.name).all()}
-            
+
             for scope_data in extension_scopes:
                 if scope_data["name"] not in existing_scope_names:
                     new_scope = Scope(
@@ -4703,20 +4703,20 @@ def reseed_extension_scopes():
                     )
                     db.add(new_scope)
                     results["scopes_created"] += 1
-            
+
             db.commit()
-            
+
             # Step 2: Get all scopes (including newly created ones)
             all_scopes = db.query(Scope).all()
             scope_map = {s.name: s for s in all_scopes}
-            
+
             # Step 3: Assign new extension scopes to roles based on patterns
             for role_id, scope_patterns in default_role_scopes.items():
                 # Get the role
                 role = db.query(UserRole).filter_by(id=role_id).first()
                 if not role:
                     continue
-                
+
                 # Get existing scope assignments for this role
                 existing_assignments = {
                     rs.scope_id
@@ -4724,7 +4724,7 @@ def reseed_extension_scopes():
                     .filter_by(role_id=role_id)
                     .all()
                 }
-                
+
                 # Expand wildcard patterns
                 scopes_to_assign = set()
                 for pattern in scope_patterns:
@@ -4754,13 +4754,13 @@ def reseed_extension_scopes():
                         # Exact match
                         if pattern in scope_map:
                             scopes_to_assign.add(pattern)
-                
+
                 # Create missing DefaultRoleScope entries
                 for scope_name in scopes_to_assign:
                     scope = scope_map.get(scope_name)
                     if not scope:
                         continue
-                    
+
                     if scope.id not in existing_assignments:
                         role_scope = DefaultRoleScope(
                             role_id=role_id,
@@ -4768,18 +4768,18 @@ def reseed_extension_scopes():
                         )
                         db.add(role_scope)
                         results["role_assignments_created"] += 1
-            
+
             db.commit()
-            
+
         logging.info(
             f"Reseeded extension scopes: {results['scopes_created']} scopes created, "
             f"{results['role_assignments_created']} role assignments created"
         )
-        
+
     except Exception as e:
         results["errors"].append(str(e))
         logging.error(f"Error reseeding extension scopes: {e}")
-    
+
     return results
 
 
