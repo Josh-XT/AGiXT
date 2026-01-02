@@ -491,11 +491,14 @@ class StripePaymentService:
         - Returns user_limit as seat_count (paid capacity)
         - Returns actual_user_count (actual users in company)
         - Calculates amount_usd based on actual seat count × price per unit
+        - Includes trial status if trial credits were granted
 
         For token-based pricing:
         - Returns stored auto_topup_amount_usd
         """
         from DB import UserCompany
+        from datetime import datetime, timedelta
+        from ExtensionsHub import ExtensionsHub
 
         session = get_session()
         try:
@@ -503,8 +506,14 @@ class StripePaymentService:
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
 
-            # Determine pricing model
-            pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+            # Determine pricing model from ExtensionsHub
+            hub = ExtensionsHub()
+            pricing_config = hub.get_pricing_config()
+            pricing_model = (
+                pricing_config.get("pricing_model", "per_token").lower()
+                if pricing_config
+                else "per_token"
+            )
             is_seat_based = pricing_model in [
                 "per_user",
                 "per_capacity",
@@ -523,12 +532,40 @@ class StripePaymentService:
             # For seat-based billing, calculate amount from actual seat count
             if is_seat_based:
                 seat_count = company.user_limit or 1
-                price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+                # Get price per unit from pricing config
+                price_per_unit = 75.0
+                if pricing_config and pricing_config.get("tiers"):
+                    price_per_unit = float(
+                        pricing_config["tiers"][0].get("price_per_unit", 75)
+                    )
                 calculated_amount = seat_count * price_per_unit
                 amount_usd = calculated_amount
             else:
                 seat_count = 0
                 amount_usd = company.auto_topup_amount_usd
+
+            # Check trial status
+            trial_info = None
+            if company.trial_credits_granted and company.trial_credits_granted_at:
+                # Get trial config for duration (using hub already initialized above)
+                trial_config = pricing_config.get("trial", {}) if pricing_config else {}
+                trial_days = trial_config.get("days", 30)
+
+                trial_end = company.trial_credits_granted_at + timedelta(
+                    days=trial_days
+                )
+                is_trial_active = datetime.utcnow() < trial_end
+                days_remaining = max(0, (trial_end - datetime.utcnow()).days)
+
+                trial_info = {
+                    "credits_granted": company.trial_credits_granted,
+                    "credits_remaining": company.token_balance_usd or 0,
+                    "granted_at": company.trial_credits_granted_at.isoformat(),
+                    "trial_end": trial_end.isoformat(),
+                    "is_active": is_trial_active,
+                    "days_remaining": days_remaining,
+                    "domain": company.trial_domain,
+                }
 
             result = {
                 "enabled": company.auto_topup_enabled,
@@ -544,6 +581,7 @@ class StripePaymentService:
                     if company.last_subscription_billing_date
                     else None
                 ),
+                "trial": trial_info,
             }
 
             # If there's an active subscription, get more details from Stripe
@@ -555,8 +593,6 @@ class StripePaymentService:
                     if subscription:
                         result["subscription_status"] = subscription.get("status")
                         if subscription.get("current_period_end"):
-                            from datetime import datetime
-
                             result["next_billing_date"] = datetime.fromtimestamp(
                                 subscription["current_period_end"]
                             ).isoformat()

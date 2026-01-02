@@ -1975,13 +1975,49 @@ class MagicalAuth:
         return False
 
     def _has_sufficient_token_balance(self, session, user_companies) -> bool:
-        """Check if any of the user's companies have a positive token balance"""
+        """Check if any of the user's companies have a positive token balance or valid subscription.
+
+        For token-based billing: checks token_balance > 0
+        For seat-based billing: checks token_balance_usd > 0 (trial credits) or active subscription
+        """
+        from ExtensionsHub import ExtensionsHub
+
         company_ids = {
             user_company.company_id
             for user_company in user_companies
             if getattr(user_company, "company_id", None)
         }
-        if company_ids:
+        if not company_ids:
+            return False
+
+        # Get pricing model
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+        is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
+
+        if is_seat_based:
+            # For seat-based billing, check:
+            # 1. Trial credits (token_balance_usd > 0)
+            # 2. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
+            company_with_credits = (
+                session.query(Company)
+                .filter(Company.id.in_(list(company_ids)))
+                .filter(
+                    (Company.token_balance_usd > 0)  # Has trial credits
+                    | (
+                        (Company.stripe_subscription_id != None)
+                        & (Company.auto_topup_enabled == True)
+                    )  # Has subscription
+                )
+                .first()
+            )
+            if company_with_credits:
+                return True
+        else:
+            # For token-based billing, check token_balance
             company_with_balance = (
                 session.query(Company)
                 .filter(Company.id.in_(list(company_ids)))
@@ -1990,6 +2026,7 @@ class MagicalAuth:
             )
             if company_with_balance:
                 return True
+
         return False
 
     def check_billing_balance(self):
