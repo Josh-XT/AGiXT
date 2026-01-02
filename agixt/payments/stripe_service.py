@@ -733,7 +733,15 @@ class StripePaymentService:
             )
 
             # Update company user_limit to match new quantity
-            price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+            from ExtensionsHub import ExtensionsHub
+
+            hub = ExtensionsHub()
+            pricing_config = hub.get_pricing_config()
+            price_per_unit = 75.0
+            if pricing_config and pricing_config.get("tiers"):
+                price_per_unit = float(
+                    pricing_config["tiers"][0].get("price_per_unit", 75)
+                )
             company.user_limit = new_quantity
             company.auto_topup_amount_usd = new_quantity * price_per_unit
             session.commit()
@@ -903,8 +911,16 @@ class StripePaymentService:
         session = get_session()
         synced = []
 
-        # Determine pricing model
-        pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+        # Determine pricing model from ExtensionsHub
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model", "per_token").lower()
+            if pricing_config
+            else "per_token"
+        )
         is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
 
         try:

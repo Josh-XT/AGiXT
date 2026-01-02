@@ -1002,14 +1002,26 @@ async def update_auto_topup(
 
     stripe_service = StripePaymentService()
 
-    # Determine pricing model
-    pricing_model = getenv("PRICING_MODEL", "per_token").lower()
+    # Determine pricing model from ExtensionsHub
+    from ExtensionsHub import ExtensionsHub
+
+    hub = ExtensionsHub()
+    pricing_config = hub.get_pricing_config()
+    pricing_model = (
+        pricing_config.get("pricing_model", "per_token").lower()
+        if pricing_config
+        else "per_token"
+    )
     is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
 
     try:
         if is_seat_based:
             # For seat-based billing, update quantity directly
-            price_per_unit = float(getenv("PRICE_PER_UNIT", "75"))
+            price_per_unit = 75.0
+            if pricing_config and pricing_config.get("tiers"):
+                price_per_unit = float(
+                    pricing_config["tiers"][0].get("price_per_unit", 75)
+                )
             new_quantity = max(1, round(request.amount_usd / price_per_unit))
 
             result = await stripe_service.update_subscription_quantity(
