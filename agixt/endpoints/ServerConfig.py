@@ -364,6 +364,27 @@ async def update_server_config_item(
     invalidate_server_config_cache()
     load_server_config_cache()
 
+    # If EXTENSIONS_HUB was updated, hot-reload extension hubs
+    if config_name == "EXTENSIONS_HUB":
+        try:
+            from ExtensionsHub import reload_extension_hubs
+
+            reload_result = reload_extension_hubs()
+            logging.info(f"Extension hub hot-reload result: {reload_result}")
+
+            return {
+                "status": "success",
+                "message": f"Configuration '{config_name}' updated and extension hubs reloaded",
+                "extension_reload": reload_result,
+            }
+        except Exception as e:
+            logging.error(f"Failed to hot-reload extension hubs: {e}")
+            return {
+                "status": "success",
+                "message": f"Configuration '{config_name}' updated (extension reload failed: {e})",
+                "extension_reload": {"success": False, "error": str(e)},
+            }
+
     logging.info(f"Server config '{config_name}' updated by user {auth.user_id}")
 
     return {"status": "success", "message": f"Configuration '{config_name}' updated"}
@@ -435,16 +456,33 @@ async def bulk_update_server_config(
     invalidate_server_config_cache()
     load_server_config_cache()
 
+    # If EXTENSIONS_HUB was updated, hot-reload extension hubs
+    extension_reload = None
+    if "EXTENSIONS_HUB" in updated:
+        try:
+            from ExtensionsHub import reload_extension_hubs
+
+            extension_reload = reload_extension_hubs()
+            logging.info(f"Extension hub hot-reload result: {extension_reload}")
+        except Exception as e:
+            logging.error(f"Failed to hot-reload extension hubs: {e}")
+            extension_reload = {"success": False, "error": str(e)}
+
     logging.info(
         f"Server configs bulk updated by user {auth.user_id}: {', '.join(updated)}"
     )
 
-    return {
+    result = {
         "status": "success",
         "updated": updated,
         "errors": errors,
         "message": f"Updated {len(updated)} configuration(s)",
     }
+
+    if extension_reload:
+        result["extension_reload"] = extension_reload
+
+    return result
 
 
 @app.get(

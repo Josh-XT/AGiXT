@@ -802,5 +802,115 @@ def get_extension_class_name(filename: str) -> str:
     return filename.replace(".py", "").lower()
 
 
+def reload_extension_hubs():
+    """
+    Hot-reload extension hubs when EXTENSIONS_HUB config is changed.
+
+    This function:
+    1. Invalidates global extension cache
+    2. Re-discovers extensions from all hub paths
+    3. Re-initializes the global cache
+    4. Invalidates the Extensions discovery cache
+    5. Re-seeds extension scopes in the database
+    6. Re-registers extension routers
+
+    Returns:
+        Dict with reload status and details
+    """
+    import sys
+
+    results = {
+        "success": True,
+        "hub_paths": [],
+        "extensions_discovered": 0,
+        "scopes_seeded": 0,
+        "errors": [],
+    }
+
+    try:
+        # Step 1: Invalidate global cache
+        invalidate_global_cache()
+        logging.info("Step 1: Invalidated global extension cache")
+
+        # Step 2: Re-initialize global cache with new EXTENSIONS_HUB paths
+        extension_paths, pricing_config = initialize_global_cache()
+        results["hub_paths"] = extension_paths
+        logging.info(f"Step 2: Initialized {len(extension_paths)} extension paths")
+
+        # Step 3: Invalidate Extensions.py discovery cache
+        try:
+            from Extensions import invalidate_extension_cache
+
+            invalidate_extension_cache()
+            logging.info("Step 3: Invalidated extension discovery cache")
+        except Exception as e:
+            results["errors"].append(f"Failed to invalidate extension cache: {e}")
+            logging.warning(f"Step 3 error: {e}")
+
+        # Step 4: Count discovered extensions
+        try:
+            extension_files = find_extension_files()
+            results["extensions_discovered"] = len(extension_files)
+            logging.info(f"Step 4: Discovered {len(extension_files)} extension files")
+        except Exception as e:
+            results["errors"].append(f"Failed to discover extensions: {e}")
+            logging.warning(f"Step 4 error: {e}")
+
+        # Step 5: Re-seed extension scopes (the main thing we need for menu visibility)
+        try:
+            from DB import seed_default_scopes_for_role, get_session, Role
+
+            session = get_session()
+            try:
+                # Re-seed scopes for all roles to pick up new extension scopes
+                roles = session.query(Role).all()
+                scopes_created = 0
+                for role in roles:
+                    try:
+                        created = seed_default_scopes_for_role(role.id, session)
+                        scopes_created += created
+                    except Exception as role_error:
+                        logging.debug(
+                            f"Error seeding scopes for role {role.id}: {role_error}"
+                        )
+
+                results["scopes_seeded"] = scopes_created
+                logging.info(
+                    f"Step 5: Seeded {scopes_created} scopes across {len(roles)} roles"
+                )
+            finally:
+                session.close()
+        except Exception as e:
+            results["errors"].append(f"Failed to seed scopes: {e}")
+            logging.warning(f"Step 5 error: {e}")
+
+        # Step 6: Re-register extension routers (for new API endpoints)
+        try:
+            import app
+
+            # Reset the registration flag to allow re-registration
+            app._extension_routers_registered = False
+            app.register_extension_routers()
+            logging.info("Step 6: Re-registered extension routers")
+        except Exception as e:
+            results["errors"].append(f"Failed to re-register routers: {e}")
+            logging.warning(f"Step 6 error: {e}")
+
+        # Mark success if we got through the critical steps
+        if results["errors"]:
+            results["success"] = (
+                len(results["errors"]) <= 2
+            )  # Allow some non-critical failures
+
+        logging.info(f"Extension hub reload complete: {results}")
+
+    except Exception as e:
+        results["success"] = False
+        results["errors"].append(f"Critical error during reload: {e}")
+        logging.error(f"Extension hub reload failed: {e}")
+
+    return results
+
+
 # Note: ExtensionsHub should only be initialized from SeedImports.py during startup
 # to avoid multiple workers trying to clone the same repositories
