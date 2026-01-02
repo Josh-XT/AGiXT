@@ -186,7 +186,7 @@ class TrialService:
             Trial configuration dict with enabled, days, credits_usd, etc.
         """
         pricing_config = self.extensions_hub.get_pricing_config()
-        trial_config = pricing_config.get("trial", {})
+        trial_config = pricing_config.get("trial", {}) if pricing_config else {}
 
         # Default trial configuration
         defaults = {
