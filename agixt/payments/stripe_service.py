@@ -441,10 +441,13 @@ class StripePaymentService:
         def _create_checkout() -> Dict[str, Any]:
             # Create a price for this specific amount
             # Using price_data for dynamic pricing
+            # Build thank-you page URL with subscription data for conversion tracking
+            amount_usd = amount_cents / 100
+            success_params = f"method=subscription&amount={amount_usd}"
             checkout = stripe.checkout.Session.create(
                 customer=customer_id,
                 mode="subscription",
-                success_url=f"{return_url}/billing?subscription=success",
+                success_url=f"{return_url}/thank-you?{success_params}",
                 cancel_url=f"{return_url}/billing?subscription=cancelled",
                 line_items=[
                     {
