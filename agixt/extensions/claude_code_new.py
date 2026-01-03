@@ -247,6 +247,12 @@ class claude_code(Extensions, ExtensionDatabaseMixin):
     """
     Claude Code MCP Extension - Integrates AGiXT with Claude Code via MCP.
     
+    Features:
+    - OAuth authentication with Anthropic/Claude
+    - Session-based MCP connections with automatic sandboxing
+    - Multi-tenant support with user isolation
+    - Full audit logging of tool executions
+    
     All MCP tool executions run through safeexecute when available,
     providing Docker-based isolation for security.
     """
@@ -277,7 +283,7 @@ class claude_code(Extensions, ExtensionDatabaseMixin):
             user=self.user,
         )
         
-        # PKCE verifiers storage
+        # PKCE verifiers storage (in production, use proper session storage)
         self._pkce_verifiers: Dict[str, str] = {}
         
         self.commands = {
