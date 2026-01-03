@@ -247,7 +247,7 @@ class claude_code(Extensions):
         escaped_message = message.replace("'", "'\\''")
 
         # Run Claude Code CLI in safeexecute sandbox
-        code = f'''
+        code = f"""
 import subprocess
 import os
 import json
@@ -301,9 +301,11 @@ if stderr:
     print(f"[stderr] {{stderr}}")
 if process.returncode != 0:
     print(f"[exit] Claude Code exited with code {{process.returncode}}")
-'''
+"""
         # Execute Claude Code in the sandbox
-        result = execute_python_code(code=code, working_directory=self.working_directory)
+        result = execute_python_code(
+            code=code, working_directory=self.working_directory
+        )
 
         # Stream each line as a sub-activity
         if result:
