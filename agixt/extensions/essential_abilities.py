@@ -1783,7 +1783,7 @@ print(output)
                 )
             else:
                 response = requests.request(
-                    method=method.upper(), url=url, headers=headers_dict, timeout=30
+                    method=method.upper(), url=url, headers=headers_dict
                 )
 
             return f"Status: {response.status_code}\\nResponse: {response.text}"
