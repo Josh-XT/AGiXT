@@ -125,7 +125,7 @@ async def list_mcp_tools(
     This endpoint returns all MCP tools that can be executed through the hub.
     Requires a valid MCP session token.
     """
-    from extensions.claude_code_mcp_tools import get_tool_definitions
+    from extensions.claude_code import get_tool_definitions
     
     return MCPToolListResponse(tools=get_tool_definitions())
 
@@ -146,17 +146,17 @@ async def execute_mcp_tool(
     start_time = time.time()
     
     try:
-        from extensions.claude_code_mcp_tools import execute_tool, TOOLS
+        from extensions.claude_code import execute_mcp_tool as run_tool, MCP_TOOLS
         
         # Validate tool exists
-        if request.tool_name not in TOOLS:
+        if request.tool_name not in MCP_TOOLS:
             return MCPToolResponse(
                 success=False,
                 error=f"Unknown tool: {request.tool_name}",
             )
         
         # Execute the tool
-        result = await execute_tool(
+        result = await run_tool(
             tool_name=request.tool_name,
             arguments=request.arguments,
             agent_name=session.get("agent_name"),
@@ -216,7 +216,7 @@ async def mcp_connect(
     This endpoint can be used by Claude Code to establish an MCP connection.
     It returns the available tools and handles JSON-RPC style requests.
     """
-    from extensions.claude_code_mcp_tools import get_tool_definitions, execute_tool
+    from extensions.claude_code import get_tool_definitions, execute_mcp_tool
     
     # Get the request body if any
     try:
@@ -266,7 +266,7 @@ async def mcp_connect(
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
         
-        result = await execute_tool(
+        result = await execute_mcp_tool(
             tool_name=tool_name,
             arguments=arguments,
             agent_name=session.get("agent_name"),
