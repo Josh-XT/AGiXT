@@ -263,6 +263,9 @@ class Chain:
         return chain_id
 
     def rename_chain(self, chain_name, new_name):
+        from DB import Extension
+        from Agent import invalidate_commands_cache
+
         session = get_session()
         chain = (
             session.query(ChainDB)
@@ -272,7 +275,27 @@ class Chain:
         if chain:
             old_name = chain.name
             chain.name = new_name
+
+            # Update the associated Command entry if it exists
+            # Commands for chains are stored in the "Custom Automation" extension
+            extension = (
+                session.query(Extension).filter_by(name="Custom Automation").first()
+            )
+            if extension:
+                command = (
+                    session.query(Command)
+                    .filter_by(name=old_name, extension_id=extension.id)
+                    .first()
+                )
+                if command:
+                    command.name = new_name
+                    logging.info(
+                        f"Updated command name from '{old_name}' to '{new_name}'"
+                    )
+
             session.commit()
+            # Invalidate the commands cache since we renamed a command
+            invalidate_commands_cache()
 
             # Emit webhook event
             asyncio.create_task(
@@ -719,6 +742,9 @@ class Chain:
         session.close()
 
     def delete_chain(self, chain_name):
+        from DB import Extension, AgentCommand
+        from Agent import invalidate_commands_cache
+
         session = get_session()
         chain = (
             session.query(ChainDB)
@@ -728,8 +754,31 @@ class Chain:
 
         if chain:
             chain_id = str(chain.id)
+
+            # Delete the associated Command entry if it exists
+            extension = (
+                session.query(Extension).filter_by(name="Custom Automation").first()
+            )
+            if extension:
+                command = (
+                    session.query(Command)
+                    .filter_by(name=chain_name, extension_id=extension.id)
+                    .first()
+                )
+                if command:
+                    # Delete any AgentCommand entries for this command
+                    session.query(AgentCommand).filter_by(
+                        command_id=command.id
+                    ).delete()
+                    session.delete(command)
+                    logging.info(
+                        f"Deleted command '{chain_name}' associated with chain"
+                    )
+
             session.delete(chain)
             session.commit()
+            # Invalidate the commands cache
+            invalidate_commands_cache()
 
             # Emit webhook event
             asyncio.create_task(
@@ -1440,6 +1489,9 @@ class Chain:
 
     def delete_chain_by_id(self, chain_id):
         """Delete chain by ID"""
+        from DB import Extension, AgentCommand
+        from Agent import invalidate_commands_cache
+
         session = get_session()
         chain = (
             session.query(ChainDB)
@@ -1455,8 +1507,25 @@ class Chain:
             raise Exception("Chain not found")
 
         chain_name = chain.name
+
+        # Delete the associated Command entry if it exists
+        extension = session.query(Extension).filter_by(name="Custom Automation").first()
+        if extension:
+            command = (
+                session.query(Command)
+                .filter_by(name=chain_name, extension_id=extension.id)
+                .first()
+            )
+            if command:
+                # Delete any AgentCommand entries for this command
+                session.query(AgentCommand).filter_by(command_id=command.id).delete()
+                session.delete(command)
+                logging.info(f"Deleted command '{chain_name}' associated with chain")
+
         session.delete(chain)
         session.commit()
+        # Invalidate the commands cache
+        invalidate_commands_cache()
 
         # Emit webhook event
         asyncio.create_task(
@@ -1475,6 +1544,9 @@ class Chain:
 
     def update_chain_by_id(self, chain_id, chain_name, description=""):
         """Update chain by ID"""
+        from DB import Extension
+        from Agent import invalidate_commands_cache
+
         session = get_session()
         chain = (
             session.query(ChainDB)
@@ -1490,9 +1562,32 @@ class Chain:
             raise Exception("Chain not found")
 
         old_name = chain.name
+        old_description = chain.description
         chain.name = chain_name
         chain.description = description
+
+        # Update the associated Command entry if it exists and the name changed
+        if old_name != chain_name:
+            extension = (
+                session.query(Extension).filter_by(name="Custom Automation").first()
+            )
+            if extension:
+                command = (
+                    session.query(Command)
+                    .filter_by(name=old_name, extension_id=extension.id)
+                    .first()
+                )
+                if command:
+                    command.name = chain_name
+                    logging.info(
+                        f"Updated command name from '{old_name}' to '{chain_name}'"
+                    )
+
         session.commit()
+        # Invalidate the commands cache if name or description changed
+        # (description is dynamically generated from chain data)
+        if old_name != chain_name or old_description != description:
+            invalidate_commands_cache()
 
         # Emit webhook event
         asyncio.create_task(

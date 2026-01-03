@@ -2771,6 +2771,8 @@ class Agent:
                         command = Command(name=command_name, extension_id=extension.id)
                         session.add(command)
                         session.commit()
+                        # Invalidate the commands cache since we added a new command
+                        invalidate_commands_cache()
                     else:
                         logging.error(f"Command {command_name} not found.")
                         continue
