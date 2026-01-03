@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agixt": {
+      "command": "agixt-mcp-server",
+      "env": {
+        "AGIXT_API_URL": "http://localhost:7437",
+        "AGIXT_API_KEY": "",
+        "AGIXT_AGENT_NAME": "gpt4"
+      }
+    }
+  }
+}
