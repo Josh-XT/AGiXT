@@ -240,6 +240,16 @@ class Chain:
 
     def add_chain(self, chain_name, description=""):
         session = get_session()
+        # Check if a chain with this name already exists for this user
+        existing_chain = (
+            session.query(ChainDB)
+            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
+            .first()
+        )
+        if existing_chain:
+            session.close()
+            raise Exception(f"A chain named '{chain_name}' already exists")
+
         chain = ChainDB(name=chain_name, user_id=self.user_id, description=description)
         session.add(chain)
         session.commit()
