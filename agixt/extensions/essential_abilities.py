@@ -1779,7 +1779,6 @@ print(output)
                     url=url,
                     headers=headers_dict,
                     json=json.loads(body) if isinstance(body, str) else body,
-                    timeout=30,
                 )
             else:
                 response = requests.request(
