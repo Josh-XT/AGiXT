@@ -56,14 +56,19 @@ logging.basicConfig(
 
 _command_owner_cache = None
 
+# Cache for command_name -> friendly_name mapping
+_command_name_to_friendly_cache = None
+
 # Cache for all commands - commands rarely change
 _all_commands_cache = None
 _all_commands_cache_time = 0
 _COMMANDS_CACHE_TTL = 300  # 5 minutes
 
-# Cache for company agent configs - they rarely change and cause expensive recursive calls
+# Cache for company agent configs
+# IMPORTANT: With multiple uvicorn workers, this cache is process-local
+# Setting to 0 disables caching to ensure cross-worker consistency
 _company_agent_config_cache = {}
-_COMPANY_CONFIG_CACHE_TTL = 300  # 5 minutes
+_COMPANY_CONFIG_CACHE_TTL = 0  # Disabled for multi-worker consistency
 
 # Cache for SSO-enabled extensions - requires filesystem scan so cache aggressively
 _sso_providers_cache = None
@@ -368,16 +373,62 @@ def _get_command_owner_cache():
     return _command_owner_cache
 
 
+def _get_command_name_to_friendly_cache():
+    """
+    Build a cache mapping command_name (function name) to friendly_name.
+    This is used to resolve command lookups when the frontend sends
+    the internal command_name instead of the friendly_name.
+    """
+    global _command_name_to_friendly_cache
+    if _command_name_to_friendly_cache is not None:
+        return _command_name_to_friendly_cache
+
+    cache = {}
+    try:
+        extensions = Extensions().get_extensions()
+        for extension_data in extensions:
+            for command_data in extension_data.get("commands", []):
+                command_name = command_data.get("command_name")
+                friendly_name = command_data.get("friendly_name")
+                if command_name and friendly_name and command_name != friendly_name:
+                    # Map command_name -> friendly_name
+                    cache[command_name] = friendly_name
+    except Exception as e:
+        logging.debug(f"Unable to build command name mapping cache: {e}")
+
+    _command_name_to_friendly_cache = cache
+    return _command_name_to_friendly_cache
+
+
 def _resolve_command_by_name(session, command_name):
     if not command_name:
         return None
 
+    # First, try to find by exact name match (friendly_name stored in DB)
     commands = (
         session.query(Command)
         .options(joinedload(Command.extension))
         .filter(Command.name == command_name)
         .all()
     )
+
+    # If not found, try to map command_name (function name) to friendly_name
+    if not commands:
+        name_mapping = _get_command_name_to_friendly_cache()
+        friendly_name = name_mapping.get(command_name)
+
+        if friendly_name:
+            # Now search by friendly_name
+            commands = (
+                session.query(Command)
+                .options(joinedload(Command.extension))
+                .filter(Command.name == friendly_name)
+                .all()
+            )
+            logging.info(
+                f"[_resolve_command_by_name] Mapped command_name '{command_name}' "
+                f"to friendly_name '{friendly_name}', found {len(commands)} matches"
+            )
 
     if not commands:
         return None
@@ -1840,6 +1891,14 @@ class Agent:
     def get_agent_config(self):
         session = get_session()
 
+        # CRITICAL: Begin a new transaction to ensure we see committed data from other workers
+        # SQLite with multiple processes can have stale reads without this
+        try:
+            session.execute("SELECT 1")  # Force connection to be active
+            session.commit()  # Commit any implicit transaction to release locks
+        except Exception:
+            pass  # Ignore if already in a good state
+
         # If we have agent_id, use it to find the agent
         if (
             hasattr(self, "agent_id")
@@ -2049,6 +2108,10 @@ class Agent:
                     session.rollback()  # Rollback DB changes on error
 
         if agent:
+            # Force fresh read from database - critical for multi-worker consistency
+            # Without this, SQLAlchemy may return stale cached data from previous queries
+            session.expire_all()
+
             # Use cached commands to avoid repeated queries
             all_commands = get_all_commands_cached(session)
             # Only query agent_settings if not already refreshed after wallet creation
@@ -2056,13 +2119,16 @@ class Agent:
                 agent_settings = (
                     session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
                 )
+
             agent_commands = (
                 session.query(AgentCommand)
                 .filter(AgentCommand.agent_id == agent.id)
                 .all()
             )
+
             # Build a set of enabled command IDs for O(1) lookup (optimized from O(n*m))
             enabled_command_ids = {ac.command_id for ac in agent_commands if ac.state}
+
             # Process all commands, including chains
             for command in all_commands:
                 config["commands"][command.name] = command.id in enabled_command_ids
@@ -2650,12 +2716,9 @@ class Agent:
         for extension in new_extensions:
             for command in extension["commands"]:
                 if command["friendly_name"] in self.AGENT_CONFIG["commands"]:
-                    command["enabled"] = (
-                        str(
-                            self.AGENT_CONFIG["commands"][command["friendly_name"]]
-                        ).lower()
-                        == "true"
-                    )
+                    raw_value = self.AGENT_CONFIG["commands"][command["friendly_name"]]
+                    computed_enabled = str(raw_value).lower() == "true"
+                    command["enabled"] = computed_enabled
                 else:
                     command["enabled"] = False
         session.close()
@@ -2796,6 +2859,15 @@ class Agent:
                         state=enabled,
                     )
                     session.add(agent_command)
+                    logging.info(
+                        f"[update_agent_config] Created new AgentCommand with state={enabled}"
+                    )
+
+                # Force flush to ensure the change is staged
+                session.flush()
+                logging.info(
+                    f"[update_agent_config] Flushed command state change for {command_name}"
+                )
         else:
             for setting_name, setting_value in new_config.items():
                 agent_setting = (
@@ -2819,6 +2891,29 @@ class Agent:
         try:
             session.commit()
             logging.info(f"Agent {self.agent_name} configuration updated successfully.")
+
+            # Invalidate ALL caches to ensure other workers see the updated data
+            # This is critical for multi-worker scenarios
+            invalidate_company_config_cache()  # Clear company config cache
+            invalidate_commands_cache()  # Clear commands cache
+            logging.info(
+                f"[update_agent_config] Caches invalidated after config update"
+            )
+
+            # Verify the commit by re-querying
+            if config_key == "commands":
+                for command_name, enabled in new_config.items():
+                    command = _resolve_command_by_name(session, command_name)
+                    if command:
+                        verify_ac = (
+                            session.query(AgentCommand)
+                            .filter_by(agent_id=self.agent_id, command_id=command.id)
+                            .first()
+                        )
+                        logging.info(
+                            f"[update_agent_config] VERIFY after commit: {command_name} -> "
+                            f"state={verify_ac.state if verify_ac else 'NOT FOUND'}"
+                        )
 
             # Emit webhook event for agent configuration update
             import asyncio

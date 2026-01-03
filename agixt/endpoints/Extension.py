@@ -118,10 +118,25 @@ async def get_extensions(user=Depends(verify_api_key)):
     description="Retrieves all extensions and their enabled/disabled status for a specific agent using agent ID.",
 )
 async def get_agent_extensions_v1(agent_id: str, user=Depends(verify_api_key)):
+    from fastapi.responses import JSONResponse
+    import logging
+
+    logging.info(f"[get_agent_extensions_v1] ENDPOINT CALLED for agent_id={agent_id}")
     ApiClient = get_api_client()
+    logging.info(f"[get_agent_extensions_v1] Creating Agent object...")
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+    logging.info(f"[get_agent_extensions_v1] Calling get_agent_extensions()...")
     extensions = agent.get_agent_extensions()
-    return {"extensions": extensions}
+    logging.info(f"[get_agent_extensions_v1] Returning {len(extensions)} extensions")
+    # Return with no-cache headers to prevent stale responses after command toggles
+    return JSONResponse(
+        content={"extensions": extensions},
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.post(
@@ -153,14 +168,9 @@ async def run_command_v1(
     ).execute_command(
         command_name=command.command_name,
         command_args=command.command_args,
+        log_activities=True,
+        log_output=True,
     )
-    if (
-        command.conversation_name != ""
-        and command.conversation_name != None
-        and command_output != None
-    ):
-        c = Conversations(conversation_name=command.conversation_name, user=user)
-        c.log_interaction(role=agent_name, message=command_output)
     return {
         "response": command_output,
     }
