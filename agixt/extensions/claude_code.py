@@ -179,10 +179,8 @@ class claude_code(Extensions):
 
     def __init__(
         self,
-        ANTHROPIC_ACCESS_TOKEN: str = "",
         **kwargs,
     ):
-        self.access_token = ANTHROPIC_ACCESS_TOKEN
         self.agent_name = kwargs.get("agent_name", "gpt4free")
         self.api_key = kwargs.get("api_key", "")
         self.user = kwargs.get("user", "")
@@ -224,10 +222,7 @@ class claude_code(Extensions):
         }
 
     def _get_access_token(self) -> str:
-        """Get the Anthropic access token, refreshing if needed via MagicalAuth"""
-        if self.access_token:
-            return self.access_token
-
+        """Get the Anthropic access token from MagicalAuth OAuth"""
         if self.auth:
             try:
                 oauth_data = self.auth.get_oauth_functions("anthropic")
