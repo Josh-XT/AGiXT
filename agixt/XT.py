@@ -184,6 +184,79 @@ def is_safe_url(url: str) -> bool:
         return False
 
 
+def sanitize_command_args_for_logging(command_args: dict) -> dict:
+    """
+    Sanitize command arguments for logging by redacting sensitive values.
+    This prevents secrets from being exposed in conversation logs shown to users.
+
+    Redacted keys (case-insensitive):
+    - headers (may contain Authorization tokens)
+    - Any key ending with _API_KEY
+    - Any key ending with _SECRET
+    - Authorization
+    - Password
+    - Any key containing 'secret' or 'password' or 'token' or 'key' (case-insensitive)
+
+    Args:
+        command_args: Dictionary of command arguments
+
+    Returns:
+        dict: Sanitized copy with sensitive values replaced by "[REDACTED]"
+    """
+    if not isinstance(command_args, dict):
+        return command_args
+
+    sensitive_patterns = [
+        "headers",
+        "authorization",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "credential",
+        "private_key",
+        "privatekey",
+    ]
+
+    sensitive_suffixes = [
+        "_api_key",
+        "_secret",
+        "_token",
+        "_password",
+        "_key",
+    ]
+
+    sanitized = {}
+    for key, value in command_args.items():
+        key_lower = key.lower()
+
+        # Check if key matches any sensitive pattern
+        is_sensitive = False
+
+        # Check exact/partial matches
+        for pattern in sensitive_patterns:
+            if pattern in key_lower:
+                is_sensitive = True
+                break
+
+        # Check suffixes
+        if not is_sensitive:
+            for suffix in sensitive_suffixes:
+                if key_lower.endswith(suffix):
+                    is_sensitive = True
+                    break
+
+        if is_sensitive and value is not None and value != "":
+            sanitized[key] = "[REDACTED]"
+        elif isinstance(value, dict):
+            # Recursively sanitize nested dicts
+            sanitized[key] = sanitize_command_args_for_logging(value)
+        else:
+            sanitized[key] = value
+
+    return sanitized
+
+
 class AGiXT:
     def __init__(
         self,
@@ -772,8 +845,10 @@ Your response (true or false):"""
         if log_activities:
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
+                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(sanitize_command_args_for_logging(command_args), indent=2)}```",
             )
+            # Yield control to allow websocket handlers to send the update
+            await asyncio.sleep(0)
         try:
             response = await Extensions(
                 agent_name=self.agent_name,
@@ -847,7 +922,27 @@ Your response (true or false):"""
                 )
                 if chain_args:
                     for arg, value in chain_args.items():
-                        args[arg] = value
+                        # Only use chain_args value if:
+                        # 1. The arg doesn't exist in args yet, OR
+                        # 2. The arg exists but is empty/None AND chain_args has a real value, OR
+                        # 3. The chain_args value is not empty/None (allowing explicit overrides)
+                        # This prevents empty/None values from overwriting stored chain step arguments
+                        existing_value = args.get(arg)
+                        has_existing_value = (
+                            existing_value is not None and existing_value != ""
+                        )
+                        has_new_value = value is not None and value != ""
+
+                        if arg not in args:
+                            # Arg doesn't exist, always add it
+                            args[arg] = value
+                        elif not has_existing_value and has_new_value:
+                            # Existing is empty but new has value, use new
+                            args[arg] = value
+                        elif has_new_value:
+                            # Both have values, new value overrides (explicit override)
+                            args[arg] = value
+                        # If existing has value and new is empty/None, keep existing (do nothing)
                 log_output_flag = args.pop("log_output", None)
                 if (
                     current_running_command
@@ -886,8 +981,10 @@ Your response (true or false):"""
                 if prompt_type == "command":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(sanitize_command_args_for_logging(args), indent=2)}```",
                     )
+                    # Yield control to allow websocket handlers to send the update
+                    await asyncio.sleep(0)
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
@@ -931,6 +1028,8 @@ Your response (true or false):"""
                         role=self.agent_name,
                         message=f"[SUBACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(prompt_args, indent=2)}```",
                     )
+                    # Yield control to allow websocket handlers to send the update
+                    await asyncio.sleep(0)
                     # Get agent_id from agent_name for the API call
                     step_agent_id = get_agent_id_by_name(
                         agent_name=agent_name, user=self.user_email
@@ -943,8 +1042,10 @@ Your response (true or false):"""
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY] Running chain: `{args['chain']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Running chain: `{args['chain']}` with args:\n```json\n{json.dumps(sanitize_command_args_for_logging(args), indent=2)}```",
                     )
+                    # Yield control to allow websocket handlers to send the update
+                    await asyncio.sleep(0)
                     if "chain_name" in args:
                         args["chain"] = args["chain_name"]
                     if "user_input" in args:
@@ -1044,6 +1145,8 @@ Your response (true or false):"""
             role=self.agent_name,
             message=f"[SUBACTIVITY] Running chain `{chain_name}`.",
         )
+        # Yield control to allow websocket handlers to send the update
+        await asyncio.sleep(0)
         response = ""
         step_responses = []
         step_summaries = []

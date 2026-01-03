@@ -138,6 +138,16 @@ class Extensions:
         user_input = kwargs.get("user_input", "")
         if "chain_name" in kwargs:
             del kwargs["chain_name"]
+
+        # Extract nested chain_args if present and merge with kwargs
+        # This handles the case where execute_command sets log_output=False in chain_args
+        nested_chain_args = kwargs.pop("chain_args", {}) or {}
+
+        # Merge nested chain_args into kwargs, preferring nested values
+        for key, value in nested_chain_args.items():
+            if key not in kwargs or kwargs[key] is None:
+                kwargs[key] = value
+
         return self.ApiClient.run_chain(
             chain_name=chain_name,
             user_input=user_input,
@@ -310,7 +320,11 @@ class Extensions:
                         args = []
                     for arg in args:
                         if arg not in prompt_args and arg not in skip_args:
-                            prompt_args.append(arg)
+                            # Only expose args that don't already have values in the chain step
+                            # If the arg already has a non-empty value in the prompt, skip it
+                            existing_value = prompt.get(arg)
+                            if existing_value is None or existing_value == "":
+                                prompt_args.append(arg)
                 except Exception as e:
                     logging.error(f"Error getting chain args for {chain_name}: {e}")
             chains.append(
