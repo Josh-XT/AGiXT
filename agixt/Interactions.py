@@ -2663,20 +2663,15 @@ Example: If user says "list my files", use:
                 # This handles cases where <thinking> appears INSIDE <answer> blocks
                 in_answer = is_inside_top_level_answer(full_response)
 
-                # Check for execute tag completion - allow commands inside answer blocks
-                # Find </execute> that's NOT inside thinking/reflection (but allow inside answer)
+                # Check for execute tag completion - allow commands inside thinking, reflection, and answer blocks
+                # Execute tags should be processed regardless of nesting to support agentic workflows
                 execute_pattern = r"<execute>.*?</execute>"
                 for match in re.finditer(
                     execute_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
                     execute_end = match.end()
-                    # Check if this execute is inside a thinking/reflection block
-                    text_before = full_response[: match.start()]
-                    if (
-                        get_tag_depth(text_before, "thinking") > 0
-                        or get_tag_depth(text_before, "reflection") > 0
-                    ):
-                        continue  # This execute is inside thinking/reflection, skip
+                    # Note: We no longer skip execute tags inside thinking/reflection blocks
+                    # The agent may legitimately execute commands while thinking through a problem
 
                     # Check if inside answer block - if so, strip answer tags first
                     is_inside_answer = is_inside_top_level_answer(
