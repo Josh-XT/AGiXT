@@ -21,6 +21,7 @@ from DB import (
     TaskItem,
     WebhookIncoming,
     WebhookOutgoing,
+    UserCompany,
 )
 from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
@@ -2678,21 +2679,63 @@ class Agent:
         sso_providers_set = get_sso_providers_cached()
         sso_providers = {name: False for name in sso_providers_set}
 
-        # Batch get OAuth provider names for user's connected providers
-        if user_oauth:
-            provider_ids = [oauth.provider_id for oauth in user_oauth]
-            if provider_ids:
-                providers = (
-                    session.query(OAuthProvider)
-                    .filter(OAuthProvider.id.in_(provider_ids))
+        # Check if this is a company agent (synthetic user with email {company_id}@{company_id}.xt)
+        is_company_agent = user and str(user.email).lower().endswith(".xt")
+
+        if is_company_agent:
+            # For company agents, check OAuth connections from company admins/members
+            # Extract company_id from email: {company_id}@{company_id}.xt
+            company_email = str(user.email).lower()
+            company_id = company_email.split("@")[0] if "@" in company_email else None
+
+            if company_id:
+                # Get all users who are members of this company
+                company_user_ids = (
+                    session.query(UserCompany.user_id)
+                    .filter(UserCompany.company_id == company_id)
                     .all()
                 )
-                provider_names = {p.id: p.name for p in providers}
+                company_user_ids = [uid[0] for uid in company_user_ids]
 
-                for oauth in user_oauth:
-                    provider_name = provider_names.get(oauth.provider_id)
-                    if provider_name:
-                        if not str(user.email).lower().endswith(".xt"):
+                if company_user_ids:
+                    # Get OAuth connections from any company member
+                    company_oauth = (
+                        session.query(UserOAuth)
+                        .filter(UserOAuth.user_id.in_(company_user_ids))
+                        .all()
+                    )
+
+                    if company_oauth:
+                        provider_ids = [oauth.provider_id for oauth in company_oauth]
+                        if provider_ids:
+                            providers = (
+                                session.query(OAuthProvider)
+                                .filter(OAuthProvider.id.in_(provider_ids))
+                                .all()
+                            )
+                            provider_names = {p.id: p.name for p in providers}
+
+                            for oauth in company_oauth:
+                                provider_name = provider_names.get(oauth.provider_id)
+                                if provider_name:
+                                    if str(provider_name).lower() in sso_providers:
+                                        sso_providers[str(provider_name).lower()] = True
+        else:
+            # Regular user - check their own OAuth connections
+            # Batch get OAuth provider names for user's connected providers
+            if user_oauth:
+                provider_ids = [oauth.provider_id for oauth in user_oauth]
+                if provider_ids:
+                    providers = (
+                        session.query(OAuthProvider)
+                        .filter(OAuthProvider.id.in_(provider_ids))
+                        .all()
+                    )
+                    provider_names = {p.id: p.name for p in providers}
+
+                    for oauth in user_oauth:
+                        provider_name = provider_names.get(oauth.provider_id)
+                        if provider_name:
                             if str(provider_name).lower() in sso_providers:
                                 sso_providers[str(provider_name).lower()] = True
 
@@ -2714,19 +2757,53 @@ class Agent:
                     extension["settings"] = []
             required_keys = extension["settings"]
             new_extension = extension.copy()
+            
+            # Transform settings from list of keys to list of objects with values
+            settings_with_values = []
+            has_configured_setting = False
             for key in required_keys:
+                is_sensitive = any(
+                    kw in key.upper()
+                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
+                )
+                
                 if key not in self.AGENT_CONFIG["settings"]:
                     if "missing_keys" not in new_extension:
                         new_extension["missing_keys"] = []
                     new_extension["missing_keys"].append(key)
-                    new_extension["commands"] = []
+                    settings_with_values.append({
+                        "setting_key": key,
+                        "setting_value": None,
+                        "is_sensitive": is_sensitive,
+                    })
                 else:
-                    if (
-                        self.AGENT_CONFIG["settings"][key] == ""
-                        or self.AGENT_CONFIG["settings"][key] == None
-                    ):
-                        new_extension["commands"] = []
-            if new_extension["commands"] == [] and new_extension["settings"] == []:
+                    value = self.AGENT_CONFIG["settings"][key]
+                    if value == "" or value is None:
+                        settings_with_values.append({
+                            "setting_key": key,
+                            "setting_value": None,
+                            "is_sensitive": is_sensitive,
+                        })
+                    else:
+                        has_configured_setting = True
+                        # Mask sensitive values
+                        if is_sensitive:
+                            masked_value = "***" + str(value)[-4:] if len(str(value)) > 4 else "****"
+                        else:
+                            masked_value = value
+                        settings_with_values.append({
+                            "setting_key": key,
+                            "setting_value": masked_value,
+                            "is_sensitive": is_sensitive,
+                        })
+            
+            new_extension["settings"] = settings_with_values
+            
+            # Only disable commands if NO settings are configured
+            if not has_configured_setting and required_keys:
+                new_extension["commands"] = []
+            
+            if new_extension["commands"] == [] and not settings_with_values:
                 continue
             new_extensions.append(new_extension)
         for extension in new_extensions:

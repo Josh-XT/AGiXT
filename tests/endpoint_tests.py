@@ -749,10 +749,12 @@ admin_sdk, admin_otp_uri, admin_mfa_token = register_user(
 # Get admin user details to find company_id
 admin_user_details = admin_sdk.get_user()
 admin_company_id = None
-if admin_user_details and admin_user_details.get("companies"):
-    admin_company_id = admin_user_details["companies"][0]["id"]
+admin_user_id = ""
+if admin_user_details:
     admin_user_id = admin_user_details.get("id", "")
-    print(f"✅ Admin user company_id: {admin_company_id}")
+    if admin_user_details.get("companies"):
+        admin_company_id = admin_user_details["companies"][0]["id"]
+        print(f"✅ Admin user company_id: {admin_company_id}")
 
 ctx.admin_user = UserContext(
     email=admin_email,

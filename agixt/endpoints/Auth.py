@@ -788,7 +788,11 @@ async def toggle_command(
     ApiClient = auth.get_company_agent_session(company_id=company_id)
     token = ApiClient.headers.get("Authorization")
     company_auth = MagicalAuth(token=token)
-    agent = Agent(agent_name="AGiXT", user=company_auth.email, ApiClient=ApiClient)
+    agent = Agent(
+        agent_name=auth.get_company_agent_name(),
+        user=company_auth.email,
+        ApiClient=ApiClient,
+    )
     update_config = agent.update_agent_config(
         new_config={payload.command_name: payload.enable}, config_key="commands"
     )
