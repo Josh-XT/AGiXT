@@ -2770,6 +2770,17 @@ class Agent:
                         )
                         .first()
                     )
+            if not agent:
+                # Check for shared access (e.g., company agents)
+                can_access, is_owner, access_level = can_user_access_agent(
+                    user_id=self.user_id, agent_id=self.agent_id, auth=self.auth
+                )
+                if can_access:
+                    agent = (
+                        session.query(AgentModel)
+                        .filter(AgentModel.id == self.agent_id)
+                        .first()
+                    )
         else:
             # Use agent_name to find the agent
             agent = (

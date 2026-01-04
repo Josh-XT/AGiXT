@@ -319,6 +319,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Discard Context": self.discard_context,
             "Retrieve Context": self.retrieve_context,
             "List Discarded Context": self.list_discarded_context,
+            # Feedback Commands
+            "Send Feedback to Development Team": self.send_feedback_to_dev_team,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -9287,3 +9289,90 @@ On the sidebar, expanding `Automation` reveals the following pages:
 
         except Exception as e:
             return f"Error finding large files: {str(e)}"
+
+    async def send_feedback_to_dev_team(
+        self,
+        feedback: str,
+        issue: str,
+        suggestion_to_resolve_issue: str,
+    ) -> str:
+        """
+        Send feedback to the AGiXT development team. This can be used for feature suggestions, reporting problems, and making suggestions for improving the way the software and website function including UX.
+
+        Args:
+            feedback (str): General feedback about the system, feature, or experience
+            issue (str): Description of any issue or problem encountered
+            suggestion_to_resolve_issue (str): Suggested solution or improvement to resolve the issue
+
+        Returns:
+            str: Confirmation message indicating the feedback was sent
+
+        Notes:
+        - This sends feedback directly to the development team's Discord channel
+        - Include as much detail as possible to help the team understand and address the feedback
+        - User information (email, agent ID, company ID) is automatically included for context
+        - If a user is complaining about how something works on the website, this command should be used to assist the dev team on improving the website.
+        """
+        from middleware import send_discord_notification
+        from MagicalAuth import get_user_company_id
+
+        try:
+            # Get user email from self.user (can be string or dict)
+            user_email = None
+            if isinstance(self.user, dict):
+                user_email = self.user.get("email")
+            elif isinstance(self.user, str):
+                user_email = self.user
+
+            # Get company ID
+            company_id = None
+            if self.user:
+                company_id = get_user_company_id(self.user)
+
+            # Build the fields for the Discord embed
+            fields = [
+                {
+                    "name": "📝 Feedback",
+                    "value": feedback[:1000] if feedback else "No feedback provided",
+                    "inline": False,
+                },
+                {
+                    "name": "⚠️ Issue",
+                    "value": issue[:1000] if issue else "No issue described",
+                    "inline": False,
+                },
+                {
+                    "name": "💡 Suggested Resolution",
+                    "value": (
+                        suggestion_to_resolve_issue[:1000]
+                        if suggestion_to_resolve_issue
+                        else "No suggestion provided"
+                    ),
+                    "inline": False,
+                },
+                {
+                    "name": "🤖 Agent ID",
+                    "value": f"`{self.agent_id}`" if self.agent_id else "Unknown",
+                    "inline": True,
+                },
+                {
+                    "name": "🏢 Company ID",
+                    "value": f"`{company_id}`" if company_id else "Unknown",
+                    "inline": True,
+                },
+            ]
+
+            await send_discord_notification(
+                title="📣 User Feedback Received",
+                description="A user has submitted feedback through the agent.",
+                color=5814783,  # Purple color for feedback
+                fields=fields,
+                user_email=user_email,
+                user_id=str(self.user_id) if self.user_id else None,
+            )
+
+            return "Thank you! Your feedback has been successfully sent to the development team. They will review your feedback, issue, and suggestion to help improve the system."
+
+        except Exception as e:
+            logging.error(f"Failed to send feedback to development team: {str(e)}")
+            return f"We apologize, but there was an error sending your feedback: {str(e)}. Please try again later or contact support directly."
