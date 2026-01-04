@@ -3444,13 +3444,17 @@ Analyze the actual output shown and continue with your response.
                 # This is similar to the main stream processing but for continuation
                 continuation_response = ""
                 continuation_in_answer = False
-                continuation_answer_content = ""  # Track answer content for delta streaming
+                continuation_answer_content = (
+                    ""  # Track answer content for delta streaming
+                )
                 continuation_current_tag = None
                 continuation_current_tag_content = ""
                 continuation_current_tag_message_id = None  # Track message ID
                 continuation_processed_thinking_ids = set()
                 broke_for_execution = False  # Track if we broke early for execution
-                continuation_detected_tags = set()  # Track which opening tags we've already detected
+                continuation_detected_tags = (
+                    set()
+                )  # Track which opening tags we've already detected
 
                 async for chunk_data in iterate_stream(continuation_stream):
                     # Extract token from chunk
@@ -3471,19 +3475,30 @@ Analyze the actual output shown and continue with your response.
                     # Process tags in continuation (thinking, reflection, execute, answer)
                     # Check a sliding window of the last 20 chars for tags (enough for </reflection>)
                     # This handles tags that are split across multiple tokens
-                    tag_check_window = continuation_response[-20:] if len(continuation_response) > 20 else continuation_response
-                    
+                    tag_check_window = (
+                        continuation_response[-20:]
+                        if len(continuation_response) > 20
+                        else continuation_response
+                    )
+
                     # Check for opening tags - only if we haven't detected this opening tag yet
                     for tag_name in ["thinking", "reflection", "execute", "answer"]:
                         open_tag = f"<{tag_name}>"
-                        if open_tag in tag_check_window and open_tag not in continuation_detected_tags:
+                        if (
+                            open_tag in tag_check_window
+                            and open_tag not in continuation_detected_tags
+                        ):
                             continuation_detected_tags.add(open_tag)
-                            logging.info(f"[continuation_loop] Tag detected: {open_tag}, current_tag was: {continuation_current_tag}")
+                            logging.info(
+                                f"[continuation_loop] Tag detected: {open_tag}, current_tag was: {continuation_current_tag}"
+                            )
                             continuation_current_tag = tag_name
                             continuation_current_tag_content = ""
                             if tag_name == "answer":
                                 continuation_in_answer = True
-                                logging.info(f"[continuation_loop] Answer tag detected, continuation_in_answer=True")
+                                logging.info(
+                                    f"[continuation_loop] Answer tag detected, continuation_in_answer=True"
+                                )
                             break
 
                     # Check for closing tags in the window
@@ -3670,23 +3685,32 @@ Analyze the actual output shown and continue with your response.
                             )
                             # Remove partial closing tag at end
                             cleaned_new_answer = re.sub(
-                                r"</?a?n?s?w?e?r?$", "", cleaned_new_answer, flags=re.IGNORECASE
+                                r"</?a?n?s?w?e?r?$",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.IGNORECASE,
                             )
                             cleaned_new_answer = cleaned_new_answer.strip()
-                            
+
                             # Yield delta if we have new content
-                            if len(cleaned_new_answer) > len(continuation_answer_content):
-                                delta = cleaned_new_answer[len(continuation_answer_content):]
+                            if len(cleaned_new_answer) > len(
+                                continuation_answer_content
+                            ):
+                                delta = cleaned_new_answer[
+                                    len(continuation_answer_content) :
+                                ]
                                 # Skip if it looks like an opening tag
                                 if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
-                                    logging.info(f"[continuation_loop] Yielding answer delta: {repr(delta[:50]) if len(delta) > 50 else repr(delta)}")
+                                    logging.info(
+                                        f"[continuation_loop] Yielding answer delta: {repr(delta[:50]) if len(delta) > 50 else repr(delta)}"
+                                    )
                                     yield {
                                         "type": "answer",
                                         "content": delta,
                                         "complete": False,
                                     }
                                 continuation_answer_content = cleaned_new_answer
-                    
+
                     # Stop streaming answer once </answer> is found
                     if "</answer>" in tag_check_window.lower():
                         continuation_in_answer = False
