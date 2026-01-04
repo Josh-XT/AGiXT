@@ -2757,7 +2757,7 @@ class Agent:
                     extension["settings"] = []
             required_keys = extension["settings"]
             new_extension = extension.copy()
-            
+
             # Transform settings from list of keys to list of objects with values
             settings_with_values = []
             has_configured_setting = False
@@ -2766,43 +2766,53 @@ class Agent:
                     kw in key.upper()
                     for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
                 )
-                
+
                 if key not in self.AGENT_CONFIG["settings"]:
                     if "missing_keys" not in new_extension:
                         new_extension["missing_keys"] = []
                     new_extension["missing_keys"].append(key)
-                    settings_with_values.append({
-                        "setting_key": key,
-                        "setting_value": None,
-                        "is_sensitive": is_sensitive,
-                    })
-                else:
-                    value = self.AGENT_CONFIG["settings"][key]
-                    if value == "" or value is None:
-                        settings_with_values.append({
+                    settings_with_values.append(
+                        {
                             "setting_key": key,
                             "setting_value": None,
                             "is_sensitive": is_sensitive,
-                        })
+                        }
+                    )
+                else:
+                    value = self.AGENT_CONFIG["settings"][key]
+                    if value == "" or value is None:
+                        settings_with_values.append(
+                            {
+                                "setting_key": key,
+                                "setting_value": None,
+                                "is_sensitive": is_sensitive,
+                            }
+                        )
                     else:
                         has_configured_setting = True
                         # Mask sensitive values
                         if is_sensitive:
-                            masked_value = "***" + str(value)[-4:] if len(str(value)) > 4 else "****"
+                            masked_value = (
+                                "***" + str(value)[-4:]
+                                if len(str(value)) > 4
+                                else "****"
+                            )
                         else:
                             masked_value = value
-                        settings_with_values.append({
-                            "setting_key": key,
-                            "setting_value": masked_value,
-                            "is_sensitive": is_sensitive,
-                        })
-            
+                        settings_with_values.append(
+                            {
+                                "setting_key": key,
+                                "setting_value": masked_value,
+                                "is_sensitive": is_sensitive,
+                            }
+                        )
+
             new_extension["settings"] = settings_with_values
-            
+
             # Only disable commands if NO settings are configured
             if not has_configured_setting and required_keys:
                 new_extension["commands"] = []
-            
+
             if new_extension["commands"] == [] and not settings_with_values:
                 continue
             new_extensions.append(new_extension)
