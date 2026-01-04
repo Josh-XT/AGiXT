@@ -1588,7 +1588,7 @@ Example: memories, persona, files"""
         always_include = ["Get Datetime"]
 
         # Token-aware batching: Split commands into batches under 30k tokens each
-        # This prevents the model from needing to load with excessive context in ezlocalai
+        # Testing showed larger batches are faster due to reduced overhead
         MAX_BATCH_TOKENS = 30000
 
         # Calculate base prompt template tokens (without the batch content)
