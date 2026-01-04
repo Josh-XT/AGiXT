@@ -1655,6 +1655,9 @@ class Agent:
 
         self.agent_name = agent_name
         self.agent_id = agent_id
+        # Handle user dict from verify_api_key
+        if isinstance(user, dict):
+            user = user.get("email", DEFAULT_USER)
         user = user if user is not None else DEFAULT_USER
         self.user = user.lower()
         self.user_id = get_user_id(user=self.user)
@@ -1662,9 +1665,21 @@ class Agent:
         self.auth = MagicalAuth(token=token)
         self.company_id = None
 
-        # If agent_id was provided, get the agent_name; if agent_name was provided, get the agent_id
+        # If agent_id was provided, check if it's a valid UUID or actually a name
         if self.agent_id is not None:
-            self.agent_name = self.get_agent_name_by_id()
+            try:
+                # Try to parse as UUID - if it works, it's a real ID
+                import uuid as uuid_module
+                uuid_module.UUID(str(self.agent_id))
+                self.agent_name = self.get_agent_name_by_id()
+            except ValueError:
+                # Not a valid UUID - treat it as agent_name instead
+                self.agent_name = self.agent_id
+                self.agent_id = None
+                agent_id_result = self.get_agent_id()
+                self.agent_id = (
+                    str(agent_id_result) if agent_id_result is not None else None
+                )
         else:
             agent_id_result = self.get_agent_id()
             self.agent_id = (

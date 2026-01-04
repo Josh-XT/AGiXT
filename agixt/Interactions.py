@@ -1518,6 +1518,18 @@ Example: memories, persona, files"""
         if not all_command_names:
             return []
 
+        # CRITICAL: Pre-check for exact command name matches in user input
+        # If user explicitly mentions a command name, always include it
+        user_input_lower = user_input.lower()
+        explicitly_requested_commands = []
+        for cmd_name in all_command_names:
+            # Check if command name appears in user input (case-insensitive)
+            if cmd_name.lower() in user_input_lower:
+                explicitly_requested_commands.append(cmd_name)
+                logging.info(
+                    f"[select_commands_for_task] User explicitly mentioned command: {cmd_name}"
+                )
+
         # Build context about files
         context_parts = []
         if file_context:
@@ -1698,6 +1710,16 @@ Web Search, Read File, Write to File, Execute Python Code"""
         for cmd in always_include:
             if cmd in all_command_names and cmd not in valid_commands:
                 valid_commands.append(cmd)
+
+        # CRITICAL: Always include commands that user explicitly mentioned by name
+        # This ensures that if user says "run Update and Restart Production Servers"
+        # the command is available even if LLM selection fails to pick it
+        for cmd in explicitly_requested_commands:
+            if cmd not in valid_commands:
+                valid_commands.append(cmd)
+                logging.info(
+                    f"[select_commands_for_task] Force-including explicitly requested command: {cmd}"
+                )
 
         # Remove duplicates while preserving order
         seen = set()

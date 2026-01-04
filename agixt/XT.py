@@ -266,6 +266,9 @@ class AGiXT:
         conversation_name: str = None,
         collection_id=None,
     ):
+        # Handle user dict from verify_api_key
+        if isinstance(user, dict):
+            user = user.get("email", "user")
         self.user_email = user.lower()
         if api_key is not None:
             api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")

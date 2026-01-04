@@ -1686,7 +1686,7 @@ print(output)
         str: The list of chains
         """
         chains = self.ApiClient.get_chains()
-        chain_names = [chain["name"] for chain in chains]
+        chain_names = chains  # get_chains() already returns list of chain names
         return "Available Chains:\\n" + "\\n".join(chain_names)
 
     async def get_datetime(self) -> str:
