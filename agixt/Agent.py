@@ -1670,6 +1670,7 @@ class Agent:
             try:
                 # Try to parse as UUID - if it works, it's a real ID
                 import uuid as uuid_module
+
                 uuid_module.UUID(str(self.agent_id))
                 self.agent_name = self.get_agent_name_by_id()
             except ValueError:
