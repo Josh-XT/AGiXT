@@ -1514,20 +1514,53 @@ Example: memories, persona, files"""
         """
         # Get all available commands with descriptions
         commands_prompt, all_command_names = self.agent.get_commands_for_selection()
+        logging.info(
+            f"[select_commands_for_task] User input: {user_input[:200]}... Total commands available: {len(all_command_names)}"
+        )
 
         if not all_command_names:
             return []
 
-        # CRITICAL: Pre-check for exact command name matches in user input
-        # If user explicitly mentions a command name, always include it
+        # CRITICAL: Pre-check for command name matches in user input
+        # If user mentions a command name (or close variant), always include it
         user_input_lower = user_input.lower()
+        # Remove common filler words for fuzzy matching
+        user_input_words = set(
+            user_input_lower.replace("?", "").replace(".", "").replace(",", "").split()
+        )
         explicitly_requested_commands = []
         for cmd_name in all_command_names:
-            # Check if command name appears in user input (case-insensitive)
-            if cmd_name.lower() in user_input_lower:
+            cmd_lower = cmd_name.lower()
+            # Method 1: Exact substring match
+            if cmd_lower in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
                 logging.info(
-                    f"[select_commands_for_task] User explicitly mentioned command: {cmd_name}"
+                    f"[select_commands_for_task] User explicitly mentioned command (exact): {cmd_name}"
+                )
+                continue
+            # Method 2: Check if all significant words from command name appear in user input
+            # This handles cases like "update and restart the production servers" matching
+            # "Update and Restart Production Servers" (user added "the")
+            cmd_words = set(cmd_lower.split())
+            # Remove common connecting words that might not be in user input
+            significant_cmd_words = cmd_words - {
+                "and",
+                "or",
+                "the",
+                "a",
+                "an",
+                "to",
+                "for",
+                "of",
+                "in",
+                "on",
+            }
+            if significant_cmd_words and significant_cmd_words.issubset(
+                user_input_words
+            ):
+                explicitly_requested_commands.append(cmd_name)
+                logging.info(
+                    f"[select_commands_for_task] User explicitly mentioned command (word match): {cmd_name}"
                 )
 
         # Build context about files
