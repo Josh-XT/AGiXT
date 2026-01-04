@@ -69,6 +69,13 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+# Cache for Stripe subscription checks to avoid API spam
+# Key: user_id, Value: (timestamp, has_subscription)
+# Cache expires after 5 minutes
+_stripe_check_cache = {}
+_stripe_check_cache_ttl = 300  # 5 minutes
+
 """
 Required environment variables:
 
@@ -2686,8 +2693,20 @@ class MagicalAuth:
         Background Stripe subscription check.
         Updates user's is_active status and stripe_id preference if needed.
         This runs async and doesn't block the response.
+        Uses caching to prevent API spam.
         """
+        import time
         import stripe
+
+        # Check cache first to avoid Stripe API spam
+        cache_key = user_id
+        now = time.time()
+        if cache_key in _stripe_check_cache:
+            cached_time, cached_result = _stripe_check_cache[cache_key]
+            if now - cached_time < _stripe_check_cache_ttl:
+                # Cache is still valid, skip Stripe API call
+                logging.debug(f"Stripe check cache hit for {user_email}")
+                return
 
         stripe.api_key = api_key
 
@@ -2729,6 +2748,9 @@ class MagicalAuth:
                                 break
                     if has_subscription:
                         break
+
+            # Cache the result
+            _stripe_check_cache[cache_key] = (now, has_subscription)
 
             # Update user active status based on subscription
             if has_subscription:

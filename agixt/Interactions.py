@@ -3444,11 +3444,13 @@ Analyze the actual output shown and continue with your response.
                 # This is similar to the main stream processing but for continuation
                 continuation_response = ""
                 continuation_in_answer = False
+                continuation_answer_content = ""  # Track answer content for delta streaming
                 continuation_current_tag = None
                 continuation_current_tag_content = ""
                 continuation_current_tag_message_id = None  # Track message ID
                 continuation_processed_thinking_ids = set()
                 broke_for_execution = False  # Track if we broke early for execution
+                continuation_detected_tags = set()  # Track which opening tags we've already detected
 
                 async for chunk_data in iterate_stream(continuation_stream):
                     # Extract token from chunk
@@ -3463,25 +3465,32 @@ Analyze the actual output shown and continue with your response.
                     if not token:
                         continue
 
+                    prev_len = len(continuation_response)
                     continuation_response += token
 
                     # Process tags in continuation (thinking, reflection, execute, answer)
-                    # Check for opening tags
+                    # Check a sliding window of the last 20 chars for tags (enough for </reflection>)
+                    # This handles tags that are split across multiple tokens
+                    tag_check_window = continuation_response[-20:] if len(continuation_response) > 20 else continuation_response
+                    
+                    # Check for opening tags - only if we haven't detected this opening tag yet
                     for tag_name in ["thinking", "reflection", "execute", "answer"]:
-                        if (
-                            f"<{tag_name}>" in continuation_response
-                            and continuation_current_tag != tag_name
-                        ):
+                        open_tag = f"<{tag_name}>"
+                        if open_tag in tag_check_window and open_tag not in continuation_detected_tags:
+                            continuation_detected_tags.add(open_tag)
+                            logging.info(f"[continuation_loop] Tag detected: {open_tag}, current_tag was: {continuation_current_tag}")
                             continuation_current_tag = tag_name
                             continuation_current_tag_content = ""
                             if tag_name == "answer":
                                 continuation_in_answer = True
+                                logging.info(f"[continuation_loop] Answer tag detected, continuation_in_answer=True")
                             break
 
-                    # Check for closing tags
+                    # Check for closing tags in the window
                     for tag_name in ["thinking", "reflection", "execute", "answer"]:
+                        close_tag = f"</{tag_name}>"
                         if (
-                            f"</{tag_name}>" in continuation_response
+                            close_tag in tag_check_window
                             and continuation_current_tag == tag_name
                         ):
                             # Tag closed - process it
@@ -3633,21 +3642,54 @@ Analyze the actual output shown and continue with your response.
                                     "complete": False,
                                 }
 
-                    # Yield answer tokens
+                    # Yield answer tokens - use extract_top_level_answer to get the LAST answer
+                    # (same logic as final_answer extraction to ensure consistency)
                     if continuation_in_answer:
-                        answer_match = re.search(
-                            r"<answer>(.*?)$",
-                            continuation_response,
-                            re.DOTALL | re.IGNORECASE,
-                        )
-                        if answer_match:
-                            new_answer = answer_match.group(1)
-                            if "<" not in token:  # Only yield if no tag boundary
-                                yield {
-                                    "type": "answer",
-                                    "content": token,
-                                    "complete": False,
-                                }
+                        # Use the same extraction as final answer - gets LAST top-level answer
+                        new_answer = extract_top_level_answer(continuation_response)
+                        if new_answer:
+                            # Clean internal tags from answer content
+                            cleaned_new_answer = re.sub(
+                                r"<thinking>.*?</thinking>",
+                                "",
+                                new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            cleaned_new_answer = re.sub(
+                                r"<reflection>.*?</reflection>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            # Remove orphaned closing tags
+                            cleaned_new_answer = re.sub(
+                                r"</(?:thinking|reflection|step|reward|count|answer)>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.IGNORECASE,
+                            )
+                            # Remove partial closing tag at end
+                            cleaned_new_answer = re.sub(
+                                r"</?a?n?s?w?e?r?$", "", cleaned_new_answer, flags=re.IGNORECASE
+                            )
+                            cleaned_new_answer = cleaned_new_answer.strip()
+                            
+                            # Yield delta if we have new content
+                            if len(cleaned_new_answer) > len(continuation_answer_content):
+                                delta = cleaned_new_answer[len(continuation_answer_content):]
+                                # Skip if it looks like an opening tag
+                                if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
+                                    logging.info(f"[continuation_loop] Yielding answer delta: {repr(delta[:50]) if len(delta) > 50 else repr(delta)}")
+                                    yield {
+                                        "type": "answer",
+                                        "content": delta,
+                                        "complete": False,
+                                    }
+                                continuation_answer_content = cleaned_new_answer
+                    
+                    # Stop streaming answer once </answer> is found
+                    if "</answer>" in tag_check_window.lower():
+                        continuation_in_answer = False
 
                 # Append continuation to main response (only if we didn't already do it when breaking for execution)
                 if not broke_for_execution:
@@ -3697,12 +3739,24 @@ Analyze the actual output shown and continue with your response.
         final_answer = ""
         if "<answer>" in self.response.lower():
             final_answer = extract_top_level_answer(self.response)
+            logging.info(
+                f"[run_stream] extract_top_level_answer returned: {repr(final_answer[:100]) if final_answer else 'EMPTY'}..."
+            )
 
         if not final_answer:
             # No top-level answer found, use full response
+            logging.warning(
+                f"[run_stream] No top-level answer found, using full response (length={len(self.response)})"
+            )
             final_answer = self.response
 
-        # Clean final answer
+        # Clean final answer - ALSO REMOVE <answer> tags that might be left over
+        final_answer = re.sub(
+            r"<answer>|</answer>",
+            "",
+            final_answer,
+            flags=re.IGNORECASE,
+        )
         final_answer = re.sub(
             r"<thinking>.*?</thinking>",
             "",
@@ -3735,6 +3789,14 @@ Analyze the actual output shown and continue with your response.
         # Remove <speak> tags - these are TTS filler speech and shouldn't appear in final response
         final_answer = re.sub(
             r"<speak>.*?</speak>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove orphaned closing tags (closing tags without matching opening tags)
+        # This handles malformed model output with stray </thinking>, </reflection>, etc.
+        final_answer = re.sub(
+            r"</thinking>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>",
+            "",
+            final_answer,
+            flags=re.IGNORECASE,
         )
         final_answer = final_answer.strip()
 
