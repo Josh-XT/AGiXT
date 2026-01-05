@@ -4740,19 +4740,23 @@ class MagicalAuth:
                 # Determine if user is a super admin (role_id 0 or 1)
                 is_super_admin = user_company and user_company.role_id <= 1
 
+                # Check if this is the user's first company (registration flow)
+                # If user has no companies, allow them to create a top-level company
+                is_first_company = user_company is None
+
                 # If not super admin and no parent specified, force parent to user's company
                 # This ensures company admins always create child companies
-                if not is_super_admin and not parent_company_id:
+                # EXCEPTION: Allow first company creation during registration
+                if (
+                    not is_super_admin
+                    and not parent_company_id
+                    and not is_first_company
+                ):
                     if user_company:
                         parent_company_id = str(user_company.company_id)
                         logging.info(
                             f"Auto-setting parent_company_id to {parent_company_id} "
                             f"for non-super admin user {self.user_id}"
-                        )
-                    else:
-                        raise HTTPException(
-                            status_code=403,
-                            detail="You must be a member of a company to create child companies.",
                         )
 
                 # Validate parent company access if specified
