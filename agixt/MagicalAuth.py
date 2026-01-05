@@ -1887,15 +1887,17 @@ class MagicalAuth:
     def check_user_limit(self, company_id: str) -> bool:
         """Check if a company can add more users based on billing model.
 
-        For seat-based billing (per_user, per_capacity, per_location):
-            - Checks if current user count < user_limit (paid seats)
+        For seat-based billing:
+            - per_user (XT Systems): Checks if current user count < user_limit (paid seats)
+            - per_capacity (NurseXT): user_limit represents paid beds - doesn't limit users
+            - per_location (UltraEstimate): Checks if child company count < user_limit (paid locations)
 
         For token-based billing (per_token):
             - Checks if company has a positive token balance
 
         Returns:
-            True = company can add users
-            False = company cannot add users (limit reached or no balance)
+            True = company can add users/locations
+            False = company cannot add users/locations (limit reached or no balance)
         """
         from ExtensionsHub import ExtensionsHub
 
@@ -1925,30 +1927,64 @@ class MagicalAuth:
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
 
-            # For seat-based billing models, check user count vs user_limit
-            if pricing_model in ["per_user", "per_capacity", "per_location"]:
-                # Count current users in the company
+            # Get the root parent company for billing purposes
+            # Child companies consume from their root parent
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            if str(root_company_id) != str(company_id):
+                billing_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if not billing_company:
+                    billing_company = company
+            else:
+                billing_company = company
+
+            # user_limit represents paid capacity on root parent company
+            paid_limit = billing_company.user_limit or 0
+
+            # For per_user billing (XT Systems): count users against paid seats
+            if pricing_model == "per_user":
                 current_user_count = (
                     session.query(UserCompany)
                     .filter(UserCompany.company_id == company_id)
                     .count()
                 )
-
-                # user_limit represents paid seats
-                user_limit = company.user_limit or 0
-
-                # Allow if current users < paid seats
-                if current_user_count < user_limit:
+                if current_user_count < paid_limit:
                     return True
-
-                # Also allow if company has sufficient token balance (as fallback)
-                if company.token_balance and company.token_balance > 0:
+                # Fallback to token balance
+                if billing_company.token_balance and billing_company.token_balance > 0:
                     return True
-
                 return False
 
-            # For token-based billing, check token balance
-            if company.token_balance and company.token_balance > 0:
+            # For per_capacity billing (NurseXT): beds are declared capacity, not user limit
+            # Users are unlimited - the capacity (beds) is just what they pay for
+            elif pricing_model == "per_capacity":
+                # Check they have paid for some capacity or have token balance
+                if paid_limit > 0:
+                    return True
+                if billing_company.token_balance and billing_company.token_balance > 0:
+                    return True
+                return False
+
+            # For per_location billing (UltraEstimate): count child companies as locations
+            elif pricing_model == "per_location":
+                # Count child companies under the root parent (each child = 1 location)
+                child_company_count = (
+                    session.query(Company)
+                    .filter(Company.company_id == billing_company.id)
+                    .count()
+                )
+                # The root company itself counts as 1 location
+                total_locations = child_company_count + 1
+                if total_locations <= paid_limit:
+                    return True
+                # Fallback to token balance
+                if billing_company.token_balance and billing_company.token_balance > 0:
+                    return True
+                return False
+
+            # For token-based billing, check root parent company's token balance
+            if billing_company.token_balance and billing_company.token_balance > 0:
                 return True
 
             return False
@@ -1982,10 +2018,12 @@ class MagicalAuth:
         return False
 
     def _has_sufficient_token_balance(self, session, user_companies) -> bool:
-        """Check if any of the user's companies have a positive token balance or valid subscription.
+        """Check if any of the user's companies (or their root parents) have a positive token balance or valid subscription.
 
         For token-based billing: checks token_balance > 0
         For seat-based billing: checks token_balance_usd > 0 (trial credits) or active subscription
+
+        Child companies inherit billing from their root parent company.
         """
         from ExtensionsHub import ExtensionsHub
 
@@ -1996,6 +2034,14 @@ class MagicalAuth:
         }
         if not company_ids:
             return False
+
+        # Expand company_ids to include root parent companies
+        # Child companies consume from their root parent
+        all_company_ids = set(company_ids)
+        for cid in company_ids:
+            root_id = self.get_root_parent_company(str(cid), session=session)
+            if root_id:
+                all_company_ids.add(root_id)
 
         # Get pricing model
         hub = ExtensionsHub()
@@ -2011,7 +2057,7 @@ class MagicalAuth:
             # 2. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
             company_with_credits = (
                 session.query(Company)
-                .filter(Company.id.in_(list(company_ids)))
+                .filter(Company.id.in_(list(all_company_ids)))
                 .filter(
                     (Company.token_balance_usd > 0)  # Has trial credits
                     | (
@@ -2024,10 +2070,10 @@ class MagicalAuth:
             if company_with_credits:
                 return True
         else:
-            # For token-based billing, check token_balance
+            # For token-based billing, check token_balance on all companies including parents
             company_with_balance = (
                 session.query(Company)
-                .filter(Company.id.in_(list(company_ids)))
+                .filter(Company.id.in_(list(all_company_ids)))
                 .filter(Company.token_balance > 0)
                 .first()
             )
@@ -3651,15 +3697,30 @@ class MagicalAuth:
             session.close()
 
     def should_show_low_balance_warning(self, company_id: str) -> bool:
-        """Check if low balance warning should be shown to admin"""
+        """Check if low balance warning should be shown to admin.
+
+        For child companies, checks the root parent company's balance since
+        that's where tokens are consumed from.
+        """
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
             if not company:
                 return False
 
-            current_balance = company.token_balance
-            last_warning = company.last_low_balance_warning or 0
+            # Get the root parent company for billing purposes
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            if str(root_company_id) != str(company_id):
+                billing_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if not billing_company:
+                    billing_company = company
+            else:
+                billing_company = company
+
+            current_balance = billing_company.token_balance
+            last_warning = billing_company.last_low_balance_warning or 0
             low_balance_threshold = int(getenv("LOW_BALANCE_WARNING_THRESHOLD"))
             warning_increment = int(getenv("TOKEN_WARNING_INCREMENT"))
 
@@ -3674,14 +3735,29 @@ class MagicalAuth:
             session.close()
 
     def dismiss_low_balance_warning(self, company_id: str):
-        """Admin dismisses warning, record current balance"""
+        """Admin dismisses warning, record current balance.
+
+        For child companies, updates the root parent company's warning state
+        since that's where the balance is tracked.
+        """
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
 
-            company.last_low_balance_warning = company.token_balance
+            # Get the root parent company for billing purposes
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            if str(root_company_id) != str(company_id):
+                billing_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if not billing_company:
+                    billing_company = company
+            else:
+                billing_company = company
+
+            billing_company.last_low_balance_warning = billing_company.token_balance
             session.commit()
         finally:
             session.close()
@@ -4645,6 +4721,9 @@ class MagicalAuth:
         under their own company (or a company they have admin access to).
         Only super admins (role_id=0 or 1) can create top-level companies
         without a parent.
+
+        For per_location billing (UltraEstimate), checks location limit before
+        allowing child company creation.
         """
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
@@ -4694,6 +4773,52 @@ class MagicalAuth:
                             status_code=403,
                             detail="You do not have permission to create child companies under this parent.",
                         )
+
+                    # For per_location billing, check location limit before creating child company
+                    from ExtensionsHub import ExtensionsHub
+
+                    hub = ExtensionsHub()
+                    pricing_config = hub.get_pricing_config()
+                    pricing_model = (
+                        pricing_config.get("pricing_model")
+                        if pricing_config
+                        else "per_token"
+                    )
+
+                    if pricing_model == "per_location":
+                        # Get root parent company for billing
+                        root_company_id = self.get_root_parent_company(
+                            parent_company_id, session=db
+                        )
+                        billing_company = (
+                            db.query(Company)
+                            .filter(Company.id == root_company_id)
+                            .first()
+                        )
+
+                        if billing_company:
+                            paid_locations = billing_company.user_limit or 0
+                            # Count existing child companies under root
+                            child_company_count = (
+                                db.query(Company)
+                                .filter(Company.company_id == billing_company.id)
+                                .count()
+                            )
+                            # Root + existing children + 1 for the new company
+                            total_after_creation = child_company_count + 2
+
+                            # Check if adding another location exceeds limit
+                            if total_after_creation > paid_locations:
+                                # Check fallback to token balance
+                                if not (
+                                    billing_company.token_balance
+                                    and billing_company.token_balance > 0
+                                ):
+                                    raise HTTPException(
+                                        status_code=402,
+                                        detail=f"Location limit reached. You have {paid_locations} paid locations. "
+                                        f"Please upgrade your plan to add more locations.",
+                                    )
 
                 # Check if user has permission to create companies
                 if self.company_id != None:
