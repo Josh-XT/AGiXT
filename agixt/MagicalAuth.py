@@ -3425,6 +3425,56 @@ class MagicalAuth:
         session.close()
         return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
+    def get_root_parent_company(self, company_id: str, session=None) -> Optional[str]:
+        """
+        Get the root parent company ID by traversing the parent hierarchy.
+        Child companies should consume tokens from their root parent company.
+
+        Args:
+            company_id: The company ID to start from
+            session: Optional existing session to use
+
+        Returns:
+            The root parent company ID (company with no parent), or the original
+            company_id if it's already a root company
+        """
+        close_session = False
+        if session is None:
+            session = get_session()
+            close_session = True
+
+        try:
+            current_id = company_id
+            visited = set()  # Prevent infinite loops
+
+            while current_id:
+                if current_id in visited:
+                    # Circular reference detected, return current
+                    logging.warning(
+                        f"Circular parent reference detected for company {company_id}"
+                    )
+                    break
+                visited.add(current_id)
+
+                company = (
+                    session.query(Company).filter(Company.id == current_id).first()
+                )
+                if not company:
+                    break
+
+                # company_id field is the parent company reference
+                parent_id = company.company_id
+                if not parent_id:
+                    # This company has no parent, it's the root
+                    return str(current_id)
+
+                current_id = str(parent_id)
+
+            return str(company_id)  # Fallback to original
+        finally:
+            if close_session:
+                session.close()
+
     def increase_token_counts(self, input_tokens: int = 0, output_tokens: int = 0):
         self.validate_user()
         session = get_session()
@@ -3444,28 +3494,45 @@ class MagicalAuth:
             )
 
             if user_company and billing_enabled:
-                company = (
+                user_direct_company = (
                     session.query(Company)
                     .filter(Company.id == user_company.company_id)
                     .first()
                 )
 
-                if company:
-                    # Check if company has sufficient balance (only when billing is enabled)
-                    if company.token_balance < total_tokens:
-                        session.close()
-                        raise HTTPException(
-                            status_code=402,
-                            detail="Insufficient token balance. Please top up your company's token balance.",
+                if user_direct_company:
+                    # Get the root parent company for billing purposes
+                    # Child companies consume tokens from their root parent
+                    root_company_id = self.get_root_parent_company(
+                        str(user_direct_company.id), session=session
+                    )
+
+                    # If user's company is a child, get the root parent for billing
+                    if str(root_company_id) != str(user_direct_company.id):
+                        billing_company = (
+                            session.query(Company)
+                            .filter(Company.id == root_company_id)
+                            .first()
                         )
+                    else:
+                        billing_company = user_direct_company
 
-                    # Deduct from company balance
-                    company.token_balance -= total_tokens
-                    company.tokens_used_total += total_tokens
+                    if billing_company:
+                        # Check if billing company has sufficient balance
+                        if billing_company.token_balance < total_tokens:
+                            session.close()
+                            raise HTTPException(
+                                status_code=402,
+                                detail="Insufficient token balance. Please top up your company's token balance.",
+                            )
 
-                    # Record usage for audit trail
+                        # Deduct from billing (root parent) company balance
+                        billing_company.token_balance -= total_tokens
+                        billing_company.tokens_used_total += total_tokens
+
+                    # Record usage for audit trail (against user's direct company)
                     usage = CompanyTokenUsage(
-                        company_id=company.id,
+                        company_id=user_direct_company.id,
                         user_id=self.user_id,
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
@@ -3533,7 +3600,11 @@ class MagicalAuth:
             session.close()
 
     def get_company_token_balance(self, company_id: str) -> dict:
-        """Get company token balance and usage stats"""
+        """Get company token balance and usage stats.
+
+        For child companies, this also returns the parent company's balance info
+        since child companies consume tokens from their root parent company.
+        """
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
@@ -3541,12 +3612,41 @@ class MagicalAuth:
                 raise HTTPException(status_code=404, detail="Company not found")
 
             low_balance_threshold = int(getenv("LOW_BALANCE_WARNING_THRESHOLD"))
-            return {
+
+            # Check if this is a child company (has a parent)
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            is_child_company = str(root_company_id) != str(company_id)
+
+            result = {
                 "token_balance": company.token_balance,
                 "token_balance_usd": company.token_balance_usd,
                 "tokens_used_total": company.tokens_used_total,
                 "low_balance_warning": company.token_balance <= low_balance_threshold,
+                "is_child_company": is_child_company,
             }
+
+            # If this is a child company, include parent company balance info
+            # since tokens are consumed from the parent
+            if is_child_company:
+                parent_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if parent_company:
+                    result["parent_company_id"] = str(root_company_id)
+                    result["parent_company_name"] = parent_company.name
+                    result["parent_token_balance"] = parent_company.token_balance
+                    result["parent_token_balance_usd"] = (
+                        parent_company.token_balance_usd
+                    )
+                    result["parent_tokens_used_total"] = (
+                        parent_company.tokens_used_total
+                    )
+                    # Use parent's balance for the low balance warning since that's what's consumed
+                    result["low_balance_warning"] = (
+                        parent_company.token_balance <= low_balance_threshold
+                    )
+
+            return result
         finally:
             session.close()
 
@@ -4540,11 +4640,62 @@ class MagicalAuth:
         country: Optional[str] = None,
         notes: Optional[str] = None,
     ):
+        """
+        Create a new company. Company admins can only create child companies
+        under their own company (or a company they have admin access to).
+        Only super admins (role_id=0 or 1) can create top-level companies
+        without a parent.
+        """
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
         with get_session() as db:
             try:
-                # Check if user has permission to create child companies
+                # Get user's primary company and role
+                user_company = (
+                    db.query(UserCompany)
+                    .filter(UserCompany.user_id == self.user_id)
+                    .order_by(UserCompany.role_id)  # Get highest privilege first
+                    .first()
+                )
+
+                # Determine if user is a super admin (role_id 0 or 1)
+                is_super_admin = user_company and user_company.role_id <= 1
+
+                # If not super admin and no parent specified, force parent to user's company
+                # This ensures company admins always create child companies
+                if not is_super_admin and not parent_company_id:
+                    if user_company:
+                        parent_company_id = str(user_company.company_id)
+                        logging.info(
+                            f"Auto-setting parent_company_id to {parent_company_id} "
+                            f"for non-super admin user {self.user_id}"
+                        )
+                    else:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="You must be a member of a company to create child companies.",
+                        )
+
+                # Validate parent company access if specified
+                if parent_company_id:
+                    # Check if user has admin access to the parent company
+                    parent_access = (
+                        db.query(UserCompany)
+                        .filter(
+                            UserCompany.user_id == self.user_id,
+                            UserCompany.company_id == parent_company_id,
+                            UserCompany.role_id
+                            <= 2,  # tenant_admin, super_admin, or company_admin
+                        )
+                        .first()
+                    )
+                    if not parent_access and not is_super_admin:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="You do not have permission to create child companies under this parent.",
+                        )
+
+                # Check if user has permission to create companies
                 if self.company_id != None:
                     check_company_id = (
                         parent_company_id if parent_company_id else self.company_id
@@ -4554,6 +4705,7 @@ class MagicalAuth:
                             status_code=403,
                             detail="Unauthorized. Insufficient permissions.",
                         )
+
                 new_company = Company.create(
                     db,
                     name=name,
