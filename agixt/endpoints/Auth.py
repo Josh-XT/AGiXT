@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import os
 from Models import (
     Detail,
@@ -18,6 +19,7 @@ from Models import (
 )
 from DB import TokenBlacklist, get_session
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
+from fastapi.responses import JSONResponse, Response
 from MagicalAuth import (
     MagicalAuth,
     decrypt,
@@ -26,6 +28,7 @@ from MagicalAuth import (
     impersonate_user,
     get_oauth_providers,
 )
+from middleware import send_discord_new_user_notification
 from Agent import Agent
 from typing import List
 from Globals import getenv
@@ -56,6 +59,8 @@ async def register(register: Register):
     )
     if result["status_code"] != 200:
         raise HTTPException(status_code=result["status_code"], detail=result["error"])
+    # Send Discord notification for new user registration
+    await send_discord_new_user_notification(email=register.email)
     mfa_token = result["mfa_token"]
     totp = pyotp.TOTP(mfa_token)
     otp_uri = totp.provisioning_uri(name=register.email, issuer_name=getenv("APP_NAME"))
@@ -155,14 +160,23 @@ async def get_user_exists(email: str) -> bool:
 async def get_user(
     request: Request,
     authorization: str = Header(None),
+    if_none_match: str = Header(None, alias="If-None-Match"),
 ):
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     user_data = auth.login(ip_address=client_ip)
-    user_preferences = auth.get_user_preferences()
+    # Smart preferences: fast token balance check (blocks if no tokens),
+    # but Stripe subscription checks happen in background
+    user_preferences = auth.get_user_preferences_smart()
     companies = auth.get_user_companies_with_roles()
-    return {
+
+    # Include scopes for each company to eliminate separate /v1/user/scopes calls
+    for company in companies:
+        company_scopes = auth.get_user_scopes(company["id"])
+        company["scopes"] = list(company_scopes)
+
+    response_data = {
         "id": auth.user_id,
         "email": user_data.email,
         "first_name": user_data.first_name,
@@ -173,6 +187,32 @@ async def get_user(
         ),
         **user_preferences,
     }
+
+    # Generate ETag from response data hash (excludes volatile fields like tokens)
+    # We hash a subset of data that matters for UI rendering
+    etag_data = {
+        "id": response_data["id"],
+        "email": response_data["email"],
+        "first_name": response_data["first_name"],
+        "last_name": response_data["last_name"],
+        "companies": response_data["companies"],
+        "tos_accepted_at": response_data.get("tos_accepted_at"),
+    }
+    etag_string = json.dumps(etag_data, sort_keys=True, default=str)
+    etag = f'"{hashlib.md5(etag_string.encode()).hexdigest()}"'
+
+    # If client sent If-None-Match and it matches, return 304 Not Modified
+    if if_none_match and if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    # Return full response with ETag header
+    return JSONResponse(
+        content=response_data,
+        headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=0, must-revalidate",
+        },
+    )
 
 
 @app.post(
@@ -249,7 +289,7 @@ async def logout_user(
 
     # Decode token to get expiration time
     try:
-        AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+        AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
         decoded = jwt.decode(
             jwt=token,
             key=AGIXT_API_KEY,
@@ -319,6 +359,8 @@ async def create_invitations(
     try:
         auth = MagicalAuth(token=authorization)
         return auth.create_invitation(invitation)
+    except HTTPException:
+        raise  # Re-raise HTTPExceptions with their original status code
     except Exception as e:
         logging.error(f"Error in create_invitation endpoint: {str(e)}")
         raise HTTPException(
@@ -491,7 +533,7 @@ async def accept_tos(
 )
 async def get_pkce_challenge_simple():
     """Generate code_verifier and code_challenge, embed verifier in state."""
-    api_key = getenv("AGIXT_API_KEY")
+    api_key = os.getenv("AGIXT_API_KEY", "")
     if not api_key:
         raise HTTPException(
             status_code=500, detail="Server misconfiguration: Missing AGIXT_API_KEY"
@@ -502,7 +544,7 @@ async def get_pkce_challenge_simple():
         "code_challenge": base64.urlsafe_b64encode(code_verifier_digest)
         .decode("utf-8")
         .rstrip("="),
-        "state": encrypt(getenv("AGIXT_API_KEY"), {"verifier": code_verifier}),
+        "state": encrypt(os.getenv("AGIXT_API_KEY", ""), {"verifier": code_verifier}),
     }
 
 
@@ -523,7 +565,9 @@ async def oauth_login(
     state = data.get("state")
     if state:
         try:
-            code_verifier = decrypt(getenv("AGIXT_API_KEY"), state).get("verifier")
+            code_verifier = decrypt(os.getenv("AGIXT_API_KEY", ""), state).get(
+                "verifier"
+            )
         except Exception as e:
             logging.error(f"Failed to decode code_verifier from state: {str(e)}")
 
@@ -716,9 +760,13 @@ async def get_company_extensions(
 ):
     auth = MagicalAuth(token=authorization)
     ApiClient = auth.get_company_agent_session(company_id=company_id)
+    # Use company's auth email (from ApiClient token) not the user's email
+    # This ensures we get the company agent's extensions, not the user's
+    token = ApiClient.headers.get("Authorization")
+    company_auth = MagicalAuth(token=token)
     agent = Agent(
         agent_name=auth.get_company_agent_name(),
-        user=auth.email,
+        user=company_auth.email,
         ApiClient=ApiClient,
     )
     extensions = agent.get_agent_extensions()
@@ -740,7 +788,11 @@ async def toggle_command(
     ApiClient = auth.get_company_agent_session(company_id=company_id)
     token = ApiClient.headers.get("Authorization")
     company_auth = MagicalAuth(token=token)
-    agent = Agent(agent_name="AGiXT", user=company_auth.email, ApiClient=ApiClient)
+    agent = Agent(
+        agent_name=auth.get_company_agent_name(),
+        user=company_auth.email,
+        ApiClient=ApiClient,
+    )
     update_config = agent.update_agent_config(
         new_config={payload.command_name: payload.enable}, config_key="commands"
     )

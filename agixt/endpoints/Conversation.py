@@ -20,6 +20,7 @@ from Conversations import (
 )
 from DB import Message, Agent as DBAgent, User
 from XT import AGiXT
+from middleware import log_silenced_exception
 from Models import (
     HistoryModel,
     ConversationHistoryModel,
@@ -55,9 +56,71 @@ from MagicalAuth import MagicalAuth, get_user_id
 from WorkerRegistry import worker_registry
 from Workspaces import WorkspaceManager
 import mimetypes
+from typing import Set
 
 app = APIRouter()
 workspace_manager = WorkspaceManager()
+
+
+class UserNotificationManager:
+    """
+    Manages WebSocket connections for user-level notifications.
+    Allows broadcasting events to all connections for a specific user.
+    """
+
+    def __init__(self):
+        # Maps user_id -> set of active WebSocket connections
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self._lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket, user_id: str):
+        """Register a new WebSocket connection for a user."""
+        async with self._lock:
+            if user_id not in self.active_connections:
+                self.active_connections[user_id] = set()
+            self.active_connections[user_id].add(websocket)
+            logging.debug(
+                f"User {user_id} connected. Total connections: {len(self.active_connections[user_id])}"
+            )
+
+    async def disconnect(self, websocket: WebSocket, user_id: str):
+        """Remove a WebSocket connection for a user."""
+        async with self._lock:
+            if user_id in self.active_connections:
+                self.active_connections[user_id].discard(websocket)
+                if not self.active_connections[user_id]:
+                    del self.active_connections[user_id]
+                logging.debug(f"User {user_id} disconnected.")
+
+    async def broadcast_to_user(self, user_id: str, message: dict):
+        """Broadcast a message to all connections for a specific user."""
+        connections_to_remove = []
+        async with self._lock:
+            if user_id not in self.active_connections:
+                return
+            connections = list(self.active_connections[user_id])
+
+        for connection in connections:
+            try:
+                await connection.send_text(json.dumps(message))
+            except Exception as e:
+                logging.warning(f"Failed to send to user {user_id}: {e}")
+                connections_to_remove.append(connection)
+
+        # Clean up dead connections
+        if connections_to_remove:
+            async with self._lock:
+                for conn in connections_to_remove:
+                    if user_id in self.active_connections:
+                        self.active_connections[user_id].discard(conn)
+
+    def get_user_connection_count(self, user_id: str) -> int:
+        """Get the number of active connections for a user."""
+        return len(self.active_connections.get(user_id, set()))
+
+
+# Global notification manager instance
+user_notification_manager = UserNotificationManager()
 
 
 def make_json_serializable(obj):
@@ -200,11 +263,29 @@ async def get_conversation_history(
 async def new_conversation_v1(
     history: ConversationHistoryModel,
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
+    auth = MagicalAuth(token=authorization)
     c = Conversations(conversation_name=history.conversation_name, user=user)
     c.new_conversation(conversation_content=history.conversation_content)
+    conversation_id = c.get_conversation_id()
+
+    # Notify user of new conversation via websocket
+    asyncio.create_task(
+        notify_user_conversation_created(
+            user_id=auth.user_id,
+            conversation_id=conversation_id,
+            conversation_name=history.conversation_name,
+            agent_id=(
+                str(c.get_agent_id(auth.user_id))
+                if c.get_agent_id(auth.user_id)
+                else None
+            ),
+        )
+    )
+
     return {
-        "id": c.get_conversation_id(),
+        "id": conversation_id,
         "conversation_history": history.conversation_content,
     }
 
@@ -223,6 +304,7 @@ async def delete_conversation_v1(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     auth = MagicalAuth(token=authorization)
+    original_id = conversation_id
     if conversation_id == "-":
         conversation_id = get_conversation_id_by_name(
             conversation_name="-", user_id=auth.user_id
@@ -233,6 +315,16 @@ async def delete_conversation_v1(
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
     Conversations(conversation_name=conversation_name, user=user).delete_conversation()
+
+    # Notify user of deleted conversation via websocket
+    asyncio.create_task(
+        notify_user_conversation_deleted(
+            user_id=auth.user_id,
+            conversation_id=conversation_id,
+            conversation_name=conversation_name,
+        )
+    )
+
     return ResponseMessage(message=f"Conversation `{conversation_name}` deleted.")
 
 
@@ -255,14 +347,25 @@ async def rename_conversation_v1(
         conversation_id = get_conversation_id_by_name(
             conversation_name="-", user_id=auth.user_id
         )
-    conversation_name = get_conversation_name_by_id(
+    old_conversation_name = get_conversation_name_by_id(
         conversation_id=conversation_id, user_id=auth.user_id
     )
-    if not conversation_name:
+    if not old_conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=conversation_name, user=user).rename_conversation(
-        new_name=rename_model.new_conversation_name
+    Conversations(
+        conversation_name=old_conversation_name, user=user
+    ).rename_conversation(new_name=rename_model.new_conversation_name)
+
+    # Notify user of renamed conversation via websocket
+    asyncio.create_task(
+        notify_user_conversation_renamed(
+            user_id=auth.user_id,
+            conversation_id=conversation_id,
+            old_name=old_conversation_name,
+            new_name=rename_model.new_conversation_name,
+        )
     )
+
     return ResponseMessage(
         message=f"Conversation renamed to `{rename_model.new_conversation_name}`."
     )
@@ -298,6 +401,19 @@ async def add_message_v1(
         message=log_interaction.message,
         role=log_interaction.role,
     )
+
+    # Notify user of new message via websocket
+    asyncio.create_task(
+        notify_user_message_added(
+            user_id=auth.user_id,
+            conversation_id=conversation_id,
+            conversation_name=conversation_name,
+            message_id=str(interaction_id),
+            message=log_interaction.message,
+            role=log_interaction.role,
+        )
+    )
+
     return ResponseMessage(message=str(interaction_id))
 
 
@@ -1524,8 +1640,240 @@ async def conversation_stream(
                 json.dumps({"type": "error", "message": f"Unexpected error: {str(e)}"})
             )
             await websocket.close()
-        except:
-            pass
+        except Exception as close_error:
+            log_silenced_exception(
+                close_error, "conversation_stream: closing websocket after error"
+            )
+
+
+# User-level WebSocket endpoint for global notifications
+@app.websocket("/v1/user/notifications")
+async def user_notifications_stream(websocket: WebSocket, authorization: str = None):
+    """
+    WebSocket endpoint for streaming user-level notifications across all conversations.
+
+    This endpoint allows clients to receive real-time notifications when:
+    - A new conversation is created
+    - A conversation is deleted
+    - A conversation is renamed
+    - A new message is added to any conversation
+
+    Parameters:
+    - authorization: Bearer token for authentication (can be passed as query param)
+
+    The WebSocket will send JSON messages with the following structure:
+    {
+        "type": "conversation_created" | "conversation_deleted" | "conversation_renamed" | "message_added" | "error" | "heartbeat",
+        "data": {
+            // Event-specific data
+        }
+    }
+    """
+    await websocket.accept()
+    user_id = None
+
+    try:
+        # Get authorization token from query params if not in header
+        if not authorization:
+            authorization = websocket.query_params.get("authorization")
+
+        if not authorization:
+            await websocket.send_text(
+                json.dumps({"type": "error", "message": "Authorization token required"})
+            )
+            await websocket.close()
+            return
+
+        # Authenticate user
+        try:
+            from ApiClient import verify_api_key
+
+            class MockHeader:
+                def __init__(self, value):
+                    self.value = value
+
+                def __str__(self):
+                    return self.value
+
+            user = verify_api_key(authorization=MockHeader(authorization))
+            auth = MagicalAuth(token=authorization)
+            user_id = auth.user_id
+        except Exception as e:
+            await websocket.send_text(
+                json.dumps(
+                    {"type": "error", "message": f"Authentication failed: {str(e)}"}
+                )
+            )
+            await websocket.close()
+            return
+
+        # Register connection
+        await user_notification_manager.connect(websocket, user_id)
+
+        # Send connection confirmation with initial conversation list
+        c = Conversations(user=user)
+        conversations = c.get_conversations_with_detail()
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "connected",
+                    "user_id": user_id,
+                    "conversations": (
+                        make_json_serializable(conversations) if conversations else {}
+                    ),
+                }
+            )
+        )
+
+        # Main loop - wait for ping/pong to keep connection alive
+        last_heartbeat_time = datetime.now()
+
+        while True:
+            try:
+                try:
+                    message_data = await asyncio.wait_for(
+                        websocket.receive_json(), timeout=1.0
+                    )
+
+                    if message_data.get("type") == "ping":
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "pong",
+                                    "timestamp": datetime.now().isoformat(),
+                                }
+                            )
+                        )
+
+                except asyncio.TimeoutError:
+                    pass
+                except WebSocketDisconnect:
+                    break
+                except Exception as e:
+                    logging.warning(f"Error receiving WebSocket message: {e}")
+
+                # Send heartbeat every 30 seconds
+                current_time = datetime.now()
+                time_since_last_heartbeat = (
+                    current_time - last_heartbeat_time
+                ).total_seconds()
+
+                if time_since_last_heartbeat >= 30:
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "heartbeat",
+                                "timestamp": current_time.isoformat(),
+                            }
+                        )
+                    )
+                    last_heartbeat_time = current_time
+
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logging.error(f"Error in user notifications stream: {e}")
+                try:
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": str(e)})
+                    )
+                except:
+                    break
+
+    except Exception as e:
+        logging.error(f"Unexpected error in user notifications stream: {e}")
+        try:
+            await websocket.send_text(
+                json.dumps({"type": "error", "message": f"Unexpected error: {str(e)}"})
+            )
+            await websocket.close()
+        except Exception as close_error:
+            log_silenced_exception(
+                close_error, "user_notifications_stream: closing websocket after error"
+            )
+    finally:
+        if user_id:
+            await user_notification_manager.disconnect(websocket, user_id)
+
+
+async def notify_user_conversation_created(
+    user_id: str, conversation_id: str, conversation_name: str, agent_id: str = None
+):
+    """Notify user when a new conversation is created."""
+    await user_notification_manager.broadcast_to_user(
+        user_id,
+        {
+            "type": "conversation_created",
+            "data": {
+                "conversation_id": conversation_id,
+                "conversation_name": conversation_name,
+                "agent_id": agent_id,
+                "timestamp": datetime.now().isoformat(),
+            },
+        },
+    )
+
+
+async def notify_user_conversation_deleted(
+    user_id: str, conversation_id: str, conversation_name: str
+):
+    """Notify user when a conversation is deleted."""
+    await user_notification_manager.broadcast_to_user(
+        user_id,
+        {
+            "type": "conversation_deleted",
+            "data": {
+                "conversation_id": conversation_id,
+                "conversation_name": conversation_name,
+                "timestamp": datetime.now().isoformat(),
+            },
+        },
+    )
+
+
+async def notify_user_conversation_renamed(
+    user_id: str, conversation_id: str, old_name: str, new_name: str
+):
+    """Notify user when a conversation is renamed."""
+    await user_notification_manager.broadcast_to_user(
+        user_id,
+        {
+            "type": "conversation_renamed",
+            "data": {
+                "conversation_id": conversation_id,
+                "old_name": old_name,
+                "new_name": new_name,
+                "timestamp": datetime.now().isoformat(),
+            },
+        },
+    )
+
+
+async def notify_user_message_added(
+    user_id: str,
+    conversation_id: str,
+    conversation_name: str,
+    message_id: str,
+    message: str,
+    role: str,
+):
+    """Notify user when a new message is added to any conversation."""
+    # Truncate message for notification (keep first 100 chars)
+    preview = message[:100] + "..." if len(message) > 100 else message
+    await user_notification_manager.broadcast_to_user(
+        user_id,
+        {
+            "type": "message_added",
+            "data": {
+                "conversation_id": conversation_id,
+                "conversation_name": conversation_name,
+                "message_id": message_id,
+                "message_preview": preview,
+                "role": role,
+                "timestamp": datetime.now().isoformat(),
+            },
+        },
+    )
 
 
 @app.get(

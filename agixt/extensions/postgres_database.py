@@ -1,14 +1,8 @@
 import logging
+from Globals import install_package_if_missing
 
-try:
-    import psycopg2
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "psycopg2"])
-    import psycopg2
-
+install_package_if_missing("psycopg2")
+import psycopg2
 import psycopg2.extras
 import logging
 from Extensions import Extensions
@@ -17,10 +11,11 @@ from datetime import datetime
 
 class postgres_database(Extensions):
     """
-    The PostgreSQL Database extension for AGiXT enables you to interact with a PostgreSQL database.
+    The Postgres Database extension for AGiXT enables you to interact with a Postgres database.
     """
 
     CATEGORY = "Data & Databases"
+    friendly_name = "PostgreSQL Database"
 
     def __init__(
         self,

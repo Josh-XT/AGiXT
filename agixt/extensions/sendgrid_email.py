@@ -1,13 +1,8 @@
 from typing import List
+from Globals import install_package_if_missing
 
-try:
-    from sendgrid import SendGridAPIClient
-except ImportError:
-    import subprocess
-    import sys
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "sendgrid"])
-    from sendgrid import SendGridAPIClient
+install_package_if_missing("sendgrid")
+from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from Extensions import Extensions
 
@@ -18,6 +13,7 @@ class sendgrid_email(Extensions):
     """
 
     CATEGORY = "Social & Communication"
+    friendly_name = "SendGrid Email"
 
     def __init__(self, SENDGRID_API_KEY: str = "", SENDGRID_EMAIL: str = "", **kwargs):
         self.SENDGRID_API_KEY = SENDGRID_API_KEY

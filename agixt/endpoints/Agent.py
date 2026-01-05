@@ -12,9 +12,14 @@ from ApiClient import (
     get_agents,
     verify_api_key,
     get_api_client,
-    is_admin,
 )
-from Agent import can_user_access_agent, clone_agent as clone_agent_func
+from MagicalAuth import require_scope
+from Agent import (
+    can_user_access_agent,
+    clone_agent as clone_agent_func,
+    get_agent_commands_only,
+)
+from MagicalAuth import get_user_id
 from Models import (
     AgentNewName,
     AgentPrompt,
@@ -43,7 +48,6 @@ import logging
 import base64
 import uuid
 import os
-from providers.default import DefaultProvider
 from Conversations import get_conversation_name_by_id, get_conversation_id_by_name
 from MagicalAuth import MagicalAuth
 import traceback
@@ -115,7 +119,7 @@ async def get_agents_v1(
 @app.post(
     "/v1/agent",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Create a new agent",
     description="Creates a new agent with specified settings and optionally trains it with provided URLs. Returns the agent ID.",
     response_model=AgentResponse,
@@ -125,8 +129,6 @@ async def add_agent_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, str]:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     result = add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
@@ -154,7 +156,7 @@ async def add_agent_v1(
 @app.post(
     "/v1/agent/import",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Import an agent configuration",
     description="Imports an existing agent configuration including settings and commands. Returns the agent ID.",
     response_model=AgentResponse,
@@ -162,8 +164,6 @@ async def add_agent_v1(
 async def import_agent_v1(
     agent: AgentConfig, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> Dict[str, str]:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     result = add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
@@ -239,19 +239,45 @@ async def get_providers_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, str]:
+    from DB import ServerExtensionSetting, get_session, decrypt_config_value
+    from Globals import getenv
+
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
-    agent_settings = agent.AGENT_CONFIG["settings"]
     providers = get_providers_with_details()
+
+    # Get server-level extension settings (API keys configured by admin)
+    server_api_keys = {}
+    with get_session() as db:
+        db_settings = (
+            db.query(ServerExtensionSetting)
+            .filter(ServerExtensionSetting.setting_key.like("%_API_KEY"))
+            .all()
+        )
+        for setting in db_settings:
+            value = setting.setting_value
+            if setting.is_sensitive and value:
+                value = decrypt_config_value(value)
+            if value:  # Only store if actually has a value
+                server_api_keys[setting.setting_key] = value
+
     new_providers = {}
-    # Check each provider against agent settings for a match to see if the key is defined in agent settings and is not empty
-    # If it is, set connected = True, else connected = False
+    # Check each provider against server extension settings to determine connected status
+    # A provider is "connected" only if it has an API key configured at the server level
     for provider_name, provider_details in providers.items():
         provider_settings = provider_details["settings"]
         connected = False
         for key in provider_settings:
-            if key in agent_settings and agent_settings[key] != "":
-                connected = True
+            if key.endswith("_API_KEY"):
+                # Check if this API key is set at server level
+                if key in server_api_keys:
+                    connected = True
+                    break
+                # Also check environment variable fallback
+                env_value = getenv(key)
+                if env_value:
+                    connected = True
+                    break
         new_providers[provider_name] = {
             "connected": connected,
             **provider_details,
@@ -262,7 +288,7 @@ async def get_providers_v1(
 @app.delete(
     "/v1/agent/{agent_id}/provider/{provider_name}",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Delete agent provider",
     description="Deletes a specific provider from the agent's configuration.",
     response_model=ResponseMessage,
@@ -273,8 +299,6 @@ async def delete_provider_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     provider = get_provider_options(provider_name)
@@ -301,7 +325,7 @@ async def delete_provider_v1(
 @app.patch(
     "/v1/agent/{agent_id}",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Rename an agent by ID",
     description="Changes the name of an existing agent using agent ID.",
     response_model=ResponseMessage,
@@ -312,8 +336,6 @@ async def renameagent_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     rename_agent(agent_name=agent.agent_name, new_name=new_name.new_name, user=user)
@@ -323,7 +345,7 @@ async def renameagent_v1(
 @app.put(
     "/v1/agent/{agent_id}",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Update agent settings by ID",
     description="Updates the settings for an existing agent using agent ID.",
     response_model=ResponseMessage,
@@ -334,17 +356,12 @@ async def update_agent_settings_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     update_config = agent.update_agent_config(
         new_config=settings.settings, config_key="settings"
     )
-    config = agent.get_agent_config()
-    logging.info(
-        f"Agent {agent_id} updated. New config: {json.dumps(config, indent=2)}"
-    )
+    logging.debug(f"Agent {agent_id} settings updated")
     return ResponseMessage(message=update_config)
 
 
@@ -462,7 +479,7 @@ async def update_persona_company_v1(
 @app.put(
     "/v1/agent/{agent_id}/commands",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Update agent commands by ID",
     description="Updates the available commands for an agent using agent ID.",
     response_model=ResponseMessage,
@@ -473,8 +490,6 @@ async def update_agent_commands_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     update_config = Agent(
         agent_id=agent_id, user=user, ApiClient=ApiClient
@@ -485,7 +500,7 @@ async def update_agent_commands_v1(
 @app.delete(
     "/v1/agent/{agent_id}",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:delete"))],
     summary="Delete an agent by ID",
     description="Deletes an agent and all associated data including memory and configurations using agent ID.",
     response_model=ResponseMessage,
@@ -493,8 +508,6 @@ async def update_agent_commands_v1(
 async def deleteagent_v1(
     agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     await Websearch(
@@ -515,7 +528,7 @@ async def deleteagent_v1(
 @app.get(
     "/v1/agent/{agent_id}",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:read"))],
     summary="Get agent configuration by ID",
     description="Retrieves the complete configuration for a specific agent using agent ID.",
     response_model=AgentConfigResponse,
@@ -523,8 +536,6 @@ async def deleteagent_v1(
 async def get_agentconfig_v1(
     agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(
         agent_id=agent_id, user=user, ApiClient=ApiClient
@@ -566,6 +577,16 @@ async def prompt_agent_v1(
             agent_prompt.prompt_args["log_output"] = False
         else:
             conversation_name = agent_prompt.prompt_args["conversation_name"]
+            # Handle case where SDK passes dict instead of string (e.g., full conversation object)
+            if isinstance(conversation_name, dict):
+                if "id" in conversation_name:
+                    conversation_name = str(conversation_name["id"])
+                elif "name" in conversation_name:
+                    conversation_name = str(conversation_name["name"])
+                else:
+                    conversation_name = None
+            elif conversation_name is not None:
+                conversation_name = str(conversation_name)
             del agent_prompt.prompt_args["conversation_name"]
         if "user_input" not in agent_prompt.prompt_args:
             agent_prompt.prompt_args["user_input"] = ""
@@ -653,6 +674,9 @@ async def prompt_agent_v1(
         )
         response = response["choices"][0]["message"]["content"]
         return {"response": str(response)}
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 402 Payment Required) without modification
+        raise
     except Exception as e:
         logging.error(f"Error prompting agent: {e}")
         logging.error(traceback.format_exc())
@@ -662,7 +686,7 @@ async def prompt_agent_v1(
 @app.get(
     "/v1/agent/{agent_id}/command",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:read"))],
     summary="Get agent commands by ID",
     description="Retrieves the list of available commands for an agent using agent ID.",
     response_model=AgentCommandsResponse,
@@ -670,17 +694,16 @@ async def prompt_agent_v1(
 async def get_commands_v1(
     agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
-    return {"commands": agent.AGENT_CONFIG["commands"]}
+    # Use lightweight function instead of creating full Agent object
+    user_id = get_user_id(user=user)
+    commands = get_agent_commands_only(agent_id=agent_id, user_id=user_id)
+    return {"commands": commands}
 
 
 @app.patch(
     "/v1/agent/{agent_id}/command",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Toggle agent command by ID",
     description="Enables or disables a specific command for an agent using agent ID.",
     response_model=ResponseMessage,
@@ -691,8 +714,6 @@ async def toggle_command_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     update_config = agent.update_agent_config(
@@ -704,7 +725,7 @@ async def toggle_command_v1(
 @app.patch(
     "/v1/agent/{agent_id}/extension/commands",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Toggle all commands for a specific extension by agent ID",
     description="Enables or disables all commands for a specific extension for an agent using agent ID.",
     response_model=ResponseMessage,
@@ -715,8 +736,6 @@ async def toggle_extension_commands_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
 
@@ -753,7 +772,7 @@ async def toggle_extension_commands_v1(
 @app.get(
     "/v1/agent/{agent_id}/browsed_links/{collection_number}",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:read"))],
     summary="Get agent browsed links by ID",
     description="Retrieves the list of URLs that have been browsed by the agent in a specific collection using agent ID.",
     response_model=AgentBrowsedLinksResponse,
@@ -764,8 +783,6 @@ async def get_agent_browsed_links_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     return {"links": agent.get_browsed_links(conversation_id=collection_number)}
@@ -774,7 +791,7 @@ async def get_agent_browsed_links_v1(
 @app.delete(
     "/v1/agent/{agent_id}/browsed_links",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:write"))],
     summary="Delete browsed link by ID",
     description="Removes a specific URL from the agent's browsed links history using agent ID.",
     response_model=ResponseMessage,
@@ -785,8 +802,6 @@ async def delete_browsed_link_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     websearch = Websearch(
@@ -820,7 +835,7 @@ async def text_to_speech_v1(
     if agent.TTS_PROVIDER != None:
         tts_response = await agent.text_to_speech(text=text.text)
     else:
-        tts_response = await DefaultProvider().text_to_speech(text=text.text)
+        raise HTTPException(status_code=400, detail="No TTS provider available")
     if not str(tts_response).startswith("http"):
         import tempfile
         import shutil

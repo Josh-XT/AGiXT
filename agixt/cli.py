@@ -2139,11 +2139,35 @@ and can use this tool to get more output later.""",
                 print(f"   Speed: {overall_speed:.1f} tok/s")
             print()
 
-        # Interactive chat loop - prompt for follow-up
+        # Interactive chat loop - prompt for follow-up with 60s idle timeout
+        # Only run interactive loop if stdin is a TTY (not piped)
+        if not sys.stdin.isatty():
+            # Input is piped, don't enter interactive mode
+            return 0
+
+        def input_with_timeout(prompt: str, timeout: int = 60) -> str:
+            """Read input with a timeout. Returns None on timeout."""
+            import select
+
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+            ready, _, _ = select.select([sys.stdin], [], [], timeout)
+            if ready:
+                line = sys.stdin.readline()
+                if not line:  # EOF
+                    return None
+                return line.strip()
+            else:
+                print("\n⏱️  Chat session timed out after 60 seconds of inactivity.")
+                return None
+
         try:
             while True:
                 try:
-                    follow_up = input("You: ").strip()
+                    follow_up = input_with_timeout("You: ", timeout=60)
+                    if follow_up is None:
+                        # Timeout or EOF - exit gracefully
+                        break
                     if not follow_up:
                         continue
 
@@ -2198,107 +2222,34 @@ and can use this tool to get more output later.""",
 def get_default_env_vars():
     workspace_folder = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
     return {
-        # Core AGiXT configuration
+        # Core AGiXT configuration - required before DB is available
         "AGIXT_API_KEY": "",
         "AGIXT_URI": "http://localhost:7437",
         "AGIXT_PORT": "7437",
         "AGIXT_INTERACTIVE_PORT": "3437",
-        "APP_PORT": "3437",
-        "AGIXT_AGENT": "XT",
+        "AGIXT_SERVER": "http://localhost:7437",
         "AGIXT_BRANCH": "stable",
         "AGIXT_RUN_TYPE": "docker",
-        "AGIXT_FILE_UPLOAD_ENABLED": "true",
-        "AGIXT_VOICE_INPUT_ENABLED": "true",
-        "AGIXT_FOOTER_MESSAGE": "AGiXT 2025",
-        "AGIXT_SERVER": "http://localhost:7437",
-        "AGIXT_RLHF": "true",
-        "AGIXT_CONVERSATION_MODE": "select",
-        "AGIXT_SHOW_OVERRIDE_SWITCHES": "tts,websearch,analyze-user-input",
-        "AGIXT_ALLOW_MESSAGE_EDITING": "true",
-        "AGIXT_ALLOW_MESSAGE_DELETION": "true",
         "AGIXT_AUTO_UPDATE": "true",
         "AGIXT_HEALTH_URL": "http://localhost:7437/health",
-        # App configuration
-        "APP_DESCRIPTION": "AGiXT is an advanced artificial intelligence agent orchestration agent.",
-        "APP_NAME": "AGiXT",
-        "APP_URI": "http://localhost:3437",
-        "ALLOW_EMAIL_SIGN_IN": "true",
-        "ALLOWED_DOMAINS": "*",
-        # System configuration
+        # Database configuration - required before DB is available
         "DATABASE_TYPE": "sqlite",
         "DATABASE_NAME": "models/agixt",
         "DATABASE_USER": "postgres",
         "DATABASE_PASSWORD": "postgres",
         "DATABASE_HOST": "localhost",
         "DATABASE_PORT": "5432",
-        "DEFAULT_USER": "user",
-        "USING_JWT": "false",
+        # Server runtime configuration
         "LOG_LEVEL": "INFO",
-        "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
-        "LOG_VERBOSITY_SERVER": "3",
         "UVICORN_WORKERS": "10",
         "WORKING_DIRECTORY": workspace_folder.replace("\\", "/"),
-        "TZ": "UTC",
-        "DISABLED_PROVIDERS": "",
-        "DISABLED_EXTENSIONS": "",
-        "REGISTRATION_DISABLED": "false",
-        "CREATE_AGENT_ON_REGISTER": "true",
-        "CREATE_AGIXT_AGENT": "true",
-        "GRAPHIQL": "true",
-        "EMAIL_SERVER": "",
-        # Storage configuration
-        "STORAGE_BACKEND": "local",
-        "STORAGE_CONTAINER": "agixt-workspace",
-        "B2_KEY_ID": "",
-        "B2_APPLICATION_KEY": "",
-        "B2_REGION": "us-west-002",
-        "S3_BUCKET": "agixt-workspace",
-        "S3_ENDPOINT": "http://minio:9000",
-        "AWS_ACCESS_KEY_ID": "minioadmin",
-        "AWS_SECRET_ACCESS_KEY": "minioadmin",
-        "AWS_STORAGE_REGION": "us-east-1",
-        "AZURE_STORAGE_ACCOUNT_NAME": "",
-        "AZURE_STORAGE_KEY": "",
-        # Agent configuration
-        "SEED_DATA": "true",
-        "AGENT_NAME": "XT",
-        "AGENT_PERSONA": "",
-        "TRAINING_URLS": "",
-        "ENABLED_COMMANDS": "",
-        "ROTATION_EXCLUSIONS": "",
-        # Health check configuration
+        # Health check configuration (for CLI monitoring)
         "HEALTH_CHECK_INTERVAL": "15",
         "HEALTH_CHECK_TIMEOUT": "10",
         "HEALTH_CHECK_MAX_FAILURES": "3",
         "RESTART_COOLDOWN": "60",
         "INITIAL_STARTUP_DELAY": "180",
-        # Extensions configuration
-        "EXTENSIONS_HUB": "",
-        "EXTENSIONS_HUB_TOKEN": "",
-        # Payment configuration
-        "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",
-        "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
-        "TOKEN_PRICE_PER_MILLION_USD": "0",
-        "MIN_TOKEN_TOPUP_USD": "10.00",
-        "STRIPE_API_KEY": "",
-        "STRIPE_PUBLISHABLE_KEY": "",
-        # AI Model configuration
-        "EZLOCALAI_URI": f"http://{get_local_ip()}:8091/v1/",
-        "EZLOCALAI_VOICE": "DukeNukem",
-        "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
-        "DEEPSEEK_MODEL": "deepseek-chat",
-        "AZURE_MODEL": "gpt-4o",
-        "GOOGLE_MODEL": "gemini-2.0-flash-exp",
-        "OPENAI_MODEL": "chatgpt-4o-latest",
-        "XAI_MODEL": "grok-beta",
-        "EZLOCALAI_MAX_TOKENS": "16000",
-        "DEEPSEEK_MAX_TOKENS": "60000",
-        "AZURE_MAX_TOKENS": "100000",
-        "XAI_MAX_TOKENS": "120000",
-        "OPENAI_MAX_TOKENS": "128000",
-        "ANTHROPIC_MAX_TOKENS": "140000",
-        "GOOGLE_MAX_TOKENS": "1048000",
-        # ezLocalai Configuration
+        # ezLocalai Configuration (local AI inference)
         "GPU_LAYERS": "-1",
         "MAIN_GPU": "0",
         "NGROK_TOKEN": "",
@@ -2310,46 +2261,9 @@ def get_default_env_vars():
         "MAX_CONCURRENT_REQUESTS": "2",
         "MAX_QUEUE_SIZE": "100",
         "REQUEST_TIMEOUT": "300",
-        # API Keys
-        "AZURE_API_KEY": "",
-        "GOOGLE_API_KEY": "",
-        "OPENAI_API_KEY": "",
-        "OPENAI_BASE_URI": "https://api.openai.com/v1",
-        "ANTHROPIC_API_KEY": "",
-        "EZLOCALAI_API_KEY": "",
-        "DEEPSEEK_API_KEY": "",
-        "XAI_API_KEY": "",
-        "AZURE_OPENAI_ENDPOINT": "",
-        # OAuth Client IDs and Secrets
-        "ALEXA_CLIENT_ID": "",
-        "ALEXA_CLIENT_SECRET": "",
-        "AWS_CLIENT_ID": "",
-        "AWS_CLIENT_SECRET": "",
-        "AWS_REGION": "",
-        "AWS_USER_POOL_ID": "",
-        "DISCORD_CLIENT_ID": "",
-        "DISCORD_CLIENT_SECRET": "",
-        "FITBIT_CLIENT_ID": "",
-        "FITBIT_CLIENT_SECRET": "",
-        "GARMIN_CLIENT_ID": "",
-        "GARMIN_CLIENT_SECRET": "",
-        "GITHUB_CLIENT_ID": "",
-        "GITHUB_CLIENT_SECRET": "",
-        "GOOGLE_CLIENT_ID": "",
-        "GOOGLE_CLIENT_SECRET": "",
-        "META_APP_ID": "",
-        "META_APP_SECRET": "",
-        "META_BUSINESS_ID": "",
-        "MICROSOFT_CLIENT_ID": "",
-        "MICROSOFT_CLIENT_SECRET": "",
-        "TESLA_CLIENT_ID": "",
-        "TESLA_CLIENT_SECRET": "",
-        "WALMART_CLIENT_ID": "",
-        "WALMART_CLIENT_SECRET": "",
-        "WALMART_MARKETPLACE_ID": "",
-        "X_CLIENT_ID": "",
-        "X_CLIENT_SECRET": "",
         "WITH_EZLOCALAI": "true",
+        # Note: All other settings (API keys, OAuth, storage, app settings, etc.)
+        # are now managed via Server Config in the database UI at /billing/admin/settings
     }
 
 
@@ -3285,39 +3199,26 @@ def _show_env_help() -> None:
     print("=" * 80)
     print("\nUsage: agixt env KEY=VALUE [KEY2=VALUE2 ...]")
     print("       agixt env help  (to show this message)\n")
+    print("Note: Most settings (API keys, OAuth, storage, app settings) are now")
+    print(
+        "      managed via Server Config in the database UI at /billing/admin/settings\n"
+    )
 
     load_dotenv()
     env_vars = get_default_env_vars()
 
-    # Group variables by category
+    # Group variables by category - only CLI-relevant vars
     categories = {
         "Core Configuration": [
             "AGIXT_API_KEY",
             "AGIXT_URI",
             "AGIXT_PORT",
             "AGIXT_INTERACTIVE_PORT",
-            "AGIXT_AGENT",
+            "AGIXT_SERVER",
             "AGIXT_BRANCH",
             "AGIXT_RUN_TYPE",
             "AGIXT_AUTO_UPDATE",
             "AGIXT_HEALTH_URL",
-        ],
-        "Application Settings": [
-            "APP_NAME",
-            "APP_DESCRIPTION",
-            "APP_URI",
-            "APP_PORT",
-            "ALLOW_EMAIL_SIGN_IN",
-            "ALLOWED_DOMAINS",
-            "AGIXT_FILE_UPLOAD_ENABLED",
-            "AGIXT_VOICE_INPUT_ENABLED",
-            "AGIXT_RLHF",
-            "AGIXT_FOOTER_MESSAGE",
-            "AGIXT_SERVER",
-            "AGIXT_CONVERSATION_MODE",
-            "AGIXT_SHOW_OVERRIDE_SWITCHES",
-            "AGIXT_ALLOW_MESSAGE_EDITING",
-            "AGIXT_ALLOW_MESSAGE_DELETION",
         ],
         "Database Configuration": [
             "DATABASE_TYPE",
@@ -3326,21 +3227,11 @@ def _show_env_help() -> None:
             "DATABASE_PASSWORD",
             "DATABASE_HOST",
             "DATABASE_PORT",
-            "DEFAULT_USER",
-            "USING_JWT",
         ],
-        "Server Configuration": [
+        "Server Runtime": [
             "LOG_LEVEL",
-            "LOG_FORMAT",
-            "LOG_VERBOSITY_SERVER",
             "UVICORN_WORKERS",
             "WORKING_DIRECTORY",
-            "TZ",
-            "REGISTRATION_DISABLED",
-            "CREATE_AGENT_ON_REGISTER",
-            "CREATE_AGIXT_AGENT",
-            "GRAPHIQL",
-            "EMAIL_SERVER",
         ],
         "Health Check Configuration": [
             "HEALTH_CHECK_INTERVAL",
@@ -3349,109 +3240,19 @@ def _show_env_help() -> None:
             "RESTART_COOLDOWN",
             "INITIAL_STARTUP_DELAY",
         ],
-        "Storage Configuration": [
-            "STORAGE_BACKEND",
-            "STORAGE_CONTAINER",
-            "B2_KEY_ID",
-            "B2_APPLICATION_KEY",
-            "B2_REGION",
-            "S3_BUCKET",
-            "S3_ENDPOINT",
-            "AWS_ACCESS_KEY_ID",
-            "AWS_SECRET_ACCESS_KEY",
-            "AWS_STORAGE_REGION",
-            "AZURE_STORAGE_ACCOUNT_NAME",
-            "AZURE_STORAGE_KEY",
-        ],
-        "AI Model Configuration": [
-            "EZLOCALAI_URI",
-            "EZLOCALAI_VOICE",
-            "EZLOCALAI_MAX_TOKENS",
-            "ANTHROPIC_MODEL",
-            "ANTHROPIC_MAX_TOKENS",
-            "DEEPSEEK_MODEL",
-            "DEEPSEEK_MAX_TOKENS",
-            "AZURE_MODEL",
-            "AZURE_MAX_TOKENS",
-            "GOOGLE_MODEL",
-            "GOOGLE_MAX_TOKENS",
-            "OPENAI_MODEL",
-            "OPENAI_MAX_TOKENS",
-            "OPENAI_BASE_URI",
-            "XAI_MODEL",
-            "XAI_MAX_TOKENS",
-            "DEFAULT_MODEL",
-            "VISION_MODEL",
-            "WHISPER_MODEL",
-            "WITH_EZLOCALAI",
-        ],
         "ezLocalai Configuration": [
             "EZLOCALAI_URL",
-            "MAIN_GPU",
-            "NGROK_TOKEN",
+            "DEFAULT_MODEL",
+            "VISION_MODEL",
             "IMG_MODEL",
+            "WHISPER_MODEL",
+            "GPU_LAYERS",
+            "MAIN_GPU",
             "MAX_CONCURRENT_REQUESTS",
             "MAX_QUEUE_SIZE",
             "REQUEST_TIMEOUT",
-        ],
-        "API Keys": [
-            "AZURE_API_KEY",
-            "GOOGLE_API_KEY",
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "EZLOCALAI_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "XAI_API_KEY",
-            "AZURE_OPENAI_ENDPOINT",
-        ],
-        "Extensions Configuration": [
-            "EXTENSIONS_HUB",
-            "EXTENSIONS_HUB_TOKEN",
-            "DISABLED_EXTENSIONS",
-            "DISABLED_PROVIDERS",
-        ],
-        "Payment Configuration": [
-            "PAYMENT_WALLET_ADDRESS",
-            "PAYMENT_SOLANA_RPC_URL",
-            "MONTHLY_PRICE_PER_USER_USD",
-        ],
-        "OAuth Configuration": [
-            "ALEXA_CLIENT_ID",
-            "ALEXA_CLIENT_SECRET",
-            "AWS_CLIENT_ID",
-            "AWS_CLIENT_SECRET",
-            "AWS_REGION",
-            "AWS_USER_POOL_ID",
-            "DISCORD_CLIENT_ID",
-            "DISCORD_CLIENT_SECRET",
-            "FITBIT_CLIENT_ID",
-            "FITBIT_CLIENT_SECRET",
-            "GARMIN_CLIENT_ID",
-            "GARMIN_CLIENT_SECRET",
-            "GITHUB_CLIENT_ID",
-            "GITHUB_CLIENT_SECRET",
-            "GOOGLE_CLIENT_ID",
-            "GOOGLE_CLIENT_SECRET",
-            "META_APP_ID",
-            "META_APP_SECRET",
-            "META_BUSINESS_ID",
-            "MICROSOFT_CLIENT_ID",
-            "MICROSOFT_CLIENT_SECRET",
-            "TESLA_CLIENT_ID",
-            "TESLA_CLIENT_SECRET",
-            "WALMART_CLIENT_ID",
-            "WALMART_CLIENT_SECRET",
-            "WALMART_MARKETPLACE_ID",
-            "X_CLIENT_ID",
-            "X_CLIENT_SECRET",
-        ],
-        "Agent Configuration": [
-            "SEED_DATA",
-            "AGENT_NAME",
-            "AGENT_PERSONA",
-            "TRAINING_URLS",
-            "ENABLED_COMMANDS",
-            "ROTATION_EXCLUSIONS",
+            "NGROK_TOKEN",
+            "WITH_EZLOCALAI",
         ],
     }
 

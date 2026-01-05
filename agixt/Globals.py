@@ -1,22 +1,157 @@
 import os
+import sys
 import json
+import subprocess
+import importlib.util
 import tiktoken
 from dotenv import load_dotenv
 from multiprocessing import Manager
 
 load_dotenv()
 
+# Cache for installed packages to avoid repeated checks
+_installed_packages_cache = set()
+
+
+def install_package_if_missing(package_name: str, import_name: str = None) -> bool:
+    """
+    Install a package only if it's not already installed.
+
+    Args:
+        package_name: The pip package name to install (e.g., "PyGithub")
+        import_name: The import name if different from package name (e.g., "github")
+
+    Returns:
+        True if package was installed, False if already present
+    """
+    global _installed_packages_cache
+
+    # Use import_name for checking if provided, otherwise use package_name
+    check_name = import_name or package_name
+
+    # Check cache first
+    if check_name in _installed_packages_cache:
+        return False
+
+    # Check if module can be imported
+    spec = importlib.util.find_spec(check_name)
+    if spec is not None:
+        _installed_packages_cache.add(check_name)
+        return False
+
+    # Package not found, install it
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", package_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _installed_packages_cache.add(check_name)
+    return True
+
+
 # Global state for Machine Control Extension WebSocket connections
 # Use multiprocessing.Manager to create a truly shared dict across ALL Python contexts
 _manager = Manager()
 MACHINE_ACTIVE_TERMINALS = _manager.dict()
+
+# Server config cache to avoid repeated database queries
+_server_config_cache = {}
+_server_config_cache_loaded = False
+
+# Settings that should NEVER be loaded from database (infrastructure settings)
+# These must be set via environment variables as they're needed before DB is available
+_ENV_ONLY_SETTINGS = {
+    "DATABASE_TYPE",
+    "DATABASE_NAME",
+    "DATABASE_USER",
+    "DATABASE_PASSWORD",
+    "DATABASE_HOST",
+    "DATABASE_PORT",
+    "DATABASE_SSL",
+    "UVICORN_WORKERS",
+    "WORKING_DIRECTORY",
+    "LOG_LEVEL",
+    "LOG_FORMAT",
+    "AGIXT_HEALTH_URL",
+    "HEALTH_CHECK_INTERVAL",
+    "HEALTH_CHECK_TIMEOUT",
+    "HEALTH_CHECK_MAX_FAILURES",
+    "RESTART_COOLDOWN",
+    "INITIAL_STARTUP_DELAY",
+    "SEED_DATA",
+    "AGIXT_API_KEY",
+    "DEFAULT_USER",
+    "USING_JWT",
+    "ALLOWED_DOMAINS",
+    "CHROMA_PORT",
+    "CHROMA_SSL",
+    "CREATE_AGENT_ON_REGISTER",
+    "CREATE_AGIXT_AGENT",
+    "DISABLED_EXTENSIONS",
+    "DISABLED_PROVIDERS",
+}
+
+
+def load_server_config_cache():
+    """
+    Load all server config values from the database into cache.
+    This is called once during startup after the database is initialized.
+
+    Note: We cache ALL values including empty strings, so we can distinguish
+    between "key not set" and "key explicitly set to empty" (which is used
+    to disable providers at the server level).
+    """
+    global _server_config_cache, _server_config_cache_loaded
+
+    if _server_config_cache_loaded:
+        return
+
+    try:
+        # Import here to avoid circular imports
+        from DB import ServerConfig, get_session, decrypt_config_value
+
+        with get_session() as db:
+            configs = db.query(ServerConfig).all()
+            for config in configs:
+                # Cache all values including empty strings
+                # Empty string means "explicitly cleared at server level"
+                if config.value is not None:
+                    if config.is_sensitive and config.value:
+                        _server_config_cache[config.name] = decrypt_config_value(
+                            config.value
+                        )
+                    else:
+                        _server_config_cache[config.name] = config.value
+
+        _server_config_cache_loaded = True
+    except Exception:
+        # Database not initialized yet or other error - this is expected during startup
+        pass
+
+
+def invalidate_server_config_cache():
+    """Invalidate the server config cache to force a reload."""
+    global _server_config_cache, _server_config_cache_loaded
+    _server_config_cache = {}
+    _server_config_cache_loaded = False
+
+
+def server_config_has_key(var_name: str) -> bool:
+    """
+    Check if a key exists in server config cache (regardless of its value).
+    This is used to determine if server admin explicitly set a value (even empty).
+    """
+    global _server_config_cache, _server_config_cache_loaded
+    if not _server_config_cache_loaded:
+        load_server_config_cache()
+    return var_name in _server_config_cache
 
 
 def getenv(var_name: str, default_value: str = "") -> str:
     default_values = {
         "AGIXT_URI": "http://localhost:7437",
         "APP_URI": "http://localhost:3437",
-        "AGIXT_API_KEY": "None",
+        "AGIXT_API_KEY": "",
         "EZLOCALAI_URI": "http://localhost:8091/v1/",
         "EZLOCALAI_API_KEY": "",
         "AGENT_NAME": "AGiXT",
@@ -80,19 +215,36 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "EXTENSIONS_HUB_TOKEN": "",
         "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",
         "PAYMENT_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
-        "MONTHLY_PRICE_PER_USER_USD": "0",
         # Token-based billing configuration
         "TOKEN_PRICE_PER_MILLION_USD": "0.00",
         "MIN_TOKEN_TOPUP_USD": "10.00",
         "LOW_BALANCE_WARNING_THRESHOLD": "10000000",  # 10M tokens
         "TOKEN_WARNING_INCREMENT": "1000000",  # 1M tokens
+        "BILLING_PAUSED": "false",  # Temporarily pause billing
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"
     if default_value != "":
         default_values[var_name] = default_value
     default_value = default_values[var_name] if var_name in default_values else ""
-    return os.getenv(var_name, default_value)
+
+    # For infrastructure settings, always use environment variables only
+    if var_name in _ENV_ONLY_SETTINGS:
+        return os.getenv(var_name, default_value)
+
+    # First check environment variable (highest priority - allows overrides)
+    env_value = os.getenv(var_name)
+    if env_value is not None and env_value != "":
+        return env_value
+
+    # Then check server config cache (database values)
+    if _server_config_cache_loaded and var_name in _server_config_cache:
+        cached_value = _server_config_cache.get(var_name)
+        if cached_value is not None and cached_value != "":
+            return cached_value
+
+    # Fall back to default value
+    return default_value
 
 
 def get_tokens(text: str) -> int:
@@ -122,44 +274,20 @@ def get_data_size_kb(data) -> int:
 
 
 def get_default_agent_settings():
+    """
+    Get default agent settings.
+
+    NOTE: Provider API keys and provider-specific settings are intentionally NOT included here.
+    Provider settings should be resolved at inference time from the hierarchy:
+    1. Server extension settings (admin configured)
+    2. Company agent settings (company admin configured)
+    3. User preferences (if applicable)
+
+    This ensures that when server admins change API keys, all agents automatically use
+    the new keys without needing to update each agent's settings individually.
+    """
     agent_settings = {
-        "provider": "rotation",
-        "vision_provider": "rotation",
-        "tts_provider": ("ezlocalai" if getenv("EZLOCALAI_API_KEY") != "" else "None"),
-        "transcription_provider": "default",
-        "translation_provider": "default",
-        "embeddings_provider": "default",
-        "image_provider": "None",
-        "ANTHROPIC_API_KEY": getenv("ANTHROPIC_API_KEY"),
-        "ANTHROPIC_MODEL": getenv("ANTHROPIC_MODEL"),
-        "AZURE_MODEL": getenv("AZURE_MODEL"),
-        "AZURE_API_KEY": getenv("AZURE_API_KEY"),
-        "AZURE_OPENAI_ENDPOINT": getenv("AZURE_OPENAI_ENDPOINT"),
-        "AZURE_DEPLOYMENT_NAME": getenv("AZURE_MODEL"),
-        "AZURE_TEMPERATURE": 0.7,
-        "AZURE_TOP_P": 0.95,
-        "DEEPSEEK_API_KEY": getenv("DEEPSEEK_API_KEY"),
-        "DEEPSEEK_MODEL": getenv("DEEPSEEK_MODEL"),
-        "GOOGLE_API_KEY": getenv("GOOGLE_API_KEY"),
-        "GOOGLE_MODEL": getenv("GOOGLE_MODEL"),
-        "GOOGLE_TEMPERATURE": 0.7,
-        "GOOGLE_TOP_P": 0.95,
-        "EZLOCALAI_API_KEY": getenv("EZLOCALAI_API_KEY"),
-        "EZLOCALAI_API_URI": getenv("EZLOCALAI_API_URI", getenv("EZLOCALAI_URI")),
-        "EZLOCALAI_VOICE": getenv("EZLOCALAI_VOICE"),
-        "EZLOCALAI_TEMPERATURE": 1.33,
-        "EZLOCALAI_TOP_P": 0.95,
-        "OPENAI_API_KEY": getenv("OPENAI_API_KEY"),
-        "OPENAI_MODEL": getenv("OPENAI_MODEL"),
-        "XAI_API_KEY": getenv("XAI_API_KEY"),
-        "XAI_MODEL": getenv("XAI_MODEL"),
-        "EZLOCALAI_MAX_TOKENS": getenv("EZLOCALAI_MAX_TOKENS"),
-        "DEEPSEEK_MAX_TOKENS": getenv("DEEPSEEK_MAX_TOKENS"),
-        "AZURE_MAX_TOKENS": getenv("AZURE_MAX_TOKENS"),
-        "XAI_MAX_TOKENS": getenv("XAI_MAX_TOKENS"),
-        "OPENAI_MAX_TOKENS": getenv("OPENAI_MAX_TOKENS"),
-        "ANTHROPIC_MAX_TOKENS": getenv("ANTHROPIC_MAX_TOKENS"),
-        "GOOGLE_MAX_TOKENS": getenv("GOOGLE_MAX_TOKENS"),
+        # Non-provider settings that should be stored at agent level
         "SMARTEST_PROVIDER": "anthropic",
         "mode": "prompt",
         "prompt_name": "Think About It",

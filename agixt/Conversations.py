@@ -815,6 +815,11 @@ class Conversations:
             if not summarize or len(content) <= max_chars:
                 return content
 
+            # Check if this is discarded content - display nicely
+            if "[DISCARDED:" in content:
+                # Format: [ACTIVITY] [DISCARDED:id] reason or [SUBACTIVITY][parent_id][TYPE] [DISCARDED:id] reason
+                return content  # Keep as-is, it's already summarized
+
             # For execution outputs, keep first and last parts
             if "[EXECUTION]" in content or "Output:" in content:
                 lines = content.split("\n")

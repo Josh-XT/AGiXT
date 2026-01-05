@@ -1,5 +1,7 @@
+import os
 import logging
 import jwt
+import hashlib
 from fastapi import Header, HTTPException
 from Globals import getenv
 from datetime import datetime, timedelta
@@ -18,13 +20,70 @@ from Prompts import Prompts
 from Conversations import Conversations
 
 
+def validate_personal_access_token(token: str):
+    """
+    Validate a Personal Access Token and return the associated user's email.
+
+    Args:
+        token: The full PAT token string (e.g., agixt_abc123...)
+
+    Returns:
+        str: The user's email if valid
+
+    Raises:
+        HTTPException: If the token is invalid, expired, or revoked
+    """
+    from DB import get_session, PersonalAccessToken, User
+
+    # Hash the token to compare with stored hash
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    session = get_session()
+    try:
+        # Look up the token by its hash
+        pat = (
+            session.query(PersonalAccessToken)
+            .filter(PersonalAccessToken.token_hash == token_hash)
+            .first()
+        )
+
+        if not pat:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+
+        # Check if token is revoked
+        if pat.is_revoked:
+            raise HTTPException(status_code=401, detail="API Key has been revoked")
+
+        # Check if token is expired
+        if pat.expires_at and pat.expires_at < datetime.utcnow():
+            raise HTTPException(status_code=401, detail="API Key has expired")
+
+        # Get the user associated with this token
+        user = session.query(User).filter(User.id == pat.user_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+
+        # Update last_used_at
+        pat.last_used_at = datetime.utcnow()
+        session.commit()
+
+        return user.email
+    finally:
+        session.close()
+
+
 def verify_api_key(authorization: str = Header(None)):
     USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     DEFAULT_USER = getenv("DEFAULT_USER")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "user"
+
+    # Check for Personal Access Token (PAT) format
+    if authorization and authorization.startswith("agixt_"):
+        return validate_personal_access_token(authorization)
+
     try:
         token = jwt.decode(
             jwt=authorization,
@@ -86,18 +145,10 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
-    return True
-    # Commenting out functionality until testing is complete.
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    if api_key is None:
-        api_key = ""
-    api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
-    if AGIXT_API_KEY == api_key:
-        return True
+    """
+    Check if a user has admin-level access.
+    Delegates to MagicalAuth.is_admin() for proper role-based checking.
+    """
+    from MagicalAuth import is_admin as magical_is_admin
 
-    if email == "" or email is None or email == "None":
-        email = getenv("DEFAULT_USER")
-        if email == "" or email is None or email == "None":
-            email = "USER"
-    return is_agixt_admin(email=email, api_key=api_key)
-    return False
+    return magical_is_admin(email=email, api_key=api_key)

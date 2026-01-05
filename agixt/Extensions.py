@@ -138,6 +138,16 @@ class Extensions:
         user_input = kwargs.get("user_input", "")
         if "chain_name" in kwargs:
             del kwargs["chain_name"]
+
+        # Extract nested chain_args if present and merge with kwargs
+        # This handles the case where execute_command sets log_output=False in chain_args
+        nested_chain_args = kwargs.pop("chain_args", {}) or {}
+
+        # Merge nested chain_args into kwargs, preferring nested values
+        for key, value in nested_chain_args.items():
+            if key not in kwargs or kwargs[key] is None:
+                kwargs[key] = value
+
         return self.ApiClient.run_chain(
             chain_name=chain_name,
             user_input=user_input,
@@ -310,7 +320,11 @@ class Extensions:
                         args = []
                     for arg in args:
                         if arg not in prompt_args and arg not in skip_args:
-                            prompt_args.append(arg)
+                            # Only expose args that don't already have values in the chain step
+                            # If the arg already has a non-empty value in the prompt, skip it
+                            existing_value = prompt.get(arg)
+                            if existing_value is None or existing_value == "":
+                                prompt_args.append(arg)
                 except Exception as e:
                     logging.error(f"Error getting chain args for {chain_name}: {e}")
             chains.append(
@@ -344,10 +358,13 @@ class Extensions:
                 continue
 
             # Check if the class exists and is a subclass of Extensions
-            if hasattr(module, class_name) and issubclass(
-                getattr(module, class_name), Extensions
+            attr = getattr(module, class_name, None)
+            if (
+                attr is not None
+                and inspect.isclass(attr)
+                and issubclass(attr, Extensions)
             ):
-                command_class = getattr(module, class_name)(**settings)
+                command_class = attr(**settings)
                 if hasattr(command_class, "commands"):
                     for (
                         command_name,
@@ -416,10 +433,13 @@ class Extensions:
                 continue
 
             # Check if the class exists and is a subclass of Extensions
-            if hasattr(module, class_name) and issubclass(
-                getattr(module, class_name), Extensions
+            attr = getattr(module, class_name, None)
+            if (
+                attr is not None
+                and inspect.isclass(attr)
+                and issubclass(attr, Extensions)
             ):
-                command_class = getattr(module, class_name)()
+                command_class = attr()
                 params = self.get_command_params(command_class.__init__)
                 # Remove self and kwargs from params
                 if "self" in params:
@@ -814,8 +834,9 @@ class Extensions:
                 continue
 
             # Check if the class exists and is a subclass of Extensions
-            if hasattr(module, class_name):
-                ext_class = getattr(module, class_name)
+            ext_class = getattr(module, class_name, None)
+            is_extensions_subclass = False
+            if ext_class is not None and inspect.isclass(ext_class):
                 # Use the module's Extensions class reference for comparison
                 # since extensions import "from Extensions import Extensions"
                 try:
@@ -828,88 +849,93 @@ class Extensions:
                 except (TypeError, AttributeError):
                     is_extensions_subclass = False
 
-                if is_extensions_subclass:
+            if is_extensions_subclass:
+                try:
+                    command_class = ext_class()
+                except Exception as e:
+                    logging.error(
+                        f"Error instantiating extension class {class_name}: {e}"
+                    )
+                    continue
+
+                extension_name = os.path.basename(command_file).split(".")[0]
+                extension_name = extension_name.replace("_", " ").title()
+
+                # Get friendly_name from the extension class if it has one
+                friendly_name = None
+                if hasattr(command_class, "friendly_name"):
+                    friendly_name = command_class.friendly_name
+
+                try:
+                    extension_description = inspect.getdoc(command_class)
+                except:
+                    extension_description = extension_name
+                constructor = inspect.signature(command_class.__init__)
+                params = constructor.parameters
+                extension_settings = [
+                    name for name in params if name != "self" and name != "kwargs"
+                ]
+                extension_commands = []
+                if hasattr(command_class, "commands"):
                     try:
-                        command_class = getattr(module, class_name)()
-                    except Exception as e:
-                        logging.error(
-                            f"Error instantiating extension class {class_name}: {e}"
-                        )
-                        continue
-
-                    extension_name = os.path.basename(command_file).split(".")[0]
-                    extension_name = extension_name.replace("_", " ").title()
-                    try:
-                        extension_description = inspect.getdoc(command_class)
-                    except:
-                        extension_description = extension_name
-                    constructor = inspect.signature(command_class.__init__)
-                    params = constructor.parameters
-                    extension_settings = [
-                        name for name in params if name != "self" and name != "kwargs"
-                    ]
-                    extension_commands = []
-                    if hasattr(command_class, "commands"):
-                        try:
-                            for (
-                                command_name,
-                                command_function,
-                            ) in command_class.commands.items():
-                                params = self.get_command_params(command_function)
-                                try:
-                                    command_description = inspect.getdoc(
-                                        command_function
-                                    )
-                                except:
-                                    command_description = command_name
-                                extension_commands.append(
-                                    {
-                                        "friendly_name": command_name,
-                                        "description": command_description,
-                                        "command_name": command_function.__name__,
-                                        "command_args": params,
-                                    }
-                                )
-                        except Exception as e:
-                            logging.error(f"Error getting commands: {e}")
-                    if extension_name == "Agixt Actions":
-                        extension_name = "AGiXT Actions"
-
-                    # Get category information from database or extension class
-                    category_name = "Automation"  # Default category
-                    category_description = ""
-
-                    # Try to get category from the extension class
-                    if hasattr(command_class, "CATEGORY"):
-                        category_name = command_class.CATEGORY
-
-                    # Get category description from database if available
-                    try:
-                        from DB import get_db_session, ExtensionCategory
-
-                        with get_db_session() as session:
-                            category = (
-                                session.query(ExtensionCategory)
-                                .filter_by(name=category_name)
-                                .first()
+                        for (
+                            command_name,
+                            command_function,
+                        ) in command_class.commands.items():
+                            params = self.get_command_params(command_function)
+                            try:
+                                command_description = inspect.getdoc(command_function)
+                            except:
+                                command_description = command_name
+                            extension_commands.append(
+                                {
+                                    "friendly_name": command_name,
+                                    "description": command_description,
+                                    "command_name": command_function.__name__,
+                                    "command_args": params,
+                                }
                             )
-                            if category:
-                                category_description = category.description or ""
                     except Exception as e:
-                        logging.debug(f"Could not get category description: {e}")
+                        logging.error(f"Error getting commands: {e}")
+                if extension_name == "Agixt Actions":
+                    extension_name = "AGiXT Actions"
 
-                    # Only add extensions that have commands (filters out OAuth extensions without credentials)
-                    if extension_commands:
-                        commands.append(
-                            {
-                                "extension_name": extension_name,
-                                "description": extension_description,
-                                "settings": extension_settings,
-                                "commands": extension_commands,
-                                "category": category_name,
-                                "category_description": category_description,
-                            }
+                # Get category information from database or extension class
+                category_name = "Automation"  # Default category
+                category_description = ""
+
+                # Try to get category from the extension class
+                if hasattr(command_class, "CATEGORY"):
+                    category_name = command_class.CATEGORY
+
+                # Get category description from database if available
+                try:
+                    from DB import get_db_session, ExtensionCategory
+
+                    with get_db_session() as session:
+                        category = (
+                            session.query(ExtensionCategory)
+                            .filter_by(name=category_name)
+                            .first()
                         )
+                        if category:
+                            category_description = category.description or ""
+                except Exception as e:
+                    logging.debug(f"Could not get category description: {e}")
+
+                # Only add extensions that have commands (filters out OAuth extensions without credentials)
+                if extension_commands:
+                    commands.append(
+                        {
+                            "extension_name": extension_name,
+                            "friendly_name": friendly_name,  # Will be None if not defined
+                            "description": extension_description,
+                            "settings": extension_settings,
+                            "commands": extension_commands,
+                            "category": category_name,
+                            "category_description": category_description,
+                        }
+                    )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -948,6 +974,7 @@ class Extensions:
             commands.append(
                 {
                     "extension_name": "Custom Automation",
+                    "friendly_name": "Custom Automation",
                     "description": "Execute a custom automation workflow.",
                     "settings": [],
                     "commands": chain_commands,
@@ -986,10 +1013,13 @@ class Extensions:
 
             try:
                 # Check if the class exists and is a subclass of Extensions
-                if hasattr(module, class_name) and issubclass(
-                    getattr(module, class_name), Extensions
+                attr = getattr(module, class_name, None)
+                if (
+                    attr is not None
+                    and inspect.isclass(attr)
+                    and issubclass(attr, Extensions)
                 ):
-                    command_class = getattr(module, class_name)(**settings)
+                    command_class = attr(**settings)
                     # Check if the extension has a router attribute
                     if hasattr(command_class, "router"):
                         routers.append(
@@ -1027,10 +1057,13 @@ class Extensions:
 
             try:
                 # Check if the class exists and is a subclass of Extensions
-                if hasattr(module, class_name) and issubclass(
-                    getattr(module, class_name), Extensions
+                attr = getattr(module, class_name, None)
+                if (
+                    attr is not None
+                    and inspect.isclass(attr)
+                    and issubclass(attr, Extensions)
                 ):
-                    extension_class = getattr(module, class_name)
+                    extension_class = attr
                     # Check if the extension defines webhook events
                     if (
                         hasattr(extension_class, "webhook_events")

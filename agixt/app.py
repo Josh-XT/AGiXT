@@ -13,6 +13,7 @@ from middleware import (
     UsageTrackingMiddleware,
     DiscordErrorMiddleware,
 )
+from ResponseCache import ResponseCacheMiddleware, get_cache_manager
 from endpoints.Agent import app as agent_endpoints
 from endpoints.Chain import app as chain_endpoints
 from endpoints.Completions import app as completions_endpoints
@@ -27,6 +28,9 @@ from endpoints.Tasks import app as tasks_endpoints
 from endpoints.TeslaIntegration import register_tesla_routes
 from endpoints.Webhook import app as webhook_endpoints
 from endpoints.Billing import app as billing_endpoints
+from endpoints.Roles import app as roles_endpoints
+from endpoints.ServerConfig import app as server_config_endpoints
+from endpoints.ApiKey import app as apikey_endpoints
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
@@ -41,10 +45,64 @@ this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
+import re
+
+# Patterns to match JWT tokens and other sensitive data
+SENSITIVE_PATTERNS = [
+    (re.compile(r"(authorization=)[^\s&\"'\]]+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(api_key=)[^\s&\"'\]]+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(token=)[^\s&\"'\]]+", re.IGNORECASE), r"\1[REDACTED]"),
+]
+
+
+def redact_sensitive_data(text):
+    """Redact sensitive data from a string."""
+    if not isinstance(text, str):
+        return text
+    result = text
+    for pattern, replacement in SENSITIVE_PATTERNS:
+        result = pattern.sub(replacement, result)
+    return result
+
+
+# Custom logging filter to redact sensitive information from logs
+class SensitiveDataFilter(logging.Filter):
+    """Filter to redact JWT tokens and other sensitive data from log messages."""
+
+    def filter(self, record):
+        # Handle direct message
+        if record.msg:
+            record.msg = redact_sensitive_data(str(record.msg))
+        # Handle args - uvicorn uses %s formatting with args
+        if record.args:
+            new_args = []
+            for arg in record.args:
+                new_args.append(
+                    redact_sensitive_data(str(arg)) if isinstance(arg, str) else arg
+                )
+            record.args = tuple(new_args)
+        return True
+
+
+# Apply filter BEFORE basicConfig to catch all loggers
+sensitive_filter = SensitiveDataFilter()
+
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+# Add the sensitive data filter to root logger and all handlers
+logging.root.addFilter(sensitive_filter)
+for handler in logging.root.handlers:
+    handler.addFilter(sensitive_filter)
+
+# Also add to uvicorn loggers specifically (they may be created lazily)
+for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
+    uvi_logger = logging.getLogger(logger_name)
+    uvi_logger.addFilter(sensitive_filter)
+    for handler in uvi_logger.handlers:
+        handler.addFilter(sensitive_filter)
 workspace_manager = WorkspaceManager()
 task_monitor = TaskMonitor()
 
@@ -52,8 +110,20 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        # Note: ExtensionsHub is now initialized only during seed data import in SeedImports.py
-        # to avoid multiple workers trying to clone the same repositories
+        # Load server configuration cache on worker startup
+        # This is critical because uvicorn workers are forked processes
+        # and the cache loaded in the main process is not available in workers
+        from Globals import load_server_config_cache
+
+        load_server_config_cache()
+        logging.debug("Server config cache loaded for worker")
+
+        # Load extensions hub global cache (pricing config, extension paths)
+        # This was computed and saved during seed imports before workers spawned
+        from ExtensionsHub import _load_global_cache
+
+        _load_global_cache()
+        logging.debug("Extensions hub cache loaded for worker")
 
         workspace_manager.start_file_watcher()
         await task_monitor.start()
@@ -125,6 +195,14 @@ allowed_origins = [
 # so the middleware mirrors the requesting Origin instead of replying with '*'.
 use_origin_regex = "*" in raw_allowed_origins or not allowed_origins
 
+# Add response caching middleware BEFORE CORSMiddleware
+# Middleware order matters: middleware added later runs first on request, last on response.
+# By adding cache middleware first (before CORS), CORS will wrap our cached responses
+# and add proper Access-Control headers even for cache HITs.
+# Enable/disable with RESPONSE_CACHE_ENABLED env var (default: true)
+if os.environ.get("RESPONSE_CACHE_ENABLED", "true").lower() == "true":
+    app.add_middleware(ResponseCacheMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -184,6 +262,41 @@ app.include_router(auth_endpoints)
 app.include_router(health_endpoints)
 app.include_router(webhook_endpoints)
 app.include_router(billing_endpoints)
+app.include_router(roles_endpoints)
+app.include_router(server_config_endpoints)
+app.include_router(apikey_endpoints)
+
+
+# Cache stats endpoint for monitoring response cache performance
+@app.get("/v1/cache/stats", tags=["Health"])
+async def get_cache_stats(authorization: str = Header(None)):
+    """
+    Get response cache statistics for monitoring performance.
+    Returns per-user cache stats and global statistics.
+    Requires admin or the user's own token.
+    """
+    cache_manager = get_cache_manager()
+    return cache_manager.get_stats()
+
+
+@app.delete("/v1/cache", tags=["Health"])
+async def clear_cache(
+    user_id: str = None,
+    authorization: str = Header(None),
+):
+    """
+    Clear response cache.
+    If user_id is provided, clears only that user's cache.
+    Otherwise clears all caches.
+    """
+    cache_manager = get_cache_manager()
+    if user_id:
+        cache_manager.invalidate_user_cache(user_id)
+        return {"message": f"Cache cleared for user {user_id}"}
+    else:
+        cache_manager.clear_all()
+        return {"message": "All caches cleared"}
+
 
 # Extension router registration will be handled after seed import
 # to ensure hub extensions are available before registration

@@ -2,25 +2,9 @@ import os
 import time
 import logging
 import asyncio
+import requests
+from datetime import datetime, timedelta
 from Extensions import Extensions
-
-try:
-    import requests
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
-    import requests
-
-try:
-    from datetime import datetime, timedelta
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "datetime"])
-    from datetime import datetime, timedelta
 
 
 class roomba(Extensions):

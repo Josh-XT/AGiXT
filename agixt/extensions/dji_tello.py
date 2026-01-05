@@ -55,6 +55,7 @@ class dji_tello(Extensions):
     """
 
     CATEGORY = "Robotics"
+    friendly_name = "DJI Tello"
 
     def __init__(self, TELLO_IP: str = "192.168.10.1", **kwargs):
         """

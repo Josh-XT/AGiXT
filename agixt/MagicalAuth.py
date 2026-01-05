@@ -1,3 +1,4 @@
+from decimal import Decimal
 from DB import (
     User,
     FailedLogins,
@@ -9,10 +10,21 @@ from DB import (
     UserCompany,
     Invitation,
     default_roles,
+    default_scopes,
     TokenBlacklist,
     PaymentTransaction,
     CompanyTokenUsage,
     ExtensionCategory,
+    Scope,
+    CustomRole,
+    CustomRoleScope,
+    UserCustomRole,
+    DefaultRoleScope,
+    PersonalAccessToken,
+    PersonalAccessTokenAgentAccess,
+    PersonalAccessTokenCompanyAccess,
+    CompanyExtensionCommand,
+    CompanyExtensionSetting,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,6 +47,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from InternalClient import InternalClient
+from middleware import log_silenced_exception
 import importlib
 import pyotp
 import logging
@@ -56,6 +69,13 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+# Cache for Stripe subscription checks to avoid API spam
+# Key: user_id, Value: (timestamp, has_subscription)
+# Cache expires after 5 minutes
+_stripe_check_cache = {}
+_stripe_check_cache_ttl = 300  # 5 minutes
+
 """
 Required environment variables:
 
@@ -74,55 +94,290 @@ Required environment variables:
 """
 
 
-def send_email(email: str, subject: str, body: str):
-    try:
-        # SendGrid
+def send_email(email: str, subject: str, body: str, return_details: bool = False):
+    """
+    Send an email using the configured email provider.
+
+    Provider selection:
+    - If EMAIL_PROVIDER is set to a specific provider, use that provider
+    - If EMAIL_PROVIDER is 'auto' (default), try providers in order: sendgrid, mailgun, microsoft, google
+
+    Args:
+        email: Recipient email address
+        subject: Email subject
+        body: HTML email body
+        return_details: If True, return dict with success, provider, and error info
+
+    Returns:
+        bool: True if email was sent successfully, False otherwise (when return_details=False)
+        dict: {"success": bool, "provider": str, "error": str} (when return_details=True)
+    """
+    provider = getenv("EMAIL_PROVIDER").lower() if getenv("EMAIL_PROVIDER") else "auto"
+    result = {"success": False, "provider": None, "error": None}
+
+    # Define provider check functions - each returns (success, error_message) or None if not configured
+    def try_sendgrid():
         sendgrid_api_key = getenv("SENDGRID_API_KEY")
         sendgrid_from_email = getenv("SENDGRID_FROM_EMAIL")
-        if sendgrid_api_key and sendgrid_from_email:
+        if not sendgrid_api_key or not sendgrid_from_email:
+            missing = []
+            if not sendgrid_api_key:
+                missing.append("SENDGRID_API_KEY")
+            if not sendgrid_from_email:
+                missing.append("SENDGRID_FROM_EMAIL")
+            if provider == "sendgrid":
+                logging.warning(
+                    f"[Email] SendGrid selected but missing: {', '.join(missing)}"
+                )
+            return None, f"Missing configuration: {', '.join(missing)}"
+        try:
             message = Mail(
                 from_email=sendgrid_from_email,
                 to_emails=email,
                 subject=subject,
                 html_content=body,
             )
-            try:
-                response = SendGridAPIClient(sendgrid_api_key).send(message)
-            except Exception as e:
-                return False
-            if response.status_code != 202:
-                return False
-            return True
-        # Mailgun
+            response = SendGridAPIClient(sendgrid_api_key).send(message)
+            if response.status_code == 202:
+                logging.debug(f"[Email] Sent via SendGrid to {email}")
+                return True, None
+            error_msg = f"SendGrid returned status {response.status_code}"
+            logging.warning(f"[Email] {error_msg}")
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"SendGrid error: {str(e)}"
+            logging.error(f"[Email] {error_msg}")
+            return False, error_msg
+
+    def try_mailgun():
         mailgun_api_key = getenv("MAILGUN_API_KEY")
         mailgun_domain = getenv("MAILGUN_DOMAIN")
         mailgun_from_email = getenv("MAILGUN_FROM_EMAIL")
-        if mailgun_api_key and mailgun_domain and mailgun_from_email:
-            try:
-                response = requests.post(
-                    f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
-                    auth=("api", mailgun_api_key),
-                    data={
-                        "from": mailgun_from_email,
-                        "to": email,
-                        "subject": subject,
-                        "html": body,
-                    },
+        if not mailgun_api_key or not mailgun_domain or not mailgun_from_email:
+            missing = []
+            if not mailgun_api_key:
+                missing.append("MAILGUN_API_KEY")
+            if not mailgun_domain:
+                missing.append("MAILGUN_DOMAIN")
+            if not mailgun_from_email:
+                missing.append("MAILGUN_FROM_EMAIL")
+            if provider == "mailgun":
+                logging.warning(
+                    f"[Email] Mailgun selected but missing: {', '.join(missing)}"
                 )
-            except Exception as e:
-                return False
-            if response.status_code != 200:
-                return False
-            return True
+            return None, f"Missing configuration: {', '.join(missing)}"
+        try:
+            response = requests.post(
+                f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
+                auth=("api", mailgun_api_key),
+                data={
+                    "from": mailgun_from_email,
+                    "to": email,
+                    "subject": subject,
+                    "html": body,
+                },
+            )
+            if response.status_code == 200:
+                logging.debug(f"[Email] Sent via Mailgun to {email}")
+                return True, None
+            error_msg = (
+                f"Mailgun returned status {response.status_code}: {response.text}"
+            )
+            logging.warning(f"[Email] {error_msg}")
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"Mailgun error: {str(e)}"
+            logging.error(f"[Email] {error_msg}")
+            return False, error_msg
 
-        # None
-        return False
-    except:
-        return False
+    def try_microsoft():
+        """Send email using Microsoft Graph API with app-only authentication."""
+        ms_client_id = getenv("MICROSOFT_CLIENT_ID")
+        ms_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
+        ms_email = getenv("MICROSOFT_EMAIL_ADDRESS")
+        if not ms_client_id or not ms_client_secret or not ms_email:
+            missing = []
+            if not ms_client_id:
+                missing.append("MICROSOFT_CLIENT_ID (OAuth settings)")
+            if not ms_client_secret:
+                missing.append("MICROSOFT_CLIENT_SECRET (OAuth settings)")
+            if not ms_email:
+                missing.append("MICROSOFT_EMAIL_ADDRESS (Email settings)")
+            if provider == "microsoft":
+                logging.warning(
+                    f"[Email] Microsoft selected but missing: {', '.join(missing)}"
+                )
+            return None, f"Missing configuration: {', '.join(missing)}"
+        try:
+            # Get OAuth token using client credentials flow
+            tenant_id = getenv("MICROSOFT_TENANT_ID") or "common"
+            token_url = (
+                f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+            )
+            token_response = requests.post(
+                token_url,
+                data={
+                    "client_id": ms_client_id,
+                    "client_secret": ms_client_secret,
+                    "scope": "https://graph.microsoft.com/.default",
+                    "grant_type": "client_credentials",
+                },
+            )
+            if token_response.status_code != 200:
+                error_msg = f"Microsoft token error: {token_response.text}"
+                logging.error(f"[Email] {error_msg}")
+                return False, error_msg
+
+            access_token = token_response.json().get("access_token")
+
+            # Send email via Graph API
+            email_data = {
+                "message": {
+                    "subject": subject,
+                    "body": {"contentType": "HTML", "content": body},
+                    "toRecipients": [{"emailAddress": {"address": email}}],
+                },
+                "saveToSentItems": "true",
+            }
+
+            # Use /users/{email}/sendMail for app-only auth
+            send_url = f"https://graph.microsoft.com/v1.0/users/{ms_email}/sendMail"
+            response = requests.post(
+                send_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=email_data,
+            )
+
+            if response.status_code == 202:
+                logging.debug(f"[Email] Sent via Microsoft to {email}")
+                return True, None
+            error_msg = (
+                f"Microsoft returned status {response.status_code}: {response.text}"
+            )
+            logging.warning(f"[Email] {error_msg}")
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"Microsoft error: {str(e)}"
+            logging.error(f"[Email] {error_msg}")
+            return False, error_msg
+
+    def try_google():
+        """Send email using Gmail API with service account or app credentials."""
+        google_client_id = getenv("GOOGLE_CLIENT_ID")
+        google_client_secret = getenv("GOOGLE_CLIENT_SECRET")
+        google_email = getenv("GOOGLE_EMAIL_ADDRESS")
+        if not google_client_id or not google_client_secret or not google_email:
+            missing = []
+            if not google_client_id:
+                missing.append("GOOGLE_CLIENT_ID (OAuth settings)")
+            if not google_client_secret:
+                missing.append("GOOGLE_CLIENT_SECRET (OAuth settings)")
+            if not google_email:
+                missing.append("GOOGLE_EMAIL_ADDRESS (Email settings)")
+            if provider == "google":
+                logging.warning(
+                    f"[Email] Google selected but missing: {', '.join(missing)}"
+                )
+            return None, f"Missing configuration: {', '.join(missing)}"
+
+        # Note: Google Gmail API requires user-delegated OAuth tokens with gmail.send scope
+        # This is more complex than Microsoft's client credentials flow
+        error_msg = "Google Gmail API requires user-delegated OAuth tokens. Consider using SendGrid, Mailgun, or Microsoft for system emails."
+        logging.warning(f"[Email] {error_msg}")
+        return False, error_msg
+
+    # Provider map
+    providers = {
+        "sendgrid": try_sendgrid,
+        "mailgun": try_mailgun,
+        "microsoft": try_microsoft,
+        "google": try_google,
+    }
+
+    def make_result(success, provider_name, error):
+        if return_details:
+            return {"success": success, "provider": provider_name, "error": error}
+        return success
+
+    try:
+        if provider != "auto" and provider in providers:
+            # Use specific provider
+            success, error = providers[provider]()
+            if success is None:
+                logging.error(f"[Email] Provider '{provider}' is not configured")
+                return make_result(False, provider, error)
+            return make_result(success, provider, error)
+
+        # Auto mode: try providers in order
+        last_error = None
+        for name, try_provider in providers.items():
+            success, error = try_provider()
+            if success is True:
+                return make_result(True, name, None)
+            elif success is False:
+                # Provider was configured but failed
+                last_error = error
+                continue
+            # success is None means provider not configured, try next
+
+        # No providers configured or all failed
+        if last_error:
+            return make_result(False, None, last_error)
+
+        no_config_error = (
+            "No email provider configured. Configure one of: "
+            "SendGrid (SENDGRID_API_KEY + SENDGRID_FROM_EMAIL), "
+            "Mailgun (MAILGUN_API_KEY + MAILGUN_DOMAIN + MAILGUN_FROM_EMAIL), "
+            "Microsoft (MICROSOFT_CLIENT_ID + MICROSOFT_CLIENT_SECRET + MICROSOFT_EMAIL_ADDRESS)"
+        )
+        logging.warning(f"[Email] {no_config_error}")
+        return make_result(False, None, no_config_error)
+    except Exception as e:
+        error_msg = f"Unexpected error: {str(e)}"
+        logging.error(f"[Email] {error_msg}")
+        return make_result(False, None, error_msg)
 
 
 def is_admin(email: str = "USER", api_key: str = None):
-    return True
+    """
+    Check if a user has admin-level access (role_id <= 2: super_admin, tenant_admin, or company_admin).
+
+    Args:
+        email: The user's email address
+        api_key: The API key/JWT token from the request
+
+    Returns:
+        bool: True if user has admin access, False otherwise
+    """
+    import os
+
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+    if api_key is None:
+        api_key = ""
+    api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
+
+    # Check if using the master API key
+    if AGIXT_API_KEY and api_key == AGIXT_API_KEY:
+        return True
+
+    # Check if user has admin flag set (legacy super admin)
+    if is_agixt_admin(email=email, api_key=api_key):
+        return True
+
+    # Check if user has admin role (role_id <= 2) via JWT token
+    try:
+        auth = MagicalAuth(token=api_key)
+        if auth.user_id:
+            role_id = auth.get_user_role()
+            if role_id is not None and role_id <= 2:
+                return True
+    except Exception:
+        pass
+
+    return False
 
 
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
@@ -167,7 +422,7 @@ def get_oauth_providers():
         module_name = filename.replace(".py", "")
 
         try:
-            client_id = os.getenv(f"{module_name.upper()}_CLIENT_ID")
+            client_id = getenv(f"{module_name.upper()}_CLIENT_ID")
             if client_id:
                 providers.append(
                     {
@@ -178,8 +433,10 @@ def get_oauth_providers():
                         "pkce_required": module.PKCE_REQUIRED,
                     }
                 )
-        except:
-            pass
+        except Exception as e:
+            log_silenced_exception(
+                e, f"get_sso_providers: loading provider {extension_file}"
+            )
     return providers
 
 
@@ -208,7 +465,7 @@ def get_sso_instance(provider: str):
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
-    if api_key == getenv("AGIXT_API_KEY"):
+    if api_key == os.getenv("AGIXT_API_KEY", ""):
         return True
     api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
     session = get_session()
@@ -258,7 +515,7 @@ def get_admin_user():
 
 
 def verify_api_key(authorization: str = Header(None)):
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
         if authorization == AGIXT_API_KEY:
@@ -266,6 +523,35 @@ def verify_api_key(authorization: str = Header(None)):
         try:
             if authorization == AGIXT_API_KEY:
                 return get_admin_user()
+
+            # Check if this is a Personal Access Token (starts with "agixt_")
+            if authorization.startswith("agixt_"):
+                pat_validation = validate_personal_access_token(authorization)
+                if not pat_validation["valid"]:
+                    raise HTTPException(
+                        status_code=401,
+                        detail=pat_validation.get(
+                            "error", "Invalid personal access token"
+                        ),
+                    )
+                # Return user info from PAT validation
+                db = get_session()
+                user = (
+                    db.query(User).filter(User.id == pat_validation["user_id"]).first()
+                )
+                if not user:
+                    db.close()
+                    raise HTTPException(
+                        status_code=401, detail="User not found for token"
+                    )
+                user_dict = user.__dict__.copy()
+                user_dict.pop("_sa_instance_state", None)
+                # Add PAT-specific info to the user dict for downstream use
+                user_dict["_pat_scopes"] = pat_validation.get("scopes", [])
+                user_dict["_pat_agent_ids"] = pat_validation.get("agent_ids", [])
+                user_dict["_pat_company_ids"] = pat_validation.get("company_ids", [])
+                db.close()
+                return user_dict
 
             # Check if token is blacklisted before validating
             db = get_session()
@@ -303,7 +589,86 @@ def verify_api_key(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="API Key is missing.")
 
 
-def get_user_id(user: str):
+def require_scope(*required_scopes):
+    """
+    FastAPI dependency factory to require specific scopes.
+    Use as: dependencies=[Depends(require_scope("agents:read"))]
+
+    Args:
+        *required_scopes: One or more scope names that are required.
+                          If multiple are provided, user needs at least one.
+
+    Returns:
+        A dependency function that validates scope access.
+    """
+
+    def scope_checker(authorization: str = Header(None)):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization required")
+
+        token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+        auth = MagicalAuth(token=token)
+
+        if len(required_scopes) == 1:
+            if not auth.has_scope(required_scopes[0]):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient permissions. Required scope: {required_scopes[0]}",
+                )
+        else:
+            if not auth.has_any_scope(list(required_scopes)):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient permissions. Required one of: {', '.join(required_scopes)}",
+                )
+
+        return auth
+
+    return scope_checker
+
+
+def require_all_scopes(*required_scopes):
+    """
+    FastAPI dependency factory to require ALL specified scopes.
+    Use as: dependencies=[Depends(require_all_scopes("agents:read", "agents:write"))]
+
+    Args:
+        *required_scopes: Scope names that are ALL required.
+
+    Returns:
+        A dependency function that validates scope access.
+    """
+
+    def scope_checker(authorization: str = Header(None)):
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization required")
+
+        token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+        auth = MagicalAuth(token=token)
+
+        if not auth.has_all_scopes(list(required_scopes)):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions. Required all of: {', '.join(required_scopes)}",
+            )
+
+        return auth
+
+    return scope_checker
+
+
+def get_user_id(user):
+    """Get user ID from user (can be email string or user dict from verify_api_key)."""
+    # Handle dict from verify_api_key
+    if isinstance(user, dict):
+        if "id" in user:
+            return user["id"]
+        elif "email" in user:
+            user = user["email"]
+        else:
+            raise HTTPException(status_code=404, detail="User not found in dict.")
+
+    # Handle string (email)
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     if user_data is None:
@@ -316,6 +681,54 @@ def get_user_id(user: str):
         raise HTTPException(status_code=404, detail=f"User {user} not found.")
     session.close()
     return user_id
+
+
+def get_user_company_id(user):
+    """Get the company_id for a user (can be email string or user dict from verify_api_key)."""
+    # Handle dict from verify_api_key
+    if isinstance(user, dict):
+        user_id = user.get("id")
+        if user_id:
+            # Look up company from UserCompany table
+            session = get_session()
+            try:
+                user_company = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == user_id)
+                    .first()
+                )
+                if user_company and user_company.company_id is not None:
+                    company_id_str = str(user_company.company_id)
+                    if company_id_str.lower() in ["none", "null", ""]:
+                        return None
+                    return company_id_str
+                return None
+            finally:
+                session.close()
+        elif "email" in user:
+            user = user["email"]
+        else:
+            return None
+
+    # Handle string (email) - look up user first, then company
+    session = get_session()
+    try:
+        user_data = session.query(User).filter(User.email == user).first()
+        if user_data is None:
+            return None
+        user_company = (
+            session.query(UserCompany)
+            .filter(UserCompany.user_id == user_data.id)
+            .first()
+        )
+        if user_company and user_company.company_id is not None:
+            company_id_str = str(user_company.company_id)
+            if company_id_str.lower() in ["none", "null", ""]:
+                return None
+            return company_id_str
+        return None
+    finally:
+        session.close()
 
 
 def get_user_company_id_by_email(email: str):
@@ -346,7 +759,7 @@ def get_user_by_email(email: str):
 
 def impersonate_user(email: str):
     # Get token for the user
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     token = jwt.encode(
         {
             "sub": str(get_user_id(email)),
@@ -489,7 +902,7 @@ def get_agents(email, company=None):
 
 class MagicalAuth:
     def __init__(self, token: str = None):
-        encryption_key = getenv("AGIXT_API_KEY")
+        encryption_key = os.getenv("AGIXT_API_KEY", "")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
         token = (
@@ -553,6 +966,312 @@ class MagicalAuth:
         if self.user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
         return True
+
+    def is_super_admin(self) -> bool:
+        """
+        Check if the current user has role 0 (super_admin) in any company.
+        Super admins have server-wide access to all companies.
+
+        Returns:
+            bool: True if user is a super admin, False otherwise
+        """
+        if self.user_id is None:
+            return False
+        with get_session() as db:
+            user_company = (
+                db.query(UserCompany)
+                .filter(
+                    UserCompany.user_id == self.user_id,
+                    UserCompany.role_id == 0,
+                )
+                .first()
+            )
+            return user_company is not None
+
+    def get_user_scopes(self, company_id: str = None) -> set:
+        """
+        Get all scopes available to the current user for a specific company.
+        This combines scopes from their default role and any custom roles.
+        Also includes wildcard patterns from default_role_scopes for proper
+        frontend scope checking (e.g., ext:* for company admins).
+
+        Args:
+            company_id: The company to check scopes for. Defaults to user's current company.
+
+        Returns:
+            set: A set of scope names the user has access to.
+        """
+        from DB import default_role_scopes as db_default_role_scopes
+
+        if self.user_id is None:
+            return set()
+
+        if not company_id:
+            company_id = self.company_id
+
+        scopes = set()
+
+        with get_session() as db:
+            # Get user's role in this company
+            user_company = (
+                db.query(UserCompany)
+                .filter(
+                    UserCompany.user_id == self.user_id,
+                    UserCompany.company_id == company_id,
+                )
+                .first()
+            )
+
+            if not user_company:
+                return scopes
+
+            role_id = user_company.role_id
+
+            # Super admin gets all scopes that exist in the database
+            # This ensures they only see menu items for extensions that are actually installed
+            # (Extensions register their scopes when they load)
+            if role_id == 0:
+                all_scopes = db.query(Scope).all()
+                return {s.name for s in all_scopes}
+
+            # Get scopes from default role (expanded individual scopes)
+            default_role_scopes_db = (
+                db.query(Scope)
+                .join(DefaultRoleScope, DefaultRoleScope.scope_id == Scope.id)
+                .filter(DefaultRoleScope.role_id == role_id)
+                .all()
+            )
+            scopes.update(s.name for s in default_role_scopes_db)
+
+            # Handle wildcard patterns from default_role_scopes definition
+            # For ext:* wildcards, we expand to only include scopes for extensions
+            # that are actually configured/imported for this company
+            if role_id in db_default_role_scopes:
+                has_ext_wildcard = "ext:*" in db_default_role_scopes[role_id]
+
+                for pattern in db_default_role_scopes[role_id]:
+                    # Skip ext:* - we'll handle it specially below
+                    if pattern == "ext:*":
+                        continue
+                    # Include other wildcard patterns (but not ext:* variants that should be company-scoped)
+                    if pattern.endswith(":*") or ":*:" in pattern or pattern == "*":
+                        # Don't include ext:*:action patterns as they should also be company-scoped
+                        if not pattern.startswith("ext:"):
+                            scopes.add(pattern)
+
+                # If role has ext:* wildcard, expand to only extensions configured for this company
+                if has_ext_wildcard:
+                    # Get extension names that are configured for this company
+                    # (via CompanyExtensionCommand or CompanyExtensionSetting)
+                    configured_extensions = set()
+
+                    # Get from CompanyExtensionCommand
+                    ext_commands = (
+                        db.query(CompanyExtensionCommand.extension_name)
+                        .filter(CompanyExtensionCommand.company_id == company_id)
+                        .distinct()
+                        .all()
+                    )
+                    configured_extensions.update(ec[0] for ec in ext_commands)
+
+                    # Get from CompanyExtensionSetting
+                    ext_settings = (
+                        db.query(CompanyExtensionSetting.extension_name)
+                        .filter(CompanyExtensionSetting.company_id == company_id)
+                        .distinct()
+                        .all()
+                    )
+                    configured_extensions.update(es[0] for es in ext_settings)
+
+                    # Add ext scopes only for configured extensions
+                    if configured_extensions:
+                        # Get all ext:* scopes from DB that match configured extensions
+                        ext_scopes = (
+                            db.query(Scope).filter(Scope.name.like("ext:%")).all()
+                        )
+                        for scope in ext_scopes:
+                            # Parse the scope name to get extension name
+                            # Format: ext:extension_name:... or ext:extension_name:feature:action
+                            parts = scope.name.split(":")
+                            if len(parts) >= 2:
+                                ext_name = parts[1]
+                                if ext_name in configured_extensions:
+                                    scopes.add(scope.name)
+
+            # Get scopes from custom roles assigned to this user in this company
+            custom_role_scopes = (
+                db.query(Scope)
+                .join(CustomRoleScope, CustomRoleScope.scope_id == Scope.id)
+                .join(CustomRole, CustomRole.id == CustomRoleScope.custom_role_id)
+                .join(UserCustomRole, UserCustomRole.custom_role_id == CustomRole.id)
+                .filter(
+                    UserCustomRole.user_id == self.user_id,
+                    UserCustomRole.company_id == company_id,
+                    CustomRole.is_active == True,
+                )
+                .all()
+            )
+            scopes.update(s.name for s in custom_role_scopes)
+
+        return scopes
+
+    def has_scope(self, scope: str, company_id: str = None) -> bool:
+        """
+        Check if the user has a specific scope in a company.
+
+        Args:
+            scope: The scope to check (e.g., 'agents:read', 'ext:github:issues:read')
+            company_id: The company to check in. Defaults to user's current company.
+
+        Returns:
+            bool: True if the user has the scope, False otherwise.
+        """
+        if self.user_id is None:
+            return False
+
+        # Super admins have all scopes
+        if self.is_super_admin():
+            return True
+
+        user_scopes = self.get_user_scopes(company_id)
+
+        # Check global wildcard - user has all permissions
+        if "*" in user_scopes:
+            return True
+
+        # Check exact match
+        if scope in user_scopes:
+            return True
+
+        # Parse the scope to check
+        parts = scope.split(":")
+
+        # Handle extension-specific scopes
+        if parts[0] == "ext" and len(parts) >= 3:
+            ext_name = parts[1]
+
+            # Check if user has ext:* (all extension scopes)
+            if "ext:*" in user_scopes:
+                return True
+
+            # Handle 3-part extension scopes (ext:name:action)
+            if len(parts) == 3:
+                action = parts[2]
+
+                # Check if user has ext:*:action (e.g., ext:*:read for all extensions read access)
+                if f"ext:*:{action}" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:* (all actions for specific extension)
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+
+            # Handle 4-part deep extension scopes (ext:name:feature:action)
+            elif len(parts) == 4:
+                feature = parts[2]
+                action = parts[3]
+
+                # Check if user has ext:*:feature:action (all extensions, same feature)
+                if f"ext:*:{feature}:{action}" in user_scopes:
+                    return True
+
+                # Check if user has ext:*:*:action (all extensions, all features, same action)
+                if f"ext:*:*:{action}" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:* (all actions for specific extension)
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:feature:* (all actions for specific feature)
+                if f"ext:{ext_name}:{feature}:*" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:*:action (specific extension, all features, specific action)
+                if f"ext:{ext_name}:*:{action}" in user_scopes:
+                    return True
+
+                # Check if user has the simpler ext:name:execute scope (grants all execute for that extension)
+                if action == "execute" and f"ext:{ext_name}:execute" in user_scopes:
+                    return True
+
+                # Check if user has ext:name:read (grants all read features for that extension)
+                if action == "read" and f"ext:{ext_name}:read" in user_scopes:
+                    return True
+
+        # Check standard wildcard patterns (e.g., if user has 'agents:*', they have 'agents:read')
+        if len(parts) >= 2:
+            resource = parts[0]
+            if f"{resource}:*" in user_scopes:
+                return True
+
+        return False
+
+    def has_any_scope(self, scopes: list, company_id: str = None) -> bool:
+        """
+        Check if the user has any of the specified scopes.
+
+        Args:
+            scopes: List of scope names to check.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Returns:
+            bool: True if the user has at least one of the scopes.
+        """
+        for scope in scopes:
+            if self.has_scope(scope, company_id):
+                return True
+        return False
+
+    def has_all_scopes(self, scopes: list, company_id: str = None) -> bool:
+        """
+        Check if the user has all of the specified scopes.
+
+        Args:
+            scopes: List of scope names to check.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Returns:
+            bool: True if the user has all of the scopes.
+        """
+        for scope in scopes:
+            if not self.has_scope(scope, company_id):
+                return False
+        return True
+
+    def require_scope(self, scope: str, company_id: str = None):
+        """
+        Require a specific scope, raising an HTTPException if not authorized.
+
+        Args:
+            scope: The scope to require.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Raises:
+            HTTPException: 403 if user doesn't have the required scope.
+        """
+        if not self.has_scope(scope, company_id):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions. Required scope: {scope}",
+            )
+
+    def require_any_scope(self, scopes: list, company_id: str = None):
+        """
+        Require at least one of the specified scopes.
+
+        Args:
+            scopes: List of scope names to check.
+            company_id: The company to check in. Defaults to user's current company.
+
+        Raises:
+            HTTPException: 403 if user doesn't have any of the required scopes.
+        """
+        if not self.has_any_scope(scopes, company_id):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions. Required one of: {', '.join(scopes)}",
+            )
 
     def user_exists(self, email: str = None):
         self.email = (
@@ -1166,117 +1885,111 @@ class MagicalAuth:
             session.close()
 
     def check_user_limit(self, company_id: str) -> bool:
-        """Check if a user has reached their subscription user limit
+        """Check if a company can add more users based on billing model.
 
-        True = user limit not reached
-        False = user limit reached
+        For seat-based billing:
+            - per_user (XT Systems): Checks if current user count < user_limit (paid seats)
+            - per_capacity (NurseXT): user_limit represents paid beds - doesn't limit users
+            - per_location (UltraEstimate): Checks if child company count < user_limit (paid locations)
+
+        For token-based billing (per_token):
+            - Checks if company has a positive token balance
+
+        Returns:
+            True = company can add users/locations
+            False = company cannot add users/locations (limit reached or no balance)
         """
-        # Check if we should bypass user limits entirely
-        stripe_api_key = getenv("STRIPE_API_KEY")
-        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
-        try:
-            price_value = float(price_env) if price_env else 0.0
-        except (TypeError, ValueError):
-            price_value = 0.0
+        from ExtensionsHub import ExtensionsHub
 
-        # If price is 0, bypass user limits regardless of Stripe configuration
-        if price_value == 0:
-            return True
+        # Check if billing is enabled
+        price_service = PriceService()
+        token_price = price_service.get_token_price()
 
-        # We have to check how many users the company purchased from Stripe, compare to user count for the company
-        session = get_session()
-        company = session.query(Company).filter(Company.id == company_id).first()
-        if not company:
-            session.close()
-            raise HTTPException(status_code=404, detail="Company not found")
-
-        # Get user count for the company
-        user_count = (
-            session.query(UserCompany)
-            .filter(UserCompany.company_id == company.id)
-            .count()
+        # Get pricing config to determine billing model
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
         )
 
-        # If company has an explicit user limit set, check against that
-        if company.user_limit is not None and user_count >= company.user_limit:
-            session.close()
+        # Check if billing is disabled
+        billing_enabled = token_price > 0 or (
+            pricing_config and pricing_config.get("tiers")
+        )
+
+        if not billing_enabled:
+            # Billing is disabled, allow all operations
+            return True
+
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            # Get the root parent company for billing purposes
+            # Child companies consume from their root parent
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            if str(root_company_id) != str(company_id):
+                billing_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if not billing_company:
+                    billing_company = company
+            else:
+                billing_company = company
+
+            # user_limit represents paid capacity on root parent company
+            paid_limit = billing_company.user_limit or 0
+
+            # For per_user billing (XT Systems): count users against paid seats
+            if pricing_model == "per_user":
+                current_user_count = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id == company_id)
+                    .count()
+                )
+                if current_user_count < paid_limit:
+                    return True
+                # Fallback to token balance
+                if billing_company.token_balance and billing_company.token_balance > 0:
+                    return True
+                return False
+
+            # For per_capacity billing (NurseXT): beds are declared capacity, not user limit
+            # Users are unlimited - the capacity (beds) is just what they pay for
+            elif pricing_model == "per_capacity":
+                # Check they have paid for some capacity or have token balance
+                if paid_limit > 0:
+                    return True
+                if billing_company.token_balance and billing_company.token_balance > 0:
+                    return True
+                return False
+
+            # For per_location billing (UltraEstimate): count child companies as locations
+            elif pricing_model == "per_location":
+                # Count child companies under the root parent (each child = 1 location)
+                child_company_count = (
+                    session.query(Company)
+                    .filter(Company.company_id == billing_company.id)
+                    .count()
+                )
+                # The root company itself counts as 1 location
+                total_locations = child_company_count + 1
+                if total_locations <= paid_limit:
+                    return True
+                # Fallback to token balance
+                if billing_company.token_balance and billing_company.token_balance > 0:
+                    return True
+                return False
+
+            # For token-based billing, check root parent company's token balance
+            if billing_company.token_balance and billing_company.token_balance > 0:
+                return True
+
             return False
-
-        # If no explicit limit is set, check Stripe subscription
-        if stripe_api_key and stripe_api_key.lower() != "none":
-            try:
-                import stripe
-
-                stripe.api_key = stripe_api_key
-
-                # Get company admin to check for subscription
-                company_admin = (
-                    session.query(User)
-                    .join(UserCompany, User.id == UserCompany.user_id)
-                    .filter(UserCompany.company_id == company.id)
-                    .filter(UserCompany.role_id <= 2)  # Admin roles
-                    .first()
-                )
-
-                if not company_admin:
-                    session.close()
-                    return False  # No admin found, can't verify subscription
-
-                # Get admin preferences to find Stripe customer ID
-                admin_preferences = (
-                    session.query(UserPreferences)
-                    .filter(UserPreferences.user_id == company_admin.id)
-                    .all()
-                )
-
-                admin_pref_dict = {p.pref_key: p.pref_value for p in admin_preferences}
-                stripe_id = admin_pref_dict.get("stripe_id")
-
-                if not stripe_id or not stripe_id.startswith("cus_"):
-                    session.close()
-                    return False  # No valid Stripe ID
-
-                # Get subscriptions for this customer
-                subscriptions = self.get_subscribed_products(
-                    stripe_api_key, company_admin.email
-                )
-
-                if not subscriptions:
-                    session.close()
-                    return False  # No active subscriptions
-
-                # Check user limits from subscription metadata
-                for subscription in subscriptions:
-                    for item in subscription.get("items", {}).get("data", []):
-                        product_id = item.get("price", {}).get("product")
-                        if product_id:
-                            product = stripe.Product.retrieve(product_id)
-                            metadata = product.get("metadata", {})
-
-                            # Check if product has user limit in metadata
-                            if "user_limit" in metadata:
-                                subscription_user_limit = int(metadata["user_limit"])
-                                if user_count < subscription_user_limit:
-                                    session.close()
-                                    return True  # Under the subscription limit
-
-                            # If product specifies unlimited users
-                            if metadata.get("unlimited_users") == "true":
-                                session.close()
-                                return True
-
-                # If we got here, no subscription with adequate user limits was found
-                session.close()
-                return False
-
-            except Exception as e:
-                logging.error(f"Error checking Stripe subscription: {str(e)}")
-                session.close()
-                return False
-
-        # If no Stripe integration or other limits, default to allowing the user
-        session.close()
-        return True
+        finally:
+            session.close()
 
     def _has_active_payment_transaction(self, session, user_companies) -> bool:
         direct_payment = (
@@ -1305,21 +2018,68 @@ class MagicalAuth:
         return False
 
     def _has_sufficient_token_balance(self, session, user_companies) -> bool:
-        """Check if any of the user's companies have a positive token balance"""
+        """Check if any of the user's companies (or their root parents) have a positive token balance or valid subscription.
+
+        For token-based billing: checks token_balance > 0
+        For seat-based billing: checks token_balance_usd > 0 (trial credits) or active subscription
+
+        Child companies inherit billing from their root parent company.
+        """
+        from ExtensionsHub import ExtensionsHub
+
         company_ids = {
             user_company.company_id
             for user_company in user_companies
             if getattr(user_company, "company_id", None)
         }
-        if company_ids:
+        if not company_ids:
+            return False
+
+        # Expand company_ids to include root parent companies
+        # Child companies consume from their root parent
+        all_company_ids = set(company_ids)
+        for cid in company_ids:
+            root_id = self.get_root_parent_company(str(cid), session=session)
+            if root_id:
+                all_company_ids.add(root_id)
+
+        # Get pricing model
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+        is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
+
+        if is_seat_based:
+            # For seat-based billing, check:
+            # 1. Trial credits (token_balance_usd > 0)
+            # 2. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
+            company_with_credits = (
+                session.query(Company)
+                .filter(Company.id.in_(list(all_company_ids)))
+                .filter(
+                    (Company.token_balance_usd > 0)  # Has trial credits
+                    | (
+                        (Company.stripe_subscription_id != None)
+                        & (Company.auto_topup_enabled == True)
+                    )  # Has subscription
+                )
+                .first()
+            )
+            if company_with_credits:
+                return True
+        else:
+            # For token-based billing, check token_balance on all companies including parents
             company_with_balance = (
                 session.query(Company)
-                .filter(Company.id.in_(list(company_ids)))
+                .filter(Company.id.in_(list(all_company_ids)))
                 .filter(Company.token_balance > 0)
                 .first()
             )
             if company_with_balance:
                 return True
+
         return False
 
     def check_billing_balance(self):
@@ -1469,6 +2229,27 @@ class MagicalAuth:
                         else:
                             company_name = f"{new_user.first_name}'s Team"
                     new_company = self.create_company_with_agent(name=company_name)
+
+                    # Grant trial credits for business domains
+                    try:
+                        from TrialService import grant_trial_credits
+
+                        success, message, credits = grant_trial_credits(
+                            company_id=new_company["id"],
+                            user_id=str(new_user_db.id),
+                            email=self.email,
+                        )
+                        if success:
+                            logging.info(
+                                f"Trial credits granted for {self.email}: {message}"
+                            )
+                        else:
+                            logging.debug(
+                                f"Trial credits not granted for {self.email}: {message}"
+                            )
+                    except Exception as e:
+                        logging.warning(f"Error checking trial eligibility: {e}")
+
             # Add default user preferences
             default_preferences = [
                 ("timezone", getenv("TZ")),
@@ -1545,8 +2326,28 @@ class MagicalAuth:
         return "User updated successfully."
 
     def delete_company(self, company_id):
+        """
+        Delete a company and remove all associated user relationships.
+
+        Authorization:
+        - Super admins can delete any company (via has_scope)
+        - Users with 'company:delete' scope can delete companies they have access to
+        """
+        self.validate_user()
+
+        # Check if user has company:delete scope (super admins automatically pass via has_scope)
+        if not self.has_scope("company:delete", company_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. You do not have permission to delete this company.",
+            )
+
         session = get_session()
         company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            session.close()
+            raise HTTPException(status_code=404, detail="Company not found")
+
         # Get users in the company and remove them from the company
         user_companies = (
             session.query(UserCompany)
@@ -1565,16 +2366,13 @@ class MagicalAuth:
     def delete_user_from_company(self, company_id: str, target_user_id: str):
         self.validate_user()
         session = get_session()
-        caller_role = self.get_user_role(company_id)
-        if not caller_role or caller_role > 2:
+
+        # Check if user has permission to delete users from this company
+        if not self.has_scope("users:delete", company_id):
+            session.close()
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions to remove users.",
-            )
-
-        if str(company_id) not in self.get_user_companies():
-            raise HTTPException(
-                status_code=403, detail="Unauthorized. Company not accessible to user."
             )
 
         user_company = (
@@ -1589,10 +2387,13 @@ class MagicalAuth:
                 status_code=404, detail="User not found in the specified company"
             )
 
-        # Prevent self-deletion for company admins
-        if str(target_user_id) == str(self.user_id) and caller_role <= 2:
+        # Prevent self-deletion for users with management permissions
+        if str(target_user_id) == str(self.user_id) and self.has_scope(
+            "users:delete", company_id
+        ):
             raise HTTPException(
-                status_code=400, detail="Company admins cannot remove themselves"
+                status_code=400,
+                detail="Users with management permissions cannot remove themselves",
             )
 
         session.delete(user_company)
@@ -1713,15 +2514,14 @@ class MagicalAuth:
                 status_code=403, detail="You cannot change your own role."
             )
         session = get_session()
-        user_role = self.get_user_role(company_id)
-        if user_role is None:
-            session.close()
-            raise HTTPException(status_code=404, detail="User not found in company")
-        if user_role >= 3:
+
+        # Check if user has permission to manage roles
+        if not self.has_scope("users:roles", company_id):
             session.close()
             raise HTTPException(
                 status_code=403, detail="User does not have permission to update roles"
             )
+
         user_company = (
             session.query(UserCompany)
             .filter(UserCompany.user_id == user_id)
@@ -1732,7 +2532,10 @@ class MagicalAuth:
             role_id = int(role_id)
         except:
             role_id = 3
-        if role_id < user_role:
+
+        # Users can only assign roles at or below their own level
+        caller_role = self.get_user_role(company_id)
+        if caller_role is not None and role_id < caller_role:
             session.close()
             raise HTTPException(
                 status_code=403,
@@ -1749,6 +2552,264 @@ class MagicalAuth:
         session.close()
         return "User role updated successfully."
 
+    def get_user_preferences_lightweight(self):
+        """
+        Get basic user preferences without billing/subscription checks.
+        Use this for fast user profile fetches where billing isn't critical.
+        For billing-sensitive operations, use get_user_preferences() instead.
+        """
+        session = get_session()
+        try:
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == self.user_id)
+                .all()
+            )
+            prefs = {x.pref_key: x.pref_value for x in user_preferences}
+
+            # Set defaults
+            if "input_tokens" not in prefs:
+                prefs["input_tokens"] = 0
+            if "output_tokens" not in prefs:
+                prefs["output_tokens"] = 0
+            if "phone_number" not in prefs:
+                prefs["phone_number"] = ""
+
+            # Remove sensitive/duplicate fields
+            for key in ["email", "first_name", "last_name"]:
+                prefs.pop(key, None)
+
+            return prefs
+        finally:
+            session.close()
+
+    def get_user_preferences_smart(self):
+        """
+        Smart user preferences fetch with optimized billing checks:
+        - Fast token balance check (DB query) is synchronous
+        - If no tokens AND billing enabled → 402 immediately (synchronous)
+        - If user has tokens → Return quickly, Stripe checks run in background
+
+        This is ideal for the /v1/user endpoint where speed is critical but
+        we still need to enforce the token balance paywall.
+        """
+        import asyncio
+        import threading
+
+        session = get_session()
+        try:
+            # Fast queries first
+            user = session.query(User).filter(User.id == self.user_id).first()
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == self.user_id)
+                .all()
+            )
+            user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+
+            # Set defaults
+            if "input_tokens" not in user_preferences:
+                user_preferences["input_tokens"] = 0
+            if "output_tokens" not in user_preferences:
+                user_preferences["output_tokens"] = 0
+            if "phone_number" not in user_preferences:
+                user_preferences["phone_number"] = ""
+
+            # Get billing config
+            wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+            price_service = PriceService()
+            try:
+                token_price = price_service.get_token_price()
+            except Exception:
+                token_price = 1
+
+            billing_enabled = token_price > 0
+            wallet_paywall_enabled = (
+                bool(wallet_address)
+                and str(wallet_address).lower() != "none"
+                and billing_enabled
+            )
+
+            # CRITICAL: Fast token balance check - this MUST be synchronous
+            # If user has no tokens and billing is enabled, block with 402
+            if wallet_paywall_enabled:
+                has_sufficient_balance = self._has_sufficient_token_balance(
+                    session, user_companies
+                )
+                if not has_sufficient_balance:
+                    # No tokens and billing enabled - enforce paywall immediately
+                    user.is_active = False
+                    session.commit()
+                    logging.info(
+                        f"{self.email} has insufficient token balance at {self.company_id}"
+                    )
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": "Insufficient token balance. Please top up your tokens.",
+                            "customer_session": {
+                                "client_secret": None,
+                                "company_id": self.company_id,
+                            },
+                            "wallet_address": wallet_address,
+                            "token_price_per_million_usd": float(token_price),
+                        },
+                    )
+                # User has tokens - add wallet info to response
+                user_preferences["wallet_address"] = wallet_address
+                user_preferences["token_price_per_million_usd"] = float(token_price)
+
+            # User requirements check (fast)
+            user_requirements = self.registration_requirements()
+            missing_requirements = []
+            if user_requirements:
+                for key, value in user_requirements.items():
+                    if key not in user_preferences and key != "stripe_id":
+                        missing_requirements.append({key: value})
+
+            if "verify_email" not in user_preferences and getenv("SENDGRID_API_KEY"):
+                missing_requirements.append({"verify_email": True})
+                # Don't block on sending email verification - do it async
+                threading.Thread(
+                    target=self._send_email_verification_async, daemon=True
+                ).start()
+            elif "verify_email" in user_preferences:
+                del user_preferences["verify_email"]
+
+            if missing_requirements:
+                user_preferences["missing_requirements"] = missing_requirements
+
+            # Clean up sensitive fields
+            for key in ["email", "first_name", "last_name", "missing_requirements"]:
+                if key in user_preferences and key != "missing_requirements":
+                    del user_preferences[key]
+
+            # Background Stripe subscription check - only if billing is not paused
+            # This doesn't block the response since user already has token balance
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            api_key = getenv("STRIPE_API_KEY")
+            if (
+                not billing_paused
+                and api_key
+                and api_key.lower() != "none"
+                and user.email != getenv("DEFAULT_USER")
+                and not user.email.endswith(".xt")
+            ):
+                # Fire-and-forget Stripe check in background thread
+                user_email = user.email
+                user_id = self.user_id
+                stripe_id = user_preferences.get("stripe_id")
+                company_ids = [uc.company_id for uc in user_companies]
+
+                def _background_stripe_check():
+                    try:
+                        self._background_stripe_subscription_check(
+                            api_key, user_email, user_id, stripe_id, company_ids
+                        )
+                    except Exception as e:
+                        logging.debug(f"Background Stripe check failed: {e}")
+
+                threading.Thread(target=_background_stripe_check, daemon=True).start()
+
+            return user_preferences
+        finally:
+            session.close()
+
+    def _send_email_verification_async(self):
+        """Send email verification link in background"""
+        try:
+            self.send_email_verification_link()
+        except Exception as e:
+            logging.debug(f"Background email verification failed: {e}")
+
+    def _background_stripe_subscription_check(
+        self,
+        api_key: str,
+        user_email: str,
+        user_id: str,
+        stripe_id: str,
+        company_ids: list,
+    ):
+        """
+        Background Stripe subscription check.
+        Updates user's is_active status and stripe_id preference if needed.
+        This runs async and doesn't block the response.
+        Uses caching to prevent API spam.
+        """
+        import time
+        import stripe
+
+        # Check cache first to avoid Stripe API spam
+        cache_key = user_id
+        now = time.time()
+        if cache_key in _stripe_check_cache:
+            cached_time, cached_result = _stripe_check_cache[cache_key]
+            if now - cached_time < _stripe_check_cache_ttl:
+                # Cache is still valid, skip Stripe API call
+                logging.debug(f"Stripe check cache hit for {user_email}")
+                return
+
+        stripe.api_key = api_key
+
+        session = get_session()
+        try:
+            has_subscription = False
+
+            # Check user's own subscription
+            if stripe_id:
+                relevant_subscriptions = self.get_subscribed_products(
+                    api_key, user_email
+                )
+                if relevant_subscriptions:
+                    has_subscription = True
+
+            # Check company admin subscriptions if user doesn't have one
+            if not has_subscription and company_ids:
+                for company_id in company_ids:
+                    company_admins = (
+                        session.query(User)
+                        .join(UserCompany, User.id == UserCompany.user_id)
+                        .filter(UserCompany.company_id == company_id)
+                        .filter(UserCompany.role_id <= 2)
+                        .all()
+                    )
+                    for admin in company_admins:
+                        admin_prefs = (
+                            session.query(UserPreferences)
+                            .filter(UserPreferences.user_id == admin.id)
+                            .filter(UserPreferences.pref_key == "stripe_id")
+                            .first()
+                        )
+                        if admin_prefs:
+                            admin_subscriptions = self.get_subscribed_products(
+                                api_key, admin.email
+                            )
+                            if admin_subscriptions:
+                                has_subscription = True
+                                break
+                    if has_subscription:
+                        break
+
+            # Cache the result
+            _stripe_check_cache[cache_key] = (now, has_subscription)
+
+            # Update user active status based on subscription
+            if has_subscription:
+                user = session.query(User).filter(User.id == user_id).first()
+                if user and not user.is_active:
+                    user.is_active = True
+                    session.commit()
+                    logging.debug(f"User {user_email} marked active via subscription")
+        except Exception as e:
+            logging.debug(f"Background Stripe check error: {e}")
+        finally:
+            session.close()
+
     def get_user_preferences(self):
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
@@ -1762,11 +2823,7 @@ class MagicalAuth:
             session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
         )
         wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-        price_env = getenv("MONTHLY_PRICE_PER_USER_USD")
-        try:
-            price_value = float(str(price_env))
-        except (TypeError, ValueError):
-            price_value = 0.0
+
         # Determine if billing is enabled globally (token price > 0)
         price_service = PriceService()
         try:
@@ -1776,10 +2833,8 @@ class MagicalAuth:
             token_price = 1
         billing_enabled = token_price > 0
 
-        # Token billing is the primary billing model
+        # Token billing is the primary (and only) billing model
         token_billing_enabled = token_price > 0
-        # Subscription billing is deprecated but kept for backwards compatibility
-        subscription_billing_enabled = price_value > 0
 
         # Wallet paywall is enabled when token billing is enabled and wallet address is set
         wallet_paywall_enabled = (
@@ -1808,11 +2863,17 @@ class MagicalAuth:
                 user.is_active = False
                 session.commit()
                 session.close()
+                logging.info(
+                    f"{self.email} has insufficient token balance at {self.company_id}"
+                )
                 raise HTTPException(
                     status_code=402,
                     detail={
-                        "message": "Insufficient token balance. Please top up your tokens.",
-                        "customer_session": {"client_secret": None},
+                        "message": f"Insufficient token balance. Please top up your tokens.",
+                        "customer_session": {
+                            "client_secret": None,
+                            "company_id": self.company_id,
+                        },
                         "wallet_address": wallet_address,
                         "token_price_per_million_usd": float(token_price),
                     },
@@ -1827,9 +2888,11 @@ class MagicalAuth:
 
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            # Only proceed with Stripe checks if we haven't already confirmed active subscription via token balance
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            # Only proceed with Stripe checks if billing is not paused and we haven't already confirmed active subscription via token balance
             if (
-                not has_active_subscription
+                not billing_paused
+                and not has_active_subscription
                 and api_key != ""
                 and api_key is not None
                 and str(api_key).lower() != "none"
@@ -1921,8 +2984,8 @@ class MagicalAuth:
                                     logging.info(
                                         f"No active subscriptions for this app detected."
                                     )
-                                    # Only enforce subscription locking when subscription billing enabled
-                                    if subscription_billing_enabled:
+                                    # Only enforce subscription locking when billing enabled
+                                    if billing_enabled:
                                         if getenv("STRIPE_PRICING_TABLE_ID"):
                                             c_session = stripe.CustomerSession.create(
                                                 customer=user_preferences["stripe_id"],
@@ -2408,6 +3471,56 @@ class MagicalAuth:
         session.close()
         return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
+    def get_root_parent_company(self, company_id: str, session=None) -> Optional[str]:
+        """
+        Get the root parent company ID by traversing the parent hierarchy.
+        Child companies should consume tokens from their root parent company.
+
+        Args:
+            company_id: The company ID to start from
+            session: Optional existing session to use
+
+        Returns:
+            The root parent company ID (company with no parent), or the original
+            company_id if it's already a root company
+        """
+        close_session = False
+        if session is None:
+            session = get_session()
+            close_session = True
+
+        try:
+            current_id = company_id
+            visited = set()  # Prevent infinite loops
+
+            while current_id:
+                if current_id in visited:
+                    # Circular reference detected, return current
+                    logging.warning(
+                        f"Circular parent reference detected for company {company_id}"
+                    )
+                    break
+                visited.add(current_id)
+
+                company = (
+                    session.query(Company).filter(Company.id == current_id).first()
+                )
+                if not company:
+                    break
+
+                # company_id field is the parent company reference
+                parent_id = company.company_id
+                if not parent_id:
+                    # This company has no parent, it's the root
+                    return str(current_id)
+
+                current_id = str(parent_id)
+
+            return str(company_id)  # Fallback to original
+        finally:
+            if close_session:
+                session.close()
+
     def increase_token_counts(self, input_tokens: int = 0, output_tokens: int = 0):
         self.validate_user()
         session = get_session()
@@ -2427,28 +3540,45 @@ class MagicalAuth:
             )
 
             if user_company and billing_enabled:
-                company = (
+                user_direct_company = (
                     session.query(Company)
                     .filter(Company.id == user_company.company_id)
                     .first()
                 )
 
-                if company:
-                    # Check if company has sufficient balance (only when billing is enabled)
-                    if company.token_balance < total_tokens:
-                        session.close()
-                        raise HTTPException(
-                            status_code=402,
-                            detail="Insufficient token balance. Please top up your company's token balance.",
+                if user_direct_company:
+                    # Get the root parent company for billing purposes
+                    # Child companies consume tokens from their root parent
+                    root_company_id = self.get_root_parent_company(
+                        str(user_direct_company.id), session=session
+                    )
+
+                    # If user's company is a child, get the root parent for billing
+                    if str(root_company_id) != str(user_direct_company.id):
+                        billing_company = (
+                            session.query(Company)
+                            .filter(Company.id == root_company_id)
+                            .first()
                         )
+                    else:
+                        billing_company = user_direct_company
 
-                    # Deduct from company balance
-                    company.token_balance -= total_tokens
-                    company.tokens_used_total += total_tokens
+                    if billing_company:
+                        # Check if billing company has sufficient balance
+                        if billing_company.token_balance < total_tokens:
+                            session.close()
+                            raise HTTPException(
+                                status_code=402,
+                                detail="Insufficient token balance. Please top up your company's token balance.",
+                            )
 
-                    # Record usage for audit trail
+                        # Deduct from billing (root parent) company balance
+                        billing_company.token_balance -= total_tokens
+                        billing_company.tokens_used_total += total_tokens
+
+                    # Record usage for audit trail (against user's direct company)
                     usage = CompanyTokenUsage(
-                        company_id=company.id,
+                        company_id=user_direct_company.id,
                         user_id=self.user_id,
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
@@ -2516,7 +3646,11 @@ class MagicalAuth:
             session.close()
 
     def get_company_token_balance(self, company_id: str) -> dict:
-        """Get company token balance and usage stats"""
+        """Get company token balance and usage stats.
+
+        For child companies, this also returns the parent company's balance info
+        since child companies consume tokens from their root parent company.
+        """
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
@@ -2524,25 +3658,69 @@ class MagicalAuth:
                 raise HTTPException(status_code=404, detail="Company not found")
 
             low_balance_threshold = int(getenv("LOW_BALANCE_WARNING_THRESHOLD"))
-            return {
+
+            # Check if this is a child company (has a parent)
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            is_child_company = str(root_company_id) != str(company_id)
+
+            result = {
                 "token_balance": company.token_balance,
                 "token_balance_usd": company.token_balance_usd,
                 "tokens_used_total": company.tokens_used_total,
                 "low_balance_warning": company.token_balance <= low_balance_threshold,
+                "is_child_company": is_child_company,
             }
+
+            # If this is a child company, include parent company balance info
+            # since tokens are consumed from the parent
+            if is_child_company:
+                parent_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if parent_company:
+                    result["parent_company_id"] = str(root_company_id)
+                    result["parent_company_name"] = parent_company.name
+                    result["parent_token_balance"] = parent_company.token_balance
+                    result["parent_token_balance_usd"] = (
+                        parent_company.token_balance_usd
+                    )
+                    result["parent_tokens_used_total"] = (
+                        parent_company.tokens_used_total
+                    )
+                    # Use parent's balance for the low balance warning since that's what's consumed
+                    result["low_balance_warning"] = (
+                        parent_company.token_balance <= low_balance_threshold
+                    )
+
+            return result
         finally:
             session.close()
 
     def should_show_low_balance_warning(self, company_id: str) -> bool:
-        """Check if low balance warning should be shown to admin"""
+        """Check if low balance warning should be shown to admin.
+
+        For child companies, checks the root parent company's balance since
+        that's where tokens are consumed from.
+        """
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
             if not company:
                 return False
 
-            current_balance = company.token_balance
-            last_warning = company.last_low_balance_warning or 0
+            # Get the root parent company for billing purposes
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            if str(root_company_id) != str(company_id):
+                billing_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if not billing_company:
+                    billing_company = company
+            else:
+                billing_company = company
+
+            current_balance = billing_company.token_balance
+            last_warning = billing_company.last_low_balance_warning or 0
             low_balance_threshold = int(getenv("LOW_BALANCE_WARNING_THRESHOLD"))
             warning_increment = int(getenv("TOKEN_WARNING_INCREMENT"))
 
@@ -2557,14 +3735,29 @@ class MagicalAuth:
             session.close()
 
     def dismiss_low_balance_warning(self, company_id: str):
-        """Admin dismisses warning, record current balance"""
+        """Admin dismisses warning, record current balance.
+
+        For child companies, updates the root parent company's warning state
+        since that's where the balance is tracked.
+        """
         session = get_session()
         try:
             company = session.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
 
-            company.last_low_balance_warning = company.token_balance
+            # Get the root parent company for billing purposes
+            root_company_id = self.get_root_parent_company(company_id, session=session)
+            if str(root_company_id) != str(company_id):
+                billing_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+                if not billing_company:
+                    billing_company = company
+            else:
+                billing_company = company
+
+            billing_company.last_low_balance_warning = billing_company.token_balance
             session.commit()
         finally:
             session.close()
@@ -2596,40 +3789,84 @@ class MagicalAuth:
         return response
 
     def get_user_companies_with_roles(self) -> List[dict]:
-        """Get list of company IDs that the user has access to"""
+        """
+        Get list of company IDs that the user has access to.
+        Optimized to use batch queries instead of N+1 pattern.
+        """
+        from Agent import get_agents_lightweight
+
         session = get_session()
         try:
+            # Single query with JOIN to get user_companies and companies together
             user_companies = (
                 session.query(UserCompany)
+                .options(joinedload(UserCompany.company))
                 .filter(UserCompany.user_id == self.user_id)
                 .all()
             )
+
+            if not user_companies:
+                return []
+
+            # Collect company IDs for batch agent query
+            company_ids = [str(uc.company_id) for uc in user_companies]
+
+            # Get default agent ID for this user
+            default_agent_id = None
+            try:
+                pref = (
+                    session.query(UserPreferences)
+                    .filter(UserPreferences.user_id == self.user_id)
+                    .filter(UserPreferences.pref_key == "agent_id")
+                    .first()
+                )
+                if pref:
+                    default_agent_id = str(pref.pref_value)
+            except:
+                pass
+
+            # Get all agents for all companies in one batch query
+            # Include commands to avoid separate /v1/agent/{id}/command calls from front end
+            agents_by_company = get_agents_lightweight(
+                user_id=str(self.user_id),
+                company_ids=company_ids,
+                default_agent_id=default_agent_id,
+                include_commands=True,
+            )
+
             response = []
             for uc in user_companies:
-                # Use the session to query the company
-                company = (
-                    session.query(Company).filter(Company.id == uc.company_id).first()
-                )
-                if company:
-                    # Make sure to get the dict while the session is still open
-                    company_dict = {}
-                    for key, value in company.__dict__.items():
-                        if not key.startswith("_"):
-                            company_dict[key] = value
+                company = uc.company
+                if not company:
+                    continue
 
-                    company_dict["role_id"] = uc.role_id
-                    if "encryption_key" in company_dict:
-                        company_dict.pop("encryption_key")
-                    if "token" in company_dict:
-                        company_dict.pop("token")
-                    if str(company_dict["id"]) == str(self.company_id):
-                        company_dict["primary"] = True
-                    else:
-                        company_dict["primary"] = False
-                    # Get agents associated with this company and user
-                    agents = get_agents(email=self.email, company=company_dict["id"])
-                    company_dict["agents"] = agents
-                    response.append(company_dict)
+                # Build company dict efficiently
+                company_dict = {
+                    "id": str(company.id),
+                    "company_id": (
+                        str(company.company_id) if company.company_id else None
+                    ),
+                    "name": company.name,
+                    "agent_name": company.agent_name,
+                    "status": company.status,
+                    "address": company.address,
+                    "phone_number": company.phone_number,
+                    "email": company.email,
+                    "website": company.website,
+                    "city": company.city,
+                    "state": company.state,
+                    "zip_code": company.zip_code,
+                    "country": company.country,
+                    "notes": company.notes,
+                    "user_limit": company.user_limit,
+                    "token_balance": company.token_balance,
+                    "token_balance_usd": company.token_balance_usd,
+                    "tokens_used_total": company.tokens_used_total,
+                    "role_id": uc.role_id,
+                    "primary": str(company.id) == str(self.company_id),
+                    "agents": agents_by_company.get(str(company.id), []),
+                }
+                response.append(company_dict)
             return response
         finally:
             session.close()
@@ -2705,16 +3942,17 @@ class MagicalAuth:
                 )
         with get_session() as db:
             try:
-                # Check if user has appropriate role
-                user_role = self.get_user_role(invitation.company_id)
-                if not invitation.role_id:
-                    invitation.role_id = 3
-                if user_role > 2:  # Only allow tenant_admin and company_admin
+                # Check if user has appropriate scope to create invitations
+                if not self.has_scope("users:write", invitation.company_id):
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
                     )
-                if int(invitation.role_id) < user_role:
+                if not invitation.role_id:
+                    invitation.role_id = 3
+                # Users can only invite users at or below their own role level
+                user_role = self.get_user_role(invitation.company_id)
+                if user_role is not None and int(invitation.role_id) < user_role:
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
@@ -3129,14 +4367,9 @@ class MagicalAuth:
                 for company in user_companies:
                     # Use dictionary for deduplication based on user ID
                     unique_users = {}
-                    role_id = self.get_user_role(str(company.id))
-                    if not role_id:
-                        continue
-                    try:
-                        role_id = int(role_id)
-                    except:
-                        continue
-                    if role_id < 3:
+                    # Check if user has permission to read users for this company
+                    can_read_users = self.has_scope("users:read", str(company.id))
+                    if can_read_users:
                         for user_company in company.users:
                             role_name = None
                             for role in default_roles:
@@ -3243,6 +4476,207 @@ class MagicalAuth:
                     detail=f"An error occurred while fetching companies: {str(e)}",
                 )
 
+    def get_all_server_companies(
+        self,
+        search: str = None,
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: str = None,
+        sort_direction: str = "asc",
+        filter_balance: str = None,
+        filter_users: str = None,
+    ) -> dict:
+        """
+        Get all companies on the server (super admin only).
+        Supports search by company name, company ID, or user email.
+
+        Args:
+            search: Optional search string (company name, ID, or user email)
+            limit: Maximum number of results to return (default 100)
+            offset: Number of results to skip for pagination (default 0)
+            sort_by: Field to sort by (name, token_balance, token_balance_usd, user_count)
+            sort_direction: Sort direction (asc or desc)
+            filter_balance: Filter by balance (no_balance, has_balance)
+            filter_users: Filter by user count (single_user, multiple_users)
+
+        Returns:
+            dict: Contains companies list and total count
+        """
+        self.validate_user()
+
+        if not self.is_super_admin():
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. Super admin role required.",
+            )
+
+        with get_session() as db:
+            try:
+                from sqlalchemy import or_, func, cast, String, desc, asc
+
+                # Base query for all companies
+                query = db.query(Company).options(
+                    joinedload(Company.users).joinedload(UserCompany.user),
+                    joinedload(Company.users).joinedload(UserCompany.role),
+                )
+
+                # If search is provided, filter by name, ID, or user email
+                if search and search.strip():
+                    search_term = f"%{search.strip().lower()}%"
+
+                    # Find company IDs that have users matching the email search
+                    user_company_ids = (
+                        db.query(UserCompany.company_id)
+                        .join(User)
+                        .filter(func.lower(User.email).like(search_term))
+                        .distinct()
+                        .all()
+                    )
+                    user_company_ids = [uc[0] for uc in user_company_ids]
+
+                    # Build search conditions
+                    search_conditions = [
+                        func.lower(Company.name).like(search_term),
+                        func.lower(cast(Company.id, String)).like(search_term),
+                    ]
+                    if user_company_ids:
+                        search_conditions.append(Company.id.in_(user_company_ids))
+
+                    query = query.filter(or_(*search_conditions))
+
+                # Apply balance filter
+                if filter_balance == "no_balance":
+                    query = query.filter(
+                        or_(
+                            Company.token_balance == None,
+                            Company.token_balance == 0,
+                            Company.token_balance_usd == None,
+                            Company.token_balance_usd == 0,
+                        )
+                    )
+                elif filter_balance == "has_balance":
+                    query = query.filter(
+                        Company.token_balance > 0,
+                        Company.token_balance_usd > 0,
+                    )
+
+                # For user count filtering and sorting, we need a subquery
+                user_count_subquery = (
+                    db.query(
+                        UserCompany.company_id,
+                        func.count(UserCompany.user_id).label("user_count"),
+                    )
+                    .group_by(UserCompany.company_id)
+                    .subquery()
+                )
+
+                # Apply user count filter if specified
+                if filter_users in ["single_user", "multiple_users"]:
+                    query = query.outerjoin(
+                        user_count_subquery,
+                        Company.id == user_count_subquery.c.company_id,
+                    )
+                    if filter_users == "single_user":
+                        query = query.filter(
+                            or_(
+                                user_count_subquery.c.user_count == 1,
+                                user_count_subquery.c.user_count == None,
+                            )
+                        )
+                    elif filter_users == "multiple_users":
+                        query = query.filter(user_count_subquery.c.user_count > 1)
+
+                # Get total count before pagination
+                total_count = query.count()
+
+                # Determine sort order
+                sort_func = desc if sort_direction == "desc" else asc
+                if sort_by == "token_balance":
+                    query = query.order_by(sort_func(Company.token_balance))
+                elif sort_by == "token_balance_usd":
+                    query = query.order_by(sort_func(Company.token_balance_usd))
+                elif sort_by == "user_count":
+                    # Join user count subquery if not already joined
+                    if filter_users not in ["single_user", "multiple_users"]:
+                        query = query.outerjoin(
+                            user_count_subquery,
+                            Company.id == user_count_subquery.c.company_id,
+                        )
+                    query = query.order_by(
+                        sort_func(func.coalesce(user_count_subquery.c.user_count, 0))
+                    )
+                else:
+                    # Default sort by name
+                    query = query.order_by(sort_func(Company.name))
+
+                # Apply pagination
+                companies = query.offset(offset).limit(limit).all()
+
+                result = []
+                for company in companies:
+                    # Collect users for this company
+                    unique_users = {}
+                    for user_company in company.users:
+                        role_name = None
+                        for role in default_roles:
+                            if role["id"] == user_company.role_id:
+                                role_name = role["name"]
+                                break
+                        if role_name is None:
+                            role_name = "user"
+                        user = user_company.user
+                        user_id = str(user.id)
+                        if user_id not in unique_users:
+                            unique_users[user_id] = UserResponse(
+                                id=user_id,
+                                email=user.email,
+                                first_name=user.first_name,
+                                last_name=user.last_name,
+                                role=role_name,
+                                role_id=user_company.role_id,
+                            )
+
+                    company_data = {
+                        "id": str(company.id),
+                        "name": company.name,
+                        "company_id": (
+                            str(company.company_id) if company.company_id else None
+                        ),
+                        "status": getattr(company, "status", True),
+                        "is_suspended": not getattr(company, "status", True),
+                        "address": getattr(company, "address", None),
+                        "phone_number": getattr(company, "phone_number", None),
+                        "email": getattr(company, "email", None),
+                        "website": getattr(company, "website", None),
+                        "city": getattr(company, "city", None),
+                        "state": getattr(company, "state", None),
+                        "zip_code": getattr(company, "zip_code", None),
+                        "country": getattr(company, "country", None),
+                        "notes": getattr(company, "notes", None),
+                        "token_balance": getattr(company, "token_balance", 0),
+                        "token_balance_usd": getattr(company, "token_balance_usd", 0),
+                        "users": list(unique_users.values()),
+                        "children": [],
+                    }
+                    result.append(company_data)
+
+                return {
+                    "companies": self.convert_uuid_to_str(result),
+                    "total": total_count,
+                    "limit": limit,
+                    "offset": offset,
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.error(f"Error in get_all_server_companies: {str(e)}")
+                logging.error(traceback.format_exc())
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"An error occurred while fetching companies: {str(e)}",
+                )
+
     def verify_company_access(self, company_id: str) -> bool:
         """Verify if the current user has access to the specified company."""
         with get_session() as db:
@@ -3282,21 +4716,125 @@ class MagicalAuth:
         country: Optional[str] = None,
         notes: Optional[str] = None,
     ):
+        """
+        Create a new company. Company admins can only create child companies
+        under their own company (or a company they have admin access to).
+        Only super admins (role_id=0 or 1) can create top-level companies
+        without a parent.
+
+        For per_location billing (UltraEstimate), checks location limit before
+        allowing child company creation.
+        """
         if not agent_name:
             agent_name = getenv("AGENT_NAME")
         with get_session() as db:
             try:
-                if self.company_id != None:
-                    if parent_company_id != None:
-                        user_role = self.get_user_role(parent_company_id)
-                    else:
-                        user_role = self.get_user_role(self.company_id)
-                    if user_role != None:
-                        if user_role > 2:  # Only allow tenant_admin and company_admin
-                            raise HTTPException(
-                                status_code=403,
-                                detail="Unauthorized. Insufficient permissions.",
+                # Get user's primary company and role
+                user_company = (
+                    db.query(UserCompany)
+                    .filter(UserCompany.user_id == self.user_id)
+                    .order_by(UserCompany.role_id)  # Get highest privilege first
+                    .first()
+                )
+
+                # Determine if user is a super admin (role_id 0 or 1)
+                is_super_admin = user_company and user_company.role_id <= 1
+
+                # Check if this is the user's first company (registration flow)
+                # If user has no companies, allow them to create a top-level company
+                is_first_company = user_company is None
+
+                # If not super admin and no parent specified, force parent to user's company
+                # This ensures company admins always create child companies
+                # EXCEPTION: Allow first company creation during registration
+                if (
+                    not is_super_admin
+                    and not parent_company_id
+                    and not is_first_company
+                ):
+                    if user_company:
+                        parent_company_id = str(user_company.company_id)
+                        logging.info(
+                            f"Auto-setting parent_company_id to {parent_company_id} "
+                            f"for non-super admin user {self.user_id}"
+                        )
+
+                # Validate parent company access if specified
+                if parent_company_id:
+                    # Check if user has admin access to the parent company
+                    parent_access = (
+                        db.query(UserCompany)
+                        .filter(
+                            UserCompany.user_id == self.user_id,
+                            UserCompany.company_id == parent_company_id,
+                            UserCompany.role_id
+                            <= 2,  # tenant_admin, super_admin, or company_admin
+                        )
+                        .first()
+                    )
+                    if not parent_access and not is_super_admin:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="You do not have permission to create child companies under this parent.",
+                        )
+
+                    # For per_location billing, check location limit before creating child company
+                    from ExtensionsHub import ExtensionsHub
+
+                    hub = ExtensionsHub()
+                    pricing_config = hub.get_pricing_config()
+                    pricing_model = (
+                        pricing_config.get("pricing_model")
+                        if pricing_config
+                        else "per_token"
+                    )
+
+                    if pricing_model == "per_location":
+                        # Get root parent company for billing
+                        root_company_id = self.get_root_parent_company(
+                            parent_company_id, session=db
+                        )
+                        billing_company = (
+                            db.query(Company)
+                            .filter(Company.id == root_company_id)
+                            .first()
+                        )
+
+                        if billing_company:
+                            paid_locations = billing_company.user_limit or 0
+                            # Count existing child companies under root
+                            child_company_count = (
+                                db.query(Company)
+                                .filter(Company.company_id == billing_company.id)
+                                .count()
                             )
+                            # Root + existing children + 1 for the new company
+                            total_after_creation = child_company_count + 2
+
+                            # Check if adding another location exceeds limit
+                            if total_after_creation > paid_locations:
+                                # Check fallback to token balance
+                                if not (
+                                    billing_company.token_balance
+                                    and billing_company.token_balance > 0
+                                ):
+                                    raise HTTPException(
+                                        status_code=402,
+                                        detail=f"Location limit reached. You have {paid_locations} paid locations. "
+                                        f"Please upgrade your plan to add more locations.",
+                                    )
+
+                # Check if user has permission to create companies
+                if self.company_id != None:
+                    check_company_id = (
+                        parent_company_id if parent_company_id else self.company_id
+                    )
+                    if not self.has_scope("company:write", check_company_id):
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Unauthorized. Insufficient permissions.",
+                        )
+
                 new_company = Company.create(
                     db,
                     name=name,
@@ -3345,7 +4883,7 @@ class MagicalAuth:
                 agixt.login(email=company_email, otp=totp.now())
                 default_agent = get_default_agent()
                 agixt.add_agent(
-                    agent_name="AGiXT",
+                    agent_name=agent_name,
                     settings=(
                         default_agent["settings"] if "settings" in default_agent else {}
                     ),
@@ -3425,21 +4963,22 @@ class MagicalAuth:
             return company.agent_name if company.agent_name else getenv("AGENT_NAME")
 
     def update_company(self, company_id: str, name: str) -> CompanyResponse:
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized. Insufficient permissions.",
+            )
+
         with get_session() as db:
             try:
                 company = db.query(Company).filter(Company.id == company_id).first()
                 if not company:
                     raise HTTPException(status_code=404, detail="Company not found")
 
-                user_role = self.get_user_role(company_id)
-                if user_role > 2:  # Only allow tenant_admin and company_admin
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Unauthorized. Insufficient permissions.",
-                    )
-
                 company.name = name
                 db.commit()
+                user_role = self.get_user_role(company_id)
                 role_name = None
                 for role in default_roles:
                     if role["id"] == user_role:
@@ -3496,14 +5035,8 @@ class MagicalAuth:
     def set_training_data(self, training_data: str, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
-        if str(company_id) not in self.get_user_companies():
-            raise HTTPException(
-                status_code=403,
-                detail="Unauthorized. Insufficient permissions.",
-            )
-        # If role id is greater than 2, the user does not have permission to update the training data
-        user_role = self.get_user_role(company_id)
-        if user_role > 2:
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -3866,8 +5399,8 @@ class MagicalAuth:
         return getenv("TZ")
 
     def rename_company(self, company_id, name):
-        # Check if company is in users companies
-        if str(company_id) not in self.get_user_companies():
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -3876,14 +5409,9 @@ class MagicalAuth:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
-            user_role = self.get_user_role(company_id)
-            if user_role > 2:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Unauthorized. Insufficient permissions.",
-                )
             company.name = name
             db.commit()
+            user_role = self.get_user_role(company_id)
             role_name = None
             for role in default_roles:
                 if role["id"] == user_role:
@@ -3934,8 +5462,8 @@ class MagicalAuth:
         country: Optional[str] = None,
         notes: Optional[str] = None,
     ):
-        # Check if company is in users companies
-        if str(company_id) not in self.get_user_companies():
+        # Check if user has permission to write to this company
+        if not self.has_scope("company:write", company_id):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -3944,12 +5472,6 @@ class MagicalAuth:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
-            user_role = self.get_user_role(company_id)
-            if user_role > 2:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Unauthorized. Insufficient permissions.",
-                )
 
             # Update only the fields that are provided
             if name is not None:
@@ -3976,6 +5498,7 @@ class MagicalAuth:
                 company.notes = notes
 
             db.commit()
+            user_role = self.get_user_role(company_id)
             role_name = None
             for role in default_roles:
                 if role["id"] == user_role:
@@ -4003,6 +5526,569 @@ class MagicalAuth:
                 ],
                 children=[],
             )
+
+    # ==========================================================================
+    # Personal Access Token (PAT) Management
+    # ==========================================================================
+
+    def create_personal_access_token(
+        self,
+        name: str,
+        scopes: list,
+        agent_ids: list = None,
+        company_ids: list = None,
+        expiration: str = None,
+    ) -> dict:
+        """
+        Create a new personal access token for the user.
+
+        Args:
+            name: Human-readable name for the token (e.g., "CI/CD Pipeline")
+            scopes: List of scope names the token has access to
+            agent_ids: List of agent IDs the token can access (empty = all user's agents)
+            company_ids: List of company IDs the token can access (empty = all user's companies)
+            expiration: Expiration setting - "1_day", "7_days", "30_days", "90_days", "1_year", "never", or ISO datetime
+
+        Returns:
+            dict with token info including the actual token value (shown only once)
+        """
+        import secrets
+        import hashlib
+
+        self.validate_user()
+
+        # Require apikeys:write scope
+        if not self.has_scope("apikeys:write"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:write",
+            )
+
+        # Validate that user can only grant scopes they have
+        user_scopes = self.get_user_scopes()
+        for scope in scopes:
+            if not self.has_scope(scope):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Cannot grant scope '{scope}' - you don't have this permission",
+                )
+
+        # Validate agent access
+        if agent_ids:
+            user_agents = self._get_user_agent_ids()
+            for agent_id in agent_ids:
+                if str(agent_id) not in user_agents:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Cannot grant access to agent '{agent_id}' - you don't have access",
+                    )
+
+        # Validate company access
+        if company_ids:
+            user_companies = self.get_user_companies()
+            for company_id in company_ids:
+                if str(company_id) not in user_companies:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Cannot grant access to company '{company_id}' - you don't have access",
+                    )
+
+        # Calculate expiration date
+        expires_at = self._calculate_expiration(expiration)
+
+        # Generate the token
+        # Format: agixt_<random_32_bytes_hex>
+        token_bytes = secrets.token_bytes(32)
+        token_value = f"agixt_{token_bytes.hex()}"
+        token_prefix = token_value[:16]  # "agixt_" + first 10 hex chars
+        token_hash = hashlib.sha256(token_value.encode()).hexdigest()
+
+        from DB import (
+            PersonalAccessToken,
+            PersonalAccessTokenAgentAccess,
+            PersonalAccessTokenCompanyAccess,
+        )
+
+        session = get_session()
+        try:
+            # Create the token record
+            pat = PersonalAccessToken(
+                user_id=self.user_id,
+                name=name,
+                token_prefix=token_prefix,
+                token_hash=token_hash,
+                scopes_json=json.dumps(scopes),
+                agents_json=json.dumps(agent_ids or []),
+                companies_json=json.dumps(company_ids or []),
+                expires_at=expires_at,
+            )
+            session.add(pat)
+            session.flush()  # Get the ID
+
+            # Add agent access records
+            if agent_ids:
+                for agent_id in agent_ids:
+                    agent_access = PersonalAccessTokenAgentAccess(
+                        token_id=pat.id,
+                        agent_id=agent_id,
+                    )
+                    session.add(agent_access)
+
+            # Add company access records
+            if company_ids:
+                for company_id in company_ids:
+                    company_access = PersonalAccessTokenCompanyAccess(
+                        token_id=pat.id,
+                        company_id=company_id,
+                    )
+                    session.add(company_access)
+
+            session.commit()
+
+            return {
+                "id": str(pat.id),
+                "name": pat.name,
+                "token": token_value,  # Only shown at creation time!
+                "token_prefix": pat.token_prefix,
+                "scopes": scopes,
+                "agent_ids": agent_ids or [],
+                "company_ids": company_ids or [],
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "created_at": (
+                    pat.created_at.isoformat()
+                    if pat.created_at
+                    else datetime.now().isoformat()
+                ),
+            }
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error creating personal access token: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create personal access token: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def _calculate_expiration(self, expiration: str) -> datetime:
+        """Calculate expiration datetime from expiration setting string."""
+        if not expiration or expiration == "never":
+            return None
+
+        now = datetime.now()
+        expiration_map = {
+            "1_day": timedelta(days=1),
+            "7_days": timedelta(days=7),
+            "30_days": timedelta(days=30),
+            "90_days": timedelta(days=90),
+            "1_year": timedelta(days=365),
+        }
+
+        if expiration in expiration_map:
+            return now + expiration_map[expiration]
+
+        # Try to parse as ISO datetime
+        try:
+            return datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid expiration format: {expiration}. Use '1_day', '7_days', '30_days', '90_days', '1_year', 'never', or ISO datetime.",
+            )
+
+    def _get_user_agent_ids(self) -> list:
+        """Get list of agent IDs the user has access to."""
+        from DB import Agent as AgentModel, AgentSetting as AgentSettingModel
+
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                return []
+
+            agents = (
+                session.query(AgentModel)
+                .filter(AgentModel.user_id == self.user_id)
+                .all()
+            )
+            return [str(agent.id) for agent in agents]
+        finally:
+            session.close()
+
+    def list_personal_access_tokens(self) -> list:
+        """
+        List all personal access tokens for the current user.
+
+        Returns:
+            List of token info dicts (without actual token values)
+        """
+        self.validate_user()
+
+        if not self.has_scope("apikeys:read"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:read",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            tokens = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .filter(PersonalAccessToken.is_revoked == False)
+                .order_by(PersonalAccessToken.created_at.desc())
+                .all()
+            )
+
+            return [
+                {
+                    "id": str(token.id),
+                    "name": token.name,
+                    "token_prefix": token.token_prefix,
+                    "scopes": json.loads(token.scopes_json),
+                    "agent_ids": json.loads(token.agents_json),
+                    "company_ids": json.loads(token.companies_json),
+                    "expires_at": (
+                        token.expires_at.isoformat() if token.expires_at else None
+                    ),
+                    "is_revoked": token.is_revoked,
+                    "last_used_at": (
+                        token.last_used_at.isoformat() if token.last_used_at else None
+                    ),
+                    "created_at": (
+                        token.created_at.isoformat() if token.created_at else None
+                    ),
+                }
+                for token in tokens
+            ]
+        finally:
+            session.close()
+
+    def get_personal_access_token(self, token_id: str) -> dict:
+        """
+        Get details of a specific personal access token.
+
+        Args:
+            token_id: The ID of the token to retrieve
+
+        Returns:
+            Token info dict (without actual token value)
+        """
+        self.validate_user()
+
+        if not self.has_scope("apikeys:read"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:read",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            token = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.id == token_id)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .first()
+            )
+
+            if not token:
+                raise HTTPException(status_code=404, detail="Token not found")
+
+            return {
+                "id": str(token.id),
+                "name": token.name,
+                "token_prefix": token.token_prefix,
+                "scopes": json.loads(token.scopes_json),
+                "agent_ids": json.loads(token.agents_json),
+                "company_ids": json.loads(token.companies_json),
+                "expires_at": (
+                    token.expires_at.isoformat() if token.expires_at else None
+                ),
+                "is_revoked": token.is_revoked,
+                "last_used_at": (
+                    token.last_used_at.isoformat() if token.last_used_at else None
+                ),
+                "created_at": (
+                    token.created_at.isoformat() if token.created_at else None
+                ),
+            }
+        finally:
+            session.close()
+
+    def revoke_personal_access_token(self, token_id: str) -> dict:
+        """
+        Revoke a personal access token.
+
+        Args:
+            token_id: The ID of the token to revoke
+
+        Returns:
+            Success message
+        """
+        self.validate_user()
+
+        if not self.has_scope("apikeys:delete"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:delete",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            token = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.id == token_id)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .first()
+            )
+
+            if not token:
+                raise HTTPException(status_code=404, detail="Token not found")
+
+            token.is_revoked = True
+            token.updated_at = datetime.now()
+            session.commit()
+
+            return {"detail": f"Token '{token.name}' has been revoked"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error revoking token: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to revoke token: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def regenerate_personal_access_token(self, token_id: str) -> dict:
+        """
+        Regenerate a personal access token (revokes old one and creates new with same settings).
+
+        Args:
+            token_id: The ID of the token to regenerate
+
+        Returns:
+            New token info including the new token value
+        """
+        import secrets
+        import hashlib
+
+        self.validate_user()
+
+        if not self.has_scope("apikeys:write"):
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions. Required scope: apikeys:write",
+            )
+
+        from DB import PersonalAccessToken
+
+        session = get_session()
+        try:
+            old_token = (
+                session.query(PersonalAccessToken)
+                .filter(PersonalAccessToken.id == token_id)
+                .filter(PersonalAccessToken.user_id == self.user_id)
+                .first()
+            )
+
+            if not old_token:
+                raise HTTPException(status_code=404, detail="Token not found")
+
+            # Generate new token
+            token_bytes = secrets.token_bytes(32)
+            new_token_value = f"agixt_{token_bytes.hex()}"
+            new_token_prefix = new_token_value[:16]
+            new_token_hash = hashlib.sha256(new_token_value.encode()).hexdigest()
+
+            # Update the token record with new hash
+            old_token.token_prefix = new_token_prefix
+            old_token.token_hash = new_token_hash
+            old_token.updated_at = datetime.now()
+            session.commit()
+
+            return {
+                "id": str(old_token.id),
+                "name": old_token.name,
+                "token": new_token_value,  # Only shown at regeneration time!
+                "token_prefix": old_token.token_prefix,
+                "scopes": json.loads(old_token.scopes_json),
+                "agent_ids": json.loads(old_token.agents_json),
+                "company_ids": json.loads(old_token.companies_json),
+                "expires_at": (
+                    old_token.expires_at.isoformat() if old_token.expires_at else None
+                ),
+                "created_at": (
+                    old_token.created_at.isoformat() if old_token.created_at else None
+                ),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error regenerating token: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to regenerate token: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def get_available_scopes_for_token_creation(self) -> dict:
+        """
+        Get all scopes the current user can grant to a personal access token.
+
+        Returns:
+            Dict with scopes list and scopes grouped by category
+        """
+        self.validate_user()
+
+        user_scopes = self.get_user_scopes()
+
+        from DB import Scope, default_scopes
+
+        session = get_session()
+        try:
+            # Get all scope definitions
+            all_scopes = session.query(Scope).all()
+
+            available_scopes = []
+            categories = {}
+
+            for scope in all_scopes:
+                # Check if user has this scope (including wildcard matching)
+                if self.has_scope(scope.name):
+                    scope_info = {
+                        "id": str(scope.id),
+                        "name": scope.name,
+                        "resource": scope.resource,
+                        "action": scope.action,
+                        "description": scope.description,
+                        "category": scope.category or "Other",
+                        "is_system": scope.is_system,
+                    }
+                    available_scopes.append(scope_info)
+
+                    # Group by category
+                    cat = scope.category or "Other"
+                    if cat not in categories:
+                        categories[cat] = []
+                    categories[cat].append(scope_info)
+
+            return {
+                "scopes": available_scopes,
+                "categories": categories,
+            }
+        finally:
+            session.close()
+
+    def get_available_agents_for_token_creation(self) -> list:
+        """
+        Get all agents the current user can grant access to for a personal access token.
+
+        Returns:
+            List of agent info dicts
+        """
+        self.validate_user()
+
+        agents = get_agents(self.email, self.company_id)
+        return agents
+
+    def get_available_companies_for_token_creation(self) -> list:
+        """
+        Get all companies the current user can grant access to for a personal access token.
+
+        Returns:
+            List of company info dicts
+        """
+        self.validate_user()
+
+        return self.get_user_companies_with_roles()
+
+
+def validate_personal_access_token(token: str) -> dict:
+    """
+    Validate a personal access token and return user/scope information.
+
+    This is a standalone function (not a method) so it can be used before
+    we know who the user is.
+
+    Args:
+        token: The full token value (e.g., "agixt_abc123...")
+
+    Returns:
+        dict with validation info including user_id, scopes, etc.
+    """
+    import hashlib
+
+    if not token or not token.startswith("agixt_"):
+        return {
+            "valid": False,
+            "error": "Invalid token format",
+        }
+
+    from DB import PersonalAccessToken
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    session = get_session()
+    try:
+        pat = (
+            session.query(PersonalAccessToken)
+            .filter(PersonalAccessToken.token_hash == token_hash)
+            .first()
+        )
+
+        if not pat:
+            return {
+                "valid": False,
+                "error": "Token not found",
+            }
+
+        if pat.is_revoked:
+            return {
+                "valid": False,
+                "error": "Token has been revoked",
+            }
+
+        if pat.expires_at and pat.expires_at < datetime.now():
+            return {
+                "valid": False,
+                "error": "Token has expired",
+            }
+
+        # Update last_used_at
+        pat.last_used_at = datetime.now()
+        session.commit()
+
+        # Get user info
+        user = session.query(User).filter(User.id == pat.user_id).first()
+
+        return {
+            "valid": True,
+            "user_id": str(pat.user_id),
+            "user_email": user.email if user else None,
+            "scopes": json.loads(pat.scopes_json),
+            "agent_ids": json.loads(pat.agents_json),
+            "company_ids": json.loads(pat.companies_json),
+            "token_name": pat.name,
+        }
+    except Exception as e:
+        logging.error(f"Error validating personal access token: {str(e)}")
+        return {
+            "valid": False,
+            "error": f"Validation error: {str(e)}",
+        }
+    finally:
+        session.close()
 
 
 def refresh_expiring_oauth_tokens():
@@ -4059,7 +6145,7 @@ def refresh_expiring_oauth_tokens():
                         "email": user.email,
                         "exp": datetime.now() + timedelta(hours=1),
                     },
-                    getenv("AGIXT_API_KEY"),
+                    os.getenv("AGIXT_API_KEY", ""),
                     algorithm="HS256",
                 )
 

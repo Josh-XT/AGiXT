@@ -186,6 +186,7 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
     """
 
     CATEGORY = "Communication"
+    friendly_name = "Twilio SMS"
 
     # Register extension models for automatic table creation
     extension_models = [SmsWhitelist, SmsBlacklist, SmsConversation]

@@ -1,19 +1,17 @@
-try:
-    from libcloud.storage.types import Provider, ContainerDoesNotExistError
-except ImportError:
-    import sys
-    import subprocess
+from Globals import getenv, install_package_if_missing
 
-    # `fasteners`` is required for libcloud to work, but libcloud doesn't install it.
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "fasteners"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "apache-libcloud"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "watchdog"])
-    from libcloud.storage.types import Provider, ContainerDoesNotExistError
+# Install cloud storage dependencies if missing
+install_package_if_missing("fasteners")
+install_package_if_missing("apache-libcloud", "libcloud")
+install_package_if_missing("watchdog")
+
+from libcloud.storage.types import Provider, ContainerDoesNotExistError
 from libcloud.storage.providers import get_driver
 from contextlib import contextmanager
 from typing import Optional, Union, TextIO, BinaryIO, Generator, List, Dict, Any
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from middleware import log_silenced_exception
 import threading
 import queue
 import time
@@ -22,7 +20,6 @@ import os
 import tempfile
 import shutil
 import logging
-from Globals import getenv
 from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
@@ -396,16 +393,57 @@ def add_to_workspace_manager(workspace_manager_class):
 
 @add_to_workspace_manager
 class WorkspaceManager(SecurityValidationMixin):
-    def __init__(self):
+    def __init__(self, storage_config: dict = None):
+        """Initialize WorkspaceManager with optional custom storage configuration.
+
+        Args:
+            storage_config: Optional dict with storage configuration. If provided,
+                           these values override the environment variables. Keys:
+                           - storage_backend: 'local', 's3', 'azure', 'b2'
+                           - storage_container: Container/bucket name
+                           - aws_access_key_id, aws_secret_access_key, aws_region
+                           - azure_storage_account_name, azure_storage_key
+                           - b2_key_id, b2_application_key, b2_region
+        """
         self.workspace_dir = Path(os.getcwd(), "WORKSPACE")
         os.makedirs(self.workspace_dir, exist_ok=True)
+        self._storage_config = storage_config or {}
         self._validate_storage_backend()
-        self.backend = getenv("STORAGE_BACKEND", "local").lower()
+        self.backend = self._get_config(
+            "storage_backend", getenv("STORAGE_BACKEND", "local")
+        ).lower()
         self.driver = self._initialize_storage()
         self._ensure_container_exists()
 
+    def _get_config(self, key: str, default=None):
+        """Get configuration value from storage_config or fall back to environment variable."""
+        if (
+            self._storage_config
+            and key in self._storage_config
+            and self._storage_config[key]
+        ):
+            return self._storage_config[key]
+        # Map config keys to environment variable names
+        env_mapping = {
+            "storage_backend": "STORAGE_BACKEND",
+            "storage_container": "STORAGE_CONTAINER",
+            "aws_access_key_id": "AWS_ACCESS_KEY_ID",
+            "aws_secret_access_key": "AWS_SECRET_ACCESS_KEY",
+            "aws_region": "AWS_STORAGE_REGION",
+            "s3_endpoint": "S3_ENDPOINT",
+            "s3_bucket": "S3_BUCKET",
+            "azure_storage_account_name": "AZURE_STORAGE_ACCOUNT_NAME",
+            "azure_storage_key": "AZURE_STORAGE_KEY",
+            "azure_storage_connection_string": "AZURE_STORAGE_CONNECTION_STRING",
+            "b2_key_id": "B2_KEY_ID",
+            "b2_application_key": "B2_APPLICATION_KEY",
+            "b2_region": "B2_REGION",
+        }
+        env_var = env_mapping.get(key, key.upper())
+        return getenv(env_var, default)
+
     def _initialize_storage(self):
-        """Initialize the appropriate storage backend based on environment variables"""
+        """Initialize the appropriate storage backend based on configuration"""
         backend = self.backend
 
         if backend == "local":
@@ -413,30 +451,31 @@ class WorkspaceManager(SecurityValidationMixin):
             return cls(self.workspace_dir)
 
         elif backend == "b2":
-            required_vars = ["B2_KEY_ID", "B2_APPLICATION_KEY"]
-            missing_vars = [var for var in required_vars if not getenv(var)]
-            if missing_vars:
+            key_id = self._get_config("b2_key_id")
+            app_key = self._get_config("b2_application_key")
+            if not key_id or not app_key:
                 raise ValueError(
-                    f"Missing required environment variables: {', '.join(missing_vars)}"
+                    "Missing required configuration: b2_key_id, b2_application_key"
                 )
 
+            region = self._get_config("b2_region", "us-west-002")
             cls = get_driver(Provider.S3)
             return cls(
-                key=getenv("B2_KEY_ID"),
-                secret=getenv("B2_APPLICATION_KEY"),
-                region=getenv("B2_REGION", "us-west-002"),
-                host=f"s3.{getenv('B2_REGION', 'us-west-002')}.backblazeb2.com",
+                key=key_id,
+                secret=app_key,
+                region=region,
+                host=f"s3.{region}.backblazeb2.com",
             )
 
         elif backend == "s3":
-            required_vars = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
-            missing_vars = [var for var in required_vars if not getenv(var)]
-            if missing_vars:
+            access_key = self._get_config("aws_access_key_id")
+            secret_key = self._get_config("aws_secret_access_key")
+            if not access_key or not secret_key:
                 raise ValueError(
-                    f"Missing required environment variables: {', '.join(missing_vars)}"
+                    "Missing required configuration: aws_access_key_id, aws_secret_access_key"
                 )
 
-            endpoint = getenv("S3_ENDPOINT", "http://minio:9000")
+            endpoint = self._get_config("s3_endpoint", "http://minio:9000")
             use_ssl = endpoint.startswith("https://")
 
             # Parse endpoint to extract host and port
@@ -456,11 +495,12 @@ class WorkspaceManager(SecurityValidationMixin):
                 host = endpoint
                 port = 443 if use_ssl else 80
 
+            region = self._get_config("aws_region", "us-east-1")
             cls = get_driver(Provider.S3)
             return cls(
-                key=getenv("AWS_ACCESS_KEY_ID"),
-                secret=getenv("AWS_SECRET_ACCESS_KEY"),
-                region=getenv("AWS_STORAGE_REGION", "us-east-1"),
+                key=access_key,
+                secret=secret_key,
+                region=region,
                 host=host,
                 port=port,
                 secure=use_ssl,
@@ -469,17 +509,17 @@ class WorkspaceManager(SecurityValidationMixin):
             )
 
         elif backend == "azure":
-            required_vars = ["AZURE_STORAGE_ACCOUNT_NAME", "AZURE_STORAGE_KEY"]
-            missing_vars = [var for var in required_vars if not getenv(var)]
-            if missing_vars:
+            account_name = self._get_config("azure_storage_account_name")
+            storage_key = self._get_config("azure_storage_key")
+            if not account_name or not storage_key:
                 raise ValueError(
-                    f"Missing required environment variables: {', '.join(missing_vars)}"
+                    "Missing required configuration: azure_storage_account_name, azure_storage_key"
                 )
 
             cls = get_driver(Provider.AZURE_BLOBS)
             return cls(
-                key=getenv("AZURE_STORAGE_ACCOUNT_NAME"),
-                secret=getenv("AZURE_STORAGE_KEY"),
+                key=account_name,
+                secret=storage_key,
             )
 
         else:
@@ -511,11 +551,12 @@ class WorkspaceManager(SecurityValidationMixin):
                 raise ValueError(f"{component_type} too long")
             return component
 
-        # Validate agent_id and get the hashed folder name (matches Agent.py pattern)
+        # Validate agent_id - use raw agent_id to match Agent.py behavior
         validated_agent_id = sanitize_path_component(
             self.validate_identifier(agent_id, "agent_id"), "agent_id"
         )
-        agent_folder = self._get_agent_folder_name(validated_agent_id)
+        # Use raw agent_id directly - Agent.py stores files using raw agent_id, not hashed
+        agent_folder = validated_agent_id
 
         filename = sanitize_path_component(self.validate_filename(filename), "filename")
         conversation_id = (
@@ -550,7 +591,8 @@ class WorkspaceManager(SecurityValidationMixin):
     ) -> str:
         """Get the object path in the storage backend with validation"""
         agent_id = self.validate_identifier(agent_id, "agent_id")
-        agent_folder = self._get_agent_folder_name(agent_id)
+        # Use raw agent_id directly to match Agent.py behavior
+        agent_folder = agent_id
         filename = self.validate_filename(filename)
 
         if conversation_id:
@@ -1111,7 +1153,7 @@ class WorkspaceManager(SecurityValidationMixin):
 
     def _validate_storage_backend(self) -> None:
         """Validate storage backend configuration"""
-        backend = getenv("STORAGE_BACKEND", "local").lower()
+        backend = self._get_config("storage_backend", "local").lower()
         if backend not in ["local", "b2", "s3", "azure"]:
             raise ValueError(f"Unsupported storage backend: {backend}")
 
@@ -1125,7 +1167,7 @@ class WorkspaceManager(SecurityValidationMixin):
 
     def _ensure_container_exists(self):
         """Ensure the storage container exists with proper validation"""
-        container_name = getenv("STORAGE_CONTAINER", "agixt-workspace")
+        container_name = self._get_config("storage_container", "agixt-workspace")
         container_name = self._sanitize_container_name(container_name)
 
         try:
@@ -1193,3 +1235,84 @@ class WorkspaceManager(SecurityValidationMixin):
         """Context manager exit with cleanup"""
         self.stop_file_watcher()
         self.clean_stale_files()
+
+
+def get_company_storage_config(company_id: str) -> dict:
+    """Get the storage configuration for a company.
+
+    This function retrieves the company's storage settings from the database.
+    If the company has custom storage configured, it returns that configuration.
+    If the company uses "server" storage (default), it returns None to use server defaults.
+    If the company has a parent company with custom storage, it inherits that configuration.
+
+    Args:
+        company_id: The UUID of the company
+
+    Returns:
+        dict: Storage configuration dictionary or None to use server defaults
+    """
+    from DB import get_session, CompanyStorageSetting, Company
+
+    session = get_session()
+    try:
+        # First check if this company has its own storage settings
+        company_storage = (
+            session.query(CompanyStorageSetting)
+            .filter_by(company_id=company_id)
+            .first()
+        )
+
+        if (
+            company_storage
+            and company_storage.storage_backend
+            and company_storage.storage_backend != "server"
+        ):
+            # Company has custom storage configured
+            return {
+                "storage_backend": company_storage.storage_backend,
+                "storage_container": company_storage.storage_container,
+                "aws_access_key_id": company_storage.aws_access_key_id,
+                "aws_secret_access_key": company_storage.aws_secret_access_key,
+                "aws_region": company_storage.aws_region,
+                "s3_endpoint": company_storage.s3_endpoint,
+                "s3_bucket": company_storage.s3_bucket,
+                "azure_storage_account_name": company_storage.azure_storage_account_name,
+                "azure_storage_key": company_storage.azure_storage_key,
+                "b2_key_id": company_storage.b2_key_id,
+                "b2_application_key": company_storage.b2_application_key,
+                "b2_region": company_storage.b2_region,
+            }
+
+        # Check if company has a parent company with custom storage
+        company = session.query(Company).filter_by(id=company_id).first()
+        if company and company.parent_company_id:
+            # Recursively check parent company's storage
+            parent_config = get_company_storage_config(company.parent_company_id)
+            if parent_config:
+                return parent_config
+
+        # No custom storage - use server defaults
+        return None
+    finally:
+        session.close()
+
+
+def get_workspace_manager_for_company(company_id: str = None) -> "WorkspaceManager":
+    """Get a WorkspaceManager configured for a specific company.
+
+    This function returns a WorkspaceManager that uses the company's storage
+    configuration if available, or falls back to server defaults.
+
+    Args:
+        company_id: Optional company UUID. If not provided, uses server defaults.
+
+    Returns:
+        WorkspaceManager: A workspace manager configured for the company
+    """
+    if company_id:
+        config = get_company_storage_config(company_id)
+        if config:
+            return WorkspaceManager(storage_config=config)
+
+    # Use server defaults
+    return WorkspaceManager()

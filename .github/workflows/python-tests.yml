@@ -1,0 +1,177 @@
+name: Run Python Tests
+on:
+    workflow_call:
+        inputs:
+            test-file:
+                type: string
+                required: true
+                description: Python test file to run (ending in .py)
+            image:
+                type: string
+                required: true
+            port:
+                type: string
+            port-mapping:
+                type: string
+            additional-python-dependencies:
+                type: string
+                description: add whatever pip you need here
+                default: "openai requests agixtsdk==0.0.80 qrcode==7.4.2 pyotp"
+            database-type:
+                type: string
+                default: "postgresql"
+                description: "Database type to use"
+            report-name:
+                type: string
+                default: "test-reports"
+                description: "Name of the report"
+        secrets:
+            api-key:
+                description: Optional api-key available as os.getenv('API_KEY') in your test
+            DISCORD_WEBHOOK:
+                description: Optional discord webhook available as os.getenv('DISCORD_WEBHOOK') in your test
+jobs:
+    run-tests:
+        runs-on: ubuntu-22.04
+        outputs:
+            digest: ${{ steps.dockerBuild.outputs.digest }}
+        services:
+            dbservice:
+                image: postgres:latest
+                ports:
+                    - 5432
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+            agixt:
+                image: ${{ inputs.image }}
+                ports:
+                    - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
+                options: >-
+                    --health-cmd "curl -f http://localhost:${{ inputs.port }}"
+                    --health-interval 10s
+                    --health-timeout 60s
+                    --health-retries 5
+                    --health-start-period 2m
+                env:
+                    DATABASE_TYPE: ${{ inputs.database-type }}
+                    DATABASE_HOST: dbservice
+                    DATABASE_USER: postgres
+                    DATABASE_PASSWORD: postgres
+                    DATABASE_PORT: 5432
+                    DATABASE_NAME: postgres
+                    LOG_LEVEL: INFO
+                    AGIXT_API_KEY: just-a-test
+                    AGIXT_URI: http://agixt:7437
+                    WORKING_DIRECTORY: /agixt/WORKSPACE
+                    TOKENIZERS_PARALLELISM: "false"
+                    UVICORN_WORKERS: 14
+                    EZLOCALAI_API_URI: https://api.ezlocal.ai/v1/
+                    EZLOCALAI_API_KEY: testing
+                    EZLOCALAI_MAX_TOKENS: "32000"
+                    TZ: America/New_York
+                    DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        steps:
+            - uses: actions/setup-python@v5.3.0
+              with:
+                  python-version: "3.10"
+            - name: Checkout
+              uses: actions/checkout@v4.2.2
+              with:
+                  fetch-depth: 1
+
+            - name: Install Python dependencies
+              run: pip3 install ${{ inputs.additional-python-dependencies }}
+
+            - name: Update package lists and install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install --fix-missing -y curl ffmpeg
+
+            - name: Set test file and report paths
+              run: |
+                  test_file="${{ inputs.test-file }}"
+                  echo "test-file=${test_file}" >> "$GITHUB_ENV"
+                  echo "report-file=${test_file%.*}_report.txt" >> "$GITHUB_ENV"
+
+            - name: Check AGiXT logs
+              run: docker logs ${{ job.services.agixt.id }} --follow &
+
+            - name: Execute Python tests
+              id: execute_tests
+              env:
+                  API_KEY: ${{ secrets.api-key }}
+              run: |
+                  echo "Executing Python tests..."
+                  echo "============================================" > ${{ env.report-file }}
+                  echo "AGiXT Test Report" >> ${{ env.report-file }}
+                  echo "Test File: ${{ inputs.test-file }}" >> ${{ env.report-file }}
+                  echo "Database: ${{ inputs.database-type }}" >> ${{ env.report-file }}
+                  echo "Date: $(date)" >> ${{ env.report-file }}
+                  echo "============================================" >> ${{ env.report-file }}
+                  echo "" >> ${{ env.report-file }}
+
+                  # Run the Python test file and capture output
+                  python3 ${{ env.test-file }} 2>&1 | tee -a ${{ env.report-file }}
+                  TEST_STATUS=${PIPESTATUS[0]}
+
+                  echo "test_status=${TEST_STATUS}" >> $GITHUB_ENV
+
+                  echo "" >> ${{ env.report-file }}
+                  echo "============================================" >> ${{ env.report-file }}
+                  if [ "$TEST_STATUS" -eq 0 ]; then
+                    echo "RESULT: ✅ ALL TESTS PASSED" >> ${{ env.report-file }}
+                  else
+                    echo "RESULT: ❌ SOME TESTS FAILED" >> ${{ env.report-file }}
+                  fi
+                  echo "Exit Code: ${TEST_STATUS}" >> ${{ env.report-file }}
+                  echo "============================================" >> ${{ env.report-file }}
+
+            - name: Send Report to Discord
+              if: always()
+              run: |
+                  # Set message based on stored test outcome
+                  BRANCH_NAME=$(echo ${{ github.ref }} | awk -F'/' '{print $NF}')
+                  if [ "${{ github.actor }}" == "Josh-XT" ]; then
+                    DISCORD_NAME="<@381837595522367488>"
+                  elif [ "${{ github.actor }}" == "AGiXT" ]; then
+                    DISCORD_NAME="<@329145730725838858>"
+                  elif [ "${{ github.actor }}" == "waiscodes" ]; then
+                    DISCORD_NAME="<@670762167037067304>"
+                  elif [ "${{ github.actor }}" == "birdup000" ]; then
+                    DISCORD_NAME="<@856308374567256074>"
+                  elif [ "${{ github.actor }}" == "Nick-XT" ]; then
+                    DISCORD_NAME="<@381908912951001088>"
+                  else
+                    DISCORD_NAME="**${{ github.actor }}**"
+                  fi
+
+                  if [ "${{ env.test_status }}" != "0" ]; then
+                    MESSAGE="❌ **TEST FAILURE**: **${{ inputs.report-name }}** on repository **${{ github.repository }}** branch **$BRANCH_NAME** commit **${{ github.sha }}** by ${DISCORD_NAME} "
+                  else
+                    MESSAGE="✅ Test passed: **${{ inputs.report-name }}** on repository **${{ github.repository }}** branch **$BRANCH_NAME** commit **${{ github.sha }}** by **${{ github.actor }}**"
+                  fi
+
+                  FILE_TO_SEND="${{ env.report-file }}"
+
+                  # Check if video report exists (for visual tests)
+                  if [ -f "tests/report.mp4" ]; then
+                    FILE_TO_SEND="tests/report.mp4"
+                  fi
+
+                  echo "Sending Report: $FILE_TO_SEND"
+                  curl -H "Content-Type:multipart/form-data" \
+                        -F "file=@$FILE_TO_SEND" \
+                        -F "content=$MESSAGE" \
+                        "${{ secrets.DISCORD_WEBHOOK }}"
+
+            - uses: actions/upload-artifact@v4.4.3
+              if: always()
+              with:
+                  name: ${{ inputs.report-name }}
+                  path: ${{ env.report-file }}
+
+            - name: Exit with test status
+              if: env.test_status != '0'
+              run: exit 1

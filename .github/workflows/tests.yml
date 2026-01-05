@@ -71,6 +71,7 @@ jobs:
           EZLOCALAI_API_KEY: testing
           EZLOCALAI_MAX_TOKENS: "32000"
           TZ: America/New_York
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
     steps:
       - uses: actions/setup-python@v5.3.0
         with:

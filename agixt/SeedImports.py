@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import inspect
 from collections import defaultdict
 from DB import (
     get_session,
@@ -533,13 +534,15 @@ def create_extension_tables():
             class_name = get_extension_class_name(os.path.basename(extension_file))
 
             # Check if the class exists and inherits from both Extensions and ExtensionDatabaseMixin
+            attr = getattr(module, class_name, None)
             if (
-                hasattr(module, class_name)
-                and issubclass(getattr(module, class_name), Extensions)
-                and issubclass(getattr(module, class_name), ExtensionDatabaseMixin)
+                attr is not None
+                and inspect.isclass(attr)
+                and issubclass(attr, Extensions)
+                and issubclass(attr, ExtensionDatabaseMixin)
             ):
 
-                extension_class = getattr(module, class_name)
+                extension_class = attr
 
                 # Check if the extension has database models
                 if (
@@ -892,6 +895,12 @@ def import_providers():
     session = get_session()
     providers = get_providers()
 
+    # Ensure built-in providers always exist
+    builtin_providers = ["rotation", "default"]
+    for builtin in builtin_providers:
+        if builtin not in providers:
+            providers.append(builtin)
+
     for provider_name in providers:
         provider_options = get_provider_options(provider_name)
 
@@ -1001,9 +1010,9 @@ def import_all_data():
 
     # Initialize extensions hub first to clone external extensions
     try:
-        from ExtensionsHub import ExtensionsHub
+        from ExtensionsHub import ExtensionsHub, initialize_global_cache
 
-        hub = ExtensionsHub()
+        hub = ExtensionsHub(skip_global_cache=True)
         # Use the synchronous version to avoid event loop conflicts
         hub_success = hub.clone_or_update_hub_sync()
 
@@ -1012,6 +1021,11 @@ def import_all_data():
             from Extensions import invalidate_extension_cache
 
             invalidate_extension_cache()
+
+        # Initialize global cache for extension paths and pricing config
+        # This runs BEFORE workers spawn, so workers can load from cache
+        initialize_global_cache()
+        logging.info("Initialized global extensions cache for worker efficiency")
     except Exception as e:
         logging.warning(f"Failed to initialize extensions hub: {e}")
 
@@ -1028,3 +1042,21 @@ def import_all_data():
         register_extension_routers()
     except Exception as e:
         logging.warning(f"Failed to register extension routers: {e}")
+
+    # Reseed extension scopes after hub extensions are discovered
+    # This ensures all extension scopes are created and assigned to roles
+    # even if they weren't available during initial scope setup
+    try:
+        from DB import reseed_extension_scopes
+
+        result = reseed_extension_scopes()
+        if (
+            result.get("scopes_created", 0) > 0
+            or result.get("role_assignments_created", 0) > 0
+        ):
+            logging.info(
+                f"Reseeded extension scopes: {result.get('scopes_created', 0)} new scopes, "
+                f"{result.get('role_assignments_created', 0)} new role assignments"
+            )
+    except Exception as e:
+        logging.warning(f"Failed to reseed extension scopes: {e}")

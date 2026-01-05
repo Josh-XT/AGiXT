@@ -1,13 +1,8 @@
 import logging
+from Globals import install_package_if_missing
 
-try:
-    import pyodbc
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyodbc"])
-    import pyodbc
+install_package_if_missing("pyodbc")
+import pyodbc
 
 import logging
 from Extensions import Extensions
@@ -20,6 +15,7 @@ class mssql_database(Extensions):
     """
 
     CATEGORY = "Data & Databases"
+    friendly_name = "MSSQL Database"
 
     def __init__(
         self,

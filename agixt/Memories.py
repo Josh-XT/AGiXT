@@ -10,6 +10,7 @@ from DB import (
     get_similar_memories,
     process_embedding_for_storage,
 )
+from middleware import log_silenced_exception
 import spacy
 from numpy import array, linalg, ndarray
 from collections import Counter
@@ -629,8 +630,10 @@ class Memories:
                             text=val["text"],
                             external_source=val["external_source_name"],
                         )
-                    except:
-                        pass
+                    except Exception as e:
+                        log_silenced_exception(
+                            e, "import_collections_from_json: writing memory"
+                        )
 
     # get collections that start with the collection name
     async def get_collection(self):

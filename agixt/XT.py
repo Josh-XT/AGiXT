@@ -12,6 +12,7 @@ from Complexity import (
     ComplexityScore,
     log_complexity_decision,
 )
+from middleware import log_silenced_exception
 from datetime import datetime
 from typing import (
     List,
@@ -26,6 +27,9 @@ from WorkerRegistry import worker_registry
 from enum import Enum
 from pydantic import BaseModel
 from pptx import Presentation
+from urllib.parse import urlparse
+import ipaddress
+import socket
 import pdfplumber
 import docx2txt
 import zipfile
@@ -43,6 +47,216 @@ import os
 import re
 
 
+def is_safe_url(url: str) -> bool:
+    """
+    Validate a URL to prevent SSRF attacks.
+    Blocks requests to internal networks, localhost, and cloud metadata endpoints,
+    while allowing configured trusted local services (like ezlocalai).
+
+    Args:
+        url: The URL to validate
+
+    Returns:
+        bool: True if the URL is safe to request, False otherwise
+    """
+    try:
+        parsed = urlparse(url)
+
+        # Only allow http and https schemes
+        if parsed.scheme not in ("http", "https"):
+            logging.warning(f"SSRF protection: blocked non-http(s) scheme: {url}")
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            logging.warning(f"SSRF protection: no hostname in URL: {url}")
+            return False
+
+        port = parsed.port
+
+        # Build list of trusted local URLs from environment configuration
+        # These are internal services that AGiXT needs to communicate with
+        trusted_local_urls = []
+
+        # Check EZLOCALAI_URI / EZLOCALAI_API_URI for ezlocalai service
+        ezlocalai_uri = getenv("EZLOCALAI_API_URI") or getenv("EZLOCALAI_URI")
+        if ezlocalai_uri:
+            trusted_local_urls.append(ezlocalai_uri)
+
+        # Check AGIXT_URI for self-references
+        agixt_uri = getenv("AGIXT_URI")
+        if agixt_uri:
+            trusted_local_urls.append(agixt_uri)
+
+        # Check if the URL matches a trusted local service
+        for trusted_url in trusted_local_urls:
+            if trusted_url:
+                try:
+                    trusted_parsed = urlparse(trusted_url)
+                    trusted_host = trusted_parsed.hostname
+                    trusted_port = trusted_parsed.port
+
+                    # Match if hostname and port match a trusted service
+                    if hostname == trusted_host:
+                        # If ports match (or trusted has no port and we're on default)
+                        if port == trusted_port:
+                            return True
+                        # Also allow if trusted URL didn't specify a port
+                        if trusted_port is None and port in (80, 443, None):
+                            return True
+                except Exception:
+                    continue
+
+        # Block cloud metadata endpoints (AWS, GCP, Azure, etc.)
+        blocked_hosts = [
+            "169.254.169.254",  # AWS/GCP metadata
+            "metadata.google.internal",  # GCP metadata
+            "metadata.google.com",
+            "100.100.100.200",  # Alibaba Cloud metadata
+            "169.254.170.2",  # AWS ECS task metadata
+        ]
+        if hostname in blocked_hosts:
+            logging.warning(f"SSRF protection: blocked cloud metadata endpoint: {url}")
+            return False
+
+        # Resolve hostname to IP address(es)
+        try:
+            # Use getaddrinfo for both IPv4 and IPv6
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+            ip_addresses = set()
+            for info in addr_info:
+                ip_str = info[4][0]
+                ip_addresses.add(ip_str)
+        except socket.gaierror:
+            # DNS resolution failed - could be an invalid domain
+            logging.warning(f"SSRF protection: DNS resolution failed for: {hostname}")
+            return False
+
+        # Check each resolved IP against blocked ranges
+        for ip_str in ip_addresses:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+
+                # Block private networks
+                if ip.is_private:
+                    logging.warning(
+                        f"SSRF protection: blocked private IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block loopback addresses (127.0.0.0/8, ::1)
+                if ip.is_loopback:
+                    logging.warning(
+                        f"SSRF protection: blocked loopback IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block link-local addresses (169.254.0.0/16, fe80::/10)
+                if ip.is_link_local:
+                    logging.warning(
+                        f"SSRF protection: blocked link-local IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block multicast addresses
+                if ip.is_multicast:
+                    logging.warning(
+                        f"SSRF protection: blocked multicast IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+                # Block reserved addresses
+                if ip.is_reserved:
+                    logging.warning(
+                        f"SSRF protection: blocked reserved IP {ip_str} for URL: {url}"
+                    )
+                    return False
+
+            except ValueError:
+                # Invalid IP address format
+                logging.warning(f"SSRF protection: invalid IP address format: {ip_str}")
+                return False
+
+        return True
+
+    except Exception as e:
+        logging.error(f"SSRF protection: error validating URL {url}: {e}")
+        return False
+
+
+def sanitize_command_args_for_logging(command_args: dict) -> dict:
+    """
+    Sanitize command arguments for logging by redacting sensitive values.
+    This prevents secrets from being exposed in conversation logs shown to users.
+
+    Redacted keys (case-insensitive):
+    - headers (may contain Authorization tokens)
+    - Any key ending with _API_KEY
+    - Any key ending with _SECRET
+    - Authorization
+    - Password
+    - Any key containing 'secret' or 'password' or 'token' or 'key' (case-insensitive)
+
+    Args:
+        command_args: Dictionary of command arguments
+
+    Returns:
+        dict: Sanitized copy with sensitive values replaced by "[REDACTED]"
+    """
+    if not isinstance(command_args, dict):
+        return command_args
+
+    sensitive_patterns = [
+        "headers",
+        "authorization",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "credential",
+        "private_key",
+        "privatekey",
+    ]
+
+    sensitive_suffixes = [
+        "_api_key",
+        "_secret",
+        "_token",
+        "_password",
+        "_key",
+    ]
+
+    sanitized = {}
+    for key, value in command_args.items():
+        key_lower = key.lower()
+
+        # Check if key matches any sensitive pattern
+        is_sensitive = False
+
+        # Check exact/partial matches
+        for pattern in sensitive_patterns:
+            if pattern in key_lower:
+                is_sensitive = True
+                break
+
+        # Check suffixes
+        if not is_sensitive:
+            for suffix in sensitive_suffixes:
+                if key_lower.endswith(suffix):
+                    is_sensitive = True
+                    break
+
+        if is_sensitive and value is not None and value != "":
+            sanitized[key] = "[REDACTED]"
+        elif isinstance(value, dict):
+            # Recursively sanitize nested dicts
+            sanitized[key] = sanitize_command_args_for_logging(value)
+        else:
+            sanitized[key] = value
+
+    return sanitized
+
+
 class AGiXT:
     def __init__(
         self,
@@ -52,6 +266,9 @@ class AGiXT:
         conversation_name: str = None,
         collection_id=None,
     ):
+        # Handle user dict from verify_api_key
+        if isinstance(user, dict):
+            user = user.get("email", "user")
         self.user_email = user.lower()
         if api_key is not None:
             api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
@@ -631,8 +848,10 @@ Your response (true or false):"""
         if log_activities:
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
+                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(sanitize_command_args_for_logging(command_args), indent=2)}```",
             )
+            # Yield control to allow websocket handlers to send the update
+            await asyncio.sleep(0)
         try:
             response = await Extensions(
                 agent_name=self.agent_name,
@@ -706,7 +925,27 @@ Your response (true or false):"""
                 )
                 if chain_args:
                     for arg, value in chain_args.items():
-                        args[arg] = value
+                        # Only use chain_args value if:
+                        # 1. The arg doesn't exist in args yet, OR
+                        # 2. The arg exists but is empty/None AND chain_args has a real value, OR
+                        # 3. The chain_args value is not empty/None (allowing explicit overrides)
+                        # This prevents empty/None values from overwriting stored chain step arguments
+                        existing_value = args.get(arg)
+                        has_existing_value = (
+                            existing_value is not None and existing_value != ""
+                        )
+                        has_new_value = value is not None and value != ""
+
+                        if arg not in args:
+                            # Arg doesn't exist, always add it
+                            args[arg] = value
+                        elif not has_existing_value and has_new_value:
+                            # Existing is empty but new has value, use new
+                            args[arg] = value
+                        elif has_new_value:
+                            # Both have values, new value overrides (explicit override)
+                            args[arg] = value
+                        # If existing has value and new is empty/None, keep existing (do nothing)
                 log_output_flag = args.pop("log_output", None)
                 if (
                     current_running_command
@@ -745,8 +984,10 @@ Your response (true or false):"""
                 if prompt_type == "command":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(sanitize_command_args_for_logging(args), indent=2)}```",
                     )
+                    # Yield control to allow websocket handlers to send the update
+                    await asyncio.sleep(0)
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
@@ -790,6 +1031,8 @@ Your response (true or false):"""
                         role=self.agent_name,
                         message=f"[SUBACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(prompt_args, indent=2)}```",
                     )
+                    # Yield control to allow websocket handlers to send the update
+                    await asyncio.sleep(0)
                     # Get agent_id from agent_name for the API call
                     step_agent_id = get_agent_id_by_name(
                         agent_name=agent_name, user=self.user_email
@@ -802,8 +1045,10 @@ Your response (true or false):"""
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY] Running chain: `{args['chain']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[SUBACTIVITY] Running chain: `{args['chain']}` with args:\n```json\n{json.dumps(sanitize_command_args_for_logging(args), indent=2)}```",
                     )
+                    # Yield control to allow websocket handlers to send the update
+                    await asyncio.sleep(0)
                     if "chain_name" in args:
                         args["chain"] = args["chain_name"]
                     if "user_input" in args:
@@ -903,6 +1148,8 @@ Your response (true or false):"""
             role=self.agent_name,
             message=f"[SUBACTIVITY] Running chain `{chain_name}`.",
         )
+        # Yield control to allow websocket handlers to send the update
+        await asyncio.sleep(0)
         response = ""
         step_responses = []
         step_summaries = []
@@ -1429,21 +1676,49 @@ Your response (true or false):"""
             if new_folder.startswith(self.agent_workspace):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=new_folder)
-                # Iterate over every file that was extracted including subdirectories
+                # Build folder structure summary instead of processing each file
+                # This prevents spamming activities for large repos like Flipper-IRDB
+                folder_structure = []
+                file_count = 0
+                dir_count = 0
                 for root, dirs, files in os.walk(new_folder):
-                    for name in files:
-                        current_folder = root.replace(new_folder, "")
-                        output_url = f"{self.outputs}/{collection_id}/{extracted_zip_folder_name}/{current_folder}/{name}"
-                        file_content += f"Content from file uploaded named `{name}`:\n"
-                        file_content += await self.learn_from_file(
-                            file_url=output_url,
-                            file_name=name,
-                            user_input=user_input,
-                            collection_id=collection_id,
-                            thinking_id=thinking_id,
-                            save_to_memory=save_to_memory,
-                        )
-                response = f"Extracted the content of the zip file [{file_name}]({file_url}) and {'learned them to memory' if save_to_memory else 'saved them to workspace'}."
+                    rel_path = os.path.relpath(root, new_folder)
+                    if rel_path == ".":
+                        rel_path = ""
+                    dir_count += len(dirs)
+                    file_count += len(files)
+                    # Only show top-level structure and first 2 levels to avoid overwhelming output
+                    depth = rel_path.count(os.sep) if rel_path else 0
+                    if depth <= 2:
+                        if rel_path:
+                            folder_structure.append(f"📁 {rel_path}/")
+                        # Show up to 10 files per directory at depth <= 1
+                        if depth <= 1 and files:
+                            shown_files = files[:10]
+                            for f in shown_files:
+                                folder_structure.append(f"   📄 {f}")
+                            if len(files) > 10:
+                                folder_structure.append(
+                                    f"   ... and {len(files) - 10} more files"
+                                )
+
+                structure_summary = "\n".join(
+                    folder_structure[:100]
+                )  # Limit to 100 lines
+                if len(folder_structure) > 100:
+                    structure_summary += f"\n... and more ({dir_count} total directories, {file_count} total files)"
+                else:
+                    structure_summary += (
+                        f"\n\nTotal: {dir_count} directories, {file_count} files"
+                    )
+
+                file_content += f"\n\n**EXTRACTED ZIP CONTENTS** (use the extracted folder, NOT the .zip file):\n"
+                file_content += (
+                    f"Extracted folder path: `{extracted_zip_folder_name}/`\n\n"
+                )
+                file_content += f"Folder structure:\n{structure_summary}\n"
+                file_content += f"\n**IMPORTANT**: To read files, use paths like `{extracted_zip_folder_name}/subfolder/file.ext` - do NOT try to read the .zip file directly."
+                response = f"Extracted zip file [{file_name}]({file_url}) to `{extracted_zip_folder_name}/` ({file_count} files in {dir_count} directories). Use the EXTRACTED FOLDER to browse files, not the zip."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
@@ -1515,45 +1790,33 @@ Your response (true or false):"""
             "bmp",
             "svg",
         ]:
-            if (
-                self.agent.VISION_PROVIDER != "None"
-                and self.agent.VISION_PROVIDER != ""
-                and self.agent.VISION_PROVIDER != None
-            ):
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
-                )
-                try:
-                    vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
-                    self.input_tokens += get_tokens(vision_prompt)
-                    # Read image and encode as base64 for vision inference
-                    with open(file_path, "rb") as img_file:
-                        image_data = img_file.read()
-                        base64_image = base64.b64encode(image_data).decode("utf-8")
-                    base64_image = f"data:image/{file_type};base64,{base64_image}"
-                    vision_response = await self.agent.vision_inference(
-                        prompt=vision_prompt, images=[base64_image]
-                    )
-                    file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
-                    file_content += vision_response
-                    if save_to_memory:
-                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        await self.file_reader.write_text_to_memory(
-                            user_input=user_input,
-                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
-                            external_source=f"image {file_name}",
-                        )
-                    response = f"{'Learned' if save_to_memory else 'Processed'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
-                except Exception as e:
-                    logging.error(f"Error getting vision response: {e}")
-                    response = (
-                        f"[ERROR] I was unable to view the image called `{file_name}`."
-                    )
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
+            )
+            # Separate vision inference from memory writing to avoid false errors
+            vision_response = None
+            vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
+            self.input_tokens += get_tokens(vision_prompt)
+            # Read image and encode as base64 for vision inference
+            with open(file_path, "rb") as img_file:
+                image_data = img_file.read()
+                base64_image = base64.b64encode(image_data).decode("utf-8")
+            base64_image = f"data:image/{file_type};base64,{base64_image}"
+            vision_response = await self.agent.vision_inference(
+                prompt=vision_prompt, images=[base64_image]
+            )
+            # Check if vision_inference returned an error response
+            if vision_response and "Unable to process request" in vision_response:
+                logging.error(f"Vision inference returned error for {file_name}")
+                vision_response = None
+
+            if vision_response:
+                file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
+                file_content += vision_response
+                response = f"{'Learned' if save_to_memory else 'Processed'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             else:
-                response = (
-                    f"[ERROR] I was unable to view the image called `{file_name}`."
-                )
+                response = f"I was unable to view the image called `{file_name}`. I will need to try the `View Image` ability."
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             abs_workspace = os.path.abspath(self.agent_workspace)
@@ -1650,8 +1913,10 @@ Your response (true or false):"""
                             if len(csv_files) == 1
                             else f"{base_name}_*.csv (multiple sheets)"
                         )
-                except:
-                    pass
+                except Exception as e:
+                    log_silenced_exception(
+                        e, f"_process_file: listing CSV files for {file_name}"
+                    )
 
             # Return only metadata and instructions - not the actual content
             instructions = self._get_file_access_instructions(
@@ -1759,7 +2024,11 @@ Your response (true or false):"""
                         return {}
                     if url in ["", None]:
                         return {}
-                    file_download = requests.get(url)
+                    # SSRF protection: validate URL before making request
+                    if not is_safe_url(url):
+                        logging.error(f"SSRF protection blocked download from: {url}")
+                        return {}
+                    file_download = requests.get(url, timeout=30)
                     file_data = file_download.content
                 except Exception as e:
                     logging.error(f"Error downloading file: {e}")
@@ -2217,6 +2486,140 @@ Your response (true or false):"""
                     # Add tool result as prompt content - agent should respond based on this
                     new_prompt += f"{tool_content}\n\n"
                     tool_result_text = tool_content  # Store for logging
+                    # Extract URLs from tool result text (may be JSON or plain text)
+                    # Look for GitHub URLs specifically to download repos to workspace
+                    # Match URLs but stop at common JSON/text delimiters including backslash
+                    url_pattern = r'https?://[^\s"\'<>\}\]\,\\]+'
+                    found_urls = re.findall(url_pattern, tool_content)
+                    for found_url in found_urls:
+                        # Clean up any trailing punctuation that got matched
+                        found_url = found_url.rstrip('",}]\\:')
+                        # Skip if URL looks malformed or has leftover JSON
+                        if "workflow" in found_url or len(found_url) > 200:
+                            continue
+                        if found_url.startswith("https://github.com/"):
+                            do_not_pull_repo = [
+                                "/pull/",
+                                "/issues",
+                                "/discussions",
+                                "/actions/",
+                                "/projects",
+                                "/security",
+                                "/releases",
+                                "/commits",
+                                "/branches",
+                                "/tags",
+                                "/stargazers",
+                                "/watchers",
+                                "/network",
+                                "/settings",
+                                "/compare",
+                                "/archive",
+                            ]
+                            if any(x in found_url for x in do_not_pull_repo):
+                                urls.append(found_url)
+                                logging.info(
+                                    f"[chat_completions] Found GitHub non-repo URL in tool result: {found_url}"
+                                )
+                            else:
+                                # Download the GitHub repo as zip
+                                logging.info(
+                                    f"[chat_completions] Found GitHub repo URL in tool result: {found_url}"
+                                )
+                                github_user = self.agent_settings.get("GITHUB_USERNAME")
+                                github_token = self.agent_settings.get("GITHUB_TOKEN")
+                                github_repo = found_url.replace(
+                                    "https://github.com/", ""
+                                ).replace("https://www.github.com/", "")
+                                # Parse out branch from /tree/branch if present
+                                tool_github_branch = "main"
+                                if "/tree/" in github_repo:
+                                    parts = github_repo.split("/tree/")
+                                    github_repo = parts[0]
+                                    if len(parts) > 1:
+                                        # Branch might have subpath after it
+                                        branch_and_path = parts[1].split("/")
+                                        tool_github_branch = branch_and_path[0]
+                                user_parts = github_repo.split("/")
+                                if len(user_parts) >= 2:
+                                    user = user_parts[0]
+                                    repo = user_parts[1]
+                                    # Clean up repo name
+                                    for symbol in [
+                                        " ",
+                                        "\n",
+                                        "\t",
+                                        "\r",
+                                        "\\",
+                                        "/",
+                                        ":",
+                                        "*",
+                                        "?",
+                                        '"',
+                                        "<",
+                                        ">",
+                                    ]:
+                                        repo = repo.replace(symbol, "")
+                                        user = user.replace(symbol, "")
+                                        tool_github_branch = tool_github_branch.replace(
+                                            symbol, ""
+                                        )
+                                    repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{tool_github_branch}.zip"
+                                    logging.info(
+                                        f"[chat_completions] Downloading GitHub repo: {repo_url}"
+                                    )
+                                    try:
+                                        if github_user and github_token:
+                                            response = requests.get(
+                                                repo_url,
+                                                auth=(github_user, github_token),
+                                            )
+                                        else:
+                                            response = requests.get(repo_url)
+                                        if response.status_code != 200:
+                                            # Try master branch
+                                            tool_github_branch = "master"
+                                            repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{tool_github_branch}.zip"
+                                            if github_user and github_token:
+                                                response = requests.get(
+                                                    repo_url,
+                                                    auth=(github_user, github_token),
+                                                )
+                                            else:
+                                                response = requests.get(repo_url)
+                                        if response.status_code == 200:
+                                            file_name = f"{user}_{repo}_{tool_github_branch}.zip"
+                                            file_path = os.path.normpath(
+                                                os.path.join(
+                                                    self.agent_workspace,
+                                                    conversation_id,
+                                                    file_name,
+                                                )
+                                            )
+                                            os.makedirs(
+                                                os.path.dirname(file_path),
+                                                exist_ok=True,
+                                            )
+                                            with open(file_path, "wb") as f:
+                                                f.write(response.content)
+                                            logging.info(
+                                                f"[chat_completions] Downloaded GitHub repo to: {file_path}"
+                                            )
+                                            # Append as dict with file_name and file_url for consistency
+                                            file_url = f"{self.outputs}/{conversation_id}/{file_name}"
+                                            files.append(
+                                                {
+                                                    "file_name": file_name,
+                                                    "file_url": file_url,
+                                                }
+                                            )
+                                    except Exception as e:
+                                        logging.error(
+                                            f"[chat_completions] Failed to download GitHub repo: {e}"
+                                        )
+                        elif found_url.startswith("http"):
+                            # Add other URLs to the browse list
+                            urls.append(found_url)
                 elif isinstance(tool_content, list):
                     # Handle multipart tool results (text + images)
                     for part in tool_content:
@@ -2526,7 +2929,7 @@ Your response (true or false):"""
         if has_tool_result and tool_result_text and thinking_id:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Received tool result: {tool_result_text[:200]}{'...' if len(tool_result_text) > 200 else ''}",
+                message=f"[SUBACTIVITY][{thinking_id}] Received tool result: \n```\n{tool_result_text}\n```",
             )
         file_contents = []
         current_input_tokens = get_tokens(new_prompt)
@@ -2912,6 +3315,9 @@ Your response (true or false):"""
         running_command = None
         additional_context = ""
         command_overrides = None
+        # TTS streaming mode: "off", "audio_only", or "interleaved"
+        tts_mode = getattr(prompt, "tts_mode", "off") or "off"
+        logging.info(f"[chat_completions_stream] tts_mode = {tts_mode}")
 
         if prompt.tools:
             command_overrides = prompt.tools
@@ -3392,6 +3798,50 @@ Your response (true or false):"""
             # Track if we've streamed any answer content progressively
             has_streamed_progressively = False
 
+            # TTS streaming state - stream TTS sentence-by-sentence for real-time audio
+            tts_sentence_buffer = ""  # Buffer for accumulating current sentence
+            tts_sent_header = False  # Track if we've sent TTS header
+            tts_pending_audio = (
+                []
+            )  # Queue of (sentence, generator) tuples for concurrent TTS
+
+            # Helper to detect sentence boundaries
+            def has_complete_sentence(text):
+                """Check if text contains a complete sentence ending."""
+                import re
+
+                # Match sentence endings: . ! ? followed by space or end, or newlines
+                # But ignore abbreviations like "Dr." "Mr." "e.g." etc.
+                abbrevs = (
+                    r"(?<![A-Z][a-z])\.\s|(?<![a-z]\.[a-z])\.(?:\s|$)|[!?]\s|[!?]$|\n"
+                )
+                matches = list(re.finditer(abbrevs, text))
+                return len(matches) > 0
+
+            def extract_complete_sentences(text):
+                """Extract complete sentences and return (sentences, remainder)."""
+                import re
+
+                # Find the last sentence boundary
+                boundaries = [".", "!", "?", "\n"]
+                last_boundary = -1
+                for i, char in enumerate(text):
+                    if char in boundaries:
+                        # Check it's not an abbreviation
+                        if char == "." and i > 0 and i < len(text) - 1:
+                            # Simple check: if followed by uppercase or space+uppercase, it's a sentence end
+                            next_char = text[i + 1] if i + 1 < len(text) else " "
+                            if next_char in " \n" or next_char.isupper():
+                                last_boundary = i
+                        else:
+                            last_boundary = i
+
+                if last_boundary >= 0:
+                    sentences = text[: last_boundary + 1].strip()
+                    remainder = text[last_boundary + 1 :].lstrip()
+                    return sentences, remainder
+                return "", text
+
             async for event in self.agent_interactions.run_stream(
                 user_input=new_prompt,
                 prompt_category=prompt_category,
@@ -3408,6 +3858,8 @@ Your response (true or false):"""
                 use_smartest=use_smartest,
                 thinking_id=thinking_id,  # Pass the thinking_id to avoid creating a duplicate
                 command_overrides=command_overrides,  # Pass command overrides to enable specific commands
+                tts=tts
+                or tts_mode != "off",  # Pass TTS flag for filler speech instructions
                 **prompt_args,
             ):
                 event_type = event.get("type", "")
@@ -3419,9 +3871,140 @@ Your response (true or false):"""
                     if is_complete:
                         # Final answer received - store it
                         final_answer = content
+                        logging.info(
+                            f"[chat_stream] Complete answer received (has_streamed_progressively={has_streamed_progressively}): {content[:100]}..."
+                        )
                         # Only send if we haven't been streaming progressively
                         # This handles command results that return in one shot
                         if not has_streamed_progressively:
+                            # Stream text chunk (unless audio_only mode)
+                            if tts_mode != "audio_only":
+                                chunk = {
+                                    "id": chunk_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": created_time,
+                                    "model": self.agent_name,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {"content": content},
+                                            "finish_reason": None,
+                                        }
+                                    ],
+                                }
+                                yield f"data: {json.dumps(chunk)}\n\n"
+
+                            # Stream TTS for complete answer if TTS mode is enabled
+                            if tts_mode in ("audio_only", "interleaved"):
+                                try:
+                                    import struct
+
+                                    # Clean content for TTS - remove XML tags
+                                    tts_content = re.sub(
+                                        r"</?(?:thinking|reflection|answer|execute|output|step|reward|count)[^>]*>",
+                                        "",
+                                        content,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    tts_content = re.sub(
+                                        r"(?:thinking|reflection|answer|execute|output|step|reward|count)>",
+                                        "",
+                                        tts_content,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    # Remove audio HTML tags and URLs that shouldn't be spoken
+                                    tts_content = re.sub(
+                                        r"<audio[^>]*>.*?</audio>",
+                                        "",
+                                        tts_content,
+                                        flags=re.IGNORECASE | re.DOTALL,
+                                    )
+                                    tts_content = re.sub(
+                                        r"https?://[^\s<>]+",
+                                        "",
+                                        tts_content,
+                                    )
+                                    tts_content = re.sub(
+                                        r"\s+", " ", tts_content
+                                    ).strip()
+
+                                    if not tts_content or len(tts_content) < 2:
+                                        continue
+
+                                    raw_buffer = b""
+                                    header_sent = False
+
+                                    async for (
+                                        audio_chunk
+                                    ) in self.agent.text_to_speech_stream(tts_content):
+                                        raw_buffer += audio_chunk
+
+                                        # Parse header first (8 bytes)
+                                        if not header_sent and len(raw_buffer) >= 8:
+                                            header_data = raw_buffer[:8]
+                                            raw_buffer = raw_buffer[8:]
+                                            header_sent = True
+                                            tts_sent_header = True
+
+                                            tts_header_chunk = {
+                                                "id": chunk_id,
+                                                "object": "audio.header",
+                                                "created": created_time,
+                                                "model": self.agent_name,
+                                                "audio": base64.b64encode(
+                                                    header_data
+                                                ).decode("utf-8"),
+                                            }
+                                            yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+
+                                        # Parse data packets: 4-byte size + PCM data
+                                        while header_sent and len(raw_buffer) >= 4:
+                                            packet_size = struct.unpack(
+                                                "<I", raw_buffer[:4]
+                                            )[0]
+                                            if packet_size == 0:
+                                                raw_buffer = raw_buffer[4:]
+                                                break
+                                            if len(raw_buffer) >= 4 + packet_size:
+                                                pcm_data = raw_buffer[
+                                                    4 : 4 + packet_size
+                                                ]
+                                                raw_buffer = raw_buffer[
+                                                    4 + packet_size :
+                                                ]
+
+                                                # Break large audio chunks into smaller pieces for streaming
+                                                # ESP32 has limited buffer size, so send max 4KB at a time
+                                                MAX_CHUNK_SIZE = 4096
+                                                for offset in range(
+                                                    0, len(pcm_data), MAX_CHUNK_SIZE
+                                                ):
+                                                    chunk_piece = pcm_data[
+                                                        offset : offset + MAX_CHUNK_SIZE
+                                                    ]
+                                                    audio_data_chunk = {
+                                                        "id": chunk_id,
+                                                        "object": "audio.chunk",
+                                                        "created": created_time,
+                                                        "model": self.agent_name,
+                                                        "audio": base64.b64encode(
+                                                            chunk_piece
+                                                        ).decode("utf-8"),
+                                                    }
+                                                    yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                            else:
+                                                break
+                                except Exception as e:
+                                    logging.warning(f"TTS streaming error: {e}")
+                    else:
+                        # Progressive answer streaming - send each token
+                        has_streamed_progressively = True
+                        logging.debug(
+                            f"[chat_stream] Progressive token: {repr(content[:50])}"
+                        )
+
+                        # Stream text chunk (unless audio_only mode)
+                        if tts_mode != "audio_only":
                             chunk = {
                                 "id": chunk_id,
                                 "object": "chat.completion.chunk",
@@ -3436,23 +4019,128 @@ Your response (true or false):"""
                                 ],
                             }
                             yield f"data: {json.dumps(chunk)}\n\n"
-                    else:
-                        # Progressive answer streaming - send each token
-                        has_streamed_progressively = True
-                        chunk = {
-                            "id": chunk_id,
-                            "object": "chat.completion.chunk",
-                            "created": created_time,
-                            "model": self.agent_name,
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "delta": {"content": content},
-                                    "finish_reason": None,
-                                }
-                            ],
-                        }
-                        yield f"data: {json.dumps(chunk)}\n\n"
+
+                        # Buffer text for TTS and stream sentence-by-sentence
+                        if tts_mode in ("audio_only", "interleaved"):
+                            tts_sentence_buffer += content
+                            logging.debug(
+                                f"[TTS] Buffer: {repr(tts_sentence_buffer[:100])}"
+                            )
+
+                            # Check if we have a complete sentence to stream
+                            sentences, remainder = extract_complete_sentences(
+                                tts_sentence_buffer
+                            )
+                            if sentences:
+                                # Clean TTS sentences - remove any XML tags and fragments
+                                # that shouldn't be spoken aloud
+                                sentences = re.sub(
+                                    r"</?(?:thinking|reflection|answer|execute|output|step|reward|count)[^>]*>",
+                                    "",
+                                    sentences,
+                                    flags=re.IGNORECASE,
+                                )
+                                # Remove partial tag fragments
+                                sentences = re.sub(
+                                    r"(?:thinking|reflection|answer|execute|output|step|reward|count)>",
+                                    "",
+                                    sentences,
+                                    flags=re.IGNORECASE,
+                                )
+                                # Remove audio HTML tags and URLs that shouldn't be spoken
+                                sentences = re.sub(
+                                    r"<audio[^>]*>.*?</audio>",
+                                    "",
+                                    sentences,
+                                    flags=re.IGNORECASE | re.DOTALL,
+                                )
+                                sentences = re.sub(
+                                    r"https?://[^\s<>]+",
+                                    "",
+                                    sentences,
+                                )
+                                # Clean up whitespace left by tag removal
+                                sentences = re.sub(r"\s+", " ", sentences).strip()
+
+                                # Skip if after cleaning there's nothing meaningful to speak
+                                if not sentences or len(sentences) < 2:
+                                    tts_sentence_buffer = remainder
+                                    continue
+
+                                logging.info(
+                                    f"[TTS] Streaming sentence: {sentences[:80]}..."
+                                )
+                                tts_sentence_buffer = remainder
+
+                                # Stream TTS for the complete sentence(s)
+                                try:
+                                    import struct
+
+                                    raw_buffer = b""
+
+                                    async for (
+                                        audio_chunk
+                                    ) in self.agent.text_to_speech_stream(sentences):
+                                        raw_buffer += audio_chunk
+
+                                        # Parse header first (8 bytes) - only once
+                                        if not tts_sent_header and len(raw_buffer) >= 8:
+                                            header_data = raw_buffer[:8]
+                                            raw_buffer = raw_buffer[8:]
+                                            tts_sent_header = True
+
+                                            tts_header_chunk = {
+                                                "id": chunk_id,
+                                                "object": "audio.header",
+                                                "created": created_time,
+                                                "model": self.agent_name,
+                                                "audio": base64.b64encode(
+                                                    header_data
+                                                ).decode("utf-8"),
+                                            }
+                                            yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+
+                                        # Parse data packets: 4-byte size + PCM data
+                                        while tts_sent_header and len(raw_buffer) >= 4:
+                                            packet_size = struct.unpack(
+                                                "<I", raw_buffer[:4]
+                                            )[0]
+                                            if packet_size == 0:
+                                                raw_buffer = raw_buffer[4:]
+                                                break
+                                            if len(raw_buffer) >= 4 + packet_size:
+                                                pcm_data = raw_buffer[
+                                                    4 : 4 + packet_size
+                                                ]
+                                                raw_buffer = raw_buffer[
+                                                    4 + packet_size :
+                                                ]
+
+                                                # Break large audio chunks into smaller pieces for streaming
+                                                # ESP32 has limited buffer size, so send max 4KB at a time
+                                                MAX_CHUNK_SIZE = 4096
+                                                for offset in range(
+                                                    0, len(pcm_data), MAX_CHUNK_SIZE
+                                                ):
+                                                    chunk_piece = pcm_data[
+                                                        offset : offset + MAX_CHUNK_SIZE
+                                                    ]
+                                                    audio_data_chunk = {
+                                                        "id": chunk_id,
+                                                        "object": "audio.chunk",
+                                                        "created": created_time,
+                                                        "model": self.agent_name,
+                                                        "audio": base64.b64encode(
+                                                            chunk_piece
+                                                        ).decode("utf-8"),
+                                                    }
+                                                    yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                            else:
+                                                break
+                                except Exception as e:
+                                    logging.warning(
+                                        f"TTS sentence streaming error: {e}"
+                                    )
 
                 # Stream progressive thinking/reflection content
                 elif event_type in (
@@ -3472,6 +4160,91 @@ Your response (true or false):"""
                         "complete": is_complete,
                     }
                     yield f"data: {json.dumps(activity_chunk)}\n\n"
+
+                # Handle speak events for TTS filler speech during thinking
+                # These are brief phrases like "Let me check on that" spoken while processing
+                # Audio flows continuously with the main answer - no end marker here
+                elif event_type == "speak" and content:
+                    if tts_mode in ("audio_only", "interleaved"):
+                        logging.info(f"[TTS] Speaking filler: {content}")
+                        try:
+                            import struct
+
+                            filler_buffer = b""
+                            filler_header_sent = False
+
+                            async for audio_chunk in self.agent.text_to_speech_stream(
+                                content
+                            ):
+                                filler_buffer += audio_chunk
+
+                                # Parse header first (8 bytes) - only once per stream
+                                if not tts_sent_header and len(filler_buffer) >= 8:
+                                    header_data = filler_buffer[:8]
+                                    filler_buffer = filler_buffer[8:]
+                                    filler_header_sent = True
+                                    # Mark main header as sent since format is same
+                                    tts_sent_header = True
+
+                                    tts_header_chunk = {
+                                        "id": chunk_id,
+                                        "object": "audio.header",
+                                        "created": created_time,
+                                        "model": self.agent_name,
+                                        "audio": base64.b64encode(header_data).decode(
+                                            "utf-8"
+                                        ),
+                                    }
+                                    yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+
+                                # If we already sent header before, skip this one
+                                if (
+                                    tts_sent_header
+                                    and not filler_header_sent
+                                    and len(filler_buffer) >= 8
+                                ):
+                                    filler_buffer = filler_buffer[8:]
+                                    filler_header_sent = True
+
+                                # Parse data packets: 4-byte size + PCM data
+                                while (tts_sent_header or filler_header_sent) and len(
+                                    filler_buffer
+                                ) >= 4:
+                                    packet_size = struct.unpack(
+                                        "<I", filler_buffer[:4]
+                                    )[0]
+                                    if packet_size == 0:
+                                        filler_buffer = filler_buffer[4:]
+                                        break
+                                    if len(filler_buffer) >= 4 + packet_size:
+                                        pcm_data = filler_buffer[4 : 4 + packet_size]
+                                        filler_buffer = filler_buffer[4 + packet_size :]
+
+                                        # Break large audio chunks into smaller pieces for streaming
+                                        MAX_CHUNK_SIZE = 4096
+                                        for offset in range(
+                                            0, len(pcm_data), MAX_CHUNK_SIZE
+                                        ):
+                                            chunk_piece = pcm_data[
+                                                offset : offset + MAX_CHUNK_SIZE
+                                            ]
+                                            audio_data_chunk = {
+                                                "id": chunk_id,
+                                                "object": "audio.chunk",
+                                                "created": created_time,
+                                                "model": self.agent_name,
+                                                "audio": base64.b64encode(
+                                                    chunk_piece
+                                                ).decode("utf-8"),
+                                            }
+                                            yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                    else:
+                                        break
+
+                            # No audio.end here - let it flow continuously with answer TTS
+                            logging.info(f"[TTS] Filler speech sent")
+                        except Exception as e:
+                            logging.warning(f"TTS speak filler error: {e}")
 
                 # Handle remote command requests - need client-side execution
                 elif event_type == "remote_command_request":
@@ -3546,6 +4319,107 @@ Your response (true or false):"""
             # Handle conversation rename for new conversations
             if self.conversation_name == "-":
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
+
+            # Generate TTS for any remaining buffered text (partial sentences at end)
+            if (
+                tts_mode in ("audio_only", "interleaved")
+                and tts_sentence_buffer.strip()
+            ):
+                try:
+                    import struct
+
+                    # Clean remaining TTS buffer - remove XML tags
+                    final_tts_text = re.sub(
+                        r"</?(?:thinking|reflection|answer|execute|output|step|reward|count)[^>]*>",
+                        "",
+                        tts_sentence_buffer,
+                        flags=re.IGNORECASE,
+                    )
+                    final_tts_text = re.sub(
+                        r"(?:thinking|reflection|answer|execute|output|step|reward|count)>",
+                        "",
+                        final_tts_text,
+                        flags=re.IGNORECASE,
+                    )
+                    final_tts_text = re.sub(r"\s+", " ", final_tts_text).strip()
+
+                    # Skip if nothing meaningful remains
+                    if final_tts_text and len(final_tts_text) >= 2:
+                        # Buffer to accumulate incoming bytes and parse properly
+                        raw_buffer = b""
+
+                        async for audio_chunk in self.agent.text_to_speech_stream(
+                            final_tts_text
+                        ):
+                            raw_buffer += audio_chunk
+
+                            # Parse header first (8 bytes) - only if not already sent
+                            if not tts_sent_header and len(raw_buffer) >= 8:
+                                header_data = raw_buffer[:8]
+                                raw_buffer = raw_buffer[8:]
+                                tts_sent_header = True
+
+                                tts_header_chunk = {
+                                    "id": chunk_id,
+                                    "object": "audio.header",
+                                    "created": created_time,
+                                    "model": self.agent_name,
+                                    "audio": base64.b64encode(header_data).decode(
+                                        "utf-8"
+                                    ),
+                                }
+                                yield f"data: {json.dumps(tts_header_chunk)}\n\n"
+
+                            # Parse data packets: 4-byte size + PCM data
+                            while tts_sent_header and len(raw_buffer) >= 4:
+                                # Read packet size
+                                packet_size = struct.unpack("<I", raw_buffer[:4])[0]
+
+                                # Check for end marker
+                                if packet_size == 0:
+                                    raw_buffer = raw_buffer[4:]
+                                    break
+
+                                # Check if we have the full packet
+                                if len(raw_buffer) >= 4 + packet_size:
+                                    pcm_data = raw_buffer[4 : 4 + packet_size]
+                                    raw_buffer = raw_buffer[4 + packet_size :]
+
+                                    # Break large audio chunks into smaller pieces for streaming
+                                    # ESP32 has limited buffer size, so send max 4KB at a time
+                                    MAX_CHUNK_SIZE = 4096
+                                    for offset in range(
+                                        0, len(pcm_data), MAX_CHUNK_SIZE
+                                    ):
+                                        chunk_piece = pcm_data[
+                                            offset : offset + MAX_CHUNK_SIZE
+                                        ]
+                                        audio_data_chunk = {
+                                            "id": chunk_id,
+                                            "object": "audio.chunk",
+                                            "created": created_time,
+                                            "model": self.agent_name,
+                                            "audio": base64.b64encode(
+                                                chunk_piece
+                                            ).decode("utf-8"),
+                                        }
+                                        yield f"data: {json.dumps(audio_data_chunk)}\n\n"
+                                else:
+                                    # Not enough data yet, wait for more
+                                    break
+
+                except Exception as e:
+                    logging.warning(f"TTS streaming error: {e}")
+
+            # Send TTS end marker if we sent any TTS data
+            if tts_sent_header:
+                tts_end_chunk = {
+                    "id": chunk_id,
+                    "object": "audio.end",
+                    "created": created_time,
+                    "model": self.agent_name,
+                }
+                yield f"data: {json.dumps(tts_end_chunk)}\n\n"
 
         except Exception as e:
             logging.error(f"Streaming error: {str(e)}")

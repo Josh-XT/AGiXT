@@ -8,7 +8,6 @@ from Globals import get_tokens
 from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
 from Conversations import get_conversation_name_by_id
-from providers.default import DefaultProvider
 from Memories import embed
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
@@ -129,6 +128,9 @@ async def chat_completion(
             )
         else:
             return await agixt.chat_completions(prompt=prompt)
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 402 Payment Required) without modification
+        raise
     except ValueError as e:
         # Return 400 for validation errors (bad request)
         logging.warning(f"Validation error in chat_completion endpoint: {e}")
@@ -343,8 +345,53 @@ async def text_to_speech(
     if agent.TTS_PROVIDER != None:
         audio_data = await agent.text_to_speech(text=tts.input)
     else:
-        audio_data = await DefaultProvider().text_to_speech(text=tts.input)
+        raise HTTPException(status_code=400, detail="No TTS provider available")
     return {"url": audio_data}
+
+
+# Streaming Text to Speech endpoint
+@app.post(
+    "/v1/audio/speech/stream",
+    tags=["Audio"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Stream Text-to-Speech Audio",
+    description="Stream TTS audio as it's generated. Returns raw PCM audio stream with header information.",
+)
+async def text_to_speech_stream(
+    tts: TextToSpeech,
+    authorization: str = Header(None),
+    user: str = Depends(verify_api_key),
+):
+    """
+    Stream TTS audio as it's generated, chunk by chunk.
+
+    Response format (binary stream):
+    - Header (8 bytes): sample_rate (uint32), bits (uint16), channels (uint16)
+    - Data chunks: chunk_size (uint32) + raw PCM data
+    - End marker: chunk_size = 0
+
+    Audio format: 24kHz, 16-bit, mono PCM
+    """
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
+
+    if agent.TTS_PROVIDER is None:
+        raise HTTPException(status_code=400, detail="No TTS provider available")
+
+    async def audio_stream_generator():
+        async for chunk in agent.text_to_speech_stream(text=tts.input):
+            yield chunk
+
+    return StreamingResponse(
+        audio_stream_generator(),
+        media_type="application/octet-stream",
+        headers={
+            "X-Audio-Format": "pcm",
+            "X-Sample-Rate": "24000",
+            "X-Bits-Per-Sample": "16",
+            "X-Channels": "1",
+        },
+    )
 
 
 # Image Generation endpoint

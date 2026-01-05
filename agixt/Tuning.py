@@ -1,56 +1,28 @@
-import subprocess
-import sys
 import os
 import copy
+from Globals import install_package_if_missing
 
-try:
-    import torch
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "torch"])
-    import torch
-try:
-    from transformers import (
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        TrainingArguments,
-        BitsAndBytesConfig,
-    )
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-    from transformers import (
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        TrainingArguments,
-        BitsAndBytesConfig,
-    )
-try:
-    from peft.utils import _get_submodules
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "peft"])
-    from peft.utils import _get_submodules
-try:
-    import bitsandbytes as bnb
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "bitsandbytes"])
-    import bitsandbytes as bnb
-try:
-    from trl import DPOTrainer
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "trl"])
-    from trl import DPOTrainer
-try:
-    from unsloth import FastLanguageModel
-except ImportError:
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git",
-        ]
-    )
-    from unsloth import FastLanguageModel
+# Install tuning dependencies if missing
+install_package_if_missing("torch")
+install_package_if_missing("transformers")
+install_package_if_missing("peft")
+install_package_if_missing("bitsandbytes")
+install_package_if_missing("trl")
+install_package_if_missing(
+    "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git", "unsloth"
+)
+
+import torch
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    TrainingArguments,
+    BitsAndBytesConfig,
+)
+from peft.utils import _get_submodules
+import bitsandbytes as bnb
+from trl import DPOTrainer
+from unsloth import FastLanguageModel
 
 from peft import PeftModel
 from bitsandbytes.functional import dequantize_4bit

@@ -313,6 +313,7 @@ class meta_ads(Extensions):
     """
 
     CATEGORY = "Social & Communication"
+    friendly_name = "Meta Ads"
 
     def __init__(self, **kwargs):
         """

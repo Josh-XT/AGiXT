@@ -2,6 +2,7 @@ import uuid
 import time
 import logging
 import os
+import json
 from datetime import datetime
 from sqlalchemy import (
     create_engine,
@@ -12,10 +13,14 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Boolean,
+    LargeBinary,
+    Index,
     event,
     or_,
     func,
     text,
+    UniqueConstraint,
+    inspect,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
@@ -143,15 +148,49 @@ try:
             f"for {UVICORN_WORKERS} workers. Consider increasing DB_POOL_MULTIPLIER or DB_POOL_SIZE."
         )
 
-    engine = create_engine(
-        DATABASE_URI,
-        pool_size=DB_POOL_SIZE,
-        max_overflow=DB_MAX_OVERFLOW,
-        pool_timeout=DB_POOL_TIMEOUT,
-        pool_recycle=DB_POOL_RECYCLE,
-        pool_pre_ping=True,  # Verify connections before use
-        echo=False,  # Set to True for SQL debugging
-    )
+    # SQLite requires different settings than PostgreSQL
+    if DATABASE_TYPE == "sqlite":
+        # SQLite doesn't support connection pooling the same way as PostgreSQL
+        # Use NullPool to ensure each request gets a fresh connection
+        # This is critical for multi-worker scenarios where different workers
+        # need to see the latest database state
+        from sqlalchemy.pool import NullPool
+
+        engine = create_engine(
+            DATABASE_URI,
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30,  # Wait up to 30 seconds for locks
+            },
+            poolclass=NullPool,  # Create new connection for each request, no pooling
+            echo=False,
+        )
+
+        # Configure SQLite for better concurrency
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            # Use DELETE mode instead of WAL for simpler multi-process consistency
+            # WAL mode can cause read/write visibility issues with multiple processes
+            cursor.execute("PRAGMA journal_mode=DELETE")
+            # Synchronous FULL ensures data is written to disk before continuing
+            cursor.execute("PRAGMA synchronous=FULL")
+            # Enable foreign keys
+            cursor.execute("PRAGMA foreign_keys=ON")
+            # Set busy timeout to 30 seconds (in milliseconds)
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.close()
+
+    else:
+        engine = create_engine(
+            DATABASE_URI,
+            pool_size=DB_POOL_SIZE,
+            max_overflow=DB_MAX_OVERFLOW,
+            pool_timeout=DB_POOL_TIMEOUT,
+            pool_recycle=DB_POOL_RECYCLE,
+            pool_pre_ping=True,  # Verify connections before use
+            echo=False,  # Set to True for SQL debugging
+        )
 
     # Test connection immediately
     connection = engine.connect()
@@ -198,6 +237,157 @@ class UserRole(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     friendly_name = Column(String)
+    display_order = Column(
+        Integer, default=100
+    )  # For UI ordering, lower = higher in list
+
+
+class Scope(Base):
+    """
+    Defines granular permissions that can be assigned to roles.
+    Scopes follow the pattern: resource:action (e.g., 'agents:read', 'extensions:write')
+    """
+
+    __tablename__ = "Scope"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(String, nullable=False, unique=True)  # e.g., 'agents:read'
+    resource = Column(
+        String, nullable=False
+    )  # e.g., 'agents', 'extensions', 'conversations'
+    action = Column(
+        String, nullable=False
+    )  # e.g., 'read', 'write', 'delete', 'execute'
+    description = Column(String, nullable=True)
+    category = Column(
+        String, nullable=True
+    )  # For grouping in UI: 'Core', 'Extensions', 'Admin', etc.
+    is_system = Column(Boolean, default=True)  # System scopes can't be deleted
+
+
+class CustomRole(Base):
+    """
+    Custom roles created by company admins with specific scope assignments.
+    These extend the default roles with company-specific permissions.
+    """
+
+    __tablename__ = "CustomRole"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+    )
+    name = Column(String, nullable=False)  # Internal name (e.g., 'support_agent')
+    friendly_name = Column(
+        String, nullable=False
+    )  # Display name (e.g., 'Support Agent')
+    description = Column(String, nullable=True)
+    priority = Column(Integer, default=100)  # Lower = more privileged (like role_id)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company", backref="custom_roles")
+    scopes = relationship(
+        "CustomRoleScope", back_populates="custom_role", cascade="all, delete-orphan"
+    )
+
+
+class CustomRoleScope(Base):
+    """
+    Junction table linking custom roles to their assigned scopes.
+    """
+
+    __tablename__ = "CustomRoleScope"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    custom_role_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("CustomRole.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Scope.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    custom_role = relationship("CustomRole", back_populates="scopes")
+    scope = relationship("Scope")
+
+
+class DefaultRoleScope(Base):
+    """
+    Defines which scopes are assigned to default system roles (super_admin, tenant_admin, etc.).
+    This allows the system to know what permissions each default role level has.
+    """
+
+    __tablename__ = "DefaultRoleScope"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    role_id = Column(Integer, ForeignKey("Role.id"), nullable=False)
+    scope_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Scope.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    role = relationship("UserRole")
+    scope = relationship("Scope")
+
+
+class UserCustomRole(Base):
+    """
+    Assigns custom roles to users within a company.
+    Users can have multiple custom roles in addition to their base role_id.
+    """
+
+    __tablename__ = "UserCustomRole"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    custom_role_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("CustomRole.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    assigned_at = Column(DateTime, server_default=func.now())
+    assigned_by = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    company = relationship("Company")
+    custom_role = relationship("CustomRole")
+    assigner = relationship("User", foreign_keys=[assigned_by])
 
 
 class Company(Base):
@@ -244,6 +434,23 @@ class Company(Base):
     stripe_subscription_id = Column(
         String, nullable=True, default=None
     )  # Active subscription ID
+    # Per-app billing tracking
+    app_name = Column(
+        String, nullable=True, default=None
+    )  # The app the company is subscribed to (e.g., "XT Systems", "NurseXT")
+    last_subscription_billing_date = Column(
+        DateTime, nullable=True, default=None
+    )  # Last date subscription was billed
+    # Trial credits tracking
+    trial_credits_granted = Column(
+        Float, nullable=True, default=None
+    )  # USD value of trial credits granted
+    trial_credits_granted_at = Column(
+        DateTime, nullable=True, default=None
+    )  # When trial credits were granted
+    trial_domain = Column(
+        String, nullable=True, default=None
+    )  # The email domain that qualified for trial credits
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -396,6 +603,711 @@ class OAuthProvider(Base):
         default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(String, default="", nullable=False)
+
+
+class ResponseCache(Base):
+    """
+    Database-backed response cache for sharing cached responses across all workers.
+
+    This table stores cached API responses with automatic TTL expiration.
+    Using the database instead of in-memory caching allows all uvicorn workers
+    to share the same cache, eliminating redundant API calls and database queries.
+
+    The cache is keyed by user_id + cache_key (hash of path + query string).
+    """
+
+    __tablename__ = "response_cache"
+
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # User ID for per-user cache isolation
+    user_id = Column(String, nullable=False, index=True)
+    # Hash of path + query string
+    cache_key = Column(String, nullable=False, index=True)
+    # Original path (for debugging/monitoring)
+    path = Column(String, nullable=False)
+    # Cached response body (compressed with zlib for efficiency)
+    response_body = Column(LargeBinary, nullable=False)
+    # Content type of the response
+    content_type = Column(String, default="application/json")
+    # HTTP status code
+    status_code = Column(Integer, default=200)
+    # When this cache entry was created
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    # When this entry expires (for efficient cleanup queries)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+    # Composite unique constraint: one cache entry per user+key
+    __table_args__ = (
+        Index("ix_response_cache_user_key", "user_id", "cache_key", unique=True),
+        Index("ix_response_cache_expires", "expires_at"),
+    )
+
+
+class ServerConfig(Base):
+    """
+    Server-level configuration stored in the database.
+    Replaces hardcoded .env values for runtime-configurable settings.
+    Sensitive values (API keys, secrets) are encrypted at rest.
+    """
+
+    __tablename__ = "server_config"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Config key name (e.g., "OPENAI_API_KEY", "GOOGLE_CLIENT_ID")
+    name = Column(String, nullable=False, unique=True, index=True)
+    # The value (encrypted for sensitive settings)
+    value = Column(Text, nullable=True)
+    # Category for UI grouping: 'ai_providers', 'oauth', 'app_settings', 'uris', 'storage', 'billing'
+    category = Column(String, nullable=False, default="general")
+    # Whether this is a sensitive value that should be encrypted and masked in UI
+    is_sensitive = Column(Boolean, default=False)
+    # Whether this config is required for the server to function
+    is_required = Column(Boolean, default=False)
+    # Human-readable description for the UI
+    description = Column(Text, nullable=True)
+    # Data type hint: 'string', 'integer', 'boolean', 'url', 'secret'
+    value_type = Column(String, default="string")
+    # Default value if not set (for display purposes)
+    default_value = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ServerExtensionSetting(Base):
+    """
+    Server-level extension settings that serve as defaults for all companies.
+    These are configured by super admins and cascade down:
+    Server → Company → User (each level can override the previous).
+
+    Sensitive values (API keys, secrets) are encrypted at rest.
+    """
+
+    __tablename__ = "server_extension_setting"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Extension name (e.g., "stripe_payments", "openai", "anthropic")
+    extension_name = Column(String, nullable=False, index=True)
+    # Setting key name (e.g., "STRIPE_API_KEY", "OPENAI_API_KEY")
+    setting_key = Column(String, nullable=False)
+    # The value (encrypted for sensitive settings)
+    setting_value = Column(Text, nullable=True)
+    # Whether this is a sensitive value that should be encrypted
+    is_sensitive = Column(Boolean, default=False)
+    # Human-readable description
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "extension_name", "setting_key", name="uix_server_ext_setting"
+        ),
+    )
+
+
+class ServerExtensionCommand(Base):
+    """
+    Server-level extension command defaults that serve as defaults for all companies.
+    These are configured by super admins and cascade down:
+    Server → Company → User (each level can override the previous).
+
+    When enabled=True, the command is enabled by default for all new agents.
+    """
+
+    __tablename__ = "server_extension_command"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Extension name (e.g., "web_search", "file_system")
+    extension_name = Column(String, nullable=False, index=True)
+    # Command name (e.g., "Search the Web", "Read File")
+    command_name = Column(String, nullable=False)
+    # Whether this command is enabled by default at server level
+    enabled = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "extension_name", "command_name", name="uix_server_ext_command"
+        ),
+    )
+
+
+class CompanyExtensionCommand(Base):
+    """
+    Company-level extension command defaults that override server defaults.
+    Configured by company admins, these cascade down to users/agents.
+    """
+
+    __tablename__ = "company_extension_command"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Company this command belongs to
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+        index=True,
+    )
+    company = relationship("Company")
+    # Extension name (e.g., "web_search", "file_system")
+    extension_name = Column(String, nullable=False, index=True)
+    # Command name (e.g., "Search the Web", "Read File")
+    command_name = Column(String, nullable=False)
+    # Whether this command is enabled at company level
+    enabled = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "extension_name",
+            "command_name",
+            name="uix_company_ext_command",
+        ),
+    )
+
+
+class CompanyExtensionSetting(Base):
+    """
+    Company-level extension settings that override server defaults.
+    Configured by company admins, these cascade down to users.
+
+    Sensitive values (API keys, secrets) are encrypted at rest.
+    """
+
+    __tablename__ = "company_extension_setting"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Company this setting belongs to
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+        index=True,
+    )
+    company = relationship("Company")
+    # Extension name (e.g., "stripe_payments", "openai", "anthropic")
+    extension_name = Column(String, nullable=False, index=True)
+    # Setting key name (e.g., "STRIPE_API_KEY", "OPENAI_API_KEY")
+    setting_key = Column(String, nullable=False)
+    # The value (encrypted for sensitive settings)
+    setting_value = Column(Text, nullable=True)
+    # Whether this is a sensitive value that should be encrypted
+    is_sensitive = Column(Boolean, default=False)
+    # Human-readable description
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "extension_name",
+            "setting_key",
+            name="uix_company_ext_setting",
+        ),
+    )
+
+
+class CompanyStorageSetting(Base):
+    """
+    Company-level storage settings that override server defaults.
+    Allows companies to use their own cloud storage (S3, Azure, B2) for agent workspaces.
+
+    If not configured, the company uses server default storage with retention policy.
+    Child companies inherit parent company storage settings unless they define their own.
+
+    Sensitive values (credentials) are encrypted at rest.
+    """
+
+    __tablename__ = "company_storage_setting"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Company this setting belongs to
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+        unique=True,  # One storage config per company
+        index=True,
+    )
+    company = relationship("Company")
+    # Storage backend: s3, azure, b2 (no 'local' option for companies - they use server storage)
+    storage_backend = Column(
+        String, nullable=False, default="server"
+    )  # 'server', 's3', 'azure', 'b2'
+    # Container/bucket name
+    storage_container = Column(String, nullable=True)
+    # AWS S3 / MinIO settings (encrypted)
+    aws_access_key_id = Column(Text, nullable=True)
+    aws_secret_access_key = Column(Text, nullable=True)
+    aws_region = Column(String, nullable=True)
+    s3_endpoint = Column(String, nullable=True)
+    s3_bucket = Column(String, nullable=True)
+    # Azure Blob settings (encrypted)
+    azure_storage_account_name = Column(String, nullable=True)
+    azure_storage_key = Column(Text, nullable=True)
+    # Backblaze B2 settings (encrypted)
+    b2_key_id = Column(Text, nullable=True)
+    b2_application_key = Column(Text, nullable=True)
+    b2_region = Column(String, nullable=True)
+    # Metadata
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ============================================================================
+# Tiered Prompts and Chains (Server → Company → User)
+# ============================================================================
+# These tables implement a hierarchical configuration system for prompts and chains:
+# - Server level: Global defaults managed by super admins, available to all users
+# - Company level: Company-wide templates managed by company admins
+# - User level: Personal prompts/chains (existing Prompt and Chain tables)
+#
+# When a user tries to edit a server or company prompt/chain, a clone is created
+# at their level. Users can revert to the parent (server/company) version.
+# ============================================================================
+
+
+class ServerPromptCategory(Base):
+    """
+    Server-level prompt categories that serve as global defaults.
+    Managed by super admins, these are visible to all users.
+    """
+
+    __tablename__ = "server_prompt_category"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    # If True, this category and its prompts are for internal system use only
+    # and should not be shown to users in UI
+    is_internal = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (UniqueConstraint("name", name="uix_server_prompt_category_name"),)
+
+
+class ServerPrompt(Base):
+    """
+    Server-level prompts that serve as global defaults for all companies.
+    Managed by super admins, these cascade down: Server → Company → User.
+    Internal prompts (like "Think About It") are marked with is_internal=True
+    and are available to agents but hidden from user prompt lists.
+    """
+
+    __tablename__ = "server_prompt"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt_category.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    content = Column(Text, nullable=False)
+    # If True, this prompt is for internal agent use only (e.g., "Think About It")
+    # and should not be shown to users in prompt selection UI
+    is_internal = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    category = relationship("ServerPromptCategory", backref="prompts")
+
+    __table_args__ = (
+        UniqueConstraint("name", "category_id", name="uix_server_prompt_name_cat"),
+    )
+
+
+class ServerPromptArgument(Base):
+    """Arguments extracted from server-level prompts."""
+
+    __tablename__ = "server_prompt_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+
+    prompt = relationship("ServerPrompt", backref="arguments")
+
+
+class ServerChain(Base):
+    """
+    Server-level chains that serve as global workflow templates.
+    Managed by super admins, these cascade down: Server → Company → User.
+    """
+
+    __tablename__ = "server_chain"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    name = Column(Text, nullable=False, unique=True)
+    description = Column(Text, nullable=True, default="")
+    # If True, this chain is for internal system use only
+    is_internal = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ServerChainStep(Base):
+    """Steps for server-level chains."""
+
+    __tablename__ = "server_chain_step"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_number = Column(Integer, nullable=False)
+    # "Prompt", "Chain", "Command"
+    prompt_type = Column(Text)
+    # The target reference - could be prompt name, chain name, or command name
+    prompt = Column(Text)
+    # Agent name to use for this step (will resolve to user's agent at runtime)
+    agent_name = Column(Text, nullable=True)
+
+    chain = relationship("ServerChain", backref="steps")
+
+
+class ServerChainStepArgument(Base):
+    """Arguments for server-level chain steps."""
+
+    __tablename__ = "server_chain_step_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_step_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain_step.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    value = Column(Text, nullable=True)
+
+    chain_step = relationship("ServerChainStep", backref="arguments")
+
+
+class CompanyPromptCategory(Base):
+    """
+    Company-level prompt categories that can override server defaults.
+    Managed by company admins, these are visible to company users.
+    """
+
+    __tablename__ = "company_prompt_category"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    # Reference to server category if this is an override
+    server_category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt_category.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company")
+    server_category = relationship("ServerPromptCategory")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uix_company_prompt_category_name"),
+    )
+
+
+class CompanyPrompt(Base):
+    """
+    Company-level prompts that override server defaults or are company-specific.
+    Managed by company admins, these are visible to company users.
+    """
+
+    __tablename__ = "company_prompt"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_prompt_category.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    content = Column(Text, nullable=False)
+    # Reference to server prompt if this is an override
+    server_prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company")
+    category = relationship("CompanyPromptCategory", backref="prompts")
+    server_prompt = relationship("ServerPrompt")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "name", "category_id", name="uix_company_prompt_name_cat"
+        ),
+    )
+
+
+class CompanyPromptArgument(Base):
+    """Arguments extracted from company-level prompts."""
+
+    __tablename__ = "company_prompt_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_prompt.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+
+    prompt = relationship("CompanyPrompt", backref="arguments")
+
+
+class CompanyChain(Base):
+    """
+    Company-level chains that override server defaults or are company-specific.
+    Managed by company admins, these are visible to company users.
+    """
+
+    __tablename__ = "company_chain"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True, default="")
+    # Reference to server chain if this is an override
+    server_chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company")
+    server_chain = relationship("ServerChain")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uix_company_chain_name"),
+    )
+
+
+class CompanyChainStep(Base):
+    """Steps for company-level chains."""
+
+    __tablename__ = "company_chain_step"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_chain.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_number = Column(Integer, nullable=False)
+    prompt_type = Column(Text)
+    prompt = Column(Text)
+    agent_name = Column(Text, nullable=True)
+
+    chain = relationship("CompanyChain", backref="steps")
+
+
+class CompanyChainStepArgument(Base):
+    """Arguments for company-level chain steps."""
+
+    __tablename__ = "company_chain_step_argument"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    chain_step_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_chain_step.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    value = Column(Text, nullable=True)
+
+    chain_step = relationship("CompanyChainStep", backref="arguments")
+
+
+class UserPromptOverride(Base):
+    """
+    Tracks when a user has customized (cloned) a server or company prompt.
+    This allows users to revert to the original version.
+    """
+
+    __tablename__ = "user_prompt_override"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The user's customized prompt (in the existing Prompt table)
+    prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("prompt.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # The source prompt that was cloned - one of these will be set
+    server_prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_prompt.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    company_prompt_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_prompt.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User")
+    prompt = relationship("Prompt")
+    server_prompt = relationship("ServerPrompt")
+    company_prompt = relationship("CompanyPrompt")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "prompt_id", name="uix_user_prompt_override"),
+    )
+
+
+class UserChainOverride(Base):
+    """
+    Tracks when a user has customized (cloned) a server or company chain.
+    This allows users to revert to the original version.
+    """
+
+    __tablename__ = "user_chain_override"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The user's customized chain (in the existing Chain table)
+    chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("chain.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # The source chain that was cloned - one of these will be set
+    server_chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("server_chain.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    company_chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("company_chain.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User")
+    chain = relationship("Chain")
+    server_chain = relationship("ServerChain")
+    company_chain = relationship("CompanyChain")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "chain_id", name="uix_user_chain_override"),
+    )
 
 
 class FailedLogins(Base):
@@ -648,6 +1560,41 @@ class Message(Base):
     )
     feedback_received = Column(Boolean, default=False)
     notify = Column(Boolean, default=False, nullable=False)
+
+
+class DiscardedContext(Base):
+    """
+    Stores discarded context items that can be retrieved later if needed.
+    When a message/activity is discarded, the original content is stored here
+    and a summary replaces it in the context for token optimization.
+    """
+
+    __tablename__ = "discarded_context"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    message_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("message.id"),
+        nullable=False,
+        index=True,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=False,
+        index=True,
+    )
+    reason = Column(Text, nullable=False)  # Short reason for discarding
+    original_content = Column(Text, nullable=False)  # Full original content
+    discarded_at = Column(DateTime, server_default=func.now())
+    retrieved_at = Column(DateTime, nullable=True)  # Set when retrieved back
+    is_active = Column(Boolean, default=True)  # False when retrieved
+
+    message = relationship("Message", foreign_keys=[message_id])
+    conversation = relationship("Conversation", foreign_keys=[conversation_id])
 
 
 class Setting(Base):
@@ -1140,6 +2087,110 @@ class TokenBlacklist(Base):
     user = relationship("User", backref="blacklisted_tokens")
 
 
+class PersonalAccessToken(Base):
+    """
+    Personal Access Tokens (PATs) are similar to GitHub's personal access tokens.
+    They allow users to create API keys with specific scopes, agent access, and company access.
+    The token_hash stores a hashed version of the token for security.
+    """
+
+    __tablename__ = "personal_access_token"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # User who created this token
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Token name for identification (e.g., "CI/CD Pipeline", "Local Development")
+    name = Column(String, nullable=False)
+    # Token prefix for identification (first 8 chars, like "agixt_abc123")
+    token_prefix = Column(String(16), nullable=False, index=True)
+    # SHA-256 hash of the full token for validation
+    token_hash = Column(String(64), nullable=False, unique=True)
+    # JSON array of scope names this token has access to
+    # e.g., ["agents:read", "agents:execute", "conversations:write"]
+    scopes_json = Column(Text, nullable=False, default="[]")
+    # JSON array of agent IDs this token can access (empty = all agents user has access to)
+    agents_json = Column(Text, nullable=False, default="[]")
+    # JSON array of company IDs this token can access (empty = all companies user has access to)
+    companies_json = Column(Text, nullable=False, default="[]")
+    # Expiration date (null = never expires)
+    expires_at = Column(DateTime, nullable=True)
+    # Whether this token has been revoked
+    is_revoked = Column(Boolean, default=False, nullable=False)
+    # Last time this token was used
+    last_used_at = Column(DateTime, nullable=True)
+    # Creation timestamp
+    created_at = Column(DateTime, server_default=func.now())
+    # Update timestamp
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", backref="personal_access_tokens")
+
+
+class PersonalAccessTokenAgentAccess(Base):
+    """
+    Junction table for tokens that have access to specific agents.
+    If no entries exist for a token, it has access to all agents the user can access.
+    """
+
+    __tablename__ = "personal_access_token_agent"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    token_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("personal_access_token.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    token = relationship("PersonalAccessToken", backref="agent_access")
+    agent = relationship("Agent")
+
+
+class PersonalAccessTokenCompanyAccess(Base):
+    """
+    Junction table for tokens that have access to specific companies.
+    If no entries exist for a token, it has access to all companies the user can access.
+    """
+
+    __tablename__ = "personal_access_token_company"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    token_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("personal_access_token.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    token = relationship("PersonalAccessToken", backref="company_access")
+    company = relationship("Company")
+
+
 class PaymentTransaction(Base):
     __tablename__ = "payment_transaction"
     id = Column(
@@ -1175,11 +2226,45 @@ class PaymentTransaction(Base):
     memo = Column(String, nullable=True)
     metadata_json = Column(Text, nullable=True)
     expires_at = Column(DateTime, nullable=True)
+    # Per-app billing tracking
+    app_name = Column(
+        String, nullable=True, default=None
+    )  # The app this payment is for (e.g., "XT Systems", "NurseXT")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", backref="payment_transactions")
     company = relationship("Company", backref="payment_transactions")
+
+
+class TrialDomain(Base):
+    """
+    Tracks email domains that have used trial credits.
+    Used to prevent trial abuse by ensuring each business domain only gets trial credits once.
+    """
+
+    __tablename__ = "trial_domain"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    domain = Column(String, nullable=False, unique=True, index=True)
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    credits_granted = Column(Float, nullable=False, default=0.0)  # USD value granted
+    created_at = Column(DateTime, server_default=func.now())
+
+    company = relationship("Company", backref="trial_domains")
+    user = relationship("User", backref="trial_domains")
 
 
 class Memory(Base):
@@ -1310,14 +2395,992 @@ def get_similar_memories(
 
 
 default_roles = [
-    {"id": 1, "name": "tenant_admin", "friendly_name": "Tenant Admin"},
-    {"id": 2, "name": "company_admin", "friendly_name": "Company Admin"},
-    {"id": 3, "name": "user", "friendly_name": "User"},
-    {"id": 4, "name": "child", "friendly_name": "Child"},
-    {"id": 5, "name": "chat_user", "friendly_name": "Chat User"},
+    # display_order determines UI ordering (lower = higher in list)
+    {
+        "id": 0,
+        "name": "super_admin",
+        "friendly_name": "Super Admin",
+        "display_order": 0,
+    },
+    {
+        "id": 1,
+        "name": "tenant_admin",
+        "friendly_name": "Tenant Admin",
+        "display_order": 1,
+    },
+    {
+        "id": 2,
+        "name": "company_admin",
+        "friendly_name": "Company Admin",
+        "display_order": 2,
+    },
+    {"id": 3, "name": "user", "friendly_name": "Power User", "display_order": 3},
+    {
+        "id": 6,
+        "name": "read_only_user",
+        "friendly_name": "Read Only User",
+        "display_order": 4,
+    },
+    {"id": 5, "name": "chat_user", "friendly_name": "Chat User", "display_order": 5},
+    {"id": 4, "name": "child", "friendly_name": "Child", "display_order": 6},
 ]
 
+
+# Keyword mappings for categorizing extension commands into features
+EXTENSION_FEATURE_KEYWORDS = {
+    # Common PSA/Ticketing features
+    "tickets": [
+        "ticket",
+        "tickets",
+        "case",
+        "cases",
+        "incident",
+        "incidents",
+        "support",
+    ],
+    "companies": [
+        "company",
+        "companies",
+        "organization",
+        "organizations",
+        "client",
+        "clients",
+        "customer",
+        "customers",
+    ],
+    "contacts": ["contact", "contacts", "person", "people", "member", "members"],
+    "devices": [
+        "device",
+        "devices",
+        "configuration",
+        "configurations",
+        "asset",
+        "assets",
+        "endpoint",
+        "endpoints",
+        "machine",
+        "machines",
+    ],
+    "agreements": [
+        "agreement",
+        "agreements",
+        "contract",
+        "contracts",
+        "subscription",
+        "subscriptions",
+    ],
+    "warranty": ["warranty", "warranties"],
+    # GitHub/Version Control features
+    "repositories": ["repo", "repos", "repository", "repositories", "codebase"],
+    "issues": ["issue", "issues"],
+    "pull_requests": ["pull", "pr", "prs", "merge"],
+    "commits": ["commit", "commits"],
+    "comments": ["comment", "comments"],
+    "branches": ["branch", "branches"],
+    "files": ["file", "files", "upload", "download"],
+    # RMM/Monitoring features
+    "alerts": ["alert", "alerts", "alarm", "alarms", "warning", "warnings"],
+    "monitoring": ["monitor", "monitoring", "status", "health", "metrics"],
+    "scripts": ["script", "scripts", "command", "commands", "execute", "run"],
+    "patches": ["patch", "patches", "update", "updates"],
+    "backups": ["backup", "backups", "restore", "recovery"],
+    # Security features
+    "threats": ["threat", "threats", "malware", "virus", "detection", "quarantine"],
+    "scans": ["scan", "scans", "scanning"],
+    "policies": ["policy", "policies", "rule", "rules"],
+    "users": ["user", "users", "account", "accounts"],
+    "groups": ["group", "groups"],
+    # General CRUD patterns
+    "search": ["search", "find", "lookup", "query", "filter", "list"],
+    "create": ["create", "add", "new", "insert"],
+    "update": ["update", "modify", "edit", "change", "patch"],
+    "delete": ["delete", "remove", "destroy"],
+}
+
+
+def get_extension_names():
+    """
+    Scan all extension directories (core and hub) to get all extension names.
+    Returns a list of extension names (derived from Python filenames).
+    """
+    extension_names = set()
+
+    # Get all extension search paths from ExtensionsHub
+    try:
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        search_paths = hub.get_extension_search_paths()
+    except Exception as e:
+        logging.debug(f"Could not load ExtensionsHub: {e}")
+        # Fall back to default extensions directory
+        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        search_paths = [extensions_dir] if os.path.exists(extensions_dir) else []
+
+    for ext_dir in search_paths:
+        if os.path.exists(ext_dir) and os.path.isdir(ext_dir):
+            for filename in os.listdir(ext_dir):
+                if filename.endswith(".py") and not filename.startswith("_"):
+                    # Convert filename to extension name (e.g., "github.py" -> "github")
+                    ext_name = filename[:-3]  # Remove .py
+                    extension_names.add(ext_name)
+
+    return sorted(extension_names)
+
+
+def get_extension_path(extension_name: str) -> str:
+    """
+    Find the full path to an extension file.
+    Returns the path if found, None otherwise.
+    """
+    # Get all extension search paths from ExtensionsHub
+    try:
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        search_paths = hub.get_extension_search_paths()
+    except Exception as e:
+        logging.debug(f"Could not load ExtensionsHub: {e}")
+        # Fall back to default extensions directory
+        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        search_paths = [extensions_dir] if os.path.exists(extensions_dir) else []
+
+    for ext_dir in search_paths:
+        potential_path = os.path.join(ext_dir, f"{extension_name}.py")
+        if os.path.exists(potential_path):
+            return potential_path
+
+    return None
+
+
+def parse_extension_commands(extension_path: str) -> list:
+    """
+    Parse an extension file and extract command names from self.commands dict.
+    Returns a list of command names.
+    """
+    commands = []
+    try:
+        with open(extension_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Look for self.commands = { or self.commands = ( patterns
+        import re
+
+        # Find the commands dictionary/dict-like structure
+        # Pattern matches: self.commands = { ... } or self.commands = ( { ... } )
+        commands_pattern = r"self\.commands\s*=\s*[\{\(]([^}]+)[\}\)]"
+        match = re.search(commands_pattern, content, re.DOTALL)
+
+        if match:
+            commands_block = match.group(1)
+            # Extract command names from strings like "Get Companies": self.get_companies,
+            command_pattern = r'"([^"]+)":\s*self\.'
+            commands = re.findall(command_pattern, commands_block)
+
+    except Exception as e:
+        logging.debug(f"Could not parse commands from {extension_path}: {e}")
+
+    return commands
+
+
+def categorize_command(command_name: str) -> tuple:
+    """
+    Categorize a command name into a feature and action type.
+    Returns (feature, action) tuple.
+
+    Example: "Get Companies" -> ("companies", "read")
+             "Create New Ticket" -> ("tickets", "write")
+             "Run Script" -> ("scripts", "execute")
+    """
+    command_lower = command_name.lower()
+
+    # Determine action type from command
+    action = "read"  # default
+    if any(
+        word in command_lower for word in ["create", "add", "new", "insert", "post"]
+    ):
+        action = "write"
+    elif any(
+        word in command_lower
+        for word in ["update", "modify", "edit", "change", "patch", "set"]
+    ):
+        action = "write"
+    elif any(
+        word in command_lower for word in ["delete", "remove", "destroy", "close"]
+    ):
+        action = "delete"
+    elif any(
+        word in command_lower
+        for word in ["execute", "run", "invoke", "trigger", "send", "push"]
+    ):
+        action = "execute"
+    elif any(
+        word in command_lower
+        for word in ["get", "list", "find", "search", "fetch", "retrieve", "view"]
+    ):
+        action = "read"
+
+    # Find the feature category
+    for feature, keywords in EXTENSION_FEATURE_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in command_lower:
+                return (feature, action)
+
+    # Default to "general" if no specific feature matched
+    return ("general", action)
+
+
+def get_extension_features(extension_name: str) -> dict:
+    """
+    Get all features and their actions for a specific extension.
+    Returns a dict of {feature: set(actions)}.
+    """
+    features = {}
+
+    # Find the extension file
+    extension_path = get_extension_path(extension_name)
+
+    if not extension_path:
+        return features
+
+    # Parse commands and categorize them
+    commands = parse_extension_commands(extension_path)
+    for command in commands:
+        feature, action = categorize_command(command)
+        if feature not in features:
+            features[feature] = set()
+        features[feature].add(action)
+
+    return features
+
+
+def generate_extension_scopes():
+    """
+    Generate per-extension scopes dynamically based on discovered extensions.
+    Each extension gets three scopes: read, execute, and configure.
+    """
+    extension_scopes = []
+    extension_names = get_extension_names()
+
+    for ext_name in extension_names:
+        # Make the extension name display-friendly
+        friendly_name = ext_name.replace("_", " ").title()
+
+        # Base extension scopes (read, execute, configure for the whole extension)
+        extension_scopes.append(
+            {
+                "name": f"ext:{ext_name}:read",
+                "resource": f"ext:{ext_name}",
+                "action": "read",
+                "description": f"View {friendly_name} extension and its configuration",
+                "category": "Extensions",
+            }
+        )
+
+        extension_scopes.append(
+            {
+                "name": f"ext:{ext_name}:execute",
+                "resource": f"ext:{ext_name}",
+                "action": "execute",
+                "description": f"Execute all {friendly_name} extension commands",
+                "category": "Extensions",
+            }
+        )
+
+        extension_scopes.append(
+            {
+                "name": f"ext:{ext_name}:configure",
+                "resource": f"ext:{ext_name}",
+                "action": "configure",
+                "description": f"Configure {friendly_name} extension settings",
+                "category": "Extensions",
+            }
+        )
+
+        # Generate deep feature-level scopes by analyzing extension commands
+        features = get_extension_features(ext_name)
+        for feature, actions in features.items():
+            feature_friendly = feature.replace("_", " ").title()
+
+            for action in actions:
+                scope_name = f"ext:{ext_name}:{feature}:{action}"
+
+                # Generate description based on action type
+                if action == "read":
+                    description = f"View {feature_friendly} data in {friendly_name}"
+                elif action == "write":
+                    description = f"Create/modify {feature_friendly} in {friendly_name}"
+                elif action == "delete":
+                    description = f"Delete {feature_friendly} in {friendly_name}"
+                elif action == "execute":
+                    description = (
+                        f"Execute {feature_friendly} commands in {friendly_name}"
+                    )
+                else:
+                    description = (
+                        f"{action.title()} {feature_friendly} in {friendly_name}"
+                    )
+
+                extension_scopes.append(
+                    {
+                        "name": scope_name,
+                        "resource": f"ext:{ext_name}:{feature}",
+                        "action": action,
+                        "description": description,
+                        "category": "Extensions",
+                    }
+                )
+
+    return extension_scopes
+
+
+# Default scopes define granular permissions for the system
+# Format: resource:action
+# Categories help group scopes in the UI for easier management
+default_scopes = [
+    # Core Agent Scopes
+    {
+        "name": "agents:read",
+        "resource": "agents",
+        "action": "read",
+        "description": "View agents and their configurations",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:write",
+        "resource": "agents",
+        "action": "write",
+        "description": "Create and modify agents",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:delete",
+        "resource": "agents",
+        "action": "delete",
+        "description": "Delete agents",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:execute",
+        "resource": "agents",
+        "action": "execute",
+        "description": "Run agent prompts and commands",
+        "category": "Agents",
+    },
+    {
+        "name": "agents:train",
+        "resource": "agents",
+        "action": "train",
+        "description": "Train agents with new data",
+        "category": "Agents",
+    },
+    # Conversation Scopes
+    {
+        "name": "conversations:read",
+        "resource": "conversations",
+        "action": "read",
+        "description": "View conversations and messages",
+        "category": "Conversations",
+    },
+    {
+        "name": "conversations:write",
+        "resource": "conversations",
+        "action": "write",
+        "description": "Create and send messages",
+        "category": "Conversations",
+    },
+    {
+        "name": "conversations:delete",
+        "resource": "conversations",
+        "action": "delete",
+        "description": "Delete conversations",
+        "category": "Conversations",
+    },
+    {
+        "name": "conversations:share",
+        "resource": "conversations",
+        "action": "share",
+        "description": "Share conversations with others",
+        "category": "Conversations",
+    },
+    # Extension Scopes
+    {
+        "name": "extensions:read",
+        "resource": "extensions",
+        "action": "read",
+        "description": "View available extensions",
+        "category": "Extensions",
+    },
+    {
+        "name": "extensions:write",
+        "resource": "extensions",
+        "action": "write",
+        "description": "Configure and enable extensions",
+        "category": "Extensions",
+    },
+    {
+        "name": "extensions:execute",
+        "resource": "extensions",
+        "action": "execute",
+        "description": "Execute extension commands",
+        "category": "Extensions",
+    },
+    {
+        "name": "extensions:install",
+        "resource": "extensions",
+        "action": "install",
+        "description": "Install new extensions from hub",
+        "category": "Extensions",
+    },
+    # Memory/Knowledge Scopes
+    {
+        "name": "memories:read",
+        "resource": "memories",
+        "action": "read",
+        "description": "View agent memories and knowledge",
+        "category": "Knowledge",
+    },
+    {
+        "name": "memories:write",
+        "resource": "memories",
+        "action": "write",
+        "description": "Add memories and knowledge",
+        "category": "Knowledge",
+    },
+    {
+        "name": "memories:delete",
+        "resource": "memories",
+        "action": "delete",
+        "description": "Delete memories and knowledge",
+        "category": "Knowledge",
+    },
+    {
+        "name": "memories:export",
+        "resource": "memories",
+        "action": "export",
+        "description": "Export memories and knowledge",
+        "category": "Knowledge",
+    },
+    # Chain/Workflow Scopes
+    {
+        "name": "chains:read",
+        "resource": "chains",
+        "action": "read",
+        "description": "View chains and workflows",
+        "category": "Automation",
+    },
+    {
+        "name": "chains:write",
+        "resource": "chains",
+        "action": "write",
+        "description": "Create and modify chains",
+        "category": "Automation",
+    },
+    {
+        "name": "chains:delete",
+        "resource": "chains",
+        "action": "delete",
+        "description": "Delete chains",
+        "category": "Automation",
+    },
+    {
+        "name": "chains:execute",
+        "resource": "chains",
+        "action": "execute",
+        "description": "Run chains",
+        "category": "Automation",
+    },
+    # Prompt Scopes
+    {
+        "name": "prompts:read",
+        "resource": "prompts",
+        "action": "read",
+        "description": "View prompts",
+        "category": "Prompts",
+    },
+    {
+        "name": "prompts:write",
+        "resource": "prompts",
+        "action": "write",
+        "description": "Create and modify prompts",
+        "category": "Prompts",
+    },
+    {
+        "name": "prompts:delete",
+        "resource": "prompts",
+        "action": "delete",
+        "description": "Delete prompts",
+        "category": "Prompts",
+    },
+    {
+        "name": "prompts:share",
+        "resource": "prompts",
+        "action": "share",
+        "description": "Share prompts with company members",
+        "category": "Prompts",
+    },
+    # Server-level prompt/chain management (super admin only)
+    {
+        "name": "server:prompts",
+        "resource": "server",
+        "action": "prompts",
+        "description": "Manage server-level global prompts",
+        "category": "Super Admin",
+    },
+    {
+        "name": "server:chains",
+        "resource": "server",
+        "action": "chains",
+        "description": "Manage server-level global chains",
+        "category": "Super Admin",
+    },
+    # Company-level prompt/chain management
+    {
+        "name": "company:prompts",
+        "resource": "company",
+        "action": "prompts",
+        "description": "Manage company-wide prompts",
+        "category": "Administration",
+    },
+    {
+        "name": "company:chains",
+        "resource": "company",
+        "action": "chains",
+        "description": "Manage company-wide chains",
+        "category": "Administration",
+    },
+    {
+        "name": "chains:share",
+        "resource": "chains",
+        "action": "share",
+        "description": "Share chains with company members",
+        "category": "Automation",
+    },
+    # Company/Team Management Scopes
+    {
+        "name": "company:read",
+        "resource": "company",
+        "action": "read",
+        "description": "View company details",
+        "category": "Administration",
+    },
+    {
+        "name": "company:write",
+        "resource": "company",
+        "action": "write",
+        "description": "Modify company settings",
+        "category": "Administration",
+    },
+    {
+        "name": "company:delete",
+        "resource": "company",
+        "action": "delete",
+        "description": "Delete companies",
+        "category": "Administration",
+    },
+    {
+        "name": "company:billing",
+        "resource": "company",
+        "action": "billing",
+        "description": "Manage billing and subscriptions",
+        "category": "Administration",
+    },
+    # User Management Scopes
+    {
+        "name": "users:read",
+        "resource": "users",
+        "action": "read",
+        "description": "View team members",
+        "category": "Administration",
+    },
+    {
+        "name": "users:write",
+        "resource": "users",
+        "action": "write",
+        "description": "Invite and manage team members",
+        "category": "Administration",
+    },
+    {
+        "name": "users:delete",
+        "resource": "users",
+        "action": "delete",
+        "description": "Remove team members",
+        "category": "Administration",
+    },
+    {
+        "name": "users:roles",
+        "resource": "users",
+        "action": "roles",
+        "description": "Assign and manage user roles",
+        "category": "Administration",
+    },
+    # Role Management Scopes
+    {
+        "name": "roles:read",
+        "resource": "roles",
+        "action": "read",
+        "description": "View custom roles",
+        "category": "Administration",
+    },
+    {
+        "name": "roles:write",
+        "resource": "roles",
+        "action": "write",
+        "description": "Create and modify custom roles",
+        "category": "Administration",
+    },
+    {
+        "name": "roles:delete",
+        "resource": "roles",
+        "action": "delete",
+        "description": "Delete custom roles",
+        "category": "Administration",
+    },
+    # Webhook Scopes
+    {
+        "name": "webhooks:read",
+        "resource": "webhooks",
+        "action": "read",
+        "description": "View webhooks",
+        "category": "Integrations",
+    },
+    {
+        "name": "webhooks:write",
+        "resource": "webhooks",
+        "action": "write",
+        "description": "Create and modify webhooks",
+        "category": "Integrations",
+    },
+    {
+        "name": "webhooks:delete",
+        "resource": "webhooks",
+        "action": "delete",
+        "description": "Delete webhooks",
+        "category": "Integrations",
+    },
+    # Provider/OAuth Scopes
+    {
+        "name": "providers:read",
+        "resource": "providers",
+        "action": "read",
+        "description": "View connected providers",
+        "category": "Integrations",
+    },
+    {
+        "name": "providers:write",
+        "resource": "providers",
+        "action": "write",
+        "description": "Connect and configure providers",
+        "category": "Integrations",
+    },
+    {
+        "name": "providers:delete",
+        "resource": "providers",
+        "action": "delete",
+        "description": "Disconnect providers",
+        "category": "Integrations",
+    },
+    # API Key Scopes
+    {
+        "name": "apikeys:read",
+        "resource": "apikeys",
+        "action": "read",
+        "description": "View API keys",
+        "category": "Security",
+    },
+    {
+        "name": "apikeys:write",
+        "resource": "apikeys",
+        "action": "write",
+        "description": "Create API keys",
+        "category": "Security",
+    },
+    {
+        "name": "apikeys:delete",
+        "resource": "apikeys",
+        "action": "delete",
+        "description": "Revoke API keys",
+        "category": "Security",
+    },
+    # Secret Management Scopes
+    {
+        "name": "secrets:read",
+        "resource": "secrets",
+        "action": "read",
+        "description": "View secrets",
+        "category": "Security",
+    },
+    {
+        "name": "secrets:write",
+        "resource": "secrets",
+        "action": "write",
+        "description": "Create and update secrets",
+        "category": "Security",
+    },
+    {
+        "name": "secrets:delete",
+        "resource": "secrets",
+        "action": "delete",
+        "description": "Delete secrets",
+        "category": "Security",
+    },
+    # Billing Scopes
+    {
+        "name": "billing:read",
+        "resource": "billing",
+        "action": "read",
+        "description": "View billing information",
+        "category": "Billing",
+    },
+    {
+        "name": "billing:write",
+        "resource": "billing",
+        "action": "write",
+        "description": "Update payment methods and subscriptions",
+        "category": "Billing",
+    },
+    {
+        "name": "billing:admin",
+        "resource": "billing",
+        "action": "admin",
+        "description": "Full billing administration access",
+        "category": "Billing",
+    },
+    # Asset Management Scopes
+    {
+        "name": "assets:read",
+        "resource": "assets",
+        "action": "read",
+        "description": "View assets and files",
+        "category": "Assets",
+    },
+    {
+        "name": "assets:write",
+        "resource": "assets",
+        "action": "write",
+        "description": "Upload and modify assets",
+        "category": "Assets",
+    },
+    {
+        "name": "assets:delete",
+        "resource": "assets",
+        "action": "delete",
+        "description": "Delete assets",
+        "category": "Assets",
+    },
+    # Ticket/Support Scopes
+    {
+        "name": "tickets:read",
+        "resource": "tickets",
+        "action": "read",
+        "description": "View support tickets",
+        "category": "Support",
+    },
+    {
+        "name": "tickets:write",
+        "resource": "tickets",
+        "action": "write",
+        "description": "Create and respond to tickets",
+        "category": "Support",
+    },
+    {
+        "name": "tickets:manage",
+        "resource": "tickets",
+        "action": "manage",
+        "description": "Manage all tickets",
+        "category": "Support",
+    },
+    # Activity Scopes
+    {
+        "name": "activity:read",
+        "resource": "activity",
+        "action": "read",
+        "description": "View activity logs",
+        "category": "Monitoring",
+    },
+    {
+        "name": "activity:export",
+        "resource": "activity",
+        "action": "export",
+        "description": "Export activity logs",
+        "category": "Monitoring",
+    },
+    # UI Feature Scopes
+    {
+        "name": "ui:settings",
+        "resource": "ui",
+        "action": "settings",
+        "description": "Access settings panel",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:admin_panel",
+        "resource": "ui",
+        "action": "admin_panel",
+        "description": "Access admin sections",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:voice_only_mode",
+        "resource": "ui",
+        "action": "voice_only_mode",
+        "description": "Restricted voice-only interface",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:full_chat",
+        "resource": "ui",
+        "action": "full_chat",
+        "description": "Full chat interface with all features",
+        "category": "UI Features",
+    },
+    {
+        "name": "ui:developer_mode",
+        "resource": "ui",
+        "action": "developer_mode",
+        "description": "Toggle developer mode",
+        "category": "UI Features",
+    },
+    # Super Admin Only Scopes
+    {
+        "name": "server:admin",
+        "resource": "server",
+        "action": "admin",
+        "description": "Full server administration access",
+        "category": "Super Admin",
+    },
+    {
+        "name": "companies:manage",
+        "resource": "companies",
+        "action": "manage",
+        "description": "Manage all companies on server",
+        "category": "Super Admin",
+    },
+    {
+        "name": "users:impersonate",
+        "resource": "users",
+        "action": "impersonate",
+        "description": "Impersonate other users",
+        "category": "Super Admin",
+    },
+]
+
+# Define which scopes each default role has
+# Lower role_id = higher privileges
+default_role_scopes = {
+    0: ["*"],  # super_admin: all scopes (wildcard)
+    1: [  # tenant_admin: full company management
+        "agents:*",
+        "conversations:*",
+        "extensions:*",
+        "memories:*",
+        "chains:*",
+        "prompts:*",
+        "company:*",
+        "users:*",
+        "roles:*",
+        "webhooks:*",
+        "providers:*",
+        "apikeys:*",
+        "secrets:*",
+        "billing:*",
+        "assets:*",
+        "tickets:*",
+        "activity:*",
+        "ui:settings",
+        "ui:admin_panel",
+        "ui:full_chat",
+        "ui:developer_mode",
+        "ext:*",  # All extension-specific scopes
+    ],
+    2: [  # company_admin: company management without some admin features
+        "agents:*",
+        "conversations:*",
+        "extensions:*",
+        "memories:*",
+        "chains:*",
+        "prompts:*",
+        "company:read",
+        "company:write",
+        "company:prompts",  # Manage company-wide prompts
+        "company:chains",  # Manage company-wide chains
+        "users:read",
+        "users:write",
+        "roles:read",
+        "webhooks:*",
+        "providers:*",
+        "apikeys:*",
+        "secrets:read",
+        "secrets:write",
+        "billing:read",
+        "billing:write",
+        "assets:*",
+        "tickets:*",
+        "activity:read",
+        "ui:settings",
+        "ui:admin_panel",
+        "ui:full_chat",
+        "ui:developer_mode",
+        "ext:*",  # All extension-specific scopes
+    ],
+    3: [  # user: standard access
+        "agents:read",
+        "agents:execute",
+        "conversations:*",
+        "extensions:read",
+        "extensions:execute",
+        "memories:read",
+        "memories:write",
+        "chains:read",
+        "chains:execute",
+        "prompts:read",
+        "apikeys:*",
+        "assets:read",
+        "assets:write",
+        "tickets:read",
+        "tickets:write",
+        "activity:read",
+        "ui:settings",
+        "ui:full_chat",
+        "ext:*:read",
+        "ext:*:write",
+        "ext:*:execute",  # Can read, write, and execute all extensions, but not configure
+    ],
+    4: [  # child: restricted voice-only access
+        "agents:execute",
+        "conversations:read",
+        "conversations:write",
+        "ui:voice_only_mode",
+        # No extension access for child users
+    ],
+    5: [  # chat_user: chat only
+        "agents:execute",
+        "conversations:read",
+        "conversations:write",
+        "ui:full_chat",
+        # Limited extension access - only execute through agent
+    ],
+    6: [  # read_only_user: read-only access to everything user has
+        "agents:read",
+        "conversations:read",
+        "extensions:read",
+        "memories:read",
+        "chains:read",
+        "prompts:read",
+        "assets:read",
+        "tickets:read",
+        "activity:read",
+        "ui:settings",
+        "ui:full_chat",
+        "ext:*:read",  # Can read all extensions, but not write or execute
+    ],
+}
+
 default_extension_categories = [
+    {
+        "name": "AI Provider",
+        "description": "AI inference providers for text generation, image generation, text-to-speech, transcription, and other AI capabilities. These extensions provide the underlying AI services used by agents.",
+    },
     {
         "name": "Core Abilities",
         "description": "Essential artificial intelligence abilities like workspace file management, data analysis, note taking, and more",
@@ -1433,6 +3496,13 @@ def migrate_company_table():
                 ("auto_topup_amount_usd", "REAL"),
                 ("stripe_customer_id", "TEXT"),
                 ("stripe_subscription_id", "TEXT"),
+                # Per-app billing tracking
+                ("app_name", "TEXT"),
+                ("last_subscription_billing_date", "TIMESTAMP"),
+                # Trial credits tracking
+                ("trial_credits_granted", "REAL"),
+                ("trial_credits_granted_at", "TIMESTAMP"),
+                ("trial_domain", "TEXT"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -1480,6 +3550,13 @@ def migrate_company_table():
                             pg_column_def = "BOOLEAN DEFAULT false"
                         elif column_name == "auto_topup_amount_usd":
                             pg_column_def = "DOUBLE PRECISION"
+                        elif column_name in (
+                            "last_subscription_billing_date",
+                            "trial_credits_granted_at",
+                        ):
+                            pg_column_def = "TIMESTAMP"
+                        elif column_name == "trial_credits_granted":
+                            pg_column_def = "DOUBLE PRECISION"
                         else:
                             pg_column_def = "TEXT"
 
@@ -1496,45 +3573,53 @@ def migrate_company_table():
 
 def migrate_payment_transaction_table():
     """
-    Migration function to add token_amount column to payment_transaction table.
-    This supports the new token-based billing system.
+    Migration function to add token_amount and app_name columns to payment_transaction table.
+    This supports the new token-based billing system and per-app billing tracking.
     """
     if engine is None:
         return
 
     try:
         with get_db_session() as session:
+            columns_to_add = [
+                ("token_amount", "INTEGER"),
+                ("app_name", "TEXT"),
+            ]
+
             if DATABASE_TYPE == "sqlite":
                 # For SQLite, check if column exists
                 result = session.execute(text("PRAGMA table_info(payment_transaction)"))
                 existing_columns = [row[1] for row in result.fetchall()]
 
-                if "token_amount" not in existing_columns:
-                    session.execute(
-                        text(
-                            "ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER"
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE payment_transaction ADD COLUMN {column_name} {column_def}"
+                            )
                         )
-                    )
-                    session.commit()
+                        session.commit()
             else:
                 # For PostgreSQL, check if column exists
-                result = session.execute(
-                    text(
-                        """
-                        SELECT column_name 
-                        FROM information_schema.columns 
-                        WHERE table_name = 'payment_transaction' AND column_name = 'token_amount'
-                    """
-                    )
-                )
-
-                if not result.fetchone():
-                    session.execute(
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
                         text(
-                            "ALTER TABLE payment_transaction ADD COLUMN token_amount INTEGER"
-                        )
+                            """
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_name = 'payment_transaction' AND column_name = :column_name
+                        """
+                        ),
+                        {"column_name": column_name},
                     )
-                    session.commit()
+
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f"ALTER TABLE payment_transaction ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
 
     except Exception as e:
         logging.debug(
@@ -1827,6 +3912,99 @@ def migrate_user_table():
         logging.error(f"Error migrating user table: {e}")
 
 
+def migrate_discarded_context_table():
+    """
+    Migration function to create the discarded_context table if it doesn't exist.
+    This table stores discarded context items for token optimization with the ability
+    to retrieve them later if needed.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Check if table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='discarded_context'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE discarded_context (
+                                id TEXT PRIMARY KEY,
+                                message_id TEXT NOT NULL,
+                                conversation_id TEXT NOT NULL,
+                                reason TEXT NOT NULL,
+                                original_content TEXT NOT NULL,
+                                discarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                retrieved_at TIMESTAMP,
+                                is_active BOOLEAN DEFAULT 1,
+                                FOREIGN KEY (message_id) REFERENCES message(id),
+                                FOREIGN KEY (conversation_id) REFERENCES conversation(id)
+                            )
+                            """
+                        )
+                    )
+                    # Create indexes
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_message_id ON discarded_context(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_conversation_id ON discarded_context(conversation_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created discarded_context table")
+            else:
+                # PostgreSQL
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'discarded_context'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE discarded_context (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                message_id UUID NOT NULL REFERENCES message(id),
+                                conversation_id UUID NOT NULL REFERENCES conversation(id),
+                                reason TEXT NOT NULL,
+                                original_content TEXT NOT NULL,
+                                discarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                retrieved_at TIMESTAMP,
+                                is_active BOOLEAN DEFAULT TRUE
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_message_id ON discarded_context(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_discarded_context_conversation_id ON discarded_context(conversation_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created discarded_context table")
+    except Exception as e:
+        logging.error(f"Error creating discarded_context table: {e}")
+
+
 def migrate_cleanup_duplicate_wallet_settings():
     """
     Migration function to clean up duplicate Solana wallet settings per agent.
@@ -1912,14 +4090,2290 @@ def migrate_cleanup_duplicate_wallet_settings():
         logging.error(f"Error cleaning up duplicate wallet settings: {e}")
 
 
+def migrate_extension_settings_tables():
+    """
+    Migration function to create the server_extension_setting and company_extension_setting
+    tables if they don't exist. These tables store hierarchical extension settings that
+    cascade: Server → Company → User.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Check if server_extension_setting table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='server_extension_setting'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_setting (
+                                id TEXT PRIMARY KEY,
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT 0,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE(extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_setting_name ON server_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_setting table")
+
+                # Check if company_extension_setting table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='company_extension_setting'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_setting (
+                                id TEXT PRIMARY KEY,
+                                company_id TEXT NOT NULL,
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT 0,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (company_id) REFERENCES company(id),
+                                UNIQUE(company_id, extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_company ON company_extension_setting(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_name ON company_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_setting table")
+
+                # Check if server_extension_command table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='server_extension_command'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_command (
+                                id TEXT PRIMARY KEY,
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT 0,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE(extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_command_name ON server_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_command table")
+
+                # Check if company_extension_command table exists
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='company_extension_command'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_command (
+                                id TEXT PRIMARY KEY,
+                                company_id TEXT NOT NULL,
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT 0,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (company_id) REFERENCES company(id),
+                                UNIQUE(company_id, extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_company ON company_extension_command(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_name ON company_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_command table")
+            else:
+                # PostgreSQL
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'server_extension_setting'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_setting (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT FALSE,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_server_ext_setting UNIQUE(extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_setting_name ON server_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_setting table")
+
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'company_extension_setting'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_setting (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                company_id UUID NOT NULL REFERENCES company(id),
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT FALSE,
+                                description TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_company_ext_setting UNIQUE(company_id, extension_name, setting_key)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_company ON company_extension_setting(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_name ON company_extension_setting(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_setting table")
+
+                # Check if server_extension_command table exists
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'server_extension_command'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE server_extension_command (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT FALSE,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_server_ext_command UNIQUE(extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_server_ext_command_name ON server_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created server_extension_command table")
+
+                # Check if company_extension_command table exists
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables 
+                        WHERE table_name = 'company_extension_command'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_command (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                company_id UUID NOT NULL REFERENCES company(id),
+                                extension_name TEXT NOT NULL,
+                                command_name TEXT NOT NULL,
+                                enabled BOOLEAN DEFAULT FALSE,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT uix_company_ext_command UNIQUE(company_id, extension_name, command_name)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_company ON company_extension_command(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_company_ext_command_name ON company_extension_command(extension_name)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created company_extension_command table")
+    except Exception as e:
+        logging.error(f"Error creating extension settings tables: {e}")
+
+
+def migrate_server_config_categories():
+    """
+    Migration function to update server config categories from definitions.
+    This ensures that if category definitions are changed (e.g., splitting 'storage'
+    into 'storage_aws', 'storage_azure', 'storage_b2'), existing database records
+    are updated to match the new structure.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # Build a map of config name -> category from definitions
+            config_category_map = {
+                d["name"]: d["category"] for d in SERVER_CONFIG_DEFINITIONS
+            }
+
+            # Get all server configs
+            configs = session.query(ServerConfig).all()
+            updated_count = 0
+
+            for config in configs:
+                expected_category = config_category_map.get(config.name)
+                if expected_category and config.category != expected_category:
+                    old_category = config.category
+                    config.category = expected_category
+                    updated_count += 1
+                    logging.debug(
+                        f"Updated server config '{config.name}' category: {old_category} -> {expected_category}"
+                    )
+
+            if updated_count > 0:
+                session.commit()
+                logging.info(
+                    f"Updated {updated_count} server config categories to match definitions"
+                )
+
+    except Exception as e:
+        logging.error(f"Error migrating server config categories: {e}")
+
+
+def migrate_company_storage_settings_table():
+    """
+    Migration function to create the company_storage_setting table.
+    This allows companies to configure their own cloud storage for agent workspaces.
+    """
+    if engine is None:
+        return
+
+    try:
+        inspector = inspect(engine)
+
+        # Check if table exists
+        if "company_storage_setting" not in inspector.get_table_names():
+            CompanyStorageSetting.__table__.create(engine)
+            logging.info("Created company_storage_setting table")
+        else:
+            # Table exists, check for missing columns
+            existing_columns = {
+                col["name"] for col in inspector.get_columns("company_storage_setting")
+            }
+            expected_columns = {
+                "id",
+                "company_id",
+                "storage_backend",
+                "storage_container",
+                "aws_access_key_id",
+                "aws_secret_access_key",
+                "aws_region",
+                "s3_endpoint",
+                "s3_bucket",
+                "azure_storage_account_name",
+                "azure_storage_key",
+                "b2_key_id",
+                "b2_application_key",
+                "b2_region",
+                "created_at",
+                "updated_at",
+            }
+            missing_columns = expected_columns - existing_columns
+
+            if missing_columns:
+                with engine.begin() as connection:
+                    for col_name in missing_columns:
+                        col = getattr(CompanyStorageSetting, col_name, None)
+                        if col is not None:
+                            col_type = col.type.compile(engine.dialect)
+                            default = "NULL"
+                            connection.execute(
+                                text(
+                                    f"ALTER TABLE company_storage_setting ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                                )
+                            )
+                            logging.info(
+                                f"Added column {col_name} to company_storage_setting table"
+                            )
+    except Exception as e:
+        logging.error(f"Error migrating company_storage_setting table: {e}")
+
+
+def migrate_role_table():
+    """
+    Migration function to add new columns to the Role table and ensure
+    all default roles exist with correct data.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("display_order", "INTEGER DEFAULT 100"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text('PRAGMA table_info("Role")'))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Role" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Role table")
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'Role' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Role" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Role table")
+    except Exception as e:
+        logging.error(f"Error migrating Role table: {e}")
+
+
 def setup_default_roles():
+    """
+    Set up default system roles. Creates new roles if they don't exist,
+    and updates existing roles with any new fields (like display_order).
+    """
     with get_session() as db:
         for role in default_roles:
             existing_role = db.query(UserRole).filter_by(id=role["id"]).first()
             if not existing_role:
                 new_role = UserRole(**role)
                 db.add(new_role)
+                logging.info(f"Created default role: {role['name']} (id={role['id']})")
+            else:
+                # Update existing role with any new fields
+                updated = False
+                if existing_role.display_order != role.get("display_order"):
+                    existing_role.display_order = role.get("display_order", 100)
+                    updated = True
+                if existing_role.friendly_name != role.get("friendly_name"):
+                    existing_role.friendly_name = role.get("friendly_name")
+                    updated = True
+                if updated:
+                    logging.info(
+                        f"Updated default role: {role['name']} (id={role['id']})"
+                    )
         db.commit()
+
+
+def setup_default_scopes():
+    """
+    Set up the default scopes in the database.
+    Scopes define granular permissions that can be assigned to roles.
+    Also generates per-extension scopes dynamically.
+    """
+    # Combine static default scopes with dynamically generated extension scopes
+    extension_scopes = generate_extension_scopes()
+    all_scopes = default_scopes + extension_scopes
+
+    with get_session() as db:
+        for scope_data in all_scopes:
+            existing_scope = db.query(Scope).filter_by(name=scope_data["name"]).first()
+            if not existing_scope:
+                new_scope = Scope(
+                    name=scope_data["name"],
+                    resource=scope_data["resource"],
+                    action=scope_data["action"],
+                    description=scope_data.get("description"),
+                    category=scope_data.get("category"),
+                    is_system=True,
+                )
+                db.add(new_scope)
+        db.commit()
+        logging.info(
+            f"Set up {len(default_scopes)} default scopes + {len(extension_scopes)} extension scopes"
+        )
+
+
+def setup_default_role_scopes():
+    """
+    Set up the mapping between default roles and their scopes.
+    This defines what permissions each default role level has.
+    """
+    with get_session() as db:
+        # Get all scopes for pattern matching
+        all_scopes = db.query(Scope).all()
+        scope_map = {s.name: s for s in all_scopes}
+
+        for role_id, scope_patterns in default_role_scopes.items():
+            # Get the role
+            role = db.query(UserRole).filter_by(id=role_id).first()
+            if not role:
+                continue
+
+            # Expand wildcard patterns
+            scopes_to_assign = set()
+            for pattern in scope_patterns:
+                if pattern == "*":
+                    # All scopes
+                    scopes_to_assign.update(scope_map.keys())
+                elif pattern == "ext:*":
+                    # All extension scopes
+                    for scope_name in scope_map.keys():
+                        if scope_name.startswith("ext:"):
+                            scopes_to_assign.add(scope_name)
+                elif pattern.startswith("ext:*:"):
+                    # Action wildcard for all extensions (e.g., "ext:*:read")
+                    action = pattern.split(":")[-1]
+                    for scope_name in scope_map.keys():
+                        if scope_name.startswith("ext:") and scope_name.endswith(
+                            f":{action}"
+                        ):
+                            scopes_to_assign.add(scope_name)
+                elif pattern.endswith(":*"):
+                    # Resource wildcard (e.g., "agents:*", "ext:github:*")
+                    resource = pattern[:-2]
+                    for scope_name in scope_map.keys():
+                        if scope_name.startswith(f"{resource}:"):
+                            scopes_to_assign.add(scope_name)
+                else:
+                    # Exact match
+                    if pattern in scope_map:
+                        scopes_to_assign.add(pattern)
+
+            # Create DefaultRoleScope entries
+            for scope_name in scopes_to_assign:
+                scope = scope_map.get(scope_name)
+                if not scope:
+                    continue
+
+                existing = (
+                    db.query(DefaultRoleScope)
+                    .filter_by(role_id=role_id, scope_id=scope.id)
+                    .first()
+                )
+                if not existing:
+                    role_scope = DefaultRoleScope(
+                        role_id=role_id,
+                        scope_id=scope.id,
+                    )
+                    db.add(role_scope)
+
+        db.commit()
+        logging.info("Set up default role scope mappings")
+
+
+def reseed_extension_scopes():
+    """
+    Re-seed extension scopes when new extensions are added (e.g., via hot-reload).
+    This function:
+    1. Creates any missing extension scopes in the Scope table
+    2. Assigns new scopes to roles based on default_role_scopes patterns
+
+    Returns:
+        Dict with counts of scopes and role assignments created
+    """
+    results = {
+        "scopes_created": 0,
+        "role_assignments_created": 0,
+        "errors": [],
+    }
+
+    try:
+        # Generate all extension scopes that should exist
+        extension_scopes = generate_extension_scopes()
+
+        with get_session() as db:
+            # Step 1: Create any missing scopes
+            existing_scope_names = {s.name for s in db.query(Scope.name).all()}
+
+            for scope_data in extension_scopes:
+                if scope_data["name"] not in existing_scope_names:
+                    new_scope = Scope(
+                        name=scope_data["name"],
+                        resource=scope_data["resource"],
+                        action=scope_data["action"],
+                        description=scope_data.get("description"),
+                        category=scope_data.get("category"),
+                        is_system=True,
+                    )
+                    db.add(new_scope)
+                    results["scopes_created"] += 1
+
+            db.commit()
+
+            # Step 2: Get all scopes (including newly created ones)
+            all_scopes = db.query(Scope).all()
+            scope_map = {s.name: s for s in all_scopes}
+
+            # Step 3: Assign new extension scopes to roles based on patterns
+            for role_id, scope_patterns in default_role_scopes.items():
+                # Get the role
+                role = db.query(UserRole).filter_by(id=role_id).first()
+                if not role:
+                    continue
+
+                # Get existing scope assignments for this role
+                existing_assignments = {
+                    rs.scope_id
+                    for rs in db.query(DefaultRoleScope)
+                    .filter_by(role_id=role_id)
+                    .all()
+                }
+
+                # Expand wildcard patterns
+                scopes_to_assign = set()
+                for pattern in scope_patterns:
+                    if pattern == "*":
+                        # All scopes
+                        scopes_to_assign.update(scope_map.keys())
+                    elif pattern == "ext:*":
+                        # All extension scopes
+                        for scope_name in scope_map.keys():
+                            if scope_name.startswith("ext:"):
+                                scopes_to_assign.add(scope_name)
+                    elif pattern.startswith("ext:*:"):
+                        # Action wildcard for all extensions (e.g., "ext:*:read")
+                        action = pattern.split(":")[-1]
+                        for scope_name in scope_map.keys():
+                            if scope_name.startswith("ext:") and scope_name.endswith(
+                                f":{action}"
+                            ):
+                                scopes_to_assign.add(scope_name)
+                    elif pattern.endswith(":*"):
+                        # Resource wildcard (e.g., "agents:*", "ext:github:*")
+                        resource = pattern[:-2]
+                        for scope_name in scope_map.keys():
+                            if scope_name.startswith(f"{resource}:"):
+                                scopes_to_assign.add(scope_name)
+                    else:
+                        # Exact match
+                        if pattern in scope_map:
+                            scopes_to_assign.add(pattern)
+
+                # Create missing DefaultRoleScope entries
+                for scope_name in scopes_to_assign:
+                    scope = scope_map.get(scope_name)
+                    if not scope:
+                        continue
+
+                    if scope.id not in existing_assignments:
+                        role_scope = DefaultRoleScope(
+                            role_id=role_id,
+                            scope_id=scope.id,
+                        )
+                        db.add(role_scope)
+                        results["role_assignments_created"] += 1
+
+            db.commit()
+
+        logging.info(
+            f"Reseeded extension scopes: {results['scopes_created']} scopes created, "
+            f"{results['role_assignments_created']} role assignments created"
+        )
+
+    except Exception as e:
+        results["errors"].append(str(e))
+        logging.error(f"Error reseeding extension scopes: {e}")
+
+    return results
+
+
+def migrate_response_cache_table():
+    """
+    Migration function to create the response_cache table for shared caching across workers.
+    This table stores cached API responses with automatic TTL expiration.
+    """
+    if engine is None:
+        return
+
+    try:
+        inspector = inspect(engine)
+        existing_tables = inspector.get_table_names()
+
+        if "response_cache" not in existing_tables:
+            ResponseCache.__table__.create(engine)
+            logging.info("Created response_cache table")
+        else:
+            logging.debug("response_cache table already exists")
+
+    except Exception as e:
+        logging.error(f"Error migrating response_cache table: {e}")
+
+
+def cleanup_expired_cache():
+    """
+    Remove expired cache entries from the database.
+    Should be called periodically (e.g., on startup, or via scheduled task).
+    """
+    if engine is None:
+        return 0
+
+    try:
+        with get_db_session() as session:
+            from datetime import datetime
+
+            result = session.execute(
+                text("DELETE FROM response_cache WHERE expires_at < :now"),
+                {"now": datetime.utcnow()},
+            )
+            deleted_count = result.rowcount
+            session.commit()
+
+            if deleted_count > 0:
+                logging.info(f"Cleaned up {deleted_count} expired cache entries")
+
+            return deleted_count
+    except Exception as e:
+        logging.warning(f"Error cleaning up expired cache: {e}")
+        return 0
+
+
+def migrate_tiered_prompts_chains_tables():
+    """
+    Migration function to create the tiered prompts and chains tables.
+    These tables implement a hierarchical configuration system:
+    Server → Company → User (each level can override the previous).
+
+    Tables created:
+    - server_prompt_category, server_prompt, server_prompt_argument
+    - server_chain, server_chain_step, server_chain_step_argument
+    - company_prompt_category, company_prompt, company_prompt_argument
+    - company_chain, company_chain_step, company_chain_step_argument
+    - user_prompt_override, user_chain_override (for tracking customizations)
+    """
+    if engine is None:
+        return
+
+    tables_to_create = [
+        ServerPromptCategory,
+        ServerPrompt,
+        ServerPromptArgument,
+        ServerChain,
+        ServerChainStep,
+        ServerChainStepArgument,
+        CompanyPromptCategory,
+        CompanyPrompt,
+        CompanyPromptArgument,
+        CompanyChain,
+        CompanyChainStep,
+        CompanyChainStepArgument,
+        UserPromptOverride,
+        UserChainOverride,
+    ]
+
+    try:
+        inspector = inspect(engine)
+        existing_tables = inspector.get_table_names()
+
+        for table_class in tables_to_create:
+            table_name = table_class.__tablename__
+            if table_name not in existing_tables:
+                try:
+                    table_class.__table__.create(engine)
+                    logging.info(f"Created table: {table_name}")
+                except Exception as table_error:
+                    logging.warning(
+                        f"Could not create table {table_name}: {table_error}"
+                    )
+            else:
+                logging.debug(f"Table {table_name} already exists")
+
+        logging.info("Tiered prompts and chains tables migration complete")
+
+    except Exception as e:
+        logging.error(f"Error migrating tiered prompts and chains tables: {e}")
+
+
+# Server configuration definitions
+# These define all configurable settings and their metadata
+SERVER_CONFIG_DEFINITIONS = [
+    # ========================================
+    # App Settings (includes URIs and general app config)
+    # ========================================
+    {
+        "name": "APP_NAME",
+        "category": "app_settings",
+        "description": "Application name displayed in the UI",
+        "value_type": "string",
+        "default_value": "AGiXT",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "APP_DESCRIPTION",
+        "category": "app_settings",
+        "description": "Application description for SEO and UI",
+        "value_type": "string",
+        "default_value": "AGiXT is an advanced artificial intelligence agent orchestration platform.",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_FOOTER_MESSAGE",
+        "category": "app_settings",
+        "description": "Footer message displayed in the UI",
+        "value_type": "string",
+        "default_value": "AGiXT 2025",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_URI",
+        "category": "app_settings",
+        "description": "Backend API server URI (internal)",
+        "value_type": "url",
+        "default_value": "http://localhost:7437",
+        "is_sensitive": False,
+        "is_required": True,
+    },
+    {
+        "name": "APP_URI",
+        "category": "app_settings",
+        "description": "Frontend application URI (public facing)",
+        "value_type": "url",
+        "default_value": "http://localhost:3437",
+        "is_sensitive": False,
+        "is_required": True,
+    },
+    {
+        "name": "AGIXT_SERVER",
+        "category": "app_settings",
+        "description": "Backend server URL for frontend to connect to",
+        "value_type": "url",
+        "default_value": "http://localhost:7437",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "REGISTRATION_DISABLED",
+        "category": "app_settings",
+        "description": "Disable new user registration",
+        "value_type": "boolean",
+        "default_value": "false",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ALLOW_EMAIL_SIGN_IN",
+        "category": "app_settings",
+        "description": "Allow users to sign in with email magic links",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # AI Provider Settings
+    # ========================================
+    # OpenAI
+    {
+        "name": "OPENAI_API_KEY",
+        "category": "ai_providers",
+        "description": "OpenAI API Key for GPT models. Get at https://platform.openai.com/api-keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "OPENAI_MODEL",
+        "category": "ai_providers",
+        "description": "Default OpenAI model to use",
+        "value_type": "string",
+        "default_value": "chatgpt-4o-latest",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "OPENAI_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for OpenAI responses",
+        "value_type": "integer",
+        "default_value": "128000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Anthropic
+    {
+        "name": "ANTHROPIC_API_KEY",
+        "category": "ai_providers",
+        "description": "Anthropic API Key for Claude models. Get at https://console.anthropic.com/",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "ANTHROPIC_MODEL",
+        "category": "ai_providers",
+        "description": "Default Anthropic model to use",
+        "value_type": "string",
+        "default_value": "claude-sonnet-4-20250514",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ANTHROPIC_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Anthropic responses",
+        "value_type": "integer",
+        "default_value": "140000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Google Gemini
+    {
+        "name": "GOOGLE_API_KEY",
+        "category": "ai_providers",
+        "description": "Google AI API Key for Gemini models. Get at https://aistudio.google.com/apikey",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "GOOGLE_MODEL",
+        "category": "ai_providers",
+        "description": "Default Google Gemini model to use",
+        "value_type": "string",
+        "default_value": "gemini-2.0-flash-exp",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GOOGLE_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Google Gemini responses",
+        "value_type": "integer",
+        "default_value": "1048000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # xAI (Grok)
+    {
+        "name": "XAI_API_KEY",
+        "category": "ai_providers",
+        "description": "xAI API Key for Grok models. Get at https://console.x.ai/",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "XAI_MODEL",
+        "category": "ai_providers",
+        "description": "Default xAI Grok model to use",
+        "value_type": "string",
+        "default_value": "grok-beta",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "XAI_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for xAI responses",
+        "value_type": "integer",
+        "default_value": "120000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # DeepSeek
+    {
+        "name": "DEEPSEEK_API_KEY",
+        "category": "ai_providers",
+        "description": "DeepSeek API Key. Get at https://platform.deepseek.com/",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPSEEK_MODEL",
+        "category": "ai_providers",
+        "description": "Default DeepSeek model to use",
+        "value_type": "string",
+        "default_value": "deepseek-chat",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPSEEK_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for DeepSeek responses",
+        "value_type": "integer",
+        "default_value": "60000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Azure OpenAI
+    {
+        "name": "AZURE_API_KEY",
+        "category": "ai_providers",
+        "description": "Azure OpenAI API Key",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_OPENAI_ENDPOINT",
+        "category": "ai_providers",
+        "description": "Azure OpenAI endpoint URL",
+        "value_type": "url",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_MODEL",
+        "category": "ai_providers",
+        "description": "Default Azure OpenAI model/deployment name",
+        "value_type": "string",
+        "default_value": "gpt-4o",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Azure OpenAI responses",
+        "value_type": "integer",
+        "default_value": "100000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # OpenRouter
+    {
+        "name": "OPENROUTER_API_KEY",
+        "category": "ai_providers",
+        "description": "OpenRouter API Key for multi-model access. Get at https://openrouter.ai/keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "OPENROUTER_MODEL",
+        "category": "ai_providers",
+        "description": "Default OpenRouter model to use",
+        "value_type": "string",
+        "default_value": "openai/gpt-4o",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "OPENROUTER_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for OpenRouter responses",
+        "value_type": "integer",
+        "default_value": "16384",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # DeepInfra
+    {
+        "name": "DEEPINFRA_API_KEY",
+        "category": "ai_providers",
+        "description": "DeepInfra API Key. Get at https://deepinfra.com",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPINFRA_MODEL",
+        "category": "ai_providers",
+        "description": "Default DeepInfra model to use",
+        "value_type": "string",
+        "default_value": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "DEEPINFRA_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for DeepInfra responses",
+        "value_type": "integer",
+        "default_value": "128000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Chutes.ai
+    {
+        "name": "CHUTES_API_KEY",
+        "category": "ai_providers",
+        "description": "Chutes.ai API Key. Get at https://chutes.ai/app",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "CHUTES_MODEL",
+        "category": "ai_providers",
+        "description": "Default Chutes.ai model to use",
+        "value_type": "string",
+        "default_value": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "CHUTES_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Chutes.ai responses",
+        "value_type": "integer",
+        "default_value": "128000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Hugging Face
+    {
+        "name": "HUGGINGFACE_API_KEY",
+        "category": "ai_providers",
+        "description": "Hugging Face API Key. Get at https://huggingface.co/settings/tokens",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "HUGGINGFACE_MODEL",
+        "category": "ai_providers",
+        "description": "Default Hugging Face model to use",
+        "value_type": "string",
+        "default_value": "HuggingFaceH4/zephyr-7b-beta",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "HUGGINGFACE_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Hugging Face responses",
+        "value_type": "integer",
+        "default_value": "1024",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ElevenLabs (TTS)
+    {
+        "name": "ELEVENLABS_API_KEY",
+        "category": "ai_providers",
+        "description": "ElevenLabs API Key for text-to-speech. Get at https://elevenlabs.io",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "ELEVENLABS_VOICE",
+        "category": "ai_providers",
+        "description": "Default ElevenLabs voice ID",
+        "value_type": "string",
+        "default_value": "ErXwobaYiN019PkySvjV",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ezLocalai (Local AI)
+    {
+        "name": "EZLOCALAI_URI",
+        "category": "ai_providers",
+        "description": "ezLocalai server URI for local AI inference",
+        "value_type": "url",
+        "default_value": "http://localhost:8091/v1/",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "EZLOCALAI_API_KEY",
+        "category": "ai_providers",
+        "description": "ezLocalai API Key (if required)",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "EZLOCALAI_VOICE",
+        "category": "ai_providers",
+        "description": "Default voice for ezLocalai TTS",
+        "value_type": "string",
+        "default_value": "DukeNukem",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "EZLOCALAI_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for ezLocalai responses",
+        "value_type": "integer",
+        "default_value": "16000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # General AI Settings
+    {
+        "name": "SMARTEST_PROVIDER",
+        "category": "ai_providers",
+        "description": "The AI provider to use for complex reasoning tasks",
+        "value_type": "string",
+        "default_value": "anthropic",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # OAuth Providers
+    # ========================================
+    # Google OAuth
+    {
+        "name": "GOOGLE_CLIENT_ID",
+        "category": "oauth",
+        "description": "Google OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GOOGLE_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Google OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # Microsoft OAuth
+    {
+        "name": "MICROSOFT_CLIENT_ID",
+        "category": "oauth",
+        "description": "Microsoft OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "MICROSOFT_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Microsoft OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "MICROSOFT_TENANT_ID",
+        "category": "oauth",
+        "description": "Microsoft Tenant ID (required for app-only email sending, use 'common' for multi-tenant apps)",
+        "value_type": "string",
+        "default_value": "common",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # GitHub OAuth
+    {
+        "name": "GITHUB_CLIENT_ID",
+        "category": "oauth",
+        "description": "GitHub OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GITHUB_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "GitHub OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Discord
+    {
+        "name": "DISCORD_CLIENT_ID",
+        "category": "oauth",
+        "description": "Discord OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "DISCORD_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Discord OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - X (Twitter)
+    {
+        "name": "X_CLIENT_ID",
+        "category": "oauth",
+        "description": "X (Twitter) OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "X_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "X (Twitter) OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Tesla
+    {
+        "name": "TESLA_CLIENT_ID",
+        "category": "oauth",
+        "description": "Tesla OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "TESLA_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Tesla OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Amazon/Alexa
+    {
+        "name": "ALEXA_CLIENT_ID",
+        "category": "oauth",
+        "description": "Amazon Alexa OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ALEXA_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Amazon Alexa OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Fitbit
+    {
+        "name": "FITBIT_CLIENT_ID",
+        "category": "oauth",
+        "description": "Fitbit OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "FITBIT_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Fitbit OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Garmin
+    {
+        "name": "GARMIN_CLIENT_ID",
+        "category": "oauth",
+        "description": "Garmin OAuth Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "GARMIN_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Garmin OAuth Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # OAuth - Meta/Facebook
+    {
+        "name": "META_APP_ID",
+        "category": "oauth",
+        "description": "Meta (Facebook) App ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "META_APP_SECRET",
+        "category": "oauth",
+        "description": "Meta (Facebook) App Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "META_BUSINESS_ID",
+        "category": "oauth",
+        "description": "Meta Business ID for WhatsApp integration",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # OAuth - Walmart
+    {
+        "name": "WALMART_CLIENT_ID",
+        "category": "oauth",
+        "description": "Walmart Marketplace Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "WALMART_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "Walmart Marketplace Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "WALMART_MARKETPLACE_ID",
+        "category": "oauth",
+        "description": "Walmart Marketplace ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # AWS Settings
+    {
+        "name": "AWS_CLIENT_ID",
+        "category": "oauth",
+        "description": "AWS Cognito Client ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_CLIENT_SECRET",
+        "category": "oauth",
+        "description": "AWS Cognito Client Secret",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_REGION",
+        "category": "oauth",
+        "description": "AWS Region for Cognito",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_USER_POOL_ID",
+        "category": "oauth",
+        "description": "AWS Cognito User Pool ID",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - General
+    # ========================================
+    {
+        "name": "WORKSPACE_RETENTION_DAYS",
+        "category": "storage",
+        "description": "Number of days to retain inactive workspaces before cleanup (0 = never delete)",
+        "value_type": "integer",
+        "default_value": "5",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "STORAGE_BACKEND",
+        "category": "storage",
+        "description": "Storage backend type: s3, azure, b2, or local",
+        "value_type": "string",
+        "default_value": "s3",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "STORAGE_CONTAINER",
+        "category": "storage",
+        "description": "Storage container/bucket name",
+        "value_type": "string",
+        "default_value": "agixt-workspace",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - AWS S3 / MinIO
+    # ========================================
+    {
+        "name": "S3_BUCKET",
+        "category": "storage_aws",
+        "description": "S3 bucket name",
+        "value_type": "string",
+        "default_value": "agixt-workspace",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "S3_ENDPOINT",
+        "category": "storage_aws",
+        "description": "S3 endpoint URL (for MinIO or compatible)",
+        "value_type": "url",
+        "default_value": "http://minio:9000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_ACCESS_KEY_ID",
+        "category": "storage_aws",
+        "description": "AWS Access Key ID for S3",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "category": "storage_aws",
+        "description": "AWS Secret Access Key for S3",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "AWS_STORAGE_REGION",
+        "category": "storage_aws",
+        "description": "AWS Region for S3 storage",
+        "value_type": "string",
+        "default_value": "us-east-1",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - Azure Blob
+    # ========================================
+    {
+        "name": "AZURE_STORAGE_ACCOUNT_NAME",
+        "category": "storage_azure",
+        "description": "Azure Storage Account Name",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AZURE_STORAGE_KEY",
+        "category": "storage_azure",
+        "description": "Azure Storage Account Key",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # ========================================
+    # Storage - Backblaze B2
+    # ========================================
+    {
+        "name": "B2_KEY_ID",
+        "category": "storage_b2",
+        "description": "Backblaze B2 Key ID",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "B2_APPLICATION_KEY",
+        "category": "storage_b2",
+        "description": "Backblaze B2 Application Key",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "B2_REGION",
+        "category": "storage_b2",
+        "description": "Backblaze B2 Region",
+        "value_type": "string",
+        "default_value": "us-west-002",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Billing Settings
+    # ========================================
+    {
+        "name": "STRIPE_API_KEY",
+        "category": "billing",
+        "description": "Stripe secret API key (starts with sk_). Get at https://dashboard.stripe.com/apikeys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "STRIPE_PUBLISHABLE_KEY",
+        "category": "billing",
+        "description": "Stripe publishable API key (starts with pk_). Get at https://dashboard.stripe.com/apikeys",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "STRIPE_WEBHOOK_SECRET",
+        "category": "billing",
+        "description": "Stripe webhook signing secret for verifying webhook events",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "TOKEN_PRICE_PER_MILLION_USD",
+        "category": "billing",
+        "description": "Price per million tokens in USD (0 for free, billing disabled)",
+        "value_type": "string",
+        "default_value": "0.00",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "BILLING_PAUSED",
+        "category": "billing",
+        "description": "Temporarily pause billing (sets effective price to 0 until toggled back)",
+        "value_type": "boolean",
+        "default_value": "false",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "MIN_TOKEN_TOPUP_USD",
+        "category": "billing",
+        "description": "Minimum token top-up amount in USD",
+        "value_type": "string",
+        "default_value": "10.00",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "LOW_BALANCE_WARNING_THRESHOLD",
+        "category": "billing",
+        "description": "Token balance at which to warn users",
+        "value_type": "integer",
+        "default_value": "10000000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "PAYMENT_WALLET_ADDRESS",
+        "category": "billing",
+        "description": "Solana wallet address for crypto payments",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "PAYMENT_SOLANA_RPC_URL",
+        "category": "billing",
+        "description": "Solana RPC URL for payment verification",
+        "value_type": "url",
+        "default_value": "https://api.mainnet-beta.solana.com",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Email Settings
+    # ========================================
+    {
+        "name": "EMAIL_PROVIDER",
+        "category": "email",
+        "description": "Email provider to use for sending emails (magic links, invitations). Options: auto, sendgrid, mailgun, microsoft, google. 'auto' will use the first configured provider found.",
+        "value_type": "string",
+        "default_value": "auto",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # SendGrid
+    {
+        "name": "SENDGRID_API_KEY",
+        "category": "email",
+        "description": "SendGrid API key for sending emails. Get at https://app.sendgrid.com/settings/api_keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "SENDGRID_FROM_EMAIL",
+        "category": "email",
+        "description": "Sender email address for SendGrid (must be verified in SendGrid)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Mailgun
+    {
+        "name": "MAILGUN_API_KEY",
+        "category": "email",
+        "description": "Mailgun API key for sending emails. Get at https://app.mailgun.com/app/account/security/api_keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "MAILGUN_DOMAIN",
+        "category": "email",
+        "description": "Mailgun domain for sending emails (e.g., mg.yourdomain.com)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "MAILGUN_FROM_EMAIL",
+        "category": "email",
+        "description": "Sender email address for Mailgun emails",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Microsoft Graph API Email (uses OAuth credentials from oauth category)
+    {
+        "name": "MICROSOFT_EMAIL_ADDRESS",
+        "category": "email",
+        "description": "Microsoft 365 email address to send from (requires MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET in OAuth settings, plus Mail.Send permission)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Google Gmail API Email (uses OAuth credentials from oauth category)
+    {
+        "name": "GOOGLE_EMAIL_ADDRESS",
+        "category": "email",
+        "description": "Gmail address to send from (requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in OAuth settings, plus Gmail API enabled)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # ========================================
+    # Extensions Hub
+    # ========================================
+    {
+        "name": "EXTENSIONS_HUB",
+        "category": "extensions",
+        "description": "GitHub repository URL for extensions hub (e.g., owner/repo)",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "EXTENSIONS_HUB_TOKEN",
+        "category": "extensions",
+        "description": "GitHub token for private extensions hub access",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # Notifications - moved to app_settings since there's only one
+    {
+        "name": "DISCORD_WEBHOOK",
+        "category": "app_settings",
+        "description": "Discord webhook URL for notifications",
+        "value_type": "url",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    # Default Agent Settings
+    {
+        "name": "AGENT_NAME",
+        "category": "agent_defaults",
+        "description": "Default agent name for new users",
+        "value_type": "string",
+        "default_value": "XT",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGENT_PERSONA",
+        "category": "agent_defaults",
+        "description": "Default persona for the agent",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "TRAINING_URLS",
+        "category": "agent_defaults",
+        "description": "Comma-separated list of URLs for agent training",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ENABLED_COMMANDS",
+        "category": "agent_defaults",
+        "description": "Comma-separated list of enabled agent commands",
+        "value_type": "string",
+        "default_value": "",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    # Frontend Feature Flags
+    {
+        "name": "AGIXT_FILE_UPLOAD_ENABLED",
+        "category": "features",
+        "description": "Enable file upload in chat",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_VOICE_INPUT_ENABLED",
+        "category": "features",
+        "description": "Enable voice input in chat",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_RLHF",
+        "category": "features",
+        "description": "Enable RLHF feedback buttons",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_ALLOW_MESSAGE_EDITING",
+        "category": "features",
+        "description": "Allow users to edit their messages",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_ALLOW_MESSAGE_DELETION",
+        "category": "features",
+        "description": "Allow users to delete their messages",
+        "value_type": "boolean",
+        "default_value": "true",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "AGIXT_SHOW_OVERRIDE_SWITCHES",
+        "category": "features",
+        "description": "Comma-separated list of override switches to show",
+        "value_type": "string",
+        "default_value": "tts,websearch,analyze-user-input",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+]
+
+
+def get_server_config_encryption_key():
+    """
+    Get or generate a server-wide encryption key for sensitive config values.
+    This is stored in the filesystem as it's needed before the database is accessible.
+    """
+    key_file = os.path.join(os.path.dirname(__file__), ".server_config_key")
+    if os.path.exists(key_file):
+        with open(key_file, "rb") as f:
+            return f.read()
+    else:
+        key = Fernet.generate_key()
+        with open(key_file, "wb") as f:
+            f.write(key)
+        return key
+
+
+def encrypt_config_value(value: str) -> str:
+    """Encrypt a sensitive configuration value."""
+    if not value:
+        return ""
+    key = get_server_config_encryption_key()
+    f = Fernet(key)
+    return f.encrypt(value.encode()).decode()
+
+
+def decrypt_config_value(encrypted_value: str) -> str:
+    """Decrypt a sensitive configuration value."""
+    if not encrypted_value:
+        return ""
+    try:
+        key = get_server_config_encryption_key()
+        f = Fernet(key)
+        return f.decrypt(encrypted_value.encode()).decode()
+    except Exception:
+        # If decryption fails, return empty string (value may not be encrypted)
+        return encrypted_value
+
+
+def get_server_config(name: str, default: str = None) -> str:
+    """
+    Get a server configuration value from the database.
+    Decrypts sensitive values automatically.
+
+    Args:
+        name: The configuration key name
+        default: Default value if not found in database
+
+    Returns:
+        The configuration value, or default if not found
+    """
+    try:
+        with get_session() as db:
+            config = db.query(ServerConfig).filter_by(name=name).first()
+            if config and config.value:
+                if config.is_sensitive:
+                    return decrypt_config_value(config.value)
+                return config.value
+    except Exception as e:
+        logging.debug(f"Could not get server config {name}: {e}")
+    return default
+
+
+def set_server_config(name: str, value: str, category: str = None) -> bool:
+    """
+    Set a server configuration value in the database.
+    Encrypts sensitive values automatically.
+
+    Args:
+        name: The configuration key name
+        value: The value to set
+        category: Optional category override
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_session() as db:
+            config = db.query(ServerConfig).filter_by(name=name).first()
+            if config:
+                # Check if this is a sensitive value
+                if config.is_sensitive and value:
+                    config.value = encrypt_config_value(value)
+                else:
+                    config.value = value
+                if category:
+                    config.category = category
+            else:
+                # Find definition to get metadata
+                definition = next(
+                    (d for d in SERVER_CONFIG_DEFINITIONS if d["name"] == name), None
+                )
+                is_sensitive = (
+                    definition.get("is_sensitive", False) if definition else False
+                )
+
+                new_config = ServerConfig(
+                    name=name,
+                    value=(
+                        encrypt_config_value(value) if is_sensitive and value else value
+                    ),
+                    category=category
+                    or (
+                        definition.get("category", "general")
+                        if definition
+                        else "general"
+                    ),
+                    is_sensitive=is_sensitive,
+                    is_required=(
+                        definition.get("is_required", False) if definition else False
+                    ),
+                    description=definition.get("description") if definition else None,
+                    value_type=(
+                        definition.get("value_type", "string")
+                        if definition
+                        else "string"
+                    ),
+                    default_value=(
+                        definition.get("default_value") if definition else None
+                    ),
+                )
+                db.add(new_config)
+            db.commit()
+            return True
+    except Exception as e:
+        logging.error(f"Could not set server config {name}: {e}")
+        return False
+
+
+def seed_server_config_from_env():
+    """
+    Seed server configuration from environment variables.
+    Only sets values that are not already in the database.
+    """
+    logging.info("Seeding server configuration from environment variables...")
+    seeded_count = 0
+
+    with get_session() as db:
+        for definition in SERVER_CONFIG_DEFINITIONS:
+            name = definition["name"]
+
+            # Check if already exists in database
+            existing = db.query(ServerConfig).filter_by(name=name).first()
+
+            if not existing:
+                # Get value from environment
+                env_value = os.getenv(name, "")
+
+                # Create config entry with definition metadata
+                is_sensitive = definition.get("is_sensitive", False)
+                new_config = ServerConfig(
+                    name=name,
+                    value=(
+                        encrypt_config_value(env_value)
+                        if is_sensitive and env_value
+                        else env_value
+                    ),
+                    category=definition.get("category", "general"),
+                    is_sensitive=is_sensitive,
+                    is_required=definition.get("is_required", False),
+                    description=definition.get("description"),
+                    value_type=definition.get("value_type", "string"),
+                    default_value=definition.get("default_value"),
+                )
+                db.add(new_config)
+                seeded_count += 1
+
+        db.commit()
+
+    logging.info(f"Seeded {seeded_count} server configuration values from environment")
+
+    # Load the config cache after seeding
+    try:
+        from Globals import load_server_config_cache
+
+        load_server_config_cache()
+    except Exception as e:
+        logging.debug(f"Could not load server config cache: {e}")
+
+
+def seed_server_prompts():
+    """
+    Seed server-level prompts from the prompts folder.
+    These prompts serve as the global defaults that can be inherited by companies and users.
+    Server prompts are the base level in the tiered hierarchy:
+    Server → Company → User
+
+    This function should be called during startup after the tiered tables are created.
+    """
+    prompts_dir = os.path.join(os.path.dirname(__file__), "prompts")
+    if not os.path.exists(prompts_dir):
+        logging.warning(
+            f"Prompts directory not found at {prompts_dir}, skipping server prompt seeding"
+        )
+        return
+
+    seeded_count = 0
+    updated_count = 0
+
+    with get_session() as db:
+        # Ensure default server category exists
+        default_category = (
+            db.query(ServerPromptCategory).filter_by(name="Default").first()
+        )
+        if not default_category:
+            default_category = ServerPromptCategory(
+                name="Default", description="Default category for server prompts"
+            )
+            db.add(default_category)
+            db.commit()
+
+        for root, dirs, files in os.walk(prompts_dir):
+            for file in files:
+                if not file.endswith((".txt", ".md", ".prompt")):
+                    continue
+
+                # Determine category from folder structure
+                if root != prompts_dir:
+                    category_name = os.path.basename(root)
+                    category = (
+                        db.query(ServerPromptCategory)
+                        .filter_by(name=category_name)
+                        .first()
+                    )
+                    if not category:
+                        category = ServerPromptCategory(
+                            name=category_name, description=f"{category_name} category"
+                        )
+                        db.add(category)
+                        db.commit()
+                else:
+                    category = default_category
+
+                prompt_name = os.path.splitext(file)[0]
+                file_path = os.path.join(root, file)
+
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        prompt_content = f.read()
+                except Exception as e:
+                    logging.warning(f"Could not read prompt file {file_path}: {e}")
+                    continue
+
+                # Check if server prompt already exists
+                existing_prompt = (
+                    db.query(ServerPrompt)
+                    .filter_by(name=prompt_name, category_id=category.id)
+                    .first()
+                )
+
+                if existing_prompt:
+                    # Update content if changed
+                    if existing_prompt.content != prompt_content:
+                        existing_prompt.content = prompt_content
+                        updated_count += 1
+                else:
+                    # Create new server prompt
+                    server_prompt = ServerPrompt(
+                        name=prompt_name,
+                        description=f"Server-level prompt: {prompt_name}",
+                        content=prompt_content,
+                        category_id=category.id,
+                    )
+                    db.add(server_prompt)
+                    db.commit()
+
+                    # Extract and add prompt arguments
+                    prompt_args = []
+                    for word in prompt_content.split():
+                        if word.startswith("{") and word.endswith("}"):
+                            arg_name = word[1:-1]
+                            if arg_name not in prompt_args:
+                                prompt_args.append(arg_name)
+
+                    for arg_name in prompt_args:
+                        existing_arg = (
+                            db.query(ServerPromptArgument)
+                            .filter_by(prompt_id=server_prompt.id, name=arg_name)
+                            .first()
+                        )
+                        if not existing_arg:
+                            argument = ServerPromptArgument(
+                                prompt_id=server_prompt.id, name=arg_name
+                            )
+                            db.add(argument)
+
+                    seeded_count += 1
+
+            db.commit()
+
+    if seeded_count > 0 or updated_count > 0:
+        logging.info(f"Server prompts: {seeded_count} seeded, {updated_count} updated")
+
+
+def seed_server_chains():
+    """
+    Seed server-level chains from the chains folder.
+    These chains serve as the global defaults that can be inherited by companies and users.
+    Server chains are the base level in the tiered hierarchy:
+    Server → Company → User
+
+    This function should be called during startup after the tiered tables are created.
+    """
+    chains_dir = os.path.join(os.path.dirname(__file__), "chains")
+    if not os.path.exists(chains_dir):
+        logging.debug("Chains directory not found, skipping server chain seeding")
+        return
+
+    seeded_count = 0
+
+    with get_session() as db:
+        for file in os.listdir(chains_dir):
+            if not file.endswith(".json"):
+                continue
+
+            chain_name = os.path.splitext(file)[0]
+            file_path = os.path.join(chains_dir, file)
+
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    chain_data = json.load(f)
+            except Exception as e:
+                logging.warning(f"Could not read chain file {file_path}: {e}")
+                continue
+
+            # Check if server chain already exists
+            existing_chain = db.query(ServerChain).filter_by(name=chain_name).first()
+            if existing_chain:
+                continue
+
+            # Create new server chain
+            server_chain = ServerChain(
+                name=chain_name,
+                description=chain_data.get(
+                    "description", f"Server-level chain: {chain_name}"
+                ),
+            )
+            db.add(server_chain)
+            db.commit()
+
+            # Add chain steps
+            steps = chain_data.get("steps", [])
+            for step_data in steps:
+                step = ServerChainStep(
+                    chain_id=server_chain.id,
+                    step_number=step_data.get("step", 1),
+                    agent_name=step_data.get("agent_name", ""),
+                    prompt_type=step_data.get("prompt_type", ""),
+                    prompt=step_data.get("prompt", {}),
+                )
+                db.add(step)
+
+            seeded_count += 1
+            db.commit()
+
+    if seeded_count > 0:
+        logging.info(f"Server chains: {seeded_count} seeded")
 
 
 if __name__ == "__main__":
@@ -1943,21 +6397,33 @@ if __name__ == "__main__":
     migrate_extension_table()
     migrate_webhook_outgoing_table()
     migrate_user_table()
+    migrate_discarded_context_table()
     migrate_cleanup_duplicate_wallet_settings()
+    migrate_tiered_prompts_chains_tables()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
+    migrate_role_table()
     setup_default_roles()
+    setup_default_scopes()
+    setup_default_role_scopes()
+    seed_server_config_from_env()
+    # Seed server-level prompts and chains from files
+    seed_server_prompts()
+    seed_server_chains()
     seed_data = str(getenv("SEED_DATA")).lower() == "true"
     if seed_data:
         # Import seed data
         from SeedImports import import_all_data
 
         import_all_data()
+    # Import custom logging config to redact sensitive data
+    from logging_config import LOGGING_CONFIG
+
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
         port=7437,
-        log_level=str(getenv("LOG_LEVEL")).lower(),
+        log_config=LOGGING_CONFIG,
         workers=int(getenv("UVICORN_WORKERS")),
         proxy_headers=True,
     )

@@ -21,12 +21,13 @@ from DB import (
     TaskItem,
     WebhookIncoming,
     WebhookOutgoing,
+    UserCompany,
 )
-from Providers import Providers, get_provider_services
 from Extensions import Extensions
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
 from Conversations import get_conversation_id_by_name
+from middleware import log_silenced_exception
 from typing import Any, Union
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
@@ -37,6 +38,7 @@ import base64
 import jwt
 import os
 import re
+import time
 from solders.keypair import Keypair
 from typing import Tuple
 import binascii
@@ -54,6 +56,300 @@ logging.basicConfig(
 
 
 _command_owner_cache = None
+
+# Cache for command_name -> friendly_name mapping
+_command_name_to_friendly_cache = None
+
+# Cache for all commands - commands rarely change
+_all_commands_cache = None
+_all_commands_cache_time = 0
+_COMMANDS_CACHE_TTL = 300  # 5 minutes
+
+# Cache for company agent configs
+# IMPORTANT: With multiple uvicorn workers, this cache is process-local
+# Setting to 0 disables caching to ensure cross-worker consistency
+_company_agent_config_cache = {}
+_COMPANY_CONFIG_CACHE_TTL = 0  # Disabled for multi-worker consistency
+
+# Cache for SSO-enabled extensions - requires filesystem scan so cache aggressively
+_sso_providers_cache = None
+_sso_providers_cache_time = 0
+_SSO_PROVIDERS_CACHE_TTL = 600  # 10 minutes - extensions rarely change
+
+
+def get_sso_providers_cached():
+    """
+    Get list of SSO-enabled extensions with caching.
+    This scans the extensions directory for OAuth components which is expensive.
+    """
+    import importlib.util
+
+    global _sso_providers_cache, _sso_providers_cache_time
+
+    if _sso_providers_cache is not None:
+        if (time.time() - _sso_providers_cache_time) < _SSO_PROVIDERS_CACHE_TTL:
+            return _sso_providers_cache.copy()
+
+    sso_providers = set()
+    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
+
+    try:
+        extension_files = os.listdir(extensions_dir)
+    except OSError:
+        _sso_providers_cache = sso_providers
+        _sso_providers_cache_time = time.time()
+        return sso_providers
+
+    for extension_file in extension_files:
+        if extension_file.endswith(".py") and not extension_file.startswith("__"):
+            try:
+                extension_name = extension_file.replace(".py", "")
+                file_path = os.path.join(extensions_dir, extension_file)
+                spec = importlib.util.spec_from_file_location(extension_name, file_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                # Check if the extension has OAuth components
+                has_sso_class = hasattr(module, f"{extension_name.capitalize()}SSO")
+                has_sso_function = hasattr(module, "sso")
+                has_oauth_scopes = hasattr(module, "SCOPES")
+
+                if has_sso_class or has_sso_function or has_oauth_scopes:
+                    sso_providers.add(extension_name)
+            except Exception:
+                continue
+
+    _sso_providers_cache = sso_providers
+    _sso_providers_cache_time = time.time()
+    return sso_providers.copy()
+
+
+def invalidate_sso_providers_cache():
+    """Invalidate the SSO providers cache"""
+    global _sso_providers_cache, _sso_providers_cache_time
+    _sso_providers_cache = None
+    _sso_providers_cache_time = 0
+
+
+def get_company_agent_config_cached(company_id: str, company_agent):
+    """Get company agent config with caching to avoid repeated expensive calls"""
+    import time
+
+    global _company_agent_config_cache
+
+    cache_key = str(company_id)
+    if cache_key in _company_agent_config_cache:
+        cached = _company_agent_config_cache[cache_key]
+        if (time.time() - cached["timestamp"]) < _COMPANY_CONFIG_CACHE_TTL:
+            return cached["config"]
+
+    # Get fresh config
+    config = company_agent.get_agent_config()
+    _company_agent_config_cache[cache_key] = {
+        "config": config,
+        "timestamp": time.time(),
+    }
+    return config
+
+
+def invalidate_company_config_cache(company_id: str = None):
+    """Invalidate company config cache"""
+    global _company_agent_config_cache
+    if company_id:
+        _company_agent_config_cache.pop(str(company_id), None)
+    else:
+        _company_agent_config_cache.clear()
+
+
+def get_all_commands_cached(session):
+    """Get all commands with caching to avoid repeated database queries"""
+    global _all_commands_cache, _all_commands_cache_time
+    import time
+
+    if _all_commands_cache is not None:
+        if (time.time() - _all_commands_cache_time) < _COMMANDS_CACHE_TTL:
+            return _all_commands_cache
+
+    _all_commands_cache = session.query(Command).all()
+    _all_commands_cache_time = time.time()
+    return _all_commands_cache
+
+
+def invalidate_commands_cache():
+    """Invalidate the commands cache, forcing a refresh on next access"""
+    global _all_commands_cache, _all_commands_cache_time
+    _all_commands_cache = None
+    _all_commands_cache_time = 0
+
+
+def get_agents_lightweight(
+    user_id: str,
+    company_ids: list,
+    default_agent_id: str = None,
+    include_commands: bool = False,
+) -> dict:
+    """
+    Get lightweight agent info for all user's companies in a single batch query.
+    Returns {company_id: [agent_dicts]} where each agent has: id, name, companyId, default, status
+
+    If include_commands=True, also includes 'commands' dict with {command_name: enabled_bool}
+    for each agent. This is useful for the /v1/user endpoint to avoid separate API calls.
+
+    This is optimized for the /v1/user endpoint to avoid the expensive get_agents() call.
+    """
+    session = get_session()
+    try:
+        # Get all agents owned by this user
+        owned_agents = (
+            session.query(AgentModel)
+            .options(joinedload(AgentModel.settings))
+            .filter(AgentModel.user_id == user_id)
+            .all()
+        )
+
+        # Get all potential shared agents (not owned by this user) for companies
+        shared_agents = []
+        if company_ids:
+            potential_shared = (
+                session.query(AgentModel)
+                .options(joinedload(AgentModel.settings))
+                .filter(AgentModel.user_id != user_id)
+                .all()
+            )
+            company_id_set = set(str(c) for c in company_ids)
+            for agent in potential_shared:
+                settings_dict = {s.name: s.value for s in agent.settings}
+                is_shared = settings_dict.get("shared", "false") == "true"
+                agent_company_id = settings_dict.get("company_id")
+                if is_shared and agent_company_id in company_id_set:
+                    shared_agents.append(agent)
+
+        # Combine and organize by company
+        all_agents = owned_agents + shared_agents
+        result = {str(cid): [] for cid in company_ids}
+        seen_by_company = {str(cid): set() for cid in company_ids}
+
+        # If including commands, batch-fetch all command data
+        commands_by_agent = {}
+        if include_commands and all_agents:
+            agent_ids = [str(a.id) for a in all_agents]
+
+            # Get all commands (cached)
+            all_commands = get_all_commands_cached(session)
+            command_id_to_name = {c.id: c.name for c in all_commands}
+
+            # Get enabled commands for all agents in one query
+            agent_commands = (
+                session.query(AgentCommand)
+                .filter(AgentCommand.agent_id.in_(agent_ids))
+                .filter(AgentCommand.state == True)
+                .all()
+            )
+
+            # Build {agent_id: set of enabled command names}
+            enabled_by_agent = {}
+            for ac in agent_commands:
+                agent_id_str = str(ac.agent_id)
+                if agent_id_str not in enabled_by_agent:
+                    enabled_by_agent[agent_id_str] = set()
+                cmd_name = command_id_to_name.get(ac.command_id)
+                if cmd_name:
+                    enabled_by_agent[agent_id_str].add(cmd_name)
+
+            # Build commands dict for each agent
+            for agent in all_agents:
+                agent_id_str = str(agent.id)
+                enabled_commands = enabled_by_agent.get(agent_id_str, set())
+                commands_by_agent[agent_id_str] = {
+                    cmd_name: cmd_name in enabled_commands
+                    for cmd_name in command_id_to_name.values()
+                }
+
+        for agent in all_agents:
+            settings_dict = {s.name: s.value for s in agent.settings}
+            agent_company_id = settings_dict.get("company_id")
+
+            if not agent_company_id or agent_company_id not in result:
+                continue
+
+            if agent.name in seen_by_company[agent_company_id]:
+                continue
+            seen_by_company[agent_company_id].add(agent.name)
+
+            status = settings_dict.get("status")
+            if status is not None:
+                try:
+                    status = (
+                        status.lower() == "true"
+                        if isinstance(status, str)
+                        else bool(status)
+                    )
+                except:
+                    status = None
+
+            agent_dict = {
+                "id": str(agent.id),
+                "name": agent.name,
+                "companyId": agent_company_id,
+                "default": (
+                    str(agent.id) == str(default_agent_id)
+                    if default_agent_id
+                    else False
+                ),
+                "status": status,
+            }
+
+            # Add commands if requested
+            if include_commands:
+                agent_dict["commands"] = commands_by_agent.get(str(agent.id), {})
+
+            result[agent_company_id].append(agent_dict)
+
+        return result
+    finally:
+        session.close()
+
+
+def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
+    """
+    Get just the commands dict for an agent without loading full Agent config.
+
+    This is a lightweight alternative to creating a full Agent object when
+    you only need the commands dictionary.
+
+    Args:
+        agent_id: The agent's UUID
+        user_id: The user's UUID (for authorization)
+
+    Returns:
+        Dict of {command_name: enabled_bool}
+    """
+    session = get_session()
+    try:
+        # Verify agent exists and user has access
+        agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
+        if not agent:
+            return {}
+
+        # Get all commands using cache
+        all_commands = get_all_commands_cached(session)
+
+        # Get agent's enabled commands
+        agent_commands = (
+            session.query(AgentCommand).filter(AgentCommand.agent_id == agent_id).all()
+        )
+
+        # Build enabled command IDs set
+        enabled_command_ids = {ac.command_id for ac in agent_commands if ac.state}
+
+        # Build commands dict
+        commands = {}
+        for command in all_commands:
+            commands[command.name] = command.id in enabled_command_ids
+
+        return commands
+    finally:
+        session.close()
 
 
 def _get_command_owner_cache():
@@ -78,16 +374,62 @@ def _get_command_owner_cache():
     return _command_owner_cache
 
 
+def _get_command_name_to_friendly_cache():
+    """
+    Build a cache mapping command_name (function name) to friendly_name.
+    This is used to resolve command lookups when the frontend sends
+    the internal command_name instead of the friendly_name.
+    """
+    global _command_name_to_friendly_cache
+    if _command_name_to_friendly_cache is not None:
+        return _command_name_to_friendly_cache
+
+    cache = {}
+    try:
+        extensions = Extensions().get_extensions()
+        for extension_data in extensions:
+            for command_data in extension_data.get("commands", []):
+                command_name = command_data.get("command_name")
+                friendly_name = command_data.get("friendly_name")
+                if command_name and friendly_name and command_name != friendly_name:
+                    # Map command_name -> friendly_name
+                    cache[command_name] = friendly_name
+    except Exception as e:
+        logging.debug(f"Unable to build command name mapping cache: {e}")
+
+    _command_name_to_friendly_cache = cache
+    return _command_name_to_friendly_cache
+
+
 def _resolve_command_by_name(session, command_name):
     if not command_name:
         return None
 
+    # First, try to find by exact name match (friendly_name stored in DB)
     commands = (
         session.query(Command)
         .options(joinedload(Command.extension))
         .filter(Command.name == command_name)
         .all()
     )
+
+    # If not found, try to map command_name (function name) to friendly_name
+    if not commands:
+        name_mapping = _get_command_name_to_friendly_cache()
+        friendly_name = name_mapping.get(command_name)
+
+        if friendly_name:
+            # Now search by friendly_name
+            commands = (
+                session.query(Command)
+                .options(joinedload(Command.extension))
+                .filter(Command.name == friendly_name)
+                .all()
+            )
+            logging.info(
+                f"[_resolve_command_by_name] Mapped command_name '{command_name}' "
+                f"to friendly_name '{friendly_name}', found {len(commands)} matches"
+            )
 
     if not commands:
         return None
@@ -126,7 +468,7 @@ def create_solana_wallet() -> Tuple[str, str, str]:
 
 
 def impersonate_user(user_id: str):
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     # Get users email
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
@@ -146,6 +488,394 @@ def impersonate_user(user_id: str):
         algorithm="HS256",
     )
     return token
+
+
+class AIProviderManager:
+    """
+    Manages AI Provider extensions for an agent.
+
+    Discovers configured AI Provider extensions, handles provider selection based on
+    token limits and service requirements, and implements fallback logic.
+
+    Settings hierarchy (highest to lowest priority):
+    1. Agent settings (user-level)
+    2. Company settings (via company agent)
+    3. Server config (database)
+    4. Environment variables
+    5. Default values
+    """
+
+    def __init__(self, agent_settings: dict, extensions_instance=None):
+        """
+        Initialize the AI Provider Manager.
+
+        Args:
+            agent_settings: Dictionary of agent settings (includes extension settings)
+            extensions_instance: Optional Extensions instance to discover providers from
+        """
+        self.agent_settings = agent_settings
+        self.extensions_instance = extensions_instance
+        self.providers = {}
+        self.failed_providers = set()
+
+        # Intelligence tier preference (smartest to least smart)
+        smartest = agent_settings.get(
+            "SMARTEST_PROVIDER",
+            getenv("SMARTEST_PROVIDER", "anthropic,google,openai,ezlocalai"),
+        )
+        if "," in str(smartest):
+            self.intelligence_tiers = [p.strip() for p in smartest.split(",")]
+        else:
+            self.intelligence_tiers = [smartest] if smartest else ["ezlocalai"]
+
+        # Excluded providers that shouldn't be part of rotation
+        self.excluded_providers = {"rotation", "gpt4free", "default"}
+        rotation_exclusions = agent_settings.get(
+            "ROTATION_EXCLUSIONS", getenv("ROTATION_EXCLUSIONS", "")
+        )
+        if rotation_exclusions:
+            for exclusion in rotation_exclusions.split(","):
+                self.excluded_providers.add(exclusion.strip().lower())
+
+        # Discover and load AI Provider extensions
+        self._discover_providers()
+
+    def _get_merged_provider_settings(self):
+        """
+        Merge settings from all configuration levels for AI providers.
+
+        Priority (highest to lowest):
+        1. Server extension settings (admin configured API keys in ServerExtensionSetting table)
+        2. Environment variables (for local development/overrides)
+        3. Default values from provider extensions
+
+        Provider API keys and settings should NOT be stored at the agent level.
+        They are resolved at inference time from the server extension settings.
+        This ensures that when server admins change API keys, all agents automatically
+        use the new keys without needing to update each agent's settings individually.
+        """
+        from DB import ServerExtensionSetting, get_session, decrypt_config_value
+
+        # Map of setting keys to extension names for lookup
+        # This maps the setting key pattern to the extension name used in ServerExtensionSetting
+        provider_setting_keys = [
+            # Anthropic
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AI_MODEL",
+            "ANTHROPIC_MAX_TOKENS",
+            "ANTHROPIC_TEMPERATURE",
+            # Azure
+            "AZURE_API_KEY",
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_DEPLOYMENT_NAME",
+            "AZURE_MAX_TOKENS",
+            "AZURE_TEMPERATURE",
+            "AZURE_TOP_P",
+            # DeepSeek
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_MODEL",
+            "DEEPSEEK_MAX_TOKENS",
+            "DEEPSEEK_TEMPERATURE",
+            "DEEPSEEK_TOP_P",
+            # Google/Gemini
+            "GOOGLE_API_KEY",
+            "GOOGLE_AI_MODEL",
+            "GOOGLE_MAX_TOKENS",
+            "GOOGLE_TEMPERATURE",
+            # OpenAI
+            "OPENAI_API_KEY",
+            "OPENAI_API_URI",
+            "OPENAI_AI_MODEL",
+            "OPENAI_MAX_TOKENS",
+            "OPENAI_TEMPERATURE",
+            "OPENAI_TOP_P",
+            # xAI
+            "XAI_API_KEY",
+            "XAI_AI_MODEL",
+            "XAI_MAX_TOKENS",
+            "XAI_TEMPERATURE",
+            "XAI_TOP_P",
+            # ezLocalai
+            "EZLOCALAI_API_KEY",
+            "EZLOCALAI_API_URI",
+            "EZLOCALAI_AI_MODEL",
+            "EZLOCALAI_CODING_MODEL",
+            "EZLOCALAI_MAX_TOKENS",
+            "EZLOCALAI_TEMPERATURE",
+            "EZLOCALAI_TOP_P",
+            "EZLOCALAI_VOICE",
+            "EZLOCALAI_LANGUAGE",
+            "EZLOCALAI_TRANSCRIPTION_MODEL",
+            # OpenRouter
+            "OPENROUTER_API_KEY",
+            "OPENROUTER_AI_MODEL",
+            "OPENROUTER_MAX_TOKENS",
+            "OPENROUTER_TEMPERATURE",
+            "OPENROUTER_TOP_P",
+            # DeepInfra
+            "DEEPINFRA_API_KEY",
+            "DEEPINFRA_MODEL",
+            "DEEPINFRA_MAX_TOKENS",
+            "DEEPINFRA_TEMPERATURE",
+            "DEEPINFRA_TOP_P",
+            # HuggingFace
+            "HUGGINGFACE_API_KEY",
+            "HUGGINGFACE_MODEL",
+            "HUGGINGFACE_MAX_TOKENS",
+            # Chutes
+            "CHUTES_API_KEY",
+            "CHUTES_MODEL",
+            "CHUTES_MAX_TOKENS",
+            "CHUTES_TEMPERATURE",
+            "CHUTES_TOP_P",
+            # ElevenLabs
+            "ELEVENLABS_API_KEY",
+            "ELEVENLABS_VOICE",
+        ]
+
+        merged_settings = {}
+
+        # First, get server extension settings from database (admin configured)
+        # This is the authoritative source for provider API keys
+        with get_session() as session:
+            server_ext_settings = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
+                .all()
+            )
+            for setting in server_ext_settings:
+                value = setting.setting_value
+                if setting.is_sensitive and value:
+                    value = decrypt_config_value(value)
+                if value:  # Only add non-empty values
+                    merged_settings[setting.setting_key] = value
+
+        # Then check environment variables (for local dev overrides)
+        for key in provider_setting_keys:
+            if key not in merged_settings:
+                env_value = os.getenv(key)
+                if env_value:
+                    merged_settings[key] = env_value
+
+        # Add non-provider agent settings (like mode, persona, etc.)
+        # These are settings that should be stored at agent level
+        non_provider_keys = [
+            "mode",
+            "prompt_name",
+            "prompt_category",
+            "persona",
+            "tts",
+            "websearch",
+            "websearch_depth",
+            "analyze_user_input",
+            "complexity_scaling_enabled",
+            "thinking_budget_enabled",
+            "thinking_budget_override",
+            "answer_review_enabled",
+            "planning_phase_enabled",
+            "SMARTEST_PROVIDER",
+        ]
+        for key in non_provider_keys:
+            if key in self.agent_settings and self.agent_settings[key]:
+                merged_settings[key] = self.agent_settings[key]
+
+        return merged_settings
+
+        return merged_settings
+
+    def _discover_providers(self):
+        """Discover all configured AI Provider extensions by their CATEGORY attribute"""
+        from ExtensionsHub import (
+            find_extension_files,
+            import_extension_module,
+            get_extension_class_name,
+        )
+
+        # Get merged settings from all configuration levels
+        merged_settings = self._get_merged_provider_settings()
+
+        logging.debug(
+            f"[AIProviderManager] Merged provider settings keys: {list(merged_settings.keys())}"
+        )
+
+        extension_files = find_extension_files()
+
+        for ext_file in extension_files:
+            filename = os.path.basename(ext_file)
+
+            module = import_extension_module(ext_file)
+            if module is None:
+                continue
+
+            class_name = get_extension_class_name(filename)
+            if not hasattr(module, class_name):
+                continue
+
+            # Skip excluded providers
+            provider_name = class_name.lower()
+            if provider_name in self.excluded_providers:
+                continue
+
+            try:
+                provider_class = getattr(module, class_name)
+
+                # Check if it's an AI Provider (has CATEGORY = "AI Provider")
+                if (
+                    not hasattr(provider_class, "CATEGORY")
+                    or provider_class.CATEGORY != "AI Provider"
+                ):
+                    continue
+
+                # Instantiate with merged settings (respecting hierarchy)
+                provider_instance = provider_class(**merged_settings)
+
+                # Only add if configured
+                if (
+                    hasattr(provider_instance, "configured")
+                    and provider_instance.configured
+                ):
+                    # Ensure max_tokens is always an integer for proper comparison
+                    raw_max_tokens = (
+                        provider_instance.get_max_tokens()
+                        if hasattr(provider_instance, "get_max_tokens")
+                        else 32000
+                    )
+                    self.providers[provider_name] = {
+                        "instance": provider_instance,
+                        "max_tokens": int(raw_max_tokens) if raw_max_tokens else 32000,
+                        "services": (
+                            provider_instance.services()
+                            if hasattr(provider_instance, "services")
+                            else ["llm"]
+                        ),
+                    }
+                    logging.info(
+                        f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']}, services: {self.providers[provider_name]['services']})"
+                    )
+
+            except Exception as e:
+                logging.debug(
+                    f"[AIProviderManager] Could not load provider from {filename}: {e}"
+                )
+
+        if not self.providers:
+            logging.warning(
+                "[AIProviderManager] No AI Provider extensions configured. Will fall back to legacy providers."
+            )
+        else:
+            # Log summary of all discovered providers
+            provider_summary = {
+                name: f"{p['max_tokens']} tokens"
+                for name, p in sorted(
+                    self.providers.items(), key=lambda x: x[1]["max_tokens"]
+                )
+            }
+            logging.info(
+                f"[AIProviderManager] Initialized with {len(self.providers)} providers (sorted by max_tokens): {provider_summary}"
+            )
+
+    def get_provider_for_service(
+        self, service: str = "llm", tokens: int = 0, use_smartest: bool = False
+    ):
+        """
+        Select the best available provider for a service based on token limits.
+
+        The selection strategy is:
+        1. Filter out providers that don't support the requested service
+        2. Filter out providers that can't handle the required token count
+        3. If use_smartest=True, prefer providers in intelligence_tiers order
+        4. Otherwise, select the provider with the lowest max_tokens that can handle the request
+           (this ensures we use the cheapest/smallest provider for smaller requests)
+
+        Args:
+            service: The service type needed (llm, tts, image, transcription, etc.)
+            tokens: Required token count (0 if unknown - all providers considered suitable)
+            use_smartest: Whether to prefer the smartest provider
+
+        Returns:
+            Provider instance or None if no suitable provider found
+        """
+        # Build a dict of provider token limits for logging
+        provider_token_limits = {
+            name: provider["max_tokens"] for name, provider in self.providers.items()
+        }
+        logging.debug(
+            f"[AIProviderManager] Provider token limits: {provider_token_limits}"
+        )
+        logging.debug(
+            f"[AIProviderManager] Request requires {tokens} tokens for service '{service}'"
+        )
+
+        # Filter providers that support the service and have sufficient token limits
+        suitable = {}
+        for name, provider in self.providers.items():
+            if name in self.failed_providers:
+                logging.debug(f"[AIProviderManager] Skipping failed provider: {name}")
+                continue
+            if service not in provider["services"]:
+                continue
+            if tokens > 0 and provider["max_tokens"] < tokens:
+                logging.debug(
+                    f"[AIProviderManager] Provider {name} filtered out: max_tokens={provider['max_tokens']} < required={tokens}"
+                )
+                continue
+            suitable[name] = provider
+
+        if not suitable:
+            logging.warning(
+                f"[AIProviderManager] No providers can handle {tokens} tokens for service '{service}'"
+            )
+            # Reset failed providers and try again
+            if self.failed_providers:
+                self.failed_providers.clear()
+                return self.get_provider_for_service(service, tokens, use_smartest)
+            return None
+
+        suitable_with_tokens = {
+            name: provider["max_tokens"] for name, provider in suitable.items()
+        }
+        logging.info(
+            f"[AIProviderManager] Suitable providers for {tokens} tokens (service={service}): {suitable_with_tokens}"
+        )
+
+        # If use_smartest, try intelligence tiers in order
+        if use_smartest:
+            for tier in self.intelligence_tiers:
+                if tier in suitable:
+                    logging.info(
+                        f"[AIProviderManager] Selected smartest provider: {tier} (max_tokens: {suitable[tier]['max_tokens']}) for {tokens} tokens"
+                    )
+                    return suitable[tier]["instance"]
+
+        # Otherwise, select provider with lowest max_tokens that can handle the request
+        # (prefer to use smaller/cheaper providers for smaller requests)
+        selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
+        logging.info(
+            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens - chose smallest suitable"
+        )
+        return suitable[selected_name]["instance"]
+
+    def has_service(self, service: str) -> bool:
+        """Check if any provider supports a given service without instantiating/selecting."""
+        for name, provider in self.providers.items():
+            if service in provider["services"]:
+                return True
+        return False
+
+    def mark_provider_failed(self, provider_name: str):
+        """Mark a provider as failed for this session"""
+        self.failed_providers.add(provider_name)
+        logging.warning(
+            f"[AIProviderManager] Marked provider as failed: {provider_name}"
+        )
+
+    def has_providers(self) -> bool:
+        """Check if any AI providers are available"""
+        return len(self.providers) > 0
+
+    def get_provider_names(self) -> list:
+        """Get list of available provider names"""
+        return list(self.providers.keys())
 
 
 def can_user_access_agent(user_id, agent_id, auth: MagicalAuth = None):
@@ -235,29 +965,22 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         .filter_by(name=provider_settings["provider"])
         .first()
     )
+    # If provider not found, create it (for built-in providers like "rotation")
+    if provider is None:
+        provider = ProviderModel(name=provider_settings["provider"])
+        session.add(provider)
+        session.commit()
     agent = AgentModel(name=agent_name, user_id=user_id, provider_id=provider.id)
     session.add(agent)
     session.commit()
 
     # Emit webhook event for agent creation (async without await since this is sync function)
     import asyncio
-    from DB import UserCompany
 
-    # Try to get the user's company_id
-    company_id = None
-    try:
-        user_company = (
-            session.query(UserCompany)
-            .filter(UserCompany.user_id == str(user_id))
-            .first()
-        )
-        company_id = (
-            str(user_company.company_id)
-            if user_company and user_company.company_id is not None
-            else None
-        )
-    except:
-        pass
+    # Use the company_id already set in provider_settings
+    company_id = provider_settings.get("company_id")
+    if company_id and str(company_id).lower() in ["none", "null", ""]:
+        company_id = None
 
     try:
         asyncio.create_task(
@@ -271,12 +994,12 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=str(user_id),
-                company_id=company_id,
+                company_id=str(company_id) if company_id else None,
             )
         )
-    except:
+    except Exception as e:
         # If we're not in an async context, just log it
-        logging.debug(f"Could not emit webhook event for agent creation: {agent_name}")
+        log_silenced_exception(e, "add_agent: emitting webhook event")
 
     for key, value in provider_settings.items():
         agent_setting = AgentSettingModel(
@@ -634,8 +1357,16 @@ def get_agent_id_by_name(agent_name: str, user: str = DEFAULT_USER) -> str:
 
 
 def get_agents(user=DEFAULT_USER, company=None):
+    """
+    Get all agents accessible to a user (owned + shared via company).
+    Optimized to reduce database queries using batch loading.
+    """
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
+    if not user_data:
+        session.close()
+        return []
+
     try:
         default_agent_id = str(
             session.query(UserPreferences)
@@ -652,26 +1383,28 @@ def get_agents(user=DEFAULT_USER, company=None):
     auth = MagicalAuth(token=token)
     user_company_ids = auth.get_user_companies()
 
-    # Query owned agents
+    # Query owned agents with eager loading
     owned_agents = (
-        session.query(AgentModel).filter(AgentModel.user_id == user_data.id).all()
+        session.query(AgentModel)
+        .options(joinedload(AgentModel.settings))
+        .filter(AgentModel.user_id == user_data.id)
+        .all()
     )
 
     # Query shared agents if user has companies
     shared_agents = []
     if user_company_ids:
-        # Get all agents that are not owned by this user
+        # Get all agents that are not owned by this user, with settings pre-loaded
         potential_shared = (
-            session.query(AgentModel).filter(AgentModel.user_id != user_data.id).all()
+            session.query(AgentModel)
+            .options(joinedload(AgentModel.settings))
+            .filter(AgentModel.user_id != user_data.id)
+            .all()
         )
 
         for agent in potential_shared:
-            settings = (
-                session.query(AgentSettingModel)
-                .filter(AgentSettingModel.agent_id == agent.id)
-                .all()
-            )
-            settings_dict = {s.name: s.value for s in settings}
+            # Use pre-loaded settings instead of separate query
+            settings_dict = {s.name: s.value for s in agent.settings}
 
             is_shared = settings_dict.get("shared", "false") == "true"
             agent_company_id = settings_dict.get("company_id")
@@ -682,101 +1415,49 @@ def get_agents(user=DEFAULT_USER, company=None):
     # Combine owned and shared agents
     all_agents = owned_agents + shared_agents
 
-    if default_agent_id == "":
+    if default_agent_id == "" and all_agents:
         # Add a user preference of the first agent's ID in the agent list
-        if all_agents:
-            user_preference = UserPreferences(
-                user_id=user_data.id, pref_key="agent_id", pref_value=all_agents[0].id
-            )
-            session.add(user_preference)
-            session.commit()
-            default_agent_id = str(all_agents[0].id)
-        else:
-            session.close()
-            return []
+        user_preference = UserPreferences(
+            user_id=user_data.id, pref_key="agent_id", pref_value=all_agents[0].id
+        )
+        session.add(user_preference)
+        session.commit()
+        default_agent_id = str(all_agents[0].id)
+    elif not all_agents:
+        session.close()
+        return []
+
+    # Collect agents needing onboarding for batch processing
+    agents_needing_onboard = []
+    agents_needing_company = []
+
     output = []
+    seen_names = set()
+
     for agent in all_agents:
         # Check if the agent is in the output already
-        if agent.name in [a["name"] for a in output]:
+        if agent.name in seen_names:
             continue
-        # Get the agent settings `company_id` and `agentonboarded11182025` if defined
-        company_id = None
-        agentonboarded11182025 = None
-        agent_settings = (
-            session.query(AgentSettingModel)
-            .filter(AgentSettingModel.agent_id == agent.id)
-            .all()
-        )
-        for setting in agent_settings:
-            if setting.name == "company_id":
-                company_id = setting.value
-            elif setting.name == "agentonboarded11182025":
-                agentonboarded11182025 = setting.value
+        seen_names.add(agent.name)
+
+        # Use pre-loaded settings instead of separate query
+        settings_dict = {s.name: s.value for s in agent.settings}
+        company_id = settings_dict.get("company_id")
+        agentonboarded11182025 = settings_dict.get("agentonboarded11182025")
+
         if company_id and company:
             if company_id != company:
                 continue
+
         if not company_id:
-            auth = MagicalAuth(token=impersonate_user(user_id=str(user_data.id)))
+            # Queue for batch update instead of immediate commit
+            agents_needing_company.append(agent)
             company_id = str(auth.company_id) if auth.company_id is not None else None
-            # update agent settings
-            agent_setting = AgentSettingModel(
-                agent_id=agent.id,
-                name="company_id",
-                value=company_id,
-            )
-            session.add(agent_setting)
-            session.commit()
 
-        # Check if agent needs onboarding (enable Core Abilities commands)
+        # Queue agents needing onboarding instead of processing inline
         if not agentonboarded11182025 or agentonboarded11182025.lower() != "true":
-            # Get all extensions in the Core Abilities category
-            core_abilities_category = (
-                session.query(ExtensionCategory)
-                .filter(ExtensionCategory.name == "Core Abilities")
-                .first()
-            )
+            agents_needing_onboard.append(agent.id)
 
-            if core_abilities_category:
-                core_extensions = (
-                    session.query(Extension)
-                    .filter(Extension.category_id == core_abilities_category.id)
-                    .all()
-                )
-
-                # Enable all commands from these extensions
-                for extension in core_extensions:
-                    extension_commands = (
-                        session.query(Command)
-                        .filter(Command.extension_id == extension.id)
-                        .all()
-                    )
-                    for command in extension_commands:
-                        # Check if agent command already exists
-                        existing_agent_command = (
-                            session.query(AgentCommand)
-                            .filter(
-                                AgentCommand.agent_id == agent.id,
-                                AgentCommand.command_id == command.id,
-                            )
-                            .first()
-                        )
-                        if not existing_agent_command:
-                            agent_command = AgentCommand(
-                                agent_id=agent.id, command_id=command.id, state=True
-                            )
-                            session.add(agent_command)
-                        elif not existing_agent_command.state:
-                            # Enable the command if it was disabled
-                            existing_agent_command.state = True
-
-            # Create the agentonboarded11182025 setting
-            agent_setting = AgentSettingModel(
-                agent_id=agent.id,
-                name="agentonboarded11182025",
-                value="true",
-            )
-            session.add(agent_setting)
-            session.commit()
         is_owner = agent.user_id == user_data.id
         is_shared = settings_dict.get("shared", "false") == "true"
 
@@ -792,8 +1473,109 @@ def get_agents(user=DEFAULT_USER, company=None):
                 "access_level": "owner" if is_owner else "viewer",
             }
         )
+
+    # Batch update agents needing company_id
+    if agents_needing_company:
+        company_id_value = str(auth.company_id) if auth.company_id is not None else None
+        for agent in agents_needing_company:
+            agent_setting = AgentSettingModel(
+                agent_id=agent.id,
+                name="company_id",
+                value=company_id_value,
+            )
+            session.add(agent_setting)
+        session.commit()
+
+    # Process agent onboarding asynchronously/in background if needed
+    # For now, do a single batch onboard instead of per-agent
+    if agents_needing_onboard:
+        _batch_onboard_agents(session, agents_needing_onboard)
+
     session.close()
     return output
+
+
+def _batch_onboard_agents(session, agent_ids):
+    """
+    Batch onboard multiple agents - enables Core Abilities commands.
+    This is more efficient than processing one at a time.
+    """
+    if not agent_ids:
+        return
+
+    # Get Core Abilities category and its extensions once
+    core_abilities_category = (
+        session.query(ExtensionCategory)
+        .filter(ExtensionCategory.name == "Core Abilities")
+        .first()
+    )
+
+    if not core_abilities_category:
+        # Mark all agents as onboarded even if no Core Abilities found
+        for agent_id in agent_ids:
+            agent_setting = AgentSettingModel(
+                agent_id=agent_id,
+                name="agentonboarded11182025",
+                value="true",
+            )
+            session.add(agent_setting)
+        session.commit()
+        return
+
+    # Get all Core Abilities commands in one query
+    core_commands = (
+        session.query(Command)
+        .join(Extension)
+        .filter(Extension.category_id == core_abilities_category.id)
+        .all()
+    )
+
+    if not core_commands:
+        # Mark all agents as onboarded even if no commands found
+        for agent_id in agent_ids:
+            agent_setting = AgentSettingModel(
+                agent_id=agent_id,
+                name="agentonboarded11182025",
+                value="true",
+            )
+            session.add(agent_setting)
+        session.commit()
+        return
+
+    # Get existing agent commands for all agents in one query
+    existing_agent_commands = (
+        session.query(AgentCommand).filter(AgentCommand.agent_id.in_(agent_ids)).all()
+    )
+
+    # Build lookup set for existing commands
+    existing_lookup = {(ac.agent_id, ac.command_id) for ac in existing_agent_commands}
+
+    # Add missing commands and update disabled ones
+    for agent_id in agent_ids:
+        for command in core_commands:
+            key = (agent_id, command.id)
+            if key not in existing_lookup:
+                agent_command = AgentCommand(
+                    agent_id=agent_id, command_id=command.id, state=True
+                )
+                session.add(agent_command)
+
+        # Mark agent as onboarded
+        agent_setting = AgentSettingModel(
+            agent_id=agent_id,
+            name="agentonboarded11182025",
+            value="true",
+        )
+        session.add(agent_setting)
+
+    # Enable any disabled commands
+    for ac in existing_agent_commands:
+        if ac.agent_id in agent_ids and not ac.state:
+            # Check if this is a core command
+            if ac.command_id in {c.id for c in core_commands}:
+                ac.state = True
+
+    session.commit()
 
 
 def clone_agent(agent_id, new_agent_name, user=DEFAULT_USER):
@@ -874,6 +1656,9 @@ class Agent:
 
         self.agent_name = agent_name
         self.agent_id = agent_id
+        # Handle user dict from verify_api_key
+        if isinstance(user, dict):
+            user = user.get("email", DEFAULT_USER)
         user = user if user is not None else DEFAULT_USER
         self.user = user.lower()
         self.user_id = get_user_id(user=self.user)
@@ -881,9 +1666,22 @@ class Agent:
         self.auth = MagicalAuth(token=token)
         self.company_id = None
 
-        # If agent_id was provided, get the agent_name; if agent_name was provided, get the agent_id
+        # If agent_id was provided, check if it's a valid UUID or actually a name
         if self.agent_id is not None:
-            self.agent_name = self.get_agent_name_by_id()
+            try:
+                # Try to parse as UUID - if it works, it's a real ID
+                import uuid as uuid_module
+
+                uuid_module.UUID(str(self.agent_id))
+                self.agent_name = self.get_agent_name_by_id()
+            except ValueError:
+                # Not a valid UUID - treat it as agent_name instead
+                self.agent_name = self.agent_id
+                self.agent_id = None
+                agent_id_result = self.get_agent_id()
+                self.agent_id = (
+                    str(agent_id_result) if agent_id_result is not None else None
+                )
         else:
             agent_id_result = self.get_agent_id()
             self.agent_id = (
@@ -900,92 +1698,40 @@ class Agent:
         for setting in DEFAULT_SETTINGS:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
-        try:
-            self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
-        except:
-            self.AI_PROVIDER = "rotation"
+
+        # Clean up settings that shouldn't be passed to providers
         for key in ["name", "ApiClient", "agent_name", "user", "user_id", "api_key"]:
             if key in self.PROVIDER_SETTINGS:
                 del self.PROVIDER_SETTINGS[key]
-        self.PROVIDER = Providers(
-            name=self.AI_PROVIDER,
-            ApiClient=ApiClient,
-            agent_name=self.agent_name,
-            user=self.user,
-            api_key=token,
-            **self.PROVIDER_SETTINGS,
+
+        # Initialize AI Provider Manager to discover AI Provider extensions
+        self.ai_provider_manager = AIProviderManager(
+            agent_settings=self.PROVIDER_SETTINGS,
         )
-        vision_provider = (
-            self.AGENT_CONFIG["settings"]["vision_provider"]
-            if "vision_provider" in self.AGENT_CONFIG["settings"]
-            else "rotation"
+
+        # Store ApiClient and token for provider access
+        self._ApiClient = ApiClient
+        self._token = token
+
+        # Set up service availability flags from AI Provider Manager
+        logging.debug(
+            f"[Agent] Using AI Provider extensions: {self.ai_provider_manager.get_provider_names()}"
         )
-        try:
-            self.VISION_PROVIDER = Providers(
-                name=vision_provider,
-                ApiClient=ApiClient,
-                agent_name=self.agent_name,
-                user=self.user,
-                api_key=token,
-                **self.PROVIDER_SETTINGS,
-            )
-        except Exception as e:
-            logging.error(f"Error loading vision provider: {str(e)}")
-            self.VISION_PROVIDER = None
-        tts_provider = (
-            self.AGENT_CONFIG["settings"]["tts_provider"]
-            if "tts_provider" in self.AGENT_CONFIG["settings"]
-            else "None"
+        self.PROVIDER = None  # Will use ai_provider_manager in inference methods
+        self.VISION_PROVIDER = None
+        self.TTS_PROVIDER = (
+            True if self.ai_provider_manager.has_service("tts") else None
+        )  # Flag for availability
+        self.TRANSCRIPTION_PROVIDER = (
+            True if self.ai_provider_manager.has_service("transcription") else None
         )
-        if tts_provider != "None" and tts_provider != None and tts_provider != "":
-            self.TTS_PROVIDER = Providers(
-                name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-            )
-        else:
-            self.TTS_PROVIDER = None
-        transcription_provider = (
-            self.AGENT_CONFIG["settings"]["transcription_provider"]
-            if "transcription_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
+        self.TRANSLATION_PROVIDER = (
+            True if self.ai_provider_manager.has_service("translation") else None
         )
-        self.TRANSCRIPTION_PROVIDER = Providers(
-            name=transcription_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        self.IMAGE_PROVIDER = (
+            True if self.ai_provider_manager.has_service("image") else None
         )
-        translation_provider = (
-            self.AGENT_CONFIG["settings"]["translation_provider"]
-            if "translation_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
-        )
-        self.TRANSLATION_PROVIDER = Providers(
-            name=translation_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
-        image_provider = (
-            self.AGENT_CONFIG["settings"]["image_provider"]
-            if "image_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
-        )
-        image_services = get_provider_services(image_provider)
-        if "image" in image_services:
-            try:
-                self.IMAGE_PROVIDER = Providers(
-                    name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-                )
-            except Exception as e:
-                logging.error(
-                    f"Error loading image provider '{image_provider}': {str(e)}"
-                )
-                self.IMAGE_PROVIDER = None
-        else:
-            if image_provider not in [None, "None", "", "default"]:
-                logging.warning(
-                    f"Configured image provider '{image_provider}' does not advertise image support; disabling image generation."
-                )
-            self.IMAGE_PROVIDER = None
-        embeddings_provider = (
-            self.AGENT_CONFIG["settings"]["embeddings_provider"]
-            if "embeddings_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
-        )
+
         try:
             self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
         except Exception as e:
@@ -1113,8 +1859,62 @@ class Agent:
         session.close()
         return agent_settings
 
+    def get_agent_settings_only(self):
+        """
+        Lightweight method to get just agent settings without commands, wallet creation, etc.
+        Use this when you only need settings like embeddings_provider or MAX_TOKENS.
+        Much faster than get_agent_config() for read-only operations.
+        """
+        session = get_session()
+        try:
+            # Find agent
+            agent = None
+            if (
+                hasattr(self, "agent_id")
+                and self.agent_id
+                and str(self.agent_id) != "None"
+            ):
+                agent = (
+                    session.query(AgentModel)
+                    .filter(AgentModel.id == self.agent_id)
+                    .first()
+                )
+            if not agent:
+                agent = (
+                    session.query(AgentModel)
+                    .filter(
+                        AgentModel.name == self.agent_name,
+                        AgentModel.user_id == self.user_id,
+                    )
+                    .first()
+                )
+
+            if not agent:
+                return {"embeddings_provider": "default"}
+
+            # Get settings in one query
+            settings = {}
+            agent_settings = (
+                session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
+            )
+            for setting in agent_settings:
+                if setting.value:
+                    settings[setting.name] = setting.value
+
+            return settings
+        finally:
+            session.close()
+
     def get_agent_config(self):
         session = get_session()
+
+        # CRITICAL: Begin a new transaction to ensure we see committed data from other workers
+        # SQLite with multiple processes can have stale reads without this
+        try:
+            session.execute("SELECT 1")  # Force connection to be active
+            session.commit()  # Commit any implicit transaction to release locks
+        except Exception:
+            pass  # Ignore if already in a good state
 
         # If we have agent_id, use it to find the agent
         if (
@@ -1141,6 +1941,18 @@ class Agent:
                             AgentModel.id == self.agent_id,
                             AgentModel.user_id == global_user.id,
                         )
+                        .first()
+                    )
+            if not agent:
+                # Check for company-shared agent access using can_user_access_agent
+                can_access, is_owner, access_level = can_user_access_agent(
+                    user_id=self.user_id, agent_id=self.agent_id, auth=self.auth
+                )
+                if can_access:
+                    # User has access to a shared agent, get it directly by ID
+                    agent = (
+                        session.query(AgentModel)
+                        .filter(AgentModel.id == self.agent_id)
                         .first()
                     )
         else:
@@ -1179,32 +1991,34 @@ class Agent:
 
         # Wallet Creation Logic - Runs only if agent exists
         if agent:
-            # Get ALL wallet settings for this agent (to handle duplicates)
-            all_wallet_addresses = (
+            # Get ALL wallet settings in a single query (optimized from 3 separate queries)
+            wallet_setting_names = [
+                "SOLANA_WALLET_ADDRESS",
+                "SOLANA_WALLET_API_KEY",
+                "SOLANA_WALLET_PASSPHRASE_API_KEY",
+            ]
+            all_wallet_settings = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
+                    AgentSettingModel.name.in_(wallet_setting_names),
                 )
                 .all()
             )
 
-            all_private_keys = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
-                )
-                .all()
-            )
+            # Group by setting name
+            wallet_settings_by_name = {}
+            for setting in all_wallet_settings:
+                if setting.name not in wallet_settings_by_name:
+                    wallet_settings_by_name[setting.name] = []
+                wallet_settings_by_name[setting.name].append(setting)
 
-            all_passphrases = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
-                )
-                .all()
+            all_wallet_addresses = wallet_settings_by_name.get(
+                "SOLANA_WALLET_ADDRESS", []
+            )
+            all_private_keys = wallet_settings_by_name.get("SOLANA_WALLET_API_KEY", [])
+            all_passphrases = wallet_settings_by_name.get(
+                "SOLANA_WALLET_PASSPHRASE_API_KEY", []
             )
 
             # Clean up duplicates - keep only the first one with a value, or first one if none have values
@@ -1253,7 +2067,7 @@ class Agent:
 
             if wallet_needs_creation:
                 # Wallet doesn't exist or is incomplete, create and save it
-                logging.info(
+                logging.debug(
                     f"Solana wallet missing or incomplete for agent {agent.name} ({agent.id}). Creating new wallet..."
                 )
                 try:
@@ -1294,7 +2108,7 @@ class Agent:
                         )
 
                     session.commit()
-                    logging.info(
+                    logging.debug(
                         f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
                     )
 
@@ -1311,22 +2125,30 @@ class Agent:
                     session.rollback()  # Rollback DB changes on error
 
         if agent:
-            all_commands = session.query(Command).all()
+            # Force fresh read from database - critical for multi-worker consistency
+            # Without this, SQLAlchemy may return stale cached data from previous queries
+            session.expire_all()
+
+            # Use cached commands to avoid repeated queries
+            all_commands = get_all_commands_cached(session)
             # Only query agent_settings if not already refreshed after wallet creation
             if "agent_settings" not in locals():
                 agent_settings = (
                     session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
                 )
+
             agent_commands = (
                 session.query(AgentCommand)
                 .filter(AgentCommand.agent_id == agent.id)
                 .all()
             )
+
+            # Build a set of enabled command IDs for O(1) lookup (optimized from O(n*m))
+            enabled_command_ids = {ac.command_id for ac in agent_commands if ac.state}
+
             # Process all commands, including chains
             for command in all_commands:
-                config["commands"][command.name] = any(
-                    ac.command_id == command.id and ac.state for ac in agent_commands
-                )
+                config["commands"][command.name] = command.id in enabled_command_ids
             for setting in agent_settings:
                 # Don't skip wallet-related settings even if they're empty (they should have been created above)
                 # but skip other empty settings as before
@@ -1351,7 +2173,10 @@ class Agent:
                 return config
             company_agent = self.get_company_agent()
             if company_agent:
-                company_agent_config = company_agent.get_agent_config()
+                # Use cached company agent config to avoid expensive recursive call
+                company_agent_config = get_company_agent_config_cached(
+                    company_id, company_agent
+                )
                 company_settings = company_agent_config.get("settings")
                 for key, value in company_settings.items():
                     if key not in config["settings"]:
@@ -1383,6 +2208,7 @@ class Agent:
         images: list = [],
         use_smartest: bool = False,
         stream: bool = False,
+        max_retries: int = 3,
     ):
         if not prompt:
             return ""
@@ -1392,97 +2218,166 @@ class Agent:
         self.auth.check_billing_balance()
 
         input_tokens = get_tokens(prompt)
-        provider_name = self.AGENT_CONFIG["settings"]["provider"]
+        service = "vision" if images else "llm"
+        last_error = None
 
-        # Emit webhook event for inference start
-        await webhook_emitter.emit_event(
-            event_type="agent.inference.started",
-            data={
-                "agent_id": str(self.agent_id),
-                "agent_name": self.agent_name,
-                "user_id": str(self.user_id),
-                "provider": provider_name,
-                "input_tokens": input_tokens,
-                "use_smartest": use_smartest,
-                "has_images": len(images) > 0,
-                "timestamp": datetime.now().isoformat(),
-            },
-            user_id=str(self.user_id),
-        )
+        # Retry loop - try different providers on failure
+        for attempt in range(max_retries):
+            # Get provider from AI Provider Manager (intelligent rotation built-in)
+            provider = self.ai_provider_manager.get_provider_for_service(
+                service=service,
+                tokens=input_tokens,
+                use_smartest=use_smartest,
+            )
+            if provider is None:
+                if attempt == 0:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="No AI providers available for inference",
+                    )
+                # No more providers available after failures
+                logging.warning(
+                    f"[Inference] No more providers available after {attempt} failed attempt(s)"
+                )
+                break
 
-        try:
-            if stream:
-                # For streaming, return the stream object for the caller to handle
-                return await self.PROVIDER.inference(
-                    prompt=prompt,
-                    tokens=input_tokens,
-                    images=images,
-                    stream=True,
-                    use_smartest=use_smartest,
-                )
-            else:
-                # Non-streaming path
-                answer = await self.PROVIDER.inference(
-                    prompt=prompt,
-                    tokens=input_tokens,
-                    images=images,
-                    use_smartest=use_smartest,
-                )
-                output_tokens = get_tokens(answer)
-                self.auth.increase_token_counts(
-                    input_tokens=input_tokens, output_tokens=output_tokens
-                )
-                answer = str(answer).replace("\\_", "_")
-                if answer.endswith("\n\n"):
-                    answer = answer[:-2]
+            provider_name = provider.__class__.__name__.replace("aiprovider_", "")
 
-                # Emit webhook event for successful inference
-                await webhook_emitter.emit_event(
-                    event_type="agent.inference.completed",
-                    data={
-                        "agent_id": str(self.agent_id),
-                        "agent_name": self.agent_name,
-                        "user_id": str(self.user_id),
-                        "provider": provider_name,
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                    user_id=str(self.user_id),
-                )
-        except Exception as e:
-            logging.error(f"Error in inference: {str(e)}")
-            answer = "<answer>Unable to process request.</answer>"
+            # Log inference request with selected provider
+            logging.info(
+                f"[Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens (attempt {attempt + 1}/{max_retries})"
+            )
 
-            # Emit webhook event for failed inference
+            # Emit webhook event for inference start
             await webhook_emitter.emit_event(
-                event_type="agent.inference.failed",
+                event_type="agent.inference.started",
                 data={
                     "agent_id": str(self.agent_id),
                     "agent_name": self.agent_name,
                     "user_id": str(self.user_id),
                     "provider": provider_name,
-                    "error": str(e),
+                    "input_tokens": input_tokens,
+                    "use_smartest": use_smartest,
+                    "has_images": len(images) > 0,
+                    "attempt": attempt + 1,
                     "timestamp": datetime.now().isoformat(),
                 },
                 user_id=str(self.user_id),
             )
-        return answer
+
+            try:
+                if stream:
+                    # For streaming, return the stream object for the caller to handle
+                    # Note: streaming doesn't support retry since we return the stream directly
+                    return await provider.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        stream=True,
+                        use_smartest=use_smartest,
+                    )
+                else:
+                    # Non-streaming path
+                    answer = await provider.inference(
+                        prompt=prompt,
+                        tokens=input_tokens,
+                        images=images,
+                        use_smartest=use_smartest,
+                    )
+                    output_tokens = get_tokens(answer)
+                    self.auth.increase_token_counts(
+                        input_tokens=input_tokens, output_tokens=output_tokens
+                    )
+
+                    # Log inference completion with token counts
+                    logging.info(
+                        f"[Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
+                    )
+
+                    answer = str(answer).replace("\\_", "_")
+                    if answer.endswith("\n\n"):
+                        answer = answer[:-2]
+
+                    # Emit webhook event for successful inference
+                    await webhook_emitter.emit_event(
+                        event_type="agent.inference.completed",
+                        data={
+                            "agent_id": str(self.agent_id),
+                            "agent_name": self.agent_name,
+                            "user_id": str(self.user_id),
+                            "provider": provider_name,
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                        user_id=str(self.user_id),
+                    )
+                    return answer
+
+            except Exception as e:
+                last_error = str(e)
+                logging.error(
+                    f"Error in inference with provider '{provider_name}': {last_error}"
+                )
+                # Mark provider as failed for rotation tracking
+                self.ai_provider_manager.mark_provider_failed(provider_name)
+
+                # Emit webhook event for failed inference
+                await webhook_emitter.emit_event(
+                    event_type="agent.inference.failed",
+                    data={
+                        "agent_id": str(self.agent_id),
+                        "agent_name": self.agent_name,
+                        "user_id": str(self.user_id),
+                        "provider": provider_name,
+                        "error": last_error,
+                        "attempt": attempt + 1,
+                        "will_retry": attempt + 1 < max_retries,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                    user_id=str(self.user_id),
+                )
+
+                # If not the last attempt, log that we're retrying
+                if attempt + 1 < max_retries:
+                    logging.info(
+                        f"[Inference] Provider '{provider_name}' failed, attempting rotation to next provider..."
+                    )
+                continue
+
+        # All retries exhausted
+        logging.error(
+            f"[Inference] All {max_retries} provider attempts failed. Last error: {last_error}"
+        )
+        return "<answer>Unable to process request.</answer>"
 
     async def vision_inference(
         self, prompt: str, images: list = [], use_smartest: bool = False
     ):
         if not prompt:
             return ""
-        if not self.VISION_PROVIDER:
-            return ""
 
         # Pre-check billing balance before running inference
         self.auth.check_billing_balance()
 
         input_tokens = get_tokens(prompt)
+
+        # Get vision provider from AI Provider Manager
+        provider = self.ai_provider_manager.get_provider_for_service(
+            service="vision",
+            tokens=input_tokens,
+            use_smartest=use_smartest,
+        )
+        if provider is None:
+            return ""
+
+        provider_name = provider.__class__.__name__.replace("aiprovider_", "")
+        logging.info(
+            f"[Vision Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens"
+        )
+
         try:
-            answer = await self.PROVIDER.inference(
+            answer = await provider.inference(
                 prompt=prompt,
                 tokens=input_tokens,
                 images=images,
@@ -1492,11 +2387,16 @@ class Agent:
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens
             )
+
+            logging.info(
+                f"[Vision Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
+            )
+
             answer = str(answer).replace("\\_", "_")
             if answer.endswith("\n\n"):
                 answer = answer[:-2]
         except Exception as e:
-            logging.error(f"Error in inference: {str(e)}")
+            logging.error(f"Error in vision inference: {str(e)}")
             answer = "<answer>Unable to process request.</answer>"
         return answer
 
@@ -1506,20 +2406,96 @@ class Agent:
         return embed(input=input)
 
     async def transcribe_audio(self, audio_path: str):
-        return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)
+        provider = self.ai_provider_manager.get_provider_for_service("transcription")
+        if provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No transcription provider available",
+            )
+        return await provider.transcribe_audio(audio_path=audio_path)
 
     async def translate_audio(self, audio_path: str):
-        return await self.TRANSLATION_PROVIDER.translate_audio(audio_path=audio_path)
+        provider = self.ai_provider_manager.get_provider_for_service("translation")
+        if provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No translation provider available",
+            )
+        return await provider.translate_audio(audio_path=audio_path)
 
-    async def generate_image(self, prompt: str):
-        if not self.IMAGE_PROVIDER or not hasattr(
-            self.IMAGE_PROVIDER, "generate_image"
-        ):
+    async def generate_image(self, prompt: str, conversation_id: str = None):
+        provider = self.ai_provider_manager.get_provider_for_service("image")
+        if provider is None:
             raise HTTPException(
                 status_code=400,
                 detail="This agent is not configured with an image-capable provider.",
             )
-        return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
+
+        if not conversation_id or conversation_id == "-":
+            conversation_id = get_conversation_id_by_name(
+                conversation_name="-", user_id=self.user_id
+            )
+
+        # Get the base64 encoded image from the provider
+        image_content = await provider.generate_image(prompt=prompt)
+
+        # Handle the image storage similar to TTS
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+        import tempfile
+        import shutil
+
+        def sanitize_path_component(component: str) -> str:
+            """Sanitize a path component to prevent path traversal attacks"""
+            if not component or not isinstance(component, str):
+                raise ValueError("Invalid path component")
+            sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", str(component))
+            if (
+                not sanitized
+                or sanitized
+                != component.replace("-", "").replace("_", "").replace(" ", "")
+                or ".." in component
+            ):
+                sanitized = re.sub(r"[^a-zA-Z0-9-]", "", str(component))
+            if not sanitized:
+                raise ValueError("Invalid path component after sanitization")
+            return sanitized
+
+        safe_agent_id = sanitize_path_component(self.agent_id)
+        safe_conversation_id = sanitize_path_component(conversation_id)
+
+        with tempfile.TemporaryDirectory() as temp_base:
+            secure_filename = f"image_{timestamp}.png"
+            temp_image_path = f"{temp_base}/{secure_filename}"
+
+            with open(temp_image_path, "wb") as f:
+                f.write(base64.b64decode(image_content))
+
+            workspace_base = os.path.realpath("WORKSPACE")
+
+            def safe_workspace_path(base: str, *components: str) -> str:
+                """Construct a safe path within workspace, preventing traversal."""
+                constructed = os.path.join(base, *components)
+                resolved = os.path.realpath(constructed)
+                if not resolved.startswith(
+                    os.path.realpath(base) + os.sep
+                ) and resolved != os.path.realpath(base):
+                    raise ValueError("Path traversal attempt blocked")
+                return resolved
+
+            workspace_outputs = safe_workspace_path(
+                workspace_base, safe_agent_id, safe_conversation_id
+            )
+            os.makedirs(workspace_outputs, exist_ok=True)
+
+            final_image_path = safe_workspace_path(
+                workspace_base, safe_agent_id, safe_conversation_id, secure_filename
+            )
+            shutil.move(temp_image_path, final_image_path)
+
+            agixt_uri = getenv("AGIXT_URI")
+            output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
+            return output_url
 
     async def text_to_speech(self, text: str, conversation_id: str = None):
         if not text:
@@ -1531,7 +2507,11 @@ class Agent:
             conversation_id = get_conversation_id_by_name(
                 conversation_name="-", user_id=self.user_id
             )
-        if self.TTS_PROVIDER is not None:
+
+        # Get TTS provider from AI Provider Manager
+        tts_provider = self.ai_provider_manager.get_provider_for_service("tts")
+
+        if tts_provider is not None:
             if "```" in text:
                 text = re.sub(
                     r"```[^```]+```",
@@ -1551,7 +2531,7 @@ class Agent:
                     "The link provided in the chat.",
                     text,
                 )
-            tts_content = await self.TTS_PROVIDER.text_to_speech(text=text)
+            tts_content = await tts_provider.text_to_speech(text=text)
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
             # CodeQL ultra-safe pattern: Complete data flow isolation
@@ -1626,59 +2606,139 @@ class Agent:
                 output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
                 return output_url
 
+    async def text_to_speech_stream(self, text: str):
+        """
+        Stream TTS audio as it's generated, chunk by chunk.
+
+        This enables real-time playback without waiting for the entire audio
+        to be generated. Dramatically reduces time-to-first-word.
+
+        Args:
+            text: Text to convert to speech
+
+        Yields:
+            bytes: Binary audio data chunks
+        """
+        if not text:
+            raise HTTPException(
+                status_code=400,
+                detail="No text provided for text-to-speech.",
+            )
+
+        # Get TTS provider from AI Provider Manager
+        tts_provider = self.ai_provider_manager.get_provider_for_service("tts")
+
+        if tts_provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No TTS provider configured for this agent.",
+            )
+
+        # Check if provider supports streaming
+        if not hasattr(tts_provider, "text_to_speech_stream"):
+            raise HTTPException(
+                status_code=400,
+                detail="TTS provider does not support streaming.",
+            )
+
+        # Clean text for TTS
+        if "```" in text:
+            text = re.sub(
+                r"```[^```]+```",
+                "See the chat for the full code block.",
+                text,
+            )
+        if "https://" in text:
+            text = re.sub(
+                r"https://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+        if "http://" in text:
+            text = re.sub(
+                r"http://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+
+        async for chunk in tts_provider.text_to_speech_stream(text=text):
+            yield chunk
+
     def get_agent_extensions(self):
         extensions = self.extensions.get_extensions()
         new_extensions = []
         session = get_session()
+
+        # Batch queries - get user data once
         user_oauth = (
             session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
         )
         user = session.query(User).filter(User.id == self.user_id).first()
-        sso_providers = {}
-        # Get OAuth-enabled extensions by scanning for SSO components
-        import importlib.util
 
-        extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
-        extension_files = os.listdir(extensions_dir)
-        for extension_file in extension_files:
-            if extension_file.endswith(".py") and not extension_file.startswith("__"):
-                try:
-                    # Load the extension module to check for OAuth components
-                    extension_name = extension_file.replace(".py", "")
-                    file_path = os.path.join(extensions_dir, extension_file)
-                    spec = importlib.util.spec_from_file_location(
-                        extension_name, file_path
-                    )
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
+        # Get SSO-enabled extensions from cache (expensive filesystem scan)
+        sso_providers_set = get_sso_providers_cached()
+        sso_providers = {name: False for name in sso_providers_set}
 
-                    # Check if the extension has OAuth components (SSO class or sso function)
-                    has_sso_class = any(
-                        hasattr(module, f"{extension_name.capitalize()}SSO")
-                        for extension_name in [extension_name]
-                    )
-                    has_sso_function = hasattr(module, "sso")
-                    has_oauth_scopes = hasattr(module, "SCOPES")
+        # Check if this is a company agent (synthetic user with email {company_id}@{company_id}.xt)
+        is_company_agent = user and str(user.email).lower().endswith(".xt")
 
-                    if has_sso_class or has_sso_function or has_oauth_scopes:
-                        sso_providers[extension_name] = False
-                except Exception as e:
-                    # Skip extensions that can't be loaded or don't have OAuth components
-                    logging.debug(
-                        f"Extension {extension_file} does not have OAuth components: {str(e)}"
-                    )
-                    continue
-        if user_oauth:
-            for oauth in user_oauth:
-                provider = (
-                    session.query(OAuthProvider)
-                    .filter(OAuthProvider.id == oauth.provider_id)
-                    .first()
+        if is_company_agent:
+            # For company agents, check OAuth connections from company admins/members
+            # Extract company_id from email: {company_id}@{company_id}.xt
+            company_email = str(user.email).lower()
+            company_id = company_email.split("@")[0] if "@" in company_email else None
+
+            if company_id:
+                # Get all users who are members of this company
+                company_user_ids = (
+                    session.query(UserCompany.user_id)
+                    .filter(UserCompany.company_id == company_id)
+                    .all()
                 )
-                if provider:
-                    if not str(user.email).lower().endswith(".xt"):
-                        if str(provider.name).lower() in sso_providers:
-                            sso_providers[str(provider.name).lower()] = True
+                company_user_ids = [uid[0] for uid in company_user_ids]
+
+                if company_user_ids:
+                    # Get OAuth connections from any company member
+                    company_oauth = (
+                        session.query(UserOAuth)
+                        .filter(UserOAuth.user_id.in_(company_user_ids))
+                        .all()
+                    )
+
+                    if company_oauth:
+                        provider_ids = [oauth.provider_id for oauth in company_oauth]
+                        if provider_ids:
+                            providers = (
+                                session.query(OAuthProvider)
+                                .filter(OAuthProvider.id.in_(provider_ids))
+                                .all()
+                            )
+                            provider_names = {p.id: p.name for p in providers}
+
+                            for oauth in company_oauth:
+                                provider_name = provider_names.get(oauth.provider_id)
+                                if provider_name:
+                                    if str(provider_name).lower() in sso_providers:
+                                        sso_providers[str(provider_name).lower()] = True
+        else:
+            # Regular user - check their own OAuth connections
+            # Batch get OAuth provider names for user's connected providers
+            if user_oauth:
+                provider_ids = [oauth.provider_id for oauth in user_oauth]
+                if provider_ids:
+                    providers = (
+                        session.query(OAuthProvider)
+                        .filter(OAuthProvider.id.in_(provider_ids))
+                        .all()
+                    )
+                    provider_names = {p.id: p.name for p in providers}
+
+                    for oauth in user_oauth:
+                        provider_name = provider_names.get(oauth.provider_id)
+                        if provider_name:
+                            if str(provider_name).lower() in sso_providers:
+                                sso_providers[str(provider_name).lower()] = True
+
         for extension in extensions:
             extension_name_lower = str(extension["extension_name"]).lower()
             if extension_name_lower in sso_providers:
@@ -1697,30 +2757,71 @@ class Agent:
                     extension["settings"] = []
             required_keys = extension["settings"]
             new_extension = extension.copy()
+
+            # Transform settings from list of keys to list of objects with values
+            settings_with_values = []
+            has_configured_setting = False
             for key in required_keys:
+                is_sensitive = any(
+                    kw in key.upper()
+                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
+                )
+
                 if key not in self.AGENT_CONFIG["settings"]:
                     if "missing_keys" not in new_extension:
                         new_extension["missing_keys"] = []
                     new_extension["missing_keys"].append(key)
-                    new_extension["commands"] = []
+                    settings_with_values.append(
+                        {
+                            "setting_key": key,
+                            "setting_value": None,
+                            "is_sensitive": is_sensitive,
+                        }
+                    )
                 else:
-                    if (
-                        self.AGENT_CONFIG["settings"][key] == ""
-                        or self.AGENT_CONFIG["settings"][key] == None
-                    ):
-                        new_extension["commands"] = []
-            if new_extension["commands"] == [] and new_extension["settings"] == []:
+                    value = self.AGENT_CONFIG["settings"][key]
+                    if value == "" or value is None:
+                        settings_with_values.append(
+                            {
+                                "setting_key": key,
+                                "setting_value": None,
+                                "is_sensitive": is_sensitive,
+                            }
+                        )
+                    else:
+                        has_configured_setting = True
+                        # Mask sensitive values
+                        if is_sensitive:
+                            masked_value = (
+                                "***" + str(value)[-4:]
+                                if len(str(value)) > 4
+                                else "****"
+                            )
+                        else:
+                            masked_value = value
+                        settings_with_values.append(
+                            {
+                                "setting_key": key,
+                                "setting_value": masked_value,
+                                "is_sensitive": is_sensitive,
+                            }
+                        )
+
+            new_extension["settings"] = settings_with_values
+
+            # Only disable commands if NO settings are configured
+            if not has_configured_setting and required_keys:
+                new_extension["commands"] = []
+
+            if new_extension["commands"] == [] and not settings_with_values:
                 continue
             new_extensions.append(new_extension)
         for extension in new_extensions:
             for command in extension["commands"]:
                 if command["friendly_name"] in self.AGENT_CONFIG["commands"]:
-                    command["enabled"] = (
-                        str(
-                            self.AGENT_CONFIG["commands"][command["friendly_name"]]
-                        ).lower()
-                        == "true"
-                    )
+                    raw_value = self.AGENT_CONFIG["commands"][command["friendly_name"]]
+                    computed_enabled = str(raw_value).lower() == "true"
+                    command["enabled"] = computed_enabled
                 else:
                     command["enabled"] = False
         session.close()
@@ -1754,6 +2855,17 @@ class Agent:
                             AgentModel.id == self.agent_id,
                             AgentModel.user_id == global_user.id,
                         )
+                        .first()
+                    )
+            if not agent:
+                # Check for shared access (e.g., company agents)
+                can_access, is_owner, access_level = can_user_access_agent(
+                    user_id=self.user_id, agent_id=self.agent_id, auth=self.auth
+                )
+                if can_access:
+                    agent = (
+                        session.query(AgentModel)
+                        .filter(AgentModel.id == self.agent_id)
                         .first()
                     )
         else:
@@ -1836,6 +2948,8 @@ class Agent:
                         command = Command(name=command_name, extension_id=extension.id)
                         session.add(command)
                         session.commit()
+                        # Invalidate the commands cache since we added a new command
+                        invalidate_commands_cache()
                     else:
                         logging.error(f"Command {command_name} not found.")
                         continue
@@ -1859,6 +2973,15 @@ class Agent:
                         state=enabled,
                     )
                     session.add(agent_command)
+                    logging.info(
+                        f"[update_agent_config] Created new AgentCommand with state={enabled}"
+                    )
+
+                # Force flush to ensure the change is staged
+                session.flush()
+                logging.info(
+                    f"[update_agent_config] Flushed command state change for {command_name}"
+                )
         else:
             for setting_name, setting_value in new_config.items():
                 agent_setting = (
@@ -1883,6 +3006,29 @@ class Agent:
             session.commit()
             logging.info(f"Agent {self.agent_name} configuration updated successfully.")
 
+            # Invalidate ALL caches to ensure other workers see the updated data
+            # This is critical for multi-worker scenarios
+            invalidate_company_config_cache()  # Clear company config cache
+            invalidate_commands_cache()  # Clear commands cache
+            logging.info(
+                f"[update_agent_config] Caches invalidated after config update"
+            )
+
+            # Verify the commit by re-querying
+            if config_key == "commands":
+                for command_name, enabled in new_config.items():
+                    command = _resolve_command_by_name(session, command_name)
+                    if command:
+                        verify_ac = (
+                            session.query(AgentCommand)
+                            .filter_by(agent_id=self.agent_id, command_id=command.id)
+                            .first()
+                        )
+                        logging.info(
+                            f"[update_agent_config] VERIFY after commit: {command_name} -> "
+                            f"state={verify_ac.state if verify_ac else 'NOT FOUND'}"
+                        )
+
             # Emit webhook event for agent configuration update
             import asyncio
 
@@ -1899,6 +3045,7 @@ class Agent:
                             "timestamp": datetime.now().isoformat(),
                         },
                         user_id=str(self.user_id),
+                        company_id=str(self.company_id) if self.company_id else None,
                     )
                 )
             except:
@@ -2040,9 +3187,10 @@ class Agent:
         return f"Link {url} deleted from browsed links."
 
     def get_agent_name_by_id(self):
-        """Get agent name by agent_id"""
+        """Get agent name by agent_id, checking ownership and shared access"""
         session = get_session()
         try:
+            # First try to find agent owned by user
             agent = (
                 session.query(AgentModel)
                 .filter(
@@ -2050,25 +3198,39 @@ class Agent:
                 )
                 .first()
             )
-            if not agent:
-                # Try to find in global agents (DEFAULT_USER)
-                global_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
-                )
-                if global_user:
-                    agent = (
-                        session.query(AgentModel)
-                        .filter(
-                            AgentModel.id == self.agent_id,
-                            AgentModel.user_id == global_user.id,
-                        )
-                        .first()
+            if agent:
+                return agent.name
+
+            # Try to find in global agents (DEFAULT_USER)
+            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+            if global_user:
+                agent = (
+                    session.query(AgentModel)
+                    .filter(
+                        AgentModel.id == self.agent_id,
+                        AgentModel.user_id == global_user.id,
                     )
-            if not agent:
-                raise ValueError(
-                    f"Agent with ID {self.agent_id} not found for user {self.user}"
+                    .first()
                 )
-            return agent.name
+                if agent:
+                    return agent.name
+
+            # Check if user has shared access to this agent
+            can_access, is_owner, access_level = can_user_access_agent(
+                user_id=self.user_id, agent_id=self.agent_id, auth=self.auth
+            )
+            if can_access:
+                agent = (
+                    session.query(AgentModel)
+                    .filter(AgentModel.id == self.agent_id)
+                    .first()
+                )
+                if agent:
+                    return agent.name
+
+            raise ValueError(
+                f"Agent with ID {self.agent_id} not found or not accessible for user {self.user}"
+            )
         finally:
             session.close()
 

@@ -8,6 +8,7 @@ import base64
 import uuid
 import asyncio
 from datetime import datetime
+from fastapi import HTTPException
 from Memories import Memories
 from Websearch import Websearch
 from Extensions import Extensions
@@ -19,9 +20,15 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
-from MagicalAuth import MagicalAuth, convert_time, impersonate_user
+from MagicalAuth import (
+    MagicalAuth,
+    convert_time,
+    get_current_user_time,
+    impersonate_user,
+)
 from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
+from middleware import log_silenced_exception
 from Complexity import (
     ComplexityScore,
     ComplexityTier,
@@ -40,6 +47,81 @@ logging.basicConfig(
 
 # Initialize webhook event emitter
 webhook_emitter = WebhookEventEmitter()
+
+
+def extract_top_level_answer(response: str) -> str:
+    """
+    Extract the content from a top-level <answer>...</answer> block.
+
+    This properly handles cases where <answer> appears inside <thinking> blocks:
+    - <thinking>The <answer> block format...</thinking><answer>Real answer</answer>
+      → Returns "Real answer"
+    - <answer>Simple answer</answer>
+      → Returns "Simple answer"
+    - <thinking>I'll use <answer>example</answer> format</thinking>
+      → Returns "" (no top-level answer)
+
+    Args:
+        response: The full response text
+
+    Returns:
+        str: The extracted answer content, or empty string if no top-level answer
+    """
+    # Find all <answer> tags
+    answer_opens = []
+    for match in re.finditer(r"<answer>", response, re.IGNORECASE):
+        open_pos = match.start()
+
+        # Check if this is a real tag (not just mentioned in text)
+        if not is_real_answer_tag(response, open_pos):
+            continue
+
+        # Check if this answer is at top level (not inside thinking/reflection)
+        text_before = response[:open_pos]
+        thinking_depth = len(
+            re.findall(r"<thinking>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+        reflection_depth = len(
+            re.findall(r"<reflection>", text_before, re.IGNORECASE)
+        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+
+        if thinking_depth == 0 and reflection_depth == 0:
+            answer_opens.append(match)
+
+    if not answer_opens:
+        return ""
+
+    # Use the LAST top-level answer (in case model restarts its answer)
+    last_answer = answer_opens[-1]
+    answer_start = last_answer.end()
+
+    # Find the matching </answer>
+    text_after = response[answer_start:]
+    answer_depth = 1
+    pos = 0
+
+    while pos < len(text_after):
+        next_open_lower = text_after.lower().find("<answer>", pos)
+        next_close_lower = text_after.lower().find("</answer>", pos)
+
+        next_open = float("inf") if next_open_lower == -1 else next_open_lower
+        next_close = float("inf") if next_close_lower == -1 else next_close_lower
+
+        if next_open == float("inf") and next_close == float("inf"):
+            # No closing tag found, return everything after <answer>
+            return text_after.strip()
+
+        if next_open < next_close:
+            answer_depth += 1
+            pos = next_open + len("<answer>")
+        else:
+            answer_depth -= 1
+            if answer_depth == 0:
+                return text_after[:next_close].strip()
+            pos = next_close + len("</answer>")
+
+    # No closing found, return everything
+    return text_after.strip()
 
 
 def is_real_answer_tag(response: str, match_start: int) -> bool:
@@ -123,6 +205,7 @@ def has_complete_answer(response: str) -> bool:
     2. There is a matching </answer> tag
     3. The </answer> is NOT inside a <thinking> or <reflection> block
     4. The content inside has actual text after removing step/reward/count tags
+    5. There are no pending tool calls (execute blocks, name tags) that haven't been executed
 
     This handles edge cases like:
     - <answer>Some text <thinking>thoughts</thinking> more text</answer> - COMPLETE (thinking is inside answer)
@@ -131,10 +214,21 @@ def has_complete_answer(response: str) -> bool:
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
     - <answer><step>plan step</step></answer> - NOT COMPLETE (only contains step tags)
     - <thinking>I'll put my response in the <answer> block</thinking> - NOT an answer (just mentioned in text)
+    - <thinking><name>tool_name</name></thinking><answer>...</answer> - NOT COMPLETE (has unexecuted tool call)
 
     Returns:
         bool: True if there's a complete top-level answer block with meaningful content
     """
+    # Check for pending tool calls - if there's a <name>...</name> that looks like a tool call
+    # and no corresponding execute output, don't consider the answer complete
+    # Pattern: <name>word</name> where word looks like a command name (no spaces, alphanumeric + underscore)
+    tool_call_pattern = r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>"
+    if re.search(tool_call_pattern, response, re.IGNORECASE):
+        # Check if this tool call has been executed (would have <output> after it)
+        # or is inside an <execute>...</execute> block that has output
+        if "<output>" not in response.lower():
+            return False  # Tool call pending, not complete
+
     # First, quick check - if no </answer> at all, definitely incomplete
     if "</answer>" not in response.lower():
         return False
@@ -592,11 +686,23 @@ class Interactions:
                         and not str(interaction["message"]).startswith("[ACTIVITY]")
                         and not str(interaction["message"]).startswith("[SUBACTIVITY]")
                     ):
-                        timestamp = (
+                        raw_timestamp = (
                             interaction["timestamp"]
                             if "timestamp" in interaction
-                            else ""
+                            else None
                         )
+                        # Format timestamp in user's timezone for readability
+                        # Timestamps are stored in UTC, so convert to user's local time
+                        if raw_timestamp:
+                            if hasattr(raw_timestamp, "strftime"):
+                                # Convert from UTC to user's timezone
+                                timestamp = convert_time(
+                                    raw_timestamp, user_id=self.user_id
+                                ).strftime("%B %d, %Y %I:%M %p")
+                            else:
+                                timestamp = str(raw_timestamp)
+                        else:
+                            timestamp = ""
                         role = interaction["role"] if "role" in interaction else ""
                         message = (
                             interaction["message"] if "message" in interaction else ""
@@ -627,33 +733,32 @@ class Interactions:
             if company_id:
                 company_training = self.auth.get_training_data(company_id=company_id)
                 persona += f"\n\n**Guidelines as they pertain to the company:**\n{company_training}"
-                cs = self.auth.get_company_agent_session(company_id=company_id)
-                company_memories = cs.get_agent_memories(
-                    agent_name="AGiXT", user_input=user_input
-                )
-                if company_memories:
-                    for result in company_memories:
-                        metadata = (
-                            result["additional_metadata"]
-                            if "additional_metadata" in result
-                            else ""
+                # Get company memories using the agent's company_agent if available
+                try:
+                    company_agent = self.agent.company_agent if self.agent else None
+                    if company_agent:
+                        company_memories_obj = Memories(
+                            agent_name=company_agent.agent_name,
+                            agent_config=company_agent.AGENT_CONFIG,
+                            collection_number="0",
+                            ApiClient=self.ApiClient,
+                            user=self.user,
                         )
-                        external_source = (
-                            result["external_source_name"]
-                            if "external_source_name" in result
-                            else None
+                        company_memories = await company_memories_obj.get_memories(
+                            user_input=user_input,
+                            limit=5,
+                            min_relevance_score=0.3,
                         )
-                        timestamp = (
-                            result["timestamp"]
-                            if "timestamp" in result
-                            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        )
-                        if external_source:
-                            metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
-                        if metadata not in context and metadata != "":
-                            context.append(metadata)
+                        if company_memories:
+                            for metadata in company_memories:
+                                if metadata not in context and metadata != "":
+                                    context.append(metadata)
+                except Exception as mem_e:
+                    log_silenced_exception(
+                        mem_e, "format_prompt: getting company agent memories"
+                    )
         except Exception as e:
-            pass
+            log_silenced_exception(e, "format_prompt: getting company training data")
         context.append(self.auth.get_markdown_companies())
         if persona != "":
             context.append(
@@ -816,7 +921,9 @@ class Interactions:
             logging.info(
                 f"[format_prompt] Context reduced. New estimated tokens: {new_tokens}"
             )
-
+        user_datetime = get_current_user_time(user_id=self.user_id).strftime(
+            "%B %d, %Y %I:%M %p"
+        )
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -824,9 +931,7 @@ class Interactions:
             COMMANDS=agent_commands,
             context=context,
             command_list=agent_commands,
-            date=convert_time(datetime.now(), user_id=self.user_id).strftime(
-                "%B %d, %Y %I:%M %p"
-            ),
+            date=f"{user_datetime} (This and other timestamps are in the users local timezone)",
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
             conversation_history=conversation_history,
@@ -836,6 +941,42 @@ class Interactions:
             **args,
         )
         tokens = get_tokens(formatted_prompt)
+
+        # Add context management guidance when approaching high token counts
+        # Ideal context is under 32k tokens for best quality responses
+        OPTIMAL_TOKEN_THRESHOLD = 30000
+        HIGH_TOKEN_WARNING_THRESHOLD = 32000
+
+        if tokens >= OPTIMAL_TOKEN_THRESHOLD:
+            context_guidance = f"""
+
+## ⚠️ Context Management Advisory
+Current context size: **{tokens:,} tokens** (target: under 32,000 for optimal quality)
+
+You have access to context management commands to reduce token usage:
+- **Discard Context**: After reading files or noting important information, discard activities you no longer need in full detail. Provide the message_id and a brief reason (e.g., "noted key functions", "empty file", "not relevant to current task").
+- **Retrieve Context**: If you need full details from something you previously discarded, retrieve it by message_id.
+- **List Discarded Context**: See what you've discarded and their reasons.
+
+**Guidelines:**
+- Look for activities in your recent history that you've already processed and taken notes on
+- File reads, searches, and informational outputs are good candidates for discarding once noted
+- Keep conversation messages and important decision points
+- Each discarded activity shows a brief summary instead of full content
+"""
+            if tokens >= HIGH_TOKEN_WARNING_THRESHOLD:
+                context_guidance += f"""
+**CRITICAL:** Context is at {tokens:,} tokens. Response quality may degrade. Consider discarding older activities to reduce context size.
+"""
+            formatted_prompt = formatted_prompt + context_guidance
+
+        # Add TTS filler speech instructions if provided
+        # This enables the model to use <speak> tags for voice feedback during thinking
+        tts_filler = args.get("tts_filler_instructions", "")
+        if tts_filler:
+            logging.info("[format_prompt] Adding TTS filler instructions to prompt")
+            formatted_prompt = formatted_prompt + "\n" + tts_filler
+
         return formatted_prompt, prompt, tokens
 
     def process_thinking_tags(
@@ -1373,9 +1514,54 @@ Example: memories, persona, files"""
         """
         # Get all available commands with descriptions
         commands_prompt, all_command_names = self.agent.get_commands_for_selection()
+        logging.info(
+            f"[select_commands_for_task] User input: {user_input[:200]}... Total commands available: {len(all_command_names)}"
+        )
 
         if not all_command_names:
             return []
+
+        # CRITICAL: Pre-check for command name matches in user input
+        # If user mentions a command name (or close variant), always include it
+        user_input_lower = user_input.lower()
+        # Remove common filler words for fuzzy matching
+        user_input_words = set(
+            user_input_lower.replace("?", "").replace(".", "").replace(",", "").split()
+        )
+        explicitly_requested_commands = []
+        for cmd_name in all_command_names:
+            cmd_lower = cmd_name.lower()
+            # Method 1: Exact substring match
+            if cmd_lower in user_input_lower:
+                explicitly_requested_commands.append(cmd_name)
+                logging.info(
+                    f"[select_commands_for_task] User explicitly mentioned command (exact): {cmd_name}"
+                )
+                continue
+            # Method 2: Check if all significant words from command name appear in user input
+            # This handles cases like "update and restart the production servers" matching
+            # "Update and Restart Production Servers" (user added "the")
+            cmd_words = set(cmd_lower.split())
+            # Remove common connecting words that might not be in user input
+            significant_cmd_words = cmd_words - {
+                "and",
+                "or",
+                "the",
+                "a",
+                "an",
+                "to",
+                "for",
+                "of",
+                "in",
+                "on",
+            }
+            if significant_cmd_words and significant_cmd_words.issubset(
+                user_input_words
+            ):
+                explicitly_requested_commands.append(cmd_name)
+                logging.info(
+                    f"[select_commands_for_task] User explicitly mentioned command (word match): {cmd_name}"
+                )
 
         # Build context about files
         context_parts = []
@@ -1401,33 +1587,12 @@ Example: memories, persona, files"""
         # Commands that should always be available
         always_include = ["Get Datetime"]
 
-        # Split commands into two batches to reduce token count per call
-        # Parse the commands_prompt into individual command entries
-        command_lines = commands_prompt.strip().split("\n")
-        mid_point = len(command_lines) // 2
-        batch1_lines = command_lines[:mid_point]
-        batch2_lines = command_lines[mid_point:]
+        # Token-aware batching: Split commands into batches under 30k tokens each
+        # Testing showed larger batches are faster due to reduced overhead
+        MAX_BATCH_TOKENS = 30000
 
-        batch1_prompt = "\n".join(batch1_lines)
-        batch2_prompt = "\n".join(batch2_lines)
-
-        # Get conversation for logging
-        c = Conversations(
-            conversation_name=conversation_name,
-            user=self.user,
-        )
-
-        if not thinking_id and log_output:
-            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
-
-        valid_commands = []
-
-        # Process both batches in parallel for speed using DIRECT inference (not run())
-        # This avoids pulling in all memories/context which bloats token count
-        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
-            try:
-                # Build a lightweight prompt directly without format_prompt overhead
-                selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
+        # Calculate base prompt template tokens (without the batch content)
+        base_selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
 
 ## User's Request
 {user_input}
@@ -1435,7 +1600,7 @@ Example: memories, persona, files"""
 ## Context
 {context}
 
-{batch_prompt}
+{{BATCH_COMMANDS}}
 
 ## Your Task
 Based on the user's request and context above, select which commands would be most helpful for the assistant to have available when responding to this request.
@@ -1454,6 +1619,74 @@ Do not include any other text, explanation, or formatting.
 
 Example response format:
 Web Search, Read File, Write to File, Execute Python Code"""
+
+        # Calculate the base prompt overhead (tokens used by template, user input, context)
+        base_overhead_tokens = get_tokens(
+            base_selection_prompt.replace("{BATCH_COMMANDS}", "")
+        )
+        available_tokens_per_batch = MAX_BATCH_TOKENS - base_overhead_tokens
+
+        logging.info(
+            f"[select_commands_for_task] Base overhead: {base_overhead_tokens} tokens, "
+            f"available per batch: {available_tokens_per_batch} tokens"
+        )
+
+        # Parse commands_prompt into individual command blocks (by extension sections)
+        # Format: ### ExtensionName\nDescription\n- **CmdName**: CmdDesc\n...
+        command_blocks = []
+        current_block = []
+        current_block_tokens = 0
+
+        for line in commands_prompt.strip().split("\n"):
+            line_tokens = get_tokens(line + "\n")
+
+            # If adding this line would exceed the batch limit, save current block and start new
+            if (
+                current_block
+                and (current_block_tokens + line_tokens) > available_tokens_per_batch
+            ):
+                command_blocks.append("\n".join(current_block))
+                current_block = [line]
+                current_block_tokens = line_tokens
+            else:
+                current_block.append(line)
+                current_block_tokens += line_tokens
+
+        # Don't forget the last block
+        if current_block:
+            command_blocks.append("\n".join(current_block))
+
+        logging.info(
+            f"[select_commands_for_task] Split {len(all_command_names)} commands into "
+            f"{len(command_blocks)} batches based on {MAX_BATCH_TOKENS} token limit"
+        )
+
+        # Log individual batch sizes for debugging
+        for i, block in enumerate(command_blocks):
+            block_tokens = get_tokens(block)
+            logging.info(
+                f"[select_commands_for_task] Batch {i+1}: {block_tokens} tokens"
+            )
+
+        # Get conversation for logging
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
+        )
+
+        if not thinking_id and log_output:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+
+        valid_commands = []
+
+        # Process batches in parallel for speed using DIRECT inference (not run())
+        # This avoids pulling in all memories/context which bloats token count
+        async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
+            try:
+                # Build a lightweight prompt directly without format_prompt overhead
+                selection_prompt = base_selection_prompt.replace(
+                    "{BATCH_COMMANDS}", batch_prompt
+                )
 
                 # Direct inference call - bypasses format_prompt and all its context loading
                 selection_response = await self.agent.inference(
@@ -1483,13 +1716,16 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 )
                 return []
 
-        # Run both batches in parallel
+        # Run all batches in parallel and combine results
         try:
-            batch1_results, batch2_results = await asyncio.gather(
-                select_from_batch(batch1_prompt, 1),
-                select_from_batch(batch2_prompt, 2),
+            batch_results = await asyncio.gather(
+                *[
+                    select_from_batch(block, i + 1)
+                    for i, block in enumerate(command_blocks)
+                ]
             )
-            valid_commands = batch1_results + batch2_results
+            for result in batch_results:
+                valid_commands.extend(result)
         except Exception as e:
             logging.error(
                 f"[select_commands_for_task] Error in parallel selection: {e}"
@@ -1507,6 +1743,16 @@ Web Search, Read File, Write to File, Execute Python Code"""
         for cmd in always_include:
             if cmd in all_command_names and cmd not in valid_commands:
                 valid_commands.append(cmd)
+
+        # CRITICAL: Always include commands that user explicitly mentioned by name
+        # This ensures that if user says "run Update and Restart Production Servers"
+        # the command is available even if LLM selection fails to pick it
+        for cmd in explicitly_requested_commands:
+            if cmd not in valid_commands:
+                valid_commands.append(cmd)
+                logging.info(
+                    f"[select_commands_for_task] Force-including explicitly requested command: {cmd}"
+                )
 
         # Remove duplicates while preserving order
         seen = set()
@@ -2130,11 +2376,61 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 logging.error(f"[run_stream] Error in command selection: {e}")
                 selected_commands = None
 
+        # Always include client-defined tools regardless of command selection
+        # Client explicitly provided these tools, so they should always be available
+        if self._client_tools and selected_commands is not None:
+            for client_tool_name in self._client_tools.keys():
+                if client_tool_name not in selected_commands:
+                    selected_commands.append(client_tool_name)
+                    logging.info(
+                        f"[run_stream] Force-included client tool: {client_tool_name}"
+                    )
+
         # Store selected_commands as instance variable to persist across continuation loops
         self._selected_commands = selected_commands
 
         # Remove selected_commands from kwargs if present to avoid duplicate parameter
         kwargs.pop("selected_commands", None)
+
+        # Add TTS filler instructions if TTS mode is enabled
+        # This allows the model to generate <speak> tags with filler phrases during thinking
+        tts_enabled = str(kwargs.get("tts", "false")).lower() == "true"
+        logging.info(
+            f"[run_stream] TTS check - kwargs.tts={kwargs.get('tts')}, tts_enabled={tts_enabled}"
+        )
+        if not tts_enabled:
+            # Also check agent settings for tts_provider
+            agent_settings = self.agent.AGENT_CONFIG.get("settings", {})
+            tts_provider = agent_settings.get("tts_provider", "")
+            tts_enabled = tts_provider and tts_provider not in ("None", "", None)
+            logging.info(
+                f"[run_stream] TTS check from agent settings - tts_provider={tts_provider}, tts_enabled={tts_enabled}"
+            )
+
+        if tts_enabled:
+            logging.info("[run_stream] Adding TTS filler instructions to kwargs")
+            kwargs[
+                "tts_filler_instructions"
+            ] = """
+**VOICE MODE - IMMEDIATE RESPONSE REQUIRED**
+
+The user is speaking to you and will hear your response aloud. You MUST begin with TWO `<speak>` tags IMMEDIATELY - before ANY thinking, commands, or processing:
+
+1. **FIRST <speak>** (within your first 10 tokens): A brief acknowledgment (2-4 words)
+   Examples: `<speak>Got it.</speak>` or `<speak>Sure thing.</speak>` or `<speak>One moment.</speak>`
+
+2. **SECOND <speak>** (before <thinking>): Tell them what you're doing (4-8 words)
+   Examples: `<speak>Let me check the time for you.</speak>` or `<speak>Looking that up now.</speak>`
+
+Then proceed with your `<thinking>` tag.
+
+Example response start:
+`<speak>Sure.</speak><speak>Let me check on that for you.</speak><thinking>...`
+
+This prevents awkward silence - the user hears feedback within 1 second while you process.
+"""
+        else:
+            kwargs["tts_filler_instructions"] = ""
 
         # Format the prompt
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
@@ -2235,6 +2531,12 @@ Example: If user says "list my files", use:
             stream = await self.agent.inference(
                 prompt=formatted_prompt, use_smartest=use_smartest, stream=True
             )
+        except HTTPException as e:
+            # Re-raise HTTP exceptions (like 402 Payment Required) to propagate to endpoint
+            logging.error(
+                f"HTTP error during streaming inference: {e.status_code} - {e.detail}"
+            )
+            raise
         except Exception as e:
             logging.error(f"Error starting streaming inference: {e}")
             yield {"type": "error", "content": str(e), "complete": True}
@@ -2243,6 +2545,7 @@ Example: If user says "list my files", use:
         # Process the stream
         full_response = ""
         processed_thinking_ids = set()
+        processed_speak_ids = set()  # Track processed speak tags for TTS filler speech
         in_answer = False
         answer_content = ""
         thinking_content = ""  # Track streamed thinking content
@@ -2251,6 +2554,9 @@ Example: If user says "list my files", use:
         remote_command_yielded = (
             False  # Flag to track if remote command was yielded (skip continuation)
         )
+        # Track standalone steps message ID for updating in place
+        standalone_steps_message_id = None
+        standalone_steps_logged_ids = set()  # Track which step IDs have been logged
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -2357,20 +2663,15 @@ Example: If user says "list my files", use:
                 # This handles cases where <thinking> appears INSIDE <answer> blocks
                 in_answer = is_inside_top_level_answer(full_response)
 
-                # Check for execute tag completion - allow commands inside answer blocks
-                # Find </execute> that's NOT inside thinking/reflection (but allow inside answer)
+                # Check for execute tag completion - allow commands inside thinking, reflection, and answer blocks
+                # Execute tags should be processed regardless of nesting to support agentic workflows
                 execute_pattern = r"<execute>.*?</execute>"
                 for match in re.finditer(
                     execute_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
                     execute_end = match.end()
-                    # Check if this execute is inside a thinking/reflection block
-                    text_before = full_response[: match.start()]
-                    if (
-                        get_tag_depth(text_before, "thinking") > 0
-                        or get_tag_depth(text_before, "reflection") > 0
-                    ):
-                        continue  # This execute is inside thinking/reflection, skip
+                    # Note: We no longer skip execute tags inside thinking/reflection blocks
+                    # The agent may legitimately execute commands while thinking through a problem
 
                     # Check if inside answer block - if so, strip answer tags first
                     is_inside_answer = is_inside_top_level_answer(
@@ -2439,12 +2740,15 @@ Example: If user says "list my files", use:
                         break  # Break to continuation loop
 
                 # Process completed thinking/reflection tags for logging
+                # This also consolidates any adjacent <step>, <count>, <reward> tags
+                # that appear between thinking/reflection blocks
                 for tag_name in ["thinking", "reflection"]:
                     tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
                     for match in re.finditer(
                         tag_pattern, full_response, re.DOTALL | re.IGNORECASE
                     ):
                         content = match.group(1).strip()
+                        tag_end_pos = match.end()
                         tag_id = f"{tag_name}:{hash(content)}"
                         if tag_id in processed_thinking_ids or not content:
                             continue
@@ -2465,6 +2769,72 @@ Example: If user says "list my files", use:
                         )
                         content = re.sub(r"\n\s*\n\s*\n", "\n\n", content).strip()
 
+                        # Now look for any <step>, <reward>, <count> tags that come AFTER this
+                        # thinking/reflection block but BEFORE the next thought, reflection, execute, or answer
+                        trailing_content = full_response[tag_end_pos:]
+
+                        # Find where the next major tag starts (thinking, reflection, execute, answer)
+                        next_major_tag = re.search(
+                            r"<(thinking|reflection|execute|answer)>",
+                            trailing_content,
+                            re.IGNORECASE,
+                        )
+                        trailing_section = (
+                            trailing_content[: next_major_tag.start()]
+                            if next_major_tag
+                            else trailing_content
+                        )
+
+                        # Collect any standalone step content from the trailing section
+                        step_additions = []
+                        for step_match in re.finditer(
+                            r"<step>(.*?)</step>",
+                            trailing_section,
+                            re.DOTALL | re.IGNORECASE,
+                        ):
+                            step_content = step_match.group(1).strip()
+                            step_id = f"step:{hash(step_content)}"
+                            if step_id not in processed_thinking_ids and step_content:
+                                processed_thinking_ids.add(step_id)
+                                # Clean step content
+                                cleaned_step = re.sub(
+                                    r"<reward>.*?</reward>",
+                                    "",
+                                    step_content,
+                                    flags=re.DOTALL,
+                                )
+                                cleaned_step = re.sub(
+                                    r"<count>.*?</count>",
+                                    "",
+                                    cleaned_step,
+                                    flags=re.DOTALL,
+                                )
+                                cleaned_step = cleaned_step.strip()
+                                if cleaned_step:
+                                    step_additions.append(cleaned_step)
+
+                        # Collect any standalone reward/count content (just mark as processed, don't add to content)
+                        for reward_match in re.finditer(
+                            r"<reward>(.*?)</reward>",
+                            trailing_section,
+                            re.DOTALL | re.IGNORECASE,
+                        ):
+                            reward_id = f"reward:{hash(reward_match.group(1).strip())}"
+                            processed_thinking_ids.add(reward_id)
+
+                        for count_match in re.finditer(
+                            r"<count>(.*?)</count>",
+                            trailing_section,
+                            re.DOTALL | re.IGNORECASE,
+                        ):
+                            count_id = f"count:{hash(count_match.group(1).strip())}"
+                            processed_thinking_ids.add(count_id)
+
+                        # Append step content to the thinking/reflection content
+                        if step_additions:
+                            step_text = "\n".join(f"- {s}" for s in step_additions)
+                            content = f"{content}\n\n**Steps:**\n{step_text}"
+
                         if content:
                             if tag_name == "thinking":
                                 log_msg = f"[SUBACTIVITY][THOUGHT] {content}"
@@ -2480,10 +2850,11 @@ Example: If user says "list my files", use:
                                 "complete": True,
                             }
 
-                # Process standalone <step> tags outside thinking/reflection (treat as thinking steps)
-                # Collect all steps to combine them into a single thought
+                # Process standalone <step> tags that appear OUTSIDE any thinking/reflection block
+                # These should be accumulated and logged as a SINGLE combined message
+                # Use update-in-place to consolidate as steps arrive
                 step_pattern = r"<step>(.*?)</step>"
-                collected_steps = []
+                all_standalone_steps = []
                 for match in re.finditer(
                     step_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
@@ -2491,7 +2862,7 @@ Example: If user says "list my files", use:
                     step_start = match.start()
                     step_id = f"step:{hash(step_content)}"
 
-                    if step_id in processed_thinking_ids or not step_content:
+                    if not step_content:
                         continue
 
                     # Check if this step is inside thinking/reflection
@@ -2506,8 +2877,6 @@ Example: If user says "list my files", use:
                     if is_inside_top_level_answer(full_response, step_start):
                         continue  # Skip steps inside answer
 
-                    processed_thinking_ids.add(step_id)
-
                     # Clean content
                     cleaned_step = re.sub(
                         r"<reward>.*?</reward>", "", step_content, flags=re.DOTALL
@@ -2518,54 +2887,84 @@ Example: If user says "list my files", use:
                     cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
 
                     if cleaned_step:
-                        collected_steps.append(cleaned_step)
+                        all_standalone_steps.append((step_id, cleaned_step))
 
-                # Log all collected steps as a single combined thought
-                if collected_steps and not is_executing:
-                    combined_steps = "\n".join(f"- {step}" for step in collected_steps)
-                    log_msg = f"[SUBACTIVITY][THOUGHT] {combined_steps}"
-                    c.log_interaction(role=self.agent_name, message=log_msg)
+                # If we have standalone steps, log/update as a single combined message
+                if all_standalone_steps and not is_executing:
+                    # Check if we have NEW steps to add (not already in logged set)
+                    new_step_ids = set(s[0] for s in all_standalone_steps)
+                    if new_step_ids != standalone_steps_logged_ids:
+                        # Build combined message from ALL steps
+                        combined_steps = "\n".join(
+                            f"- {step[1]}" for step in all_standalone_steps
+                        )
+                        log_msg = f"[SUBACTIVITY][THOUGHT] {combined_steps}"
 
-                    yield {
-                        "type": "thinking",
-                        "content": combined_steps,
-                        "complete": True,
-                    }
+                        if standalone_steps_message_id is None:
+                            # Create new message
+                            standalone_steps_message_id = c.log_interaction(
+                                role=self.agent_name, message=log_msg
+                            )
+                        else:
+                            # Update existing message
+                            c.update_message_by_id(standalone_steps_message_id, log_msg)
 
-                # Process standalone <reward> tags outside containers (log as score)
+                        # Update tracking set
+                        standalone_steps_logged_ids = new_step_ids.copy()
+
+                        # Mark all step IDs as processed
+                        for step_id, _ in all_standalone_steps:
+                            processed_thinking_ids.add(step_id)
+
+                        yield {
+                            "type": "thinking",
+                            "content": combined_steps,
+                            "complete": True,
+                        }
+
+                # Mark any remaining standalone <reward> and <count> tags as processed
+                # but don't create separate subactivities for them
                 reward_pattern = r"<reward>(.*?)</reward>"
                 for match in re.finditer(
                     reward_pattern, full_response, re.DOTALL | re.IGNORECASE
                 ):
                     reward_content = match.group(1).strip()
-                    reward_start = match.start()
                     reward_id = f"reward:{hash(reward_content)}"
+                    if reward_id not in processed_thinking_ids:
+                        processed_thinking_ids.add(reward_id)
+                        # Don't yield or log - these are metadata, not separate activities
 
-                    if reward_id in processed_thinking_ids or not reward_content:
-                        continue
+                count_pattern = r"<count>(.*?)</count>"
+                for match in re.finditer(
+                    count_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    count_content = match.group(1).strip()
+                    count_id = f"count:{hash(count_content)}"
+                    if count_id not in processed_thinking_ids:
+                        processed_thinking_ids.add(count_id)
 
-                    # Check if this reward is inside thinking/reflection/step
-                    text_before = full_response[:reward_start]
-                    if (
-                        get_tag_depth(text_before, "thinking") > 0
-                        or get_tag_depth(text_before, "reflection") > 0
-                        or get_tag_depth(text_before, "step") > 0
-                    ):
-                        continue  # Skip rewards inside containers
-
-                    # Check if inside answer block
-                    if is_inside_top_level_answer(full_response, reward_start):
-                        continue
-
-                    processed_thinking_ids.add(reward_id)
-
-                    if not is_executing:
-                        log_msg = f"[SUBACTIVITY][SCORE] {reward_content}"
-                        c.log_interaction(role=self.agent_name, message=log_msg)
-
+                # Process <speak> tags for TTS filler speech - yield immediately for speech
+                # These are short filler phrases like "Let me check on that" that should be
+                # spoken immediately while the model continues thinking
+                # LIMIT: Only allow 2 speak tags max (quick ack + description) to prevent
+                # the model from generating excessive filler speech
+                MAX_SPEAK_TAGS = 2
+                speak_pattern = r"<speak>(.*?)</speak>"
+                for match in re.finditer(
+                    speak_pattern, full_response, re.DOTALL | re.IGNORECASE
+                ):
+                    speak_content = match.group(1).strip()
+                    speak_id = f"speak:{hash(speak_content)}"
+                    if speak_id not in processed_speak_ids and speak_content:
+                        # Stop processing speak tags after we've hit the limit
+                        if len(processed_speak_ids) >= MAX_SPEAK_TAGS:
+                            break
+                        processed_speak_ids.add(speak_id)
+                        # Yield speak event for immediate TTS playback
+                        # Don't log to conversation - these are transient filler speech
                         yield {
-                            "type": "reward",
-                            "content": reward_content,
+                            "type": "speak",
+                            "content": speak_content,
                             "complete": True,
                         }
 
@@ -3040,11 +3439,17 @@ Analyze the actual output shown and continue with your response.
                 # This is similar to the main stream processing but for continuation
                 continuation_response = ""
                 continuation_in_answer = False
+                continuation_answer_content = (
+                    ""  # Track answer content for delta streaming
+                )
                 continuation_current_tag = None
                 continuation_current_tag_content = ""
                 continuation_current_tag_message_id = None  # Track message ID
                 continuation_processed_thinking_ids = set()
                 broke_for_execution = False  # Track if we broke early for execution
+                continuation_detected_tags = (
+                    set()
+                )  # Track which opening tags we've already detected
 
                 async for chunk_data in iterate_stream(continuation_stream):
                     # Extract token from chunk
@@ -3059,25 +3464,43 @@ Analyze the actual output shown and continue with your response.
                     if not token:
                         continue
 
+                    prev_len = len(continuation_response)
                     continuation_response += token
 
                     # Process tags in continuation (thinking, reflection, execute, answer)
-                    # Check for opening tags
+                    # Check a sliding window of the last 20 chars for tags (enough for </reflection>)
+                    # This handles tags that are split across multiple tokens
+                    tag_check_window = (
+                        continuation_response[-20:]
+                        if len(continuation_response) > 20
+                        else continuation_response
+                    )
+
+                    # Check for opening tags - only if we haven't detected this opening tag yet
                     for tag_name in ["thinking", "reflection", "execute", "answer"]:
+                        open_tag = f"<{tag_name}>"
                         if (
-                            f"<{tag_name}>" in continuation_response
-                            and continuation_current_tag != tag_name
+                            open_tag in tag_check_window
+                            and open_tag not in continuation_detected_tags
                         ):
+                            continuation_detected_tags.add(open_tag)
+                            logging.info(
+                                f"[continuation_loop] Tag detected: {open_tag}, current_tag was: {continuation_current_tag}"
+                            )
                             continuation_current_tag = tag_name
                             continuation_current_tag_content = ""
                             if tag_name == "answer":
                                 continuation_in_answer = True
+                                logging.info(
+                                    f"[continuation_loop] Answer tag detected, continuation_in_answer=True"
+                                )
                             break
 
-                    # Check for closing tags
+                    # Check for closing tags in the window
                     for tag_name in ["thinking", "reflection", "execute", "answer"]:
+                        close_tag = f"</{tag_name}>"
                         if (
-                            f"</{tag_name}>" in continuation_response
+                            close_tag in tag_check_window
                             and continuation_current_tag == tag_name
                         ):
                             # Tag closed - process it
@@ -3172,6 +3595,9 @@ Analyze the actual output shown and continue with your response.
                                             "complete": True,
                                         }
 
+                            # Reset answer flag when </answer> is detected
+                            if tag_name == "answer":
+                                continuation_in_answer = False
                             continuation_current_tag = None
                             continuation_current_tag_content = ""
                             continuation_current_tag_message_id = None  # Reset
@@ -3226,21 +3652,63 @@ Analyze the actual output shown and continue with your response.
                                     "complete": False,
                                 }
 
-                    # Yield answer tokens
+                    # Yield answer tokens - use extract_top_level_answer to get the LAST answer
+                    # (same logic as final_answer extraction to ensure consistency)
                     if continuation_in_answer:
-                        answer_match = re.search(
-                            r"<answer>(.*?)$",
-                            continuation_response,
-                            re.DOTALL | re.IGNORECASE,
-                        )
-                        if answer_match:
-                            new_answer = answer_match.group(1)
-                            if "<" not in token:  # Only yield if no tag boundary
-                                yield {
-                                    "type": "answer",
-                                    "content": token,
-                                    "complete": False,
-                                }
+                        # Use the same extraction as final answer - gets LAST top-level answer
+                        new_answer = extract_top_level_answer(continuation_response)
+                        if new_answer:
+                            # Clean internal tags from answer content
+                            cleaned_new_answer = re.sub(
+                                r"<thinking>.*?</thinking>",
+                                "",
+                                new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            cleaned_new_answer = re.sub(
+                                r"<reflection>.*?</reflection>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            # Remove orphaned closing tags
+                            cleaned_new_answer = re.sub(
+                                r"</(?:thinking|reflection|step|reward|count|answer)>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.IGNORECASE,
+                            )
+                            # Remove partial closing tag at end
+                            cleaned_new_answer = re.sub(
+                                r"</?a?n?s?w?e?r?$",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.IGNORECASE,
+                            )
+                            cleaned_new_answer = cleaned_new_answer.strip()
+
+                            # Yield delta if we have new content
+                            if len(cleaned_new_answer) > len(
+                                continuation_answer_content
+                            ):
+                                delta = cleaned_new_answer[
+                                    len(continuation_answer_content) :
+                                ]
+                                # Skip if it looks like an opening tag
+                                if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
+                                    logging.info(
+                                        f"[continuation_loop] Yielding answer delta: {repr(delta[:50]) if len(delta) > 50 else repr(delta)}"
+                                    )
+                                    yield {
+                                        "type": "answer",
+                                        "content": delta,
+                                        "complete": False,
+                                    }
+                                continuation_answer_content = cleaned_new_answer
+
+                    # Stop streaming answer once </answer> is found
+                    if "</answer>" in tag_check_window.lower():
+                        continuation_in_answer = False
 
                 # Append continuation to main response (only if we didn't already do it when breaking for execution)
                 if not broke_for_execution:
@@ -3285,21 +3753,29 @@ Analyze the actual output shown and continue with your response.
             f"[continuation_loop] Exited loop: count={continuation_count}, max={max_continuation_loops}, has_complete={has_complete_answer(self.response)}, has_answer={'<answer>' in self.response.lower()}"
         )
 
-        # Extract final answer
+        # Extract final answer using proper top-level detection
+        # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
-        if "<answer>" in self.response:
-            answer_match = re.search(
-                r"<answer>(.*?)</answer>", self.response, re.DOTALL | re.IGNORECASE
+        if "<answer>" in self.response.lower():
+            final_answer = extract_top_level_answer(self.response)
+            logging.info(
+                f"[run_stream] extract_top_level_answer returned: {repr(final_answer[:100]) if final_answer else 'EMPTY'}..."
             )
-            if answer_match:
-                final_answer = answer_match.group(1).strip()
-            else:
-                # No closing tag, get everything after <answer>
-                final_answer = self.response.split("<answer>")[-1].strip()
-        else:
+
+        if not final_answer:
+            # No top-level answer found, use full response
+            logging.warning(
+                f"[run_stream] No top-level answer found, using full response (length={len(self.response)})"
+            )
             final_answer = self.response
 
-        # Clean final answer
+        # Clean final answer - ALSO REMOVE <answer> tags that might be left over
+        final_answer = re.sub(
+            r"<answer>|</answer>",
+            "",
+            final_answer,
+            flags=re.IGNORECASE,
+        )
         final_answer = re.sub(
             r"<thinking>.*?</thinking>",
             "",
@@ -3328,6 +3804,18 @@ Analyze the actual output shown and continue with your response.
         )
         final_answer = re.sub(
             r"<count>.*?</count>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove <speak> tags - these are TTS filler speech and shouldn't appear in final response
+        final_answer = re.sub(
+            r"<speak>.*?</speak>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove orphaned closing tags (closing tags without matching opening tags)
+        # This handles malformed model output with stray </thinking>, </reflection>, etc.
+        final_answer = re.sub(
+            r"</thinking>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>",
+            "",
+            final_answer,
+            flags=re.IGNORECASE,
         )
         final_answer = final_answer.strip()
 
@@ -3381,8 +3869,8 @@ Analyze the actual output shown and continue with your response.
                     text=final_answer,
                     external_source="user input",
                 )
-            except:
-                pass
+            except Exception as e:
+                log_silenced_exception(e, "chat: writing to memory")
 
         # Handle image generation if enabled
         if "image_provider" in agent_settings:
@@ -3494,6 +3982,45 @@ Analyze the actual output shown and continue with your response.
                 for arg_name, arg_value in arg_matches:
                     args[arg_name] = arg_value.strip()
                 extracted_commands.append((command_block, command_name, args))
+
+        # Also extract standalone <name>...</name> tool calls not wrapped in <execute>
+        # This handles cases where the model outputs tool calls in thinking blocks
+        # Pattern: <name>command_name</name> followed by optional argument tags
+        standalone_pattern = r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>"
+        for match in re.finditer(standalone_pattern, response, re.IGNORECASE):
+            command_name = match.group(1).strip()
+            # Check if this name tag is inside an <execute> block (already handled above)
+            start_pos = match.start()
+            text_before = response[:start_pos]
+            # Count open <execute> and </execute> to see if we're inside one
+            execute_depth = len(
+                re.findall(r"<execute>", text_before, re.IGNORECASE)
+            ) - len(re.findall(r"</execute>", text_before, re.IGNORECASE))
+            if execute_depth > 0:
+                continue  # Skip, already handled by <execute> block extraction
+
+            # This is a standalone tool call - wrap it as an execute block for consistency
+            # Extract any adjacent argument-like tags after the name tag
+            remaining = response[match.end() :]
+            args = {}
+            # Look for tags that look like arguments (up to next </thinking>, </answer>, or <name>)
+            arg_section_match = re.match(
+                r"(.*?)(?=<(?:/thinking|/answer|name|execute))",
+                remaining,
+                re.DOTALL | re.IGNORECASE,
+            )
+            if arg_section_match:
+                arg_section = arg_section_match.group(1)
+                arg_matches = re.findall(
+                    r"<([a-zA-Z_][a-zA-Z0-9_]*)>(.*?)</\1>", arg_section, re.DOTALL
+                )
+                for arg_name, arg_value in arg_matches:
+                    args[arg_name.lower()] = arg_value.strip()
+
+            # Create a synthetic execute block for tracking
+            synthetic_block = f"<execute><name>{command_name}</name></execute>"
+            extracted_commands.append((synthetic_block, command_name, args))
+
         return extracted_commands
 
     def _is_remote_command(self, command_output: str) -> dict:
@@ -3559,6 +4086,15 @@ Analyze the actual output shown and continue with your response.
 
         # Get client-defined tools if available
         client_tools = getattr(self, "_client_tools", {})
+
+        # Debug logging for client tools
+        if commands_to_execute:
+            logging.info(
+                f"[execution_agent] Commands to execute: {[(c[1], c[2]) for c in commands_to_execute]}"
+            )
+            logging.info(
+                f"[execution_agent] Available client_tools: {list(client_tools.keys())}"
+            )
 
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:

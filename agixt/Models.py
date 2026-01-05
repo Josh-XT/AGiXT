@@ -265,6 +265,9 @@ class ChatCompletions(BaseModel):
     frequency_penalty: Optional[float] = 0.0
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = "-"  # This is the conversation name, defaults to "-"
+    # TTS streaming options for real-time audio output
+    # "off" = no TTS (default), "audio_only" = stream only audio, "interleaved" = stream both text and audio
+    tts_mode: Optional[str] = "off"
 
 
 class TextToSpeech(BaseModel):
@@ -1066,6 +1069,174 @@ class SharedConversationResponse(BaseModel):
     shared_by: str
     created_at: datetime
     include_workspace: bool
+
+
+# Scope and Custom Role Models
+class ScopeResponse(BaseModel):
+    """Response model for a scope"""
+
+    id: str
+    name: str
+    resource: str
+    action: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    is_system: bool = True
+
+
+class ScopeListResponse(BaseModel):
+    """Response model for list of scopes"""
+
+    scopes: List[ScopeResponse]
+    categories: List[str]
+
+
+class CustomRoleCreate(BaseModel):
+    """Request model for creating a custom role"""
+
+    name: str
+    friendly_name: str
+    description: Optional[str] = None
+    priority: Optional[int] = 100
+    scope_ids: List[str] = []
+
+
+class CustomRoleUpdate(BaseModel):
+    """Request model for updating a custom role"""
+
+    friendly_name: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[int] = None
+    scope_ids: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class CustomRoleResponse(BaseModel):
+    """Response model for a custom role"""
+
+    id: str
+    company_id: str
+    name: str
+    friendly_name: str
+    description: Optional[str] = None
+    priority: int = 100
+    is_active: bool = True
+    scopes: List[ScopeResponse] = []
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class CustomRoleListResponse(BaseModel):
+    """Response model for list of custom roles"""
+
+    roles: List[CustomRoleResponse]
+
+
+class UserCustomRoleAssign(BaseModel):
+    """Request model for assigning a custom role to a user"""
+
+    user_id: str
+    custom_role_id: str
+
+
+class UserCustomRoleResponse(BaseModel):
+    """Response model for user custom role assignment"""
+
+    id: str
+    user_id: str
+    company_id: str
+    custom_role: CustomRoleResponse
+    assigned_at: datetime
+
+
+class UserScopesResponse(BaseModel):
+    """Response model for user's scopes"""
+
+    user_id: str
+    company_id: str
+    role_id: int
+    role_name: str
+    scopes: List[str]
+    custom_roles: List[CustomRoleResponse] = []
+
+
+# Personal Access Token Models (similar to GitHub PATs)
+class PersonalAccessTokenCreate(BaseModel):
+    """Request model for creating a personal access token"""
+
+    name: str  # e.g., "CI/CD Pipeline", "Local Development"
+    scopes: List[str]  # List of scope names, e.g., ["agents:read", "agents:execute"]
+    agent_ids: Optional[List[str]] = []  # Empty = all agents user can access
+    company_ids: Optional[List[str]] = []  # Empty = all companies user can access
+    expiration: Optional[str] = (
+        None  # "1_day", "7_days", "30_days", "90_days", "1_year", "never", or ISO datetime
+    )
+
+
+class PersonalAccessTokenResponse(BaseModel):
+    """Response model for a personal access token (without the actual token value)"""
+
+    id: str
+    name: str
+    token_prefix: str  # First 8 chars for identification, e.g., "agixt_ab"
+    scopes: List[str]
+    agent_ids: List[str]
+    company_ids: List[str]
+    expires_at: Optional[datetime] = None
+    is_revoked: bool = False
+    last_used_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class PersonalAccessTokenCreatedResponse(BaseModel):
+    """Response when a new token is created - includes the actual token value (shown only once)"""
+
+    id: str
+    name: str
+    token: str  # The actual token value - ONLY shown at creation time
+    token_prefix: str
+    scopes: List[str]
+    agent_ids: List[str]
+    company_ids: List[str]
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class PersonalAccessTokenListResponse(BaseModel):
+    """Response model for list of personal access tokens"""
+
+    tokens: List[PersonalAccessTokenResponse]
+
+
+class PersonalAccessTokenValidationResponse(BaseModel):
+    """Response model for token validation (for internal use)"""
+
+    valid: bool
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    scopes: List[str] = []
+    agent_ids: List[str] = []
+    company_ids: List[str] = []
+    error: Optional[str] = None
+
+
+class AvailableScopesResponse(BaseModel):
+    """Response model showing scopes the user can grant to tokens"""
+
+    scopes: List[ScopeResponse]
+    categories: Dict[str, List[ScopeResponse]]  # Scopes grouped by category
+
+
+class AvailableAgentsResponse(BaseModel):
+    """Response model showing agents the user can grant access to"""
+
+    agents: List[Dict[str, Any]]  # List of agent info dicts
+
+
+class AvailableCompaniesResponse(BaseModel):
+    """Response model showing companies the user can grant access to"""
+
+    companies: List[Dict[str, Any]]  # List of company info dicts
 
 
 try:  # Ensure forward references for workspace item tree

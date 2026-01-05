@@ -113,6 +113,7 @@ class web_browsing(Extensions):
     """
 
     CATEGORY = "Core Abilities"
+    friendly_name = "Web Browsing"
 
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")

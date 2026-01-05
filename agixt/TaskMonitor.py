@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def impersonate_user(user_id: str):
-    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     # Get users email
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()

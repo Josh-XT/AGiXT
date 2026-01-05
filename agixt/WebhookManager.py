@@ -158,11 +158,14 @@ class WebhookEventEmitter:
                     company_id = agent_company_id
 
         # Ensure company_id is a string if provided (handle case where UUID object is passed)
-        if company_id:
+        # Also ensure we don't convert None to string "None"
+        if company_id is not None and company_id != "None":
             logger.debug(
                 f"Converting initial company_id (type: {type(company_id).__name__}) to string"
             )
             company_id = str(company_id)
+        else:
+            company_id = None
 
         # Resolve company_id if not provided
         if not company_id:
@@ -171,11 +174,14 @@ class WebhookEventEmitter:
                 logger.debug(f"Resolved company_id for user")
 
         # Ensure company_id is a string (convert UUID objects to string)
-        if company_id:
+        # Also ensure we don't convert None to string "None"
+        if company_id is not None and company_id != "None":
             logger.debug(
                 f"Converting company_id (type: {type(company_id).__name__}) to string"
             )
             company_id = str(company_id)
+        else:
+            company_id = None
 
         event_payload = WebhookEventPayload(
             event_id=event_id,
@@ -340,9 +346,10 @@ class WebhookEventEmitter:
         session = get_session()
 
         try:
-            # If no company_id in the event, log warning and skip webhook processing
-            if not event.company_id:
-                logger.warning(
+            # If no company_id in the event, skip webhook processing silently
+            # This can happen for internal events that don't have a company context
+            if not event.company_id or event.company_id == "None":
+                logger.debug(
                     f"Event {event.event_type} has no company_id, skipping webhook processing"
                 )
                 return
@@ -645,7 +652,7 @@ class WebhookEventEmitter:
         """Transform payload for Discord webhook format - handles any event type"""
         try:
             event_type = payload.get("event_type", "Unknown Event")
-            agent_name = payload.get("agent_name", "AGiXT Agent")
+            agent_name = payload.get("agent_name", "XT")
             timestamp = payload.get("timestamp", "")
             data = payload.get("data", {})
             user_id = payload.get("user_id", "Unknown User")
@@ -886,7 +893,7 @@ class WebhookManager:
         """Transform payload for Discord webhook format - handles any event type"""
         try:
             event_type = payload.get("event_type", "Unknown Event")
-            agent_name = payload.get("agent_name", "AGiXT Agent")
+            agent_name = payload.get("agent_name", "XT")
             timestamp = payload.get("timestamp", "")
             data = payload.get("data", {})
             user_id = payload.get("user_id", "Unknown User")
