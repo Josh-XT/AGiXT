@@ -341,6 +341,40 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
         return make_result(False, None, error_msg)
 
 
+def is_email_configured():
+    """
+    Check if any email provider is properly configured.
+
+    Returns:
+        bool: True if at least one email provider is configured, False otherwise
+    """
+    # Check SendGrid
+    if getenv("SENDGRID_API_KEY") and getenv("SENDGRID_FROM_EMAIL"):
+        return True
+    # Check Mailgun
+    if (
+        getenv("MAILGUN_API_KEY")
+        and getenv("MAILGUN_DOMAIN")
+        and getenv("MAILGUN_FROM_EMAIL")
+    ):
+        return True
+    # Check Microsoft
+    if (
+        getenv("MICROSOFT_CLIENT_ID")
+        and getenv("MICROSOFT_CLIENT_SECRET")
+        and getenv("MICROSOFT_EMAIL_ADDRESS")
+    ):
+        return True
+    # Check Google
+    if (
+        getenv("GOOGLE_CLIENT_ID")
+        and getenv("GOOGLE_CLIENT_SECRET")
+        and getenv("GOOGLE_EMAIL_ADDRESS")
+    ):
+        return True
+    return False
+
+
 def is_admin(email: str = "USER", api_key: str = None):
     """
     Check if a user has admin-level access (role_id <= 2: super_admin, tenant_admin, or company_admin).
@@ -2672,7 +2706,10 @@ class MagicalAuth:
                     if key not in user_preferences and key != "stripe_id":
                         missing_requirements.append({key: value})
 
-            if "verify_email" not in user_preferences and getenv("SENDGRID_API_KEY"):
+            if (
+                "verify_email" not in user_preferences
+                and getenv("EMAIL_VERIFICATION_ENABLED").lower() == "true"
+            ):
                 missing_requirements.append({"verify_email": True})
                 # Don't block on sending email verification - do it async
                 threading.Thread(
@@ -3035,7 +3072,7 @@ class MagicalAuth:
                     if key != "stripe_id":
                         missing_requirements.append({key: value})
         if "verify_email" not in user_preferences:
-            if getenv("SENDGRID_API_KEY"):
+            if getenv("EMAIL_VERIFICATION_ENABLED").lower() == "true":
                 missing_requirements.append({"verify_email": True})
                 self.send_email_verification_link()
         else:
@@ -3051,7 +3088,8 @@ class MagicalAuth:
         return user_preferences
 
     def send_email_code(self):
-        if not getenv("SENDGRID_API_KEY"):
+        # Check if any email provider is configured
+        if not is_email_configured():
             return False
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
@@ -3181,7 +3219,8 @@ class MagicalAuth:
 
     def send_email_verification_link(self):
         """
-        Use sendgrid to send a verification email to the user with a link to verify their email address
+        Send a verification email to the user with a link to verify their email address.
+        Uses the configured email provider (sendgrid, mailgun, microsoft, or google).
         Link will go to magic_link ?verify_email=Code associated with their account
         Just use the mfa_token encrypted with the user's email and the current date
         """

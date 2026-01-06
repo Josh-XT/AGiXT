@@ -5902,6 +5902,15 @@ SERVER_CONFIG_DEFINITIONS = [
     # Email Settings
     # ========================================
     {
+        "name": "EMAIL_VERIFICATION_ENABLED",
+        "category": "email",
+        "description": "Enable email verification for new users. When enabled, users will receive a verification email and must verify their email address. Requires a configured email provider.",
+        "value_type": "boolean",
+        "default_value": "false",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
         "name": "EMAIL_PROVIDER",
         "category": "email",
         "description": "Email provider to use for sending emails (magic links, invitations). Options: auto, sendgrid, mailgun, microsoft, google. 'auto' will use the first configured provider found.",
