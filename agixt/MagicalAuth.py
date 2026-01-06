@@ -3788,6 +3788,111 @@ class MagicalAuth:
         session.close()
         return response
 
+    def get_accessible_company_ids(self, include_children: bool = True) -> List[str]:
+        """
+        Get list of all company IDs that the user has access to, including child companies
+        where the user is an admin of the parent company.
+
+        Args:
+            include_children: If True, include child companies where user is admin of parent.
+
+        Returns:
+            List of company IDs the user can access.
+        """
+        # Start with direct company memberships
+        direct_companies = self.get_user_companies()
+
+        if not include_children:
+            return direct_companies
+
+        accessible = set(direct_companies)
+
+        with get_session() as db:
+            # For each company where user is admin (role_id <= 1), add all child companies
+            admin_company_ids = []
+            for company_id in direct_companies:
+                user_company = (
+                    db.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == self.user_id,
+                        UserCompany.company_id == company_id,
+                    )
+                    .first()
+                )
+                # Role 0 = super admin, Role 1 = company admin
+                if user_company and user_company.role_id <= 1:
+                    admin_company_ids.append(company_id)
+
+            # Get all child companies recursively for admin companies
+            def get_child_companies(parent_id: str, visited: set) -> List[str]:
+                if parent_id in visited:
+                    return []
+                visited.add(parent_id)
+
+                children = (
+                    db.query(Company).filter(Company.company_id == parent_id).all()
+                )
+                result = []
+                for child in children:
+                    child_id = str(child.id)
+                    result.append(child_id)
+                    # Recursively get grandchildren
+                    result.extend(get_child_companies(child_id, visited))
+                return result
+
+            for admin_company_id in admin_company_ids:
+                visited = set()
+                child_ids = get_child_companies(admin_company_id, visited)
+                accessible.update(child_ids)
+
+        return list(accessible)
+
+    def can_access_company(self, company_id: str) -> bool:
+        """
+        Check if the user can access a specific company.
+        This includes direct membership OR being an admin of a parent company.
+
+        Args:
+            company_id: The company ID to check access for.
+
+        Returns:
+            True if user can access the company, False otherwise.
+        """
+        if company_id in self.get_user_companies():
+            return True
+
+        # Check if user is admin of any parent company in the hierarchy
+        with get_session() as db:
+            current_id = company_id
+            visited = set()
+
+            while current_id and current_id not in visited:
+                visited.add(current_id)
+
+                company = db.query(Company).filter(Company.id == current_id).first()
+                if not company:
+                    break
+
+                parent_id = str(company.company_id) if company.company_id else None
+                if not parent_id:
+                    break
+
+                # Check if user is admin of the parent company
+                user_company = (
+                    db.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == self.user_id,
+                        UserCompany.company_id == parent_id,
+                    )
+                    .first()
+                )
+                if user_company and user_company.role_id <= 1:
+                    return True
+
+                current_id = parent_id
+
+        return False
+
     def get_user_companies_with_roles(self) -> List[dict]:
         """
         Get list of company IDs that the user has access to.
@@ -3874,7 +3979,8 @@ class MagicalAuth:
     def get_invitations(self, company_id=None):
         if not company_id:
             company_id = self.get_user_company_id()
-        if str(company_id) not in self.get_user_companies():
+        # Check if user can access this company (direct or via parent admin)
+        if not self.can_access_company(str(company_id)):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -3908,7 +4014,8 @@ class MagicalAuth:
             )
             if not invitation:
                 raise HTTPException(status_code=404, detail="Invitation not found")
-            if str(invitation.company_id) not in self.get_user_companies():
+            # Check if user can access this company (direct or via parent admin)
+            if not self.can_access_company(str(invitation.company_id)):
                 raise HTTPException(
                     status_code=403,
                     detail="Unauthorized. Insufficient permissions.",
@@ -3932,7 +4039,8 @@ class MagicalAuth:
             return "Invitation deleted successfully"
 
     def create_invitation(self, invitation: InvitationCreate) -> InvitationResponse:
-        if str(invitation.company_id) not in self.get_user_companies():
+        # Check if user can access the requested company (direct or via parent admin)
+        if not self.can_access_company(str(invitation.company_id)):
             invitation.company_id = self.get_user_company_id()
         if getenv("STRIPE_API_KEY") != "":
             if not self.check_user_limit(invitation.company_id):
@@ -3943,7 +4051,17 @@ class MagicalAuth:
         with get_session() as db:
             try:
                 # Check if user has appropriate scope to create invitations
-                if not self.has_scope("users:write", invitation.company_id):
+                # First check direct scope, then check if admin of parent company
+                has_permission = self.has_scope("users:write", invitation.company_id)
+                if not has_permission:
+                    # Check if user is admin of a parent company
+                    if str(invitation.company_id) not in self.get_user_companies():
+                        # User doesn't have direct membership, check parent admin
+                        has_permission = self.can_access_company(
+                            str(invitation.company_id)
+                        )
+
+                if not has_permission:
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
@@ -4251,11 +4369,40 @@ class MagicalAuth:
                 )
                 .first()
             )
-            if not user_company:
-                return None
-            return (
-                user_company.role_id if user_company else 3
-            )  # Default to regular user
+            if user_company:
+                return user_company.role_id
+
+            # If no direct membership, check if user is admin of a parent company
+            # Admin of parent company gets the same role in child companies
+            current_id = company_id
+            visited = set()
+
+            while current_id and current_id not in visited:
+                visited.add(current_id)
+
+                company = db.query(Company).filter(Company.id == current_id).first()
+                if not company:
+                    break
+
+                parent_id = str(company.company_id) if company.company_id else None
+                if not parent_id:
+                    break
+
+                # Check if user is admin of the parent company
+                parent_user_company = (
+                    db.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == self.user_id,
+                        UserCompany.company_id == parent_id,
+                    )
+                    .first()
+                )
+                if parent_user_company and parent_user_company.role_id <= 1:
+                    return parent_user_company.role_id
+
+                current_id = parent_id
+
+            return None
 
     def convert_uuid_to_str(self, obj):
         if isinstance(obj, dict):
