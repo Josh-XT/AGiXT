@@ -132,6 +132,10 @@ async def initialize_database(is_restart=False):
         DB.migrate_response_cache_table()
         startup_timer.section_end("migrate_response_cache_table", section_start)
 
+        section_start = startup_timer.section_start()
+        DB.migrate_task_item_table()
+        startup_timer.section_end("migrate_task_item_table", section_start)
+
         # Clean up expired cache entries on startup
         section_start = startup_timer.section_start()
         DB.cleanup_expired_cache()
