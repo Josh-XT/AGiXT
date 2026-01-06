@@ -1891,6 +1891,14 @@ class TaskItem(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     completed_at = Column(DateTime, nullable=True)
     priority = Column(Integer)
+    # Task type: 'prompt' (default), 'command', or 'deployment'
+    task_type = Column(String, default="prompt")
+    # For command tasks: the shell command/script to execute
+    command_script = Column(Text, nullable=True)
+    # For deployment tasks: reference to deployment ID
+    deployment_id = Column(String, nullable=True)
+    # Target machines for command/deployment tasks (JSON array of machine IDs)
+    target_machines = Column(Text, nullable=True)
     user = relationship("User", backref="task_item")
 
 
