@@ -71,6 +71,10 @@ class Task:
         estimated_hours: int = None,
         priority: int = 2,
         memory_collection: str = "0",
+        task_type: str = "prompt",
+        command_script: str = None,
+        deployment_id: str = None,
+        target_machines: str = None,
     ) -> str:
         """Create a new task"""
         session = get_session()
@@ -105,6 +109,10 @@ class Task:
             priority=priority,
             scheduled=bool(normalized_due_date),
             memory_collection=memory_collection,
+            task_type=task_type,
+            command_script=command_script,
+            deployment_id=deployment_id,
+            target_machines=target_machines,
         )
         session.add(task)
         session.commit()
@@ -126,6 +134,10 @@ class Task:
         estimated_hours: int = None,
         priority: int = 2,
         memory_collection: str = "0",
+        task_type: str = "prompt",
+        command_script: str = None,
+        deployment_id: str = None,
+        target_machines: str = None,
     ) -> str:
         """Create a new reoccurring task"""
         session = get_session()
@@ -171,6 +183,10 @@ class Task:
                     priority=priority,
                     scheduled=True,
                     memory_collection=memory_collection,
+                    task_type=task_type,
+                    command_script=command_script,
+                    deployment_id=deployment_id,
+                    target_machines=target_machines,
                 )
                 session.add(task)
                 task_ids.append(str(task.id))
@@ -199,6 +215,10 @@ class Task:
                                 priority=priority,
                                 scheduled=True,
                                 memory_collection=memory_collection,
+                                task_type=task_type,
+                                command_script=command_script,
+                                deployment_id=deployment_id,
+                                target_machines=target_machines,
                             )
                             session.add(task)
                             task_ids.append(str(task.id))
@@ -218,6 +238,10 @@ class Task:
                         priority=priority,
                         scheduled=True,
                         memory_collection=memory_collection,
+                        task_type=task_type,
+                        command_script=command_script,
+                        deployment_id=deployment_id,
+                        target_machines=target_machines,
                     )
                     session.add(task)
                     task_ids.append(str(task.id))
@@ -236,6 +260,10 @@ class Task:
                     priority=priority,
                     scheduled=True,
                     memory_collection=memory_collection,
+                    task_type=task_type,
+                    command_script=command_script,
+                    deployment_id=deployment_id,
+                    target_machines=target_machines,
                 )
                 session.add(task)
                 task_ids.append(str(task.id))
@@ -261,6 +289,10 @@ class Task:
                     priority=priority,
                     scheduled=True,
                     memory_collection=memory_collection,
+                    task_type=task_type,
+                    command_script=command_script,
+                    deployment_id=deployment_id,
+                    target_machines=target_machines,
                 )
                 session.add(task)
                 task_ids.append(str(task.id))
@@ -277,6 +309,10 @@ class Task:
                     priority=priority,
                     scheduled=True,
                     memory_collection=memory_collection,
+                    task_type=task_type,
+                    command_script=command_script,
+                    deployment_id=deployment_id,
+                    target_machines=target_machines,
                 )
                 session.add(task)
                 task_ids.append(str(task.id))
@@ -336,6 +372,10 @@ class Task:
                     else None
                 ),
                 "category_name": task.category.name if task.category else "Follow-ups",
+                "task_type": task.task_type if task.task_type else "prompt",
+                "command_script": task.command_script,
+                "deployment_id": task.deployment_id,
+                "target_machines": task.target_machines,
             }
             new_tasks.append(task_dict)
         session.close()
@@ -394,49 +434,161 @@ class Task:
                 return False
 
             succeeded = True
+            task_type = task.task_type if task.task_type else "prompt"
 
-            if task.agent_id:
-                agent = session.query(Agent).get(task.agent_id)
-                if agent:
-                    prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
-                    try:
-                        response = await asyncio.wait_for(
-                            asyncio.to_thread(
-                                self.ApiClient.prompt_agent,
-                                agent_name=agent.name,
-                                prompt_name="Think About It",
-                                prompt_args={
-                                    "user_input": prompt,
-                                    "conversation_name": task.memory_collection,
-                                    "websearch": False,
-                                    "analyze_user_input": False,
-                                    "log_user_input": False,
-                                    "log_output": True,
-                                    "tts": False,
-                                },
-                            ),
-                            timeout=120,
-                        )
-                        logging.info(
-                            f"Follow-up task {task.id} executed: {response[:100] if response else 'No response'}..."
-                        )
-                    except asyncio.TimeoutError:
-                        logging.error(f"Task {task.id} timed out after 2 minutes")
+            if task_type == "prompt":
+                # Original prompt-based task execution
+                if task.agent_id:
+                    agent = session.query(Agent).get(task.agent_id)
+                    if agent:
+                        prompt = f"## Notes about scheduled task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user after completing a scheduled task."
+                        try:
+                            response = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    self.ApiClient.prompt_agent,
+                                    agent_name=agent.name,
+                                    prompt_name="Think About It",
+                                    prompt_args={
+                                        "user_input": prompt,
+                                        "conversation_name": task.memory_collection,
+                                        "websearch": False,
+                                        "analyze_user_input": False,
+                                        "log_user_input": False,
+                                        "log_output": True,
+                                        "tts": False,
+                                    },
+                                ),
+                                timeout=120,
+                            )
+                            logging.info(
+                                f"Follow-up task {task.id} executed: {response[:100] if response else 'No response'}..."
+                            )
+                        except asyncio.TimeoutError:
+                            logging.error(f"Task {task.id} timed out after 2 minutes")
+                            succeeded = False
+                        except Exception as prompt_e:
+                            logging.error(
+                                f"Error executing prompt for task {task.id}: {str(prompt_e)}"
+                            )
+                            succeeded = False
+            elif task_type == "command":
+                # Command execution on target machines
+                # This will be handled by the XTSystems extension via API call
+                try:
+                    import json
+                    import requests
+
+                    target_machines = json.loads(task.target_machines) if task.target_machines else []
+                    if target_machines and task.command_script:
+                        # Queue commands for each target machine via the XTSystems machines extension
+                        for machine_id in target_machines:
+                            try:
+                                response = requests.post(
+                                    f"{getenv('AGIXT_SERVER')}/v1/machine/command",
+                                    headers={"Authorization": f"Bearer {self.auth.token}"},
+                                    json={
+                                        "machine_id": machine_id,
+                                        "command_type": "shell",
+                                        "command_data": task.command_script,
+                                    },
+                                    timeout=30,
+                                )
+                                if response.status_code != 200:
+                                    logging.error(f"Failed to queue command for machine {machine_id}: {response.text}")
+                                    succeeded = False
+                            except Exception as cmd_e:
+                                logging.error(f"Error queuing command for machine {machine_id}: {str(cmd_e)}")
+                                succeeded = False
+                        logging.info(f"Command task {task.id} queued for {len(target_machines)} machines")
+                    else:
+                        logging.warning(f"Command task {task.id} has no target machines or command script")
                         succeeded = False
-                    except Exception as prompt_e:
-                        logging.error(
-                            f"Error executing prompt for task {task.id}: {str(prompt_e)}"
+                except Exception as cmd_e:
+                    logging.error(f"Error executing command task {task.id}: {str(cmd_e)}")
+                    succeeded = False
+            elif task_type == "deployment":
+                # Deployment execution on target machines
+                try:
+                    import json
+                    import requests
+
+                    target_machines = json.loads(task.target_machines) if task.target_machines else []
+                    if target_machines and task.deployment_id:
+                        # Execute deployment on each target machine via the XTSystems machines extension
+                        response = requests.post(
+                            f"{getenv('AGIXT_SERVER')}/v1/machine/deployment/execute",
+                            headers={"Authorization": f"Bearer {self.auth.token}"},
+                            json={
+                                "deployment_id": task.deployment_id,
+                                "machine_ids": target_machines,
+                            },
+                            timeout=60,
                         )
+                        if response.status_code != 200:
+                            logging.error(f"Failed to execute deployment for task {task.id}: {response.text}")
+                            succeeded = False
+                        else:
+                            logging.info(f"Deployment task {task.id} executed on {len(target_machines)} machines")
+                    else:
+                        logging.warning(f"Deployment task {task.id} has no target machines or deployment ID")
                         succeeded = False
+                except Exception as deploy_e:
+                    logging.error(f"Error executing deployment task {task.id}: {str(deploy_e)}")
+                    succeeded = False
+            else:
+                logging.warning(f"Unknown task type '{task_type}' for task {task.id}")
+                succeeded = False
 
             if succeeded:
                 await self.mark_task_completed(str(task.id))
+                # Log task execution to activity log
+                try:
+                    import requests
+                    requests.post(
+                        f"{getenv('AGIXT_SERVER')}/v1/activity-log",
+                        headers={"Authorization": f"Bearer {self.auth.token}"},
+                        json={
+                            "entity_type": "scheduled_task",
+                            "entity_id": str(task.id),
+                            "action": "executed",
+                            "entity_name": task.title,
+                            "changes": {
+                                "task_type": task_type,
+                                "status": "completed",
+                                "description": task.description[:100] if task.description else None,
+                            },
+                        },
+                        timeout=10,
+                    )
+                except Exception as log_e:
+                    logging.warning(f"Failed to log task execution to activity log: {str(log_e)}")
             else:
                 # Release the task for future attempts
                 task.scheduled = True
                 task.updated_at = now
                 session.add(task)
                 session.commit()
+                # Log failed task attempt to activity log
+                try:
+                    import requests
+                    requests.post(
+                        f"{getenv('AGIXT_SERVER')}/v1/activity-log",
+                        headers={"Authorization": f"Bearer {self.auth.token}"},
+                        json={
+                            "entity_type": "scheduled_task",
+                            "entity_id": str(task.id),
+                            "action": "failed",
+                            "entity_name": task.title,
+                            "changes": {
+                                "task_type": task_type,
+                                "status": "failed",
+                                "description": task.description[:100] if task.description else None,
+                            },
+                        },
+                        timeout=10,
+                    )
+                except Exception as log_e:
+                    logging.warning(f"Failed to log task failure to activity log: {str(log_e)}")
 
             return succeeded
         except Exception as e:

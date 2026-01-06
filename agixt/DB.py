@@ -1891,6 +1891,14 @@ class TaskItem(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     completed_at = Column(DateTime, nullable=True)
     priority = Column(Integer)
+    # Task type: 'prompt' (default), 'command', or 'deployment'
+    task_type = Column(String, default="prompt")
+    # For command tasks: the shell command/script to execute
+    command_script = Column(Text, nullable=True)
+    # For deployment tasks: reference to deployment ID
+    deployment_id = Column(String, nullable=True)
+    # Target machines for command/deployment tasks (JSON array of machine IDs)
+    target_machines = Column(Text, nullable=True)
     user = relationship("User", backref="task_item")
 
 
@@ -4832,6 +4840,83 @@ def cleanup_expired_cache():
         return 0
 
 
+def migrate_task_item_table():
+    """
+    Migration function to add task_type, command_script, deployment_id, and target_machines
+    columns to the task_item table. These support the new scheduled task types:
+    - 'prompt' (default): AI agent prompt execution
+    - 'command': Shell command/script execution on machines
+    - 'deployment': Deployment library script execution on machines
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("task_type", "TEXT", "'prompt'"),  # Default to 'prompt'
+                ("command_script", "TEXT", None),
+                ("deployment_id", "TEXT", None),
+                ("target_machines", "TEXT", None),  # JSON array of machine IDs
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                # For SQLite, check if column exists
+                result = session.execute(text("PRAGMA table_info(task_item)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def, default_value in columns_to_add:
+                    if column_name not in existing_columns:
+                        if default_value:
+                            session.execute(
+                                text(
+                                    f"ALTER TABLE task_item ADD COLUMN {column_name} {column_def} DEFAULT {default_value}"
+                                )
+                            )
+                        else:
+                            session.execute(
+                                text(
+                                    f"ALTER TABLE task_item ADD COLUMN {column_name} {column_def}"
+                                )
+                            )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to task_item table")
+            else:
+                # For PostgreSQL, check if column exists
+                for column_name, column_def, default_value in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_name = 'task_item' AND column_name = :column_name
+                        """
+                        ),
+                        {"column_name": column_name},
+                    )
+
+                    if not result.fetchone():
+                        if default_value:
+                            session.execute(
+                                text(
+                                    f"ALTER TABLE task_item ADD COLUMN {column_name} {column_def} DEFAULT {default_value}"
+                                )
+                            )
+                        else:
+                            session.execute(
+                                text(
+                                    f"ALTER TABLE task_item ADD COLUMN {column_name} {column_def}"
+                                )
+                            )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to task_item table")
+
+            logging.info("Task item table migration complete")
+
+    except Exception as e:
+        logging.error(f"Error migrating task item table: {e}")
+
+
 def migrate_tiered_prompts_chains_tables():
     """
     Migration function to create the tiered prompts and chains tables.
@@ -6400,6 +6485,7 @@ if __name__ == "__main__":
     migrate_discarded_context_table()
     migrate_cleanup_duplicate_wallet_settings()
     migrate_tiered_prompts_chains_tables()
+    migrate_task_item_table()
     setup_default_extension_categories()
     migrate_extensions_to_new_categories()
     migrate_role_table()
