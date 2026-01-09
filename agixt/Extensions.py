@@ -37,6 +37,175 @@ DISABLED_EXTENSIONS = getenv("DISABLED_EXTENSIONS").replace(" ", "").split(",")
 # Cache for extension modules to prevent multiple imports
 _extension_module_cache = {}
 _extension_discovery_cache = None
+# Metadata cache: stores extension info without importing modules
+_extension_metadata_cache = None
+_extension_metadata_cache_file = os.path.join(
+    os.path.dirname(__file__), "models", "extension_metadata_cache.json"
+)
+
+
+def _get_extension_metadata_cache():
+    """
+    Get cached extension metadata (commands, settings) without importing modules.
+    This enables lazy loading - modules are only imported when commands are executed.
+    """
+    global _extension_metadata_cache
+
+    if _extension_metadata_cache is not None:
+        return _extension_metadata_cache
+
+    # Try to load from disk cache
+    try:
+        if os.path.exists(_extension_metadata_cache_file):
+            with open(_extension_metadata_cache_file, "r") as f:
+                cached = json.load(f)
+                # Validate cache has expected structure
+                if (
+                    isinstance(cached, dict)
+                    and "commands" in cached
+                    and "extensions" in cached
+                ):
+                    _extension_metadata_cache = cached
+                    logging.debug(
+                        f"Loaded extension metadata cache with {len(cached['commands'])} commands"
+                    )
+                    return _extension_metadata_cache
+    except Exception as e:
+        logging.debug(f"Could not load extension metadata cache: {e}")
+
+    # Build cache by importing modules (expensive, but only done once)
+    _extension_metadata_cache = _build_extension_metadata_cache()
+    return _extension_metadata_cache
+
+
+def _build_extension_metadata_cache():
+    """
+    Build extension metadata cache using AST parsing (no imports needed).
+    This is fast because it just parses Python files without executing them.
+    """
+    import time
+    import ast
+
+    start = time.time()
+
+    metadata = {
+        "commands": {},  # command_name -> {module_file, class_name, function_name, params}
+        "extensions": {},  # class_name -> {file, settings, commands}
+        "built_at": time.time(),
+    }
+
+    command_files = _get_cached_extension_files()
+    for command_file in command_files:
+        try:
+            with open(command_file, "r", encoding="utf-8") as f:
+                source = f.read()
+            tree = ast.parse(source, filename=command_file)
+        except Exception as e:
+            logging.debug(f"Could not parse {command_file}: {e}")
+            continue
+
+        class_name = get_extension_class_name(os.path.basename(command_file))
+        if class_name in DISABLED_EXTENSIONS:
+            continue
+
+        # Find the extension class in the AST
+        extension_class = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                extension_class = node
+                break
+
+        if extension_class is None:
+            continue
+
+        # Extract __init__ parameters (settings)
+        settings = []
+        for item in extension_class.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                for arg in item.args.args:
+                    if arg.arg not in ("self", "kwargs"):
+                        settings.append(arg.arg)
+                # Also check **kwargs in kwonlyargs
+                for arg in item.args.kwonlyargs:
+                    if arg.arg not in ("self", "kwargs"):
+                        settings.append(arg.arg)
+                break
+
+        extension_info = {
+            "file": command_file,
+            "settings": settings,
+            "commands": [],
+        }
+
+        # Find self.commands assignments in __init__
+        # Look for self.commands = { ... } dictionary
+        commands_dict = {}
+        for item in extension_class.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                for stmt in ast.walk(item):
+                    if isinstance(stmt, ast.Assign):
+                        for target in stmt.targets:
+                            if (
+                                isinstance(target, ast.Attribute)
+                                and isinstance(target.value, ast.Name)
+                                and target.value.id == "self"
+                                and target.attr == "commands"
+                            ):
+                                # Found self.commands = {...}
+                                if isinstance(stmt.value, ast.Dict):
+                                    for key, val in zip(
+                                        stmt.value.keys, stmt.value.values
+                                    ):
+                                        if isinstance(key, ast.Constant) and isinstance(
+                                            val, ast.Attribute
+                                        ):
+                                            cmd_name = key.value
+                                            func_name = val.attr
+                                            commands_dict[cmd_name] = func_name
+
+        # Extract function parameters for each command
+        for cmd_name, func_name in commands_dict.items():
+            params = {}
+            for item in extension_class.body:
+                if isinstance(item, ast.FunctionDef) and item.name == func_name:
+                    for arg in item.args.args:
+                        if arg.arg != "self":
+                            # Get annotation if present
+                            annotation = ""
+                            if arg.annotation:
+                                if isinstance(arg.annotation, ast.Name):
+                                    annotation = f"<class '{arg.annotation.id}'>"
+                                elif isinstance(arg.annotation, ast.Constant):
+                                    annotation = str(arg.annotation.value)
+                            params[arg.arg] = annotation
+                    break
+
+            cmd_info = {
+                "module_file": command_file,
+                "class_name": class_name,
+                "function_name": func_name,
+                "params": params,
+            }
+            metadata["commands"][cmd_name] = cmd_info
+            extension_info["commands"].append(cmd_name)
+
+        metadata["extensions"][class_name] = extension_info
+
+    # Save to disk cache
+    try:
+        os.makedirs(os.path.dirname(_extension_metadata_cache_file), exist_ok=True)
+        with open(_extension_metadata_cache_file, "w") as f:
+            json.dump(metadata, f, indent=2)
+        logging.info(
+            f"Saved extension metadata cache with {len(metadata['commands'])} commands"
+        )
+    except Exception as e:
+        logging.debug(f"Could not save extension metadata cache: {e}")
+
+    elapsed = time.time() - start
+    logging.info(f"Built extension metadata cache in {elapsed:.2f}s (AST parsing)")
+
+    return metadata
 
 
 def _get_cached_extension_module(command_file):
@@ -65,9 +234,18 @@ def _get_cached_extension_files():
 
 def invalidate_extension_cache():
     """Invalidate the extension discovery cache to force rediscovery"""
-    global _extension_discovery_cache, _extension_module_cache
+    global _extension_discovery_cache, _extension_module_cache, _extension_metadata_cache
     _extension_discovery_cache = None
     _extension_module_cache.clear()
+    _extension_metadata_cache = None
+
+    # Remove disk cache
+    try:
+        if os.path.exists(_extension_metadata_cache_file):
+            os.remove(_extension_metadata_cache_file)
+            logging.info("Removed extension metadata cache file")
+    except Exception as e:
+        logging.debug(f"Could not remove metadata cache file: {e}")
 
     # Also invalidate ExtensionsHub path cache
     try:
@@ -337,48 +515,33 @@ class Extensions:
         return chains
 
     def load_commands(self):
+        """
+        Load commands using cached metadata for fast discovery.
+        Modules are only imported when commands are actually executed (lazy loading).
+        """
         try:
             settings = self.agent_config["settings"]
         except:
             settings = {}
         commands = []
-        # Use cached extension discovery
-        command_files = _get_cached_extension_files()
-        for command_file in command_files:
-            # Import the module using cached helper function
-            module = _get_cached_extension_module(command_file)
-            if module is None:
-                continue
 
-            # Get the expected class name from the module
-            class_name = get_extension_class_name(os.path.basename(command_file))
+        # Use metadata cache for fast command discovery
+        metadata = _get_extension_metadata_cache()
 
-            # Check if module is in disabled extensions
+        for cmd_name, cmd_info in metadata.get("commands", {}).items():
+            class_name = cmd_info["class_name"]
             if class_name in DISABLED_EXTENSIONS:
                 continue
 
-            # Check if the class exists and is a subclass of Extensions
-            attr = getattr(module, class_name, None)
-            if (
-                attr is not None
-                and inspect.isclass(attr)
-                and issubclass(attr, Extensions)
-            ):
-                command_class = attr(**settings)
-                if hasattr(command_class, "commands"):
-                    for (
-                        command_name,
-                        command_function,
-                    ) in command_class.commands.items():
-                        params = self.get_command_params(command_function)
-                        commands.append(
-                            (
-                                command_name,
-                                getattr(module, class_name),
-                                command_function.__name__,
-                                params,
-                            )
-                        )
+            # Store command info for lazy loading - don't import module yet
+            commands.append(
+                (
+                    cmd_name,
+                    cmd_info,  # Store metadata instead of actual class
+                    cmd_info["function_name"],
+                    cmd_info["params"],
+                )
+            )
 
         # Add chains as commands
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -399,55 +562,87 @@ class Extensions:
         return commands
 
     def find_command(self, command_name: str):
+        """
+        Find a command by name. Uses lazy loading - only imports the module
+        when the command is actually being executed.
+        """
         # Protect against empty command names
         if not command_name or command_name.strip() == "":
             logging.error("Empty command name provided")
             return None, None, None
 
-        for name, module, function_name, params in self.commands:
-            if module.__name__ in DISABLED_EXTENSIONS:
-                continue
+        try:
+            settings = self.agent_config.get("settings", {})
+        except:
+            settings = {}
+
+        for name, module_or_info, function_name, params in self.commands:
             if name == command_name:
-                if isinstance(module, type):  # It's a class
-                    command_function = getattr(module, function_name)
-                    return command_function, module, params
-                else:  # It's a function (for chains)
-                    return module, None, params
+                # Check if this is a chain (callable) or extension metadata (dict)
+                if callable(module_or_info):
+                    # It's a chain function
+                    return module_or_info, None, params
+
+                if isinstance(module_or_info, dict):
+                    # Lazy loading: import module now that we need it
+                    cmd_info = module_or_info
+                    class_name = cmd_info["class_name"]
+
+                    if class_name in DISABLED_EXTENSIONS:
+                        continue
+
+                    module_file = cmd_info["module_file"]
+                    module = _get_cached_extension_module(module_file)
+                    if module is None:
+                        logging.error(
+                            f"Could not import module for command {command_name}"
+                        )
+                        return None, None, None
+
+                    ext_class = getattr(module, class_name, None)
+                    if ext_class is None:
+                        logging.error(f"Class {class_name} not found in module")
+                        return None, None, None
+
+                    command_function = getattr(ext_class, function_name, None)
+                    if command_function is None:
+                        logging.error(
+                            f"Function {function_name} not found in class {class_name}"
+                        )
+                        return None, None, None
+
+                    return command_function, ext_class, params
+                else:
+                    # Legacy: it's already an imported class
+                    module = module_or_info
+                    if (
+                        hasattr(module, "__name__")
+                        and module.__name__ in DISABLED_EXTENSIONS
+                    ):
+                        continue
+                    if isinstance(module, type):
+                        command_function = getattr(module, function_name)
+                        return command_function, module, params
+
         return None, None, None
 
     def get_extension_settings(self):
+        """
+        Get extension settings using cached metadata (no module imports needed).
+        """
         settings = {}
-        # Use cached extension discovery
-        command_files = _get_cached_extension_files()
-        for command_file in command_files:
-            # Import the module using cached helper function
-            module = _get_cached_extension_module(command_file)
-            if module is None:
-                continue
 
-            # Get the expected class name from the module
-            class_name = get_extension_class_name(os.path.basename(command_file))
+        # Use metadata cache - no module imports needed
+        metadata = _get_extension_metadata_cache()
 
-            # Check if module is in disabled extensions
+        for class_name, ext_info in metadata.get("extensions", {}).items():
             if class_name in DISABLED_EXTENSIONS:
                 continue
 
-            # Check if the class exists and is a subclass of Extensions
-            attr = getattr(module, class_name, None)
-            if (
-                attr is not None
-                and inspect.isclass(attr)
-                and issubclass(attr, Extensions)
-            ):
-                command_class = attr()
-                params = self.get_command_params(command_class.__init__)
-                # Remove self and kwargs from params
-                if "self" in params:
-                    del params["self"]
-                if "kwargs" in params:
-                    del params["kwargs"]
-                if params != {}:
-                    settings[class_name] = params
+            ext_settings = ext_info.get("settings", [])
+            if ext_settings:
+                # Convert list of setting names to dict format
+                settings[class_name] = {name: "" for name in ext_settings}
 
         # Use self.chains_with_args instead of iterating over self.chains
         if self.chains_with_args:
