@@ -242,52 +242,69 @@ class Conversations:
         return agent_id
 
     def get_conversations_with_detail(self):
+        """
+        OPTIMIZED: Single query to get all conversation details with notifications
+        and last message timestamps in one batch instead of N+1 queries.
+        """
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
+        if not user_data:
+            session.close()
+            return {}
         user_id = user_data.id
 
-        # Add notification check to the query
+        # Get default agent_id once (not per conversation - they all share the same user)
+        default_agent = session.query(Agent).filter(Agent.user_id == user_id).first()
+        default_agent_id = str(default_agent.id) if default_agent else None
+
+        # Subquery to get max message timestamp per conversation
+        last_message_subq = (
+            session.query(
+                Message.conversation_id,
+                func.max(Message.timestamp).label("last_message_time"),
+            )
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
+
+        # Single query: conversations with notification count and last message time
         conversations = (
             session.query(
                 Conversation,
                 func.count(Message.id)
                 .filter(Message.notify == True)
                 .label("notification_count"),
+                last_message_subq.c.last_message_time,
             )
             .outerjoin(Message, Message.conversation_id == Conversation.id)
+            .outerjoin(
+                last_message_subq,
+                last_message_subq.c.conversation_id == Conversation.id,
+            )
             .filter(Conversation.user_id == user_id)
             .filter(Message.id != None)
-            .group_by(Conversation)
+            .group_by(Conversation.id, last_message_subq.c.last_message_time)
             .all()
         )
-        # If the agent's company_id does not match
-        result = {
-            str(conversation.id): {
+
+        # Build result dict with all data from single query
+        result = {}
+        for conversation, notification_count, last_message_time in conversations:
+            # Use last message time if available, otherwise use conversation updated_at
+            effective_updated_at = last_message_time or conversation.updated_at
+            result[str(conversation.id)] = {
                 "name": conversation.name,
-                "agent_id": self.get_agent_id(user_id),
+                "agent_id": default_agent_id,
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
-                "updated_at": convert_time(conversation.updated_at, user_id=user_id),
+                "updated_at": convert_time(effective_updated_at, user_id=user_id),
                 "has_notifications": notification_count > 0,
                 "summary": (
-                    conversation.summary if Conversation.summary else "None available"
+                    conversation.summary if conversation.summary else "None available"
                 ),
-                "attachment_count": conversation.attachment_count,
+                "attachment_count": conversation.attachment_count or 0,
             }
-            for conversation, notification_count in conversations
-        }
-        for id, conversation in result.items():
-            # Get the last message for each conversation to update the updated_at field
-            last_message = (
-                session.query(Message)
-                .filter(Message.conversation_id == id)
-                .order_by(Message.timestamp.desc())
-                .first()
-            )
-            if last_message:
-                conversation["updated_at"] = convert_time(
-                    last_message.timestamp, user_id=user_id
-                )
-        # Reorder the result by updated_at with latest first
+
+        # Sort by updated_at descending (most recent first)
         result = dict(
             sorted(
                 result.items(),
