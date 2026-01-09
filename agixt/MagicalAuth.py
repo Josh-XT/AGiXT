@@ -1024,6 +1024,315 @@ class MagicalAuth:
             )
             return user_company is not None
 
+    def get_user_data_optimized(self, ip_address: str = None) -> dict:
+        """
+        Optimized single-query method to fetch all user data for /v1/user endpoint.
+        
+        This combines login validation, preferences, companies, agents, and scopes
+        into a single database session, dramatically reducing round-trips.
+        
+        Returns dict with:
+        - user: User object
+        - preferences: dict of user preferences
+        - companies: list of company dicts with agents and scopes included
+        - is_super_admin: bool
+        
+        Raises HTTPException on auth failures.
+        """
+        import threading
+        from Agent import get_agents_lightweight
+        from DB import default_role_scopes as db_default_role_scopes
+
+        if self.user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
+
+        session = get_session()
+        try:
+            # === 1. Validate token (check blacklist) ===
+            blacklisted = (
+                session.query(TokenBlacklist)
+                .filter(TokenBlacklist.token == self.token)
+                .first()
+            )
+            if blacklisted:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Token has been revoked. Please log in again.",
+                )
+
+            # === 2. Get user with single query ===
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            # === 3. Get user preferences ===
+            user_prefs_list = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == self.user_id)
+                .all()
+            )
+            user_preferences = {x.pref_key: x.pref_value for x in user_prefs_list}
+
+            # Set defaults
+            if "input_tokens" not in user_preferences:
+                user_preferences["input_tokens"] = 0
+            if "output_tokens" not in user_preferences:
+                user_preferences["output_tokens"] = 0
+            if "phone_number" not in user_preferences:
+                user_preferences["phone_number"] = ""
+
+            # === 4. Get user companies with JOIN (single query) ===
+            user_companies = (
+                session.query(UserCompany)
+                .options(joinedload(UserCompany.company))
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+
+            # Check if super admin
+            is_super_admin = any(uc.role_id == 0 for uc in user_companies)
+
+            # === 5. Billing check (fast, synchronous) ===
+            wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+            price_service = PriceService()
+            try:
+                token_price = price_service.get_token_price()
+            except Exception:
+                token_price = 1
+
+            billing_enabled = token_price > 0
+            wallet_paywall_enabled = (
+                bool(wallet_address)
+                and str(wallet_address).lower() != "none"
+                and billing_enabled
+            )
+
+            if wallet_paywall_enabled:
+                has_balance = self._has_sufficient_token_balance(session, user_companies)
+                if not has_balance:
+                    user.is_active = False
+                    session.commit()
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": "Insufficient token balance. Please top up your tokens.",
+                            "customer_session": {
+                                "client_secret": None,
+                                "company_id": self.company_id,
+                            },
+                            "wallet_address": wallet_address,
+                            "token_price_per_million_usd": float(token_price),
+                        },
+                    )
+                user_preferences["wallet_address"] = wallet_address
+                user_preferences["token_price_per_million_usd"] = float(token_price)
+
+            # === 6. User requirements check ===
+            user_requirements = self.registration_requirements()
+            missing_requirements = []
+            if user_requirements:
+                for key, value in user_requirements.items():
+                    if key not in user_preferences and key != "stripe_id":
+                        missing_requirements.append({key: value})
+
+            if (
+                "verify_email" not in user_preferences
+                and getenv("EMAIL_VERIFICATION_ENABLED").lower() == "true"
+            ):
+                missing_requirements.append({"verify_email": True})
+                threading.Thread(
+                    target=self._send_email_verification_async, daemon=True
+                ).start()
+            elif "verify_email" in user_preferences:
+                del user_preferences["verify_email"]
+
+            if missing_requirements:
+                user_preferences["missing_requirements"] = missing_requirements
+
+            # Clean up sensitive fields
+            for key in ["email", "first_name", "last_name"]:
+                if key in user_preferences:
+                    del user_preferences[key]
+
+            # === 7. Get agents for all companies (batch query) ===
+            company_ids = [str(uc.company_id) for uc in user_companies]
+            default_agent_id = user_preferences.get("agent_id")
+            
+            agents_by_company = {}
+            if company_ids:
+                agents_by_company = get_agents_lightweight(
+                    user_id=str(self.user_id),
+                    company_ids=company_ids,
+                    default_agent_id=default_agent_id,
+                    include_commands=True,
+                )
+
+            # === 8. Get scopes for all companies (batch) ===
+            # Pre-fetch all scope data we need for all companies
+            all_default_role_scopes = (
+                session.query(DefaultRoleScope, Scope)
+                .join(Scope, DefaultRoleScope.scope_id == Scope.id)
+                .all()
+            )
+            role_to_scopes = {}
+            for drs, scope in all_default_role_scopes:
+                if drs.role_id not in role_to_scopes:
+                    role_to_scopes[drs.role_id] = set()
+                role_to_scopes[drs.role_id].add(scope.name)
+
+            # All scopes for super admin
+            all_scopes = None
+            if is_super_admin:
+                all_scopes_query = session.query(Scope).all()
+                all_scopes = {s.name for s in all_scopes_query}
+
+            # Pre-fetch custom role scopes for this user across all companies
+            custom_scopes_query = (
+                session.query(UserCustomRole.company_id, Scope.name)
+                .join(CustomRole, CustomRole.id == UserCustomRole.custom_role_id)
+                .join(CustomRoleScope, CustomRoleScope.custom_role_id == CustomRole.id)
+                .join(Scope, Scope.id == CustomRoleScope.scope_id)
+                .filter(
+                    UserCustomRole.user_id == self.user_id,
+                    CustomRole.is_active == True,
+                )
+                .all()
+            )
+            custom_scopes_by_company = {}
+            for company_id, scope_name in custom_scopes_query:
+                cid = str(company_id)
+                if cid not in custom_scopes_by_company:
+                    custom_scopes_by_company[cid] = set()
+                custom_scopes_by_company[cid].add(scope_name)
+
+            # Pre-fetch extension configurations for ext:* wildcard expansion
+            ext_configs_query = (
+                session.query(
+                    CompanyExtensionCommand.company_id,
+                    CompanyExtensionCommand.extension_name,
+                )
+                .filter(CompanyExtensionCommand.company_id.in_(company_ids))
+                .distinct()
+                .all()
+            )
+            ext_settings_query = (
+                session.query(
+                    CompanyExtensionSetting.company_id,
+                    CompanyExtensionSetting.extension_name,
+                )
+                .filter(CompanyExtensionSetting.company_id.in_(company_ids))
+                .distinct()
+                .all()
+            )
+            ext_by_company = {cid: set() for cid in company_ids}
+            for company_id, ext_name in ext_configs_query:
+                ext_by_company[str(company_id)].add(ext_name)
+            for company_id, ext_name in ext_settings_query:
+                ext_by_company[str(company_id)].add(ext_name)
+
+            # Pre-fetch ext scopes for wildcard expansion
+            ext_scopes_all = session.query(Scope).filter(Scope.name.like("ext:%")).all()
+
+            # === 9. Build companies response with scopes ===
+            companies = []
+            for uc in user_companies:
+                company = uc.company
+                if not company:
+                    continue
+
+                cid = str(company.id)
+                role_id = uc.role_id
+
+                # Calculate scopes for this company
+                if is_super_admin or role_id == 0:
+                    company_scopes = all_scopes
+                else:
+                    company_scopes = set(role_to_scopes.get(role_id, set()))
+                    
+                    # Handle wildcards from default_role_scopes definition
+                    if role_id in db_default_role_scopes:
+                        has_ext_wildcard = "ext:*" in db_default_role_scopes[role_id]
+                        
+                        for pattern in db_default_role_scopes[role_id]:
+                            if pattern == "ext:*":
+                                continue
+                            if pattern.endswith(":*") or ":*:" in pattern or pattern == "*":
+                                if not pattern.startswith("ext:"):
+                                    company_scopes.add(pattern)
+                        
+                        # Expand ext:* to configured extensions only
+                        if has_ext_wildcard:
+                            configured_exts = ext_by_company.get(cid, set())
+                            if configured_exts:
+                                for scope in ext_scopes_all:
+                                    parts = scope.name.split(":")
+                                    if len(parts) >= 2 and parts[1] in configured_exts:
+                                        company_scopes.add(scope.name)
+                    
+                    # Add custom role scopes
+                    company_scopes.update(custom_scopes_by_company.get(cid, set()))
+
+                company_dict = {
+                    "id": cid,
+                    "company_id": str(company.company_id) if company.company_id else None,
+                    "name": company.name,
+                    "agent_name": company.agent_name,
+                    "status": company.status,
+                    "address": company.address,
+                    "phone_number": company.phone_number,
+                    "email": company.email,
+                    "website": company.website,
+                    "city": company.city,
+                    "state": company.state,
+                    "zip_code": company.zip_code,
+                    "country": company.country,
+                    "notes": company.notes,
+                    "user_limit": company.user_limit,
+                    "token_balance": company.token_balance,
+                    "token_balance_usd": company.token_balance_usd,
+                    "tokens_used_total": company.tokens_used_total,
+                    "role_id": role_id,
+                    "primary": cid == str(self.company_id),
+                    "agents": agents_by_company.get(cid, []),
+                    "scopes": list(company_scopes) if company_scopes else [],
+                }
+                companies.append(company_dict)
+
+            # === 10. Background Stripe check (non-blocking) ===
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            api_key = getenv("STRIPE_API_KEY")
+            if (
+                not billing_paused
+                and api_key
+                and api_key.lower() != "none"
+                and user.email != getenv("DEFAULT_USER")
+                and not user.email.endswith(".xt")
+            ):
+                user_email = user.email
+                user_id = self.user_id
+                stripe_id = user_preferences.get("stripe_id")
+                company_ids_for_stripe = [uc.company_id for uc in user_companies]
+
+                def _background_stripe_check():
+                    try:
+                        self._background_stripe_subscription_check(
+                            api_key, user_email, user_id, stripe_id, company_ids_for_stripe
+                        )
+                    except Exception as e:
+                        logging.debug(f"Background Stripe check failed: {e}")
+
+                threading.Thread(target=_background_stripe_check, daemon=True).start()
+
+            return {
+                "user": user,
+                "preferences": user_preferences,
+                "companies": companies,
+                "is_super_admin": is_super_admin,
+            }
+
+        finally:
+            session.close()
+
     def get_user_scopes(self, company_id: str = None) -> set:
         """
         Get all scopes available to the current user for a specific company.
@@ -2232,8 +2541,9 @@ class MagicalAuth:
                 )
                 session.add(user_company)
                 session.commit()
-                agixt = InternalClient()
-                agixt.login(email=new_user.email, otp=pyotp.TOTP(mfa_token).now())
+                # Create agent directly without login overhead
+                agixt = InternalClient(api_key=None, user=new_user.email)
+                agixt._user = new_user.email
                 default_agent = get_default_agent()
                 if company_id is not None:
                     default_agent["settings"]["company_id"] = str(invitation.company_id)
@@ -2244,11 +2554,7 @@ class MagicalAuth:
                     agent_name=company.agent_name,
                     settings=default_agent["settings"],
                     commands=default_agent["commands"],
-                    training_urls=(
-                        default_agent["training_urls"]
-                        if "training_urls" in default_agent
-                        else []
-                    ),
+                    training_urls=default_agent.get("training_urls", []),
                 )
             else:
                 # If email ends in .xt, skip this part
@@ -5191,44 +5497,36 @@ class MagicalAuth:
                 )
                 db.add(user_company)
                 db.commit()
-                agixt = InternalClient()
+
+                # Create company XT API user inline (avoid separate MagicalAuth instance)
                 company_email = f"{str(new_company.id)}@{str(new_company.id)}.xt"
-                auth = MagicalAuth()
-                auth.register(
-                    new_user=Register(
-                        email=company_email,
-                        first_name="XT",
-                        last_name="API",
-                    ),
-                    verify_email=False,
+                mfa_token = pyotp.random_base32()
+                company_user = User(
+                    email=company_email,
+                    first_name="XT",
+                    last_name="API",
+                    mfa_token=mfa_token,
+                    is_active=True,
                 )
-                # Get mfa token by email
-                company_user = (
-                    db.query(User).filter(User.email == company_email).first()
-                )
-                mfa_token = company_user.mfa_token
+                db.add(company_user)
                 new_company.token = mfa_token
                 db.commit()
-                totp = pyotp.TOTP(mfa_token)
-                agixt.login(email=company_email, otp=totp.now())
+
+                # Create company-level agent with direct InternalClient setup
+                agixt = InternalClient(api_key=None, user=company_email)
+                # Set user directly to avoid login overhead - we just need to create the agent
+                agixt._user = company_email
                 default_agent = get_default_agent()
                 agixt.add_agent(
                     agent_name=agent_name,
-                    settings=(
-                        default_agent["settings"] if "settings" in default_agent else {}
-                    ),
-                    commands=(
-                        default_agent["commands"] if "commands" in default_agent else {}
-                    ),
-                    training_urls=(
-                        default_agent["training_urls"]
-                        if "training_urls" in default_agent
-                        else []
-                    ),
+                    settings=default_agent.get("settings", {}),
+                    commands=default_agent.get("commands", {}),
+                    training_urls=default_agent.get("training_urls", []),
                 )
                 response = {
                     "id": str(new_company.id),
                     "name": new_company.name,
+                    "_default_agent": default_agent,  # Pass to caller to avoid redundant call
                 }
                 return response
             except SQLAlchemyError as e:
@@ -5268,19 +5566,19 @@ class MagicalAuth:
             country=country,
             notes=notes,
         )
-        agixt = self.get_user_agent_session()
-        # Just create an agent associated with the company like we do at registration
-        default_agent = get_default_agent()
+
+        # Create user-level agent - reuse default_agent from create_company to avoid redundant call
+        default_agent = company.pop("_default_agent", None) or get_default_agent()
         default_agent["settings"]["company_id"] = company["id"]
+
+        # Use direct InternalClient setup to avoid login overhead
+        agixt = InternalClient(api_key=None, user=self.email)
+        agixt._user = self.email
         agixt.add_agent(
             agent_name=agent_name,
             settings=default_agent["settings"],
             commands=default_agent["commands"],
-            training_urls=(
-                default_agent["training_urls"]
-                if "training_urls" in default_agent
-                else []
-            ),
+            training_urls=default_agent.get("training_urls", []),
         )
         return company
 

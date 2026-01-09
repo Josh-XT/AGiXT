@@ -208,16 +208,12 @@ async def get_user(
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
-    user_data = auth.login(ip_address=client_ip)
-    # Smart preferences: fast token balance check (blocks if no tokens),
-    # but Stripe subscription checks happen in background
-    user_preferences = auth.get_user_preferences_smart()
-    companies = auth.get_user_companies_with_roles()
 
-    # Include scopes for each company to eliminate separate /v1/user/scopes calls
-    for company in companies:
-        company_scopes = auth.get_user_scopes(company["id"])
-        company["scopes"] = list(company_scopes)
+    # Use optimized single-session method that fetches everything at once
+    data = auth.get_user_data_optimized(ip_address=client_ip)
+    user_data = data["user"]
+    user_preferences = data["preferences"]
+    companies = data["companies"]  # Already includes agents and scopes
 
     response_data = {
         "id": auth.user_id,
