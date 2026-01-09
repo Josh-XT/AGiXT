@@ -180,6 +180,7 @@ def invalidate_user_company_cache(user_id: str = None):
     elif user_id in _user_company_cache:
         del _user_company_cache[user_id]
 
+
 """
 Required environment variables:
 

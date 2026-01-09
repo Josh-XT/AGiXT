@@ -80,9 +80,15 @@ class Chain:
 
         # Batch load all related data to avoid N+1 queries
         agent_ids = {step.agent_id for step in chain_steps if step.agent_id}
-        chain_ids = {step.target_chain_id for step in chain_steps if step.target_chain_id}
-        command_ids = {step.target_command_id for step in chain_steps if step.target_command_id}
-        prompt_ids = {step.target_prompt_id for step in chain_steps if step.target_prompt_id}
+        chain_ids = {
+            step.target_chain_id for step in chain_steps if step.target_chain_id
+        }
+        command_ids = {
+            step.target_command_id for step in chain_steps if step.target_command_id
+        }
+        prompt_ids = {
+            step.target_prompt_id for step in chain_steps if step.target_prompt_id
+        }
         step_ids = {step.id for step in chain_steps}
 
         # Batch queries
@@ -118,7 +124,9 @@ class Chain:
             for argument, chain_step_argument in all_args:
                 if chain_step_argument.chain_step_id not in step_arguments:
                     step_arguments[chain_step_argument.chain_step_id] = {}
-                step_arguments[chain_step_argument.chain_step_id][argument.name] = chain_step_argument.value
+                step_arguments[chain_step_argument.chain_step_id][
+                    argument.name
+                ] = chain_step_argument.value
 
         steps = []
         for step in chain_steps:
@@ -127,9 +135,13 @@ class Chain:
             if step.target_chain_id:
                 prompt["chain_name"] = chains_map.get(step.target_chain_id, "Unknown")
             elif step.target_command_id:
-                prompt["command_name"] = commands_map.get(step.target_command_id, "Unknown")
+                prompt["command_name"] = commands_map.get(
+                    step.target_command_id, "Unknown"
+                )
             elif step.target_prompt_id:
-                prompt["prompt_name"] = prompts_map.get(step.target_prompt_id, "Unknown")
+                prompt["prompt_name"] = prompts_map.get(
+                    step.target_prompt_id, "Unknown"
+                )
 
             # Get pre-loaded arguments
             prompt_args = step_arguments.get(step.id, {})
@@ -195,9 +207,15 @@ class Chain:
 
         # Collect IDs for batch loading
         agent_ids = {step.agent_id for step in all_steps if step.agent_id}
-        target_chain_ids = {step.target_chain_id for step in all_steps if step.target_chain_id}
-        command_ids = {step.target_command_id for step in all_steps if step.target_command_id}
-        prompt_ids = {step.target_prompt_id for step in all_steps if step.target_prompt_id}
+        target_chain_ids = {
+            step.target_chain_id for step in all_steps if step.target_chain_id
+        }
+        command_ids = {
+            step.target_command_id for step in all_steps if step.target_command_id
+        }
+        prompt_ids = {
+            step.target_prompt_id for step in all_steps if step.target_prompt_id
+        }
         step_ids = {step.id for step in all_steps}
 
         # Batch load all related entities
@@ -208,7 +226,9 @@ class Chain:
 
         chains_map = {}
         if target_chain_ids:
-            target_chains = session.query(ChainDB).filter(ChainDB.id.in_(target_chain_ids)).all()
+            target_chains = (
+                session.query(ChainDB).filter(ChainDB.id.in_(target_chain_ids)).all()
+            )
             chains_map = {c.id: c.name for c in target_chains}
 
         commands_map = {}
@@ -233,7 +253,9 @@ class Chain:
             for argument, chain_step_argument in all_args:
                 if chain_step_argument.chain_step_id not in step_arguments:
                     step_arguments[chain_step_argument.chain_step_id] = {}
-                step_arguments[chain_step_argument.chain_step_id][argument.name] = chain_step_argument.value
+                step_arguments[chain_step_argument.chain_step_id][
+                    argument.name
+                ] = chain_step_argument.value
 
         # Group steps by chain_id
         steps_by_chain = {}
@@ -250,11 +272,17 @@ class Chain:
                 agent_name = agents_map.get(step.agent_id, "Unknown")
                 prompt = {}
                 if step.target_chain_id:
-                    prompt["chain_name"] = chains_map.get(step.target_chain_id, "Unknown")
+                    prompt["chain_name"] = chains_map.get(
+                        step.target_chain_id, "Unknown"
+                    )
                 elif step.target_command_id:
-                    prompt["command_name"] = commands_map.get(step.target_command_id, "Unknown")
+                    prompt["command_name"] = commands_map.get(
+                        step.target_command_id, "Unknown"
+                    )
                 elif step.target_prompt_id:
-                    prompt["prompt_name"] = prompts_map.get(step.target_prompt_id, "Unknown")
+                    prompt["prompt_name"] = prompts_map.get(
+                        step.target_prompt_id, "Unknown"
+                    )
 
                 prompt_args = step_arguments.get(step.id, {})
                 prompt.update(prompt_args)
@@ -267,13 +295,15 @@ class Chain:
                 }
                 chain_steps.append(step_data)
 
-            chain_list.append({
-                "id": str(chain.id),
-                "name": chain.name,
-                "description": chain.description,
-                "steps": chain_steps,
-                "runs": chain.runs,
-            })
+            chain_list.append(
+                {
+                    "id": str(chain.id),
+                    "name": chain.name,
+                    "description": chain.description,
+                    "steps": chain_steps,
+                    "runs": chain.runs,
+                }
+            )
 
         session.close()
         return chain_list
@@ -1780,7 +1810,9 @@ class Chain:
         # Batch load all related data to avoid N+1 queries
         agent_ids = {step.agent_id for step in steps if step.agent_id}
         chain_ids = {step.target_chain_id for step in steps if step.target_chain_id}
-        command_ids = {step.target_command_id for step in steps if step.target_command_id}
+        command_ids = {
+            step.target_command_id for step in steps if step.target_command_id
+        }
         prompt_ids = {step.target_prompt_id for step in steps if step.target_prompt_id}
         step_ids = {step.id for step in steps}
 
@@ -1817,7 +1849,9 @@ class Chain:
             for argument, step_argument in all_args:
                 if step_argument.chain_step_id not in step_arguments:
                     step_arguments[step_argument.chain_step_id] = {}
-                step_arguments[step_argument.chain_step_id][argument.name] = step_argument.value
+                step_arguments[step_argument.chain_step_id][
+                    argument.name
+                ] = step_argument.value
 
         chain_steps = []
         for step in steps:
@@ -1841,12 +1875,14 @@ class Chain:
             prompt_args = step_arguments.get(step.id, {})
             prompt.update(prompt_args)
 
-            chain_steps.append({
-                "step": step.step_number,
-                "agent_name": agent_name,
-                "prompt_type": step.prompt_type or "",
-                "prompt": prompt,
-            })
+            chain_steps.append(
+                {
+                    "step": step.step_number,
+                    "agent_name": agent_name,
+                    "prompt_type": step.prompt_type or "",
+                    "prompt": prompt,
+                }
+            )
 
         return chain_steps
 

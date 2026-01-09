@@ -284,22 +284,45 @@ def get_base_collection_name(user: str, agent_name: str) -> str:
     return snake(f"{user}_{agent_name}")
 
 
+# Cache for agent ID lookups to avoid DB queries per request
+_agent_id_cache = {}
+_agent_id_cache_ttl = 30  # 30 seconds
+
+
+def _get_agent_id_cache_key(agent_name: str, email: str) -> str:
+    return f"{email}:{agent_name}"
+
+
 def get_agent_id(agent_name: str, email: str) -> str:
     """
     Gets the agent ID for the given agent name and user.
+    Uses caching to reduce database queries.
     """
+    import time
+
+    cache_key = _get_agent_id_cache_key(agent_name, email)
+    if cache_key in _agent_id_cache:
+        timestamp, agent_id = _agent_id_cache[cache_key]
+        if time.time() - timestamp < _agent_id_cache_ttl:
+            return agent_id
+        else:
+            del _agent_id_cache[cache_key]
+
     session = get_session()
     try:
         user = session.query(User).filter_by(email=email).first()
         agent = session.query(Agent).filter_by(name=agent_name, user_id=user.id).first()
         if agent:
-            return str(agent.id)
+            agent_id = str(agent.id)
         else:
             agent = session.query(Agent).filter_by(user_id=user.id).first()
             if agent:
-                return str(agent.id)
+                agent_id = str(agent.id)
             else:
-                return None
+                agent_id = None
+        # Cache the result
+        _agent_id_cache[cache_key] = (time.time(), agent_id)
+        return agent_id
     finally:
         session.close()
 

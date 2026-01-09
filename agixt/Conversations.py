@@ -18,9 +18,46 @@ logging.basicConfig(
     format=getenv("LOG_FORMAT"),
 )
 
+# Cache for conversation ID lookups to avoid DB queries per request
+_conversation_id_cache = {}
+_conversation_id_cache_ttl = 30  # 30 seconds
+
+
+def _get_conversation_cache_key(conversation_name: str, user_id: str) -> str:
+    return f"{user_id}:{conversation_name}"
+
+
+def invalidate_conversation_cache(user_id: str = None, conversation_name: str = None):
+    """Invalidate conversation cache entries."""
+    if user_id is None:
+        _conversation_id_cache.clear()
+    elif conversation_name:
+        cache_key = _get_conversation_cache_key(conversation_name, str(user_id))
+        if cache_key in _conversation_id_cache:
+            del _conversation_id_cache[cache_key]
+    else:
+        # Invalidate all entries for this user
+        keys_to_delete = [
+            k for k in _conversation_id_cache if k.startswith(f"{user_id}:")
+        ]
+        for k in keys_to_delete:
+            del _conversation_id_cache[k]
+
 
 def get_conversation_id_by_name(conversation_name, user_id):
+    import time
+
     user_id = str(user_id)
+    cache_key = _get_conversation_cache_key(conversation_name, user_id)
+
+    # Check cache first
+    if cache_key in _conversation_id_cache:
+        timestamp, conversation_id = _conversation_id_cache[cache_key]
+        if time.time() - timestamp < _conversation_id_cache_ttl:
+            return conversation_id
+        else:
+            del _conversation_id_cache[cache_key]
+
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
     conversation = (
@@ -40,6 +77,9 @@ def get_conversation_id_by_name(conversation_name, user_id):
     else:
         conversation_id = str(conversation.id)
     session.close()
+
+    # Cache the result
+    _conversation_id_cache[cache_key] = (time.time(), conversation_id)
     return conversation_id
 
 
@@ -1250,6 +1290,10 @@ class Conversations:
         ).delete()
         session.commit()
         session.close()
+        # Invalidate cache for this conversation
+        invalidate_conversation_cache(
+            user_id=str(user_id), conversation_name=self.conversation_name
+        )
 
     def delete_message(self, message):
         session = get_session()
@@ -1763,9 +1807,13 @@ class Conversations:
             session.commit()
         conversation.name = new_name
         # Also update internal state so future lookups use the new name
+        old_name = self.conversation_name
         self.conversation_name = new_name
         session.commit()
         session.close()
+        # Invalidate cache for both old and new names
+        invalidate_conversation_cache(user_id=str(user_id), conversation_name=old_name)
+        invalidate_conversation_cache(user_id=str(user_id), conversation_name=new_name)
         return new_name
 
     def get_last_activity_id(self):

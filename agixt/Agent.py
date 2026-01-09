@@ -180,19 +180,21 @@ def invalidate_company_config_cache(company_id: str = None):
         _company_agent_config_cache.clear()
 
 
-def get_agent_data_cached(agent_id: str = None, agent_name: str = None, user_id: str = None):
+def get_agent_data_cached(
+    agent_id: str = None, agent_name: str = None, user_id: str = None
+):
     """
     Get agent data (model, settings, commands) from cache if available and fresh.
     Returns tuple: (agent_model_data, settings_dict, commands_dict) or None if not cached.
-    
+
     This cache has a very short TTL (5 seconds) to batch database queries within a single
     request cycle while ensuring freshness across requests.
     """
     global _agent_data_cache
-    
+
     # Create cache key
     cache_key = f"{agent_id or ''}:{agent_name or ''}:{user_id or ''}"
-    
+
     if cache_key in _agent_data_cache:
         cached = _agent_data_cache[cache_key]
         if (time.time() - cached["timestamp"]) < _AGENT_DATA_CACHE_TTL:
@@ -200,7 +202,7 @@ def get_agent_data_cached(agent_id: str = None, agent_name: str = None, user_id:
         else:
             # Expired - remove from cache
             del _agent_data_cache[cache_key]
-    
+
     return None
 
 
@@ -210,13 +212,13 @@ def set_agent_data_cache(agent_id: str, agent_name: str, user_id: str, data: dic
     Data should be a dict with keys: agent_id, agent_name, settings, commands
     """
     global _agent_data_cache
-    
+
     cache_key = f"{agent_id or ''}:{agent_name or ''}:{user_id or ''}"
     _agent_data_cache[cache_key] = {
         "data": data,
         "timestamp": time.time(),
     }
-    
+
     # Also cache by agent_id only for lookups that don't have name
     if agent_id:
         id_key = f"{agent_id}::{user_id or ''}"
@@ -229,11 +231,11 @@ def set_agent_data_cache(agent_id: str, agent_name: str, user_id: str, data: dic
 def invalidate_agent_data_cache(agent_id: str = None, user_id: str = None):
     """Invalidate agent data cache for a specific agent or all agents"""
     global _agent_data_cache
-    
+
     if agent_id is None and user_id is None:
         _agent_data_cache.clear()
         return
-    
+
     # Remove matching cache entries
     keys_to_remove = []
     for key in _agent_data_cache:
@@ -241,7 +243,7 @@ def invalidate_agent_data_cache(agent_id: str = None, user_id: str = None):
             keys_to_remove.append(key)
         elif user_id and key.endswith(f":{user_id}"):
             keys_to_remove.append(key)
-    
+
     for key in keys_to_remove:
         _agent_data_cache.pop(key, None)
 
@@ -3132,7 +3134,9 @@ class Agent:
             # This is critical for multi-worker scenarios
             invalidate_company_config_cache()  # Clear company config cache
             invalidate_commands_cache()  # Clear commands cache
-            invalidate_agent_data_cache(agent_id=str(self.agent_id))  # Clear agent data cache
+            invalidate_agent_data_cache(
+                agent_id=str(self.agent_id)
+            )  # Clear agent data cache
             logging.info(
                 f"[update_agent_config] Caches invalidated after config update"
             )
