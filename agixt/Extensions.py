@@ -190,7 +190,11 @@ def _build_extension_metadata_cache():
             params = {}
             cmd_docstring = ""
             for item in extension_class.body:
-                if isinstance(item, ast.FunctionDef) and item.name == func_name:
+                # Check both sync and async function definitions
+                if (
+                    isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and item.name == func_name
+                ):
                     cmd_docstring = ast.get_docstring(item) or cmd_name
                     for arg in item.args.args:
                         if arg.arg != "self":
