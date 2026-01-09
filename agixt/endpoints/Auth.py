@@ -208,16 +208,12 @@ async def get_user(
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
-    user_data = auth.login(ip_address=client_ip)
-    # Smart preferences: fast token balance check (blocks if no tokens),
-    # but Stripe subscription checks happen in background
-    user_preferences = auth.get_user_preferences_smart()
-    companies = auth.get_user_companies_with_roles()
 
-    # Include scopes for each company to eliminate separate /v1/user/scopes calls
-    for company in companies:
-        company_scopes = auth.get_user_scopes(company["id"])
-        company["scopes"] = list(company_scopes)
+    # Use optimized single-session method that fetches everything at once
+    data = auth.get_user_data_optimized(ip_address=client_ip)
+    user_data = data["user"]
+    user_preferences = data["preferences"]
+    companies = data["companies"]  # Already includes agents and scopes
 
     response_data = {
         "id": auth.user_id,
@@ -242,7 +238,7 @@ async def get_user(
         "tos_accepted_at": response_data.get("tos_accepted_at"),
     }
     etag_string = json.dumps(etag_data, sort_keys=True, default=str)
-    etag = f'"{hashlib.md5(etag_string.encode()).hexdigest()}"'
+    etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
 
     # If client sent If-None-Match and it matches, return 304 Not Modified
     if if_none_match and if_none_match == etag:
@@ -364,6 +360,11 @@ async def logout_user(
         )
         session.add(blacklist_entry)
         session.commit()
+
+        # Invalidate the token validation cache for this token
+        from MagicalAuth import invalidate_token_validation_cache
+
+        invalidate_token_validation_cache(token)
 
         # Cleanup expired tokens (optional - can be done periodically)
         expired_tokens = (

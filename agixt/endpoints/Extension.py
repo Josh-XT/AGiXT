@@ -198,41 +198,45 @@ async def get_extension_categories_summary(
         ApiClient = get_api_client(authorization=authorization)
         with get_db_session() as session:
             categories = session.query(ExtensionCategory).all()
+            category_map = {str(c.id): c for c in categories}
+
+            # Batch load all extensions with category_id in one query
+            all_ext_db = session.query(Extension).all()
+            ext_to_category = {
+                e.name: str(e.category_id) if e.category_id else None
+                for e in all_ext_db
+            }
+
+            # Find Core Abilities category for Custom Automation
+            core_abilities_id = None
+            for c in categories:
+                if c.name == "Core Abilities":
+                    core_abilities_id = str(c.id)
+                    break
 
             # Get all extensions to count them per category
             extensions_obj = Extensions(ApiClient=ApiClient, user=user)
             all_extensions = extensions_obj.get_extensions()
 
-            # Build a quick lookup of extension counts per category
+            # Build a quick lookup of extension counts per category using batch-loaded data
             category_counts = {}
             for extension in all_extensions:
-                # Special handling for Custom Automation
-                if extension["extension_name"] == "Custom Automation":
-                    core_abilities = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Core Abilities")
-                        .first()
-                    )
-                    if core_abilities:
-                        cat_id = str(core_abilities.id)
-                        category_counts[cat_id] = category_counts.get(cat_id, 0) + 1
-                    continue
+                ext_name = extension["extension_name"]
 
-                ext_db = (
-                    session.query(Extension)
-                    .filter_by(name=extension["extension_name"])
-                    .first()
-                )
-                if ext_db and ext_db.category_id:
-                    cat_id = str(ext_db.category_id)
+                # Special handling for Custom Automation
+                if ext_name == "Custom Automation":
+                    cat_id = core_abilities_id
+                else:
+                    cat_id = ext_to_category.get(ext_name)
+
+                if cat_id:
                     category_counts[cat_id] = category_counts.get(cat_id, 0) + 1
 
             result = []
-            for category in categories:
-                cat_id = str(category.id)
-                count = category_counts.get(cat_id, 0)
-                # Only include categories that have extensions
-                if count > 0:
+            for cat_id, count in category_counts.items():
+                # Only include categories that have extensions and exist in map
+                if count > 0 and cat_id in category_map:
+                    category = category_map[cat_id]
                     result.append(
                         {
                             "id": cat_id,
@@ -267,80 +271,64 @@ async def get_extension_categories_v1(
     try:
         ApiClient = get_api_client(authorization=authorization)
         with get_db_session() as session:
+            # Batch load all categories
             categories = session.query(ExtensionCategory).all()
+            category_map = {str(c.id): c for c in categories}
 
-            # Get all extensions with category information
+            # Batch load all extensions with their category_id in one query
+            all_ext_db = session.query(Extension).all()
+            ext_to_category = {
+                e.name: str(e.category_id) if e.category_id else None
+                for e in all_ext_db
+            }
+
+            # Find Core Abilities category for Custom Automation
+            core_abilities_id = None
+            for c in categories:
+                if c.name == "Core Abilities":
+                    core_abilities_id = str(c.id)
+                    break
+
+            # Get all extensions from the Extensions class
             extensions_obj = Extensions(ApiClient=ApiClient, user=user)
             all_extensions = extensions_obj.get_extensions()
 
-            # First, enrich extensions with category information
+            # Group extensions by category using pre-loaded data
+            category_extensions_map = {}
             for extension in all_extensions:
-                # Special handling for Custom Automation - it's dynamically generated
-                if extension["extension_name"] == "Custom Automation":
-                    # Custom Automation should be in Core Abilities
-                    core_abilities = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Core Abilities")
-                        .first()
-                    )
-                    if core_abilities:
-                        extension["category_info"] = {
-                            "id": str(core_abilities.id),
-                            "name": core_abilities.name,
-                            "description": core_abilities.description,
-                        }
-                    else:
-                        extension["category_info"] = None
-                    continue
+                ext_name = extension["extension_name"]
 
-                ext_db = (
-                    session.query(Extension)
-                    .filter_by(name=extension["extension_name"])
-                    .first()
-                )
-                if ext_db and ext_db.category_id:
-                    category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(id=ext_db.category_id)
-                        .first()
-                    )
-                    if category:
-                        extension["category_info"] = {
-                            "id": str(category.id),
-                            "name": category.name,
-                            "description": category.description,
-                        }
-                    else:
-                        extension["category_info"] = None
+                # Special handling for Custom Automation
+                if ext_name == "Custom Automation":
+                    cat_id = core_abilities_id
                 else:
-                    extension["category_info"] = None
+                    cat_id = ext_to_category.get(ext_name)
 
+                if cat_id:
+                    if cat_id not in category_extensions_map:
+                        category_extensions_map[cat_id] = []
+                    category_extensions_map[cat_id].append(
+                        {
+                            "name": ext_name,
+                            "friendly_name": extension.get("friendly_name"),
+                            "description": extension.get("description", ""),
+                            "settings": extension.get("settings", []),
+                            "commands": extension.get("commands", []),
+                        }
+                    )
+
+            # Build result only for categories that have extensions
             result = []
-            for category in categories:
-                # Find extensions that belong to this category
-                category_extensions = []
-                for extension in all_extensions:
-                    category_info = extension.get("category_info")
-                    if category_info and category_info.get("id") == str(category.id):
-                        category_extensions.append(
-                            {
-                                "name": extension["extension_name"],
-                                "friendly_name": extension.get("friendly_name"),
-                                "description": extension.get("description", ""),
-                                "settings": extension.get("settings", []),
-                                "commands": extension.get("commands", []),
-                            }
-                        )
-
-                # Only include categories that have extensions
-                if len(category_extensions) > 0:
+            for cat_id, cat_extensions in category_extensions_map.items():
+                if cat_id in category_map:
+                    category = category_map[cat_id]
                     result.append(
                         {
-                            "id": str(category.id),
+                            "id": cat_id,
                             "name": category.name,
                             "description": category.description,
-                            "extensions": category_extensions,
-                            "extension_count": len(category_extensions),
+                            "extensions": cat_extensions,
+                            "extension_count": len(cat_extensions),
                         }
                     )
 
@@ -377,57 +365,40 @@ async def get_extension_category_v1(
                     status_code=404, detail="Extension category not found"
                 )
 
+            # Batch load all extensions with their category_id in one query
+            all_ext_db = session.query(Extension).all()
+            ext_to_category = {
+                e.name: str(e.category_id) if e.category_id else None
+                for e in all_ext_db
+            }
+
+            # Find Core Abilities category for Custom Automation
+            core_abilities = (
+                session.query(ExtensionCategory)
+                .filter_by(name="Core Abilities")
+                .first()
+            )
+            core_abilities_id = str(core_abilities.id) if core_abilities else None
+
             # Get extensions for this category
             extensions_obj = Extensions(ApiClient=ApiClient, user=user)
             all_extensions = extensions_obj.get_extensions()
 
-            # First enrich all extensions with category_info
-            for extension in all_extensions:
-                # Special handling for Custom Automation
-                if extension["extension_name"] == "Custom Automation":
-                    core_abilities = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Core Abilities")
-                        .first()
-                    )
-                    if core_abilities:
-                        extension["category_info"] = {
-                            "id": str(core_abilities.id),
-                            "name": core_abilities.name,
-                            "description": core_abilities.description,
-                        }
-                    else:
-                        extension["category_info"] = None
-                    continue
-
-                ext_db = (
-                    session.query(Extension)
-                    .filter_by(name=extension["extension_name"])
-                    .first()
-                )
-                if ext_db and ext_db.category_id:
-                    ext_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(id=ext_db.category_id)
-                        .first()
-                    )
-                    if ext_category:
-                        extension["category_info"] = {
-                            "id": str(ext_category.id),
-                            "name": ext_category.name,
-                            "description": ext_category.description,
-                        }
-                    else:
-                        extension["category_info"] = None
-                else:
-                    extension["category_info"] = None
-
+            # Filter extensions for this category using batch-loaded data
             category_extensions = []
             for extension in all_extensions:
-                if extension.get("category_info", {}).get("id") == str(category.id):
+                ext_name = extension["extension_name"]
+
+                # Special handling for Custom Automation
+                if ext_name == "Custom Automation":
+                    ext_cat_id = core_abilities_id
+                else:
+                    ext_cat_id = ext_to_category.get(ext_name)
+
+                if ext_cat_id == str(category.id):
                     category_extensions.append(
                         {
-                            "name": extension["extension_name"],
+                            "name": ext_name,
                             "friendly_name": extension.get("friendly_name"),
                             "description": extension.get("description", ""),
                             "settings": extension.get("settings", []),
@@ -469,43 +440,41 @@ async def get_extensions_v1(
         extensions_obj = Extensions(ApiClient=ApiClient)
         extensions = extensions_obj.get_extensions()
 
-        # Add category information to each extension
+        # Batch load all extension to category mappings in one query
         with get_db_session() as session:
+            # Load all extension DB records
+            all_ext_db = session.query(Extension).all()
+            ext_to_category_id = {e.name: e.category_id for e in all_ext_db}
+
+            # Load all categories
+            all_categories = session.query(ExtensionCategory).all()
+            category_map = {c.id: c for c in all_categories}
+
+            # Get default Automation category
+            default_category = next(
+                (c for c in all_categories if c.name == "Automation"), None
+            )
+
+            # Add category info using batch-loaded data
             for extension in extensions:
-                ext_db = (
-                    session.query(Extension)
-                    .filter_by(name=extension["extension_name"])
-                    .first()
-                )
-                if ext_db and ext_db.category_id:
-                    category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(id=ext_db.category_id)
-                        .first()
-                    )
-                    if category:
-                        extension["category_info"] = {
-                            "id": str(category.id),
-                            "name": category.name,
-                            "description": category.description,
-                        }
-                    else:
-                        extension["category_info"] = None
+                ext_name = extension["extension_name"]
+                cat_id = ext_to_category_id.get(ext_name)
+
+                if cat_id and cat_id in category_map:
+                    category = category_map[cat_id]
+                    extension["category_info"] = {
+                        "id": str(category.id),
+                        "name": category.name,
+                        "description": category.description,
+                    }
+                elif default_category:
+                    extension["category_info"] = {
+                        "id": str(default_category.id),
+                        "name": default_category.name,
+                        "description": default_category.description,
+                    }
                 else:
-                    # If no database entry, create one with the category from the extension class
-                    default_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Automation")
-                        .first()
-                    )
-                    if default_category:
-                        extension["category_info"] = {
-                            "id": str(default_category.id),
-                            "name": default_category.name,
-                            "description": default_category.description,
-                        }
-                    else:
-                        extension["category_info"] = None
+                    extension["category_info"] = None
 
         return extensions
     except Exception as e:

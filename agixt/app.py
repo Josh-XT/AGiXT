@@ -125,6 +125,30 @@ async def lifespan(app: FastAPI):
         _load_global_cache()
         logging.debug("Extensions hub cache loaded for worker")
 
+        # Pre-warm extension module cache to speed up first request
+        # This imports all extension modules once at startup rather than on first request
+        try:
+            import time
+
+            start_time = time.time()
+            from Extensions import (
+                _get_cached_extension_files,
+                _get_cached_extension_module,
+            )
+
+            extension_files = _get_cached_extension_files()
+            loaded_count = 0
+            for ext_file in extension_files:
+                mod = _get_cached_extension_module(ext_file)
+                if mod:
+                    loaded_count += 1
+            elapsed = (time.time() - start_time) * 1000
+            logging.info(
+                f"Extension module cache warmed: {loaded_count} modules in {elapsed:.0f}ms"
+            )
+        except Exception as e:
+            logging.warning(f"Failed to pre-warm extension cache: {e}")
+
         workspace_manager.start_file_watcher()
         await task_monitor.start()
         yield
