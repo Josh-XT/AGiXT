@@ -478,14 +478,18 @@ class Task:
                     import json
                     import requests
 
-                    target_machines = json.loads(task.target_machines) if task.target_machines else []
+                    target_machines = (
+                        json.loads(task.target_machines) if task.target_machines else []
+                    )
                     if target_machines and task.command_script:
                         # Queue commands for each target machine via the XTSystems machines extension
                         for machine_id in target_machines:
                             try:
                                 response = requests.post(
                                     f"{getenv('AGIXT_SERVER')}/v1/machine/command",
-                                    headers={"Authorization": f"Bearer {self.auth.token}"},
+                                    headers={
+                                        "Authorization": f"Bearer {self.auth.token}"
+                                    },
                                     json={
                                         "machine_id": machine_id,
                                         "command_type": "shell",
@@ -494,17 +498,27 @@ class Task:
                                     timeout=30,
                                 )
                                 if response.status_code != 200:
-                                    logging.error(f"Failed to queue command for machine {machine_id}: {response.text}")
+                                    logging.error(
+                                        f"Failed to queue command for machine {machine_id}: {response.text}"
+                                    )
                                     succeeded = False
                             except Exception as cmd_e:
-                                logging.error(f"Error queuing command for machine {machine_id}: {str(cmd_e)}")
+                                logging.error(
+                                    f"Error queuing command for machine {machine_id}: {str(cmd_e)}"
+                                )
                                 succeeded = False
-                        logging.info(f"Command task {task.id} queued for {len(target_machines)} machines")
+                        logging.info(
+                            f"Command task {task.id} queued for {len(target_machines)} machines"
+                        )
                     else:
-                        logging.warning(f"Command task {task.id} has no target machines or command script")
+                        logging.warning(
+                            f"Command task {task.id} has no target machines or command script"
+                        )
                         succeeded = False
                 except Exception as cmd_e:
-                    logging.error(f"Error executing command task {task.id}: {str(cmd_e)}")
+                    logging.error(
+                        f"Error executing command task {task.id}: {str(cmd_e)}"
+                    )
                     succeeded = False
             elif task_type == "deployment":
                 # Deployment execution on target machines
@@ -512,7 +526,9 @@ class Task:
                     import json
                     import requests
 
-                    target_machines = json.loads(task.target_machines) if task.target_machines else []
+                    target_machines = (
+                        json.loads(task.target_machines) if task.target_machines else []
+                    )
                     if target_machines and task.deployment_id:
                         # Execute deployment on each target machine via the XTSystems machines extension
                         response = requests.post(
@@ -525,15 +541,23 @@ class Task:
                             timeout=60,
                         )
                         if response.status_code != 200:
-                            logging.error(f"Failed to execute deployment for task {task.id}: {response.text}")
+                            logging.error(
+                                f"Failed to execute deployment for task {task.id}: {response.text}"
+                            )
                             succeeded = False
                         else:
-                            logging.info(f"Deployment task {task.id} executed on {len(target_machines)} machines")
+                            logging.info(
+                                f"Deployment task {task.id} executed on {len(target_machines)} machines"
+                            )
                     else:
-                        logging.warning(f"Deployment task {task.id} has no target machines or deployment ID")
+                        logging.warning(
+                            f"Deployment task {task.id} has no target machines or deployment ID"
+                        )
                         succeeded = False
                 except Exception as deploy_e:
-                    logging.error(f"Error executing deployment task {task.id}: {str(deploy_e)}")
+                    logging.error(
+                        f"Error executing deployment task {task.id}: {str(deploy_e)}"
+                    )
                     succeeded = False
             else:
                 logging.warning(f"Unknown task type '{task_type}' for task {task.id}")
@@ -544,6 +568,7 @@ class Task:
                 # Log task execution to activity log
                 try:
                     import requests
+
                     requests.post(
                         f"{getenv('AGIXT_SERVER')}/v1/activity-log",
                         headers={"Authorization": f"Bearer {self.auth.token}"},
@@ -555,13 +580,17 @@ class Task:
                             "changes": {
                                 "task_type": task_type,
                                 "status": "completed",
-                                "description": task.description[:100] if task.description else None,
+                                "description": (
+                                    task.description[:100] if task.description else None
+                                ),
                             },
                         },
                         timeout=10,
                     )
                 except Exception as log_e:
-                    logging.warning(f"Failed to log task execution to activity log: {str(log_e)}")
+                    logging.warning(
+                        f"Failed to log task execution to activity log: {str(log_e)}"
+                    )
             else:
                 # Release the task for future attempts
                 task.scheduled = True
@@ -571,6 +600,7 @@ class Task:
                 # Log failed task attempt to activity log
                 try:
                     import requests
+
                     requests.post(
                         f"{getenv('AGIXT_SERVER')}/v1/activity-log",
                         headers={"Authorization": f"Bearer {self.auth.token}"},
@@ -582,13 +612,17 @@ class Task:
                             "changes": {
                                 "task_type": task_type,
                                 "status": "failed",
-                                "description": task.description[:100] if task.description else None,
+                                "description": (
+                                    task.description[:100] if task.description else None
+                                ),
                             },
                         },
                         timeout=10,
                     )
                 except Exception as log_e:
-                    logging.warning(f"Failed to log task failure to activity log: {str(log_e)}")
+                    logging.warning(
+                        f"Failed to log task failure to activity log: {str(log_e)}"
+                    )
 
             return succeeded
         except Exception as e:

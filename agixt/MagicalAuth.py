@@ -1027,16 +1027,16 @@ class MagicalAuth:
     def get_user_data_optimized(self, ip_address: str = None) -> dict:
         """
         Optimized single-query method to fetch all user data for /v1/user endpoint.
-        
+
         This combines login validation, preferences, companies, agents, and scopes
         into a single database session, dramatically reducing round-trips.
-        
+
         Returns dict with:
         - user: User object
         - preferences: dict of user preferences
         - companies: list of company dicts with agents and scopes included
         - is_super_admin: bool
-        
+
         Raises HTTPException on auth failures.
         """
         import threading
@@ -1108,7 +1108,9 @@ class MagicalAuth:
             )
 
             if wallet_paywall_enabled:
-                has_balance = self._has_sufficient_token_balance(session, user_companies)
+                has_balance = self._has_sufficient_token_balance(
+                    session, user_companies
+                )
                 if not has_balance:
                     user.is_active = False
                     session.commit()
@@ -1157,7 +1159,7 @@ class MagicalAuth:
             # === 7. Get agents for all companies (batch query) ===
             company_ids = [str(uc.company_id) for uc in user_companies]
             default_agent_id = user_preferences.get("agent_id")
-            
+
             agents_by_company = {}
             if company_ids:
                 agents_by_company = get_agents_lightweight(
@@ -1248,18 +1250,22 @@ class MagicalAuth:
                     company_scopes = all_scopes
                 else:
                     company_scopes = set(role_to_scopes.get(role_id, set()))
-                    
+
                     # Handle wildcards from default_role_scopes definition
                     if role_id in db_default_role_scopes:
                         has_ext_wildcard = "ext:*" in db_default_role_scopes[role_id]
-                        
+
                         for pattern in db_default_role_scopes[role_id]:
                             if pattern == "ext:*":
                                 continue
-                            if pattern.endswith(":*") or ":*:" in pattern or pattern == "*":
+                            if (
+                                pattern.endswith(":*")
+                                or ":*:" in pattern
+                                or pattern == "*"
+                            ):
                                 if not pattern.startswith("ext:"):
                                     company_scopes.add(pattern)
-                        
+
                         # Expand ext:* to configured extensions only
                         if has_ext_wildcard:
                             configured_exts = ext_by_company.get(cid, set())
@@ -1268,13 +1274,15 @@ class MagicalAuth:
                                     parts = scope.name.split(":")
                                     if len(parts) >= 2 and parts[1] in configured_exts:
                                         company_scopes.add(scope.name)
-                    
+
                     # Add custom role scopes
                     company_scopes.update(custom_scopes_by_company.get(cid, set()))
 
                 company_dict = {
                     "id": cid,
-                    "company_id": str(company.company_id) if company.company_id else None,
+                    "company_id": (
+                        str(company.company_id) if company.company_id else None
+                    ),
                     "name": company.name,
                     "agent_name": company.agent_name,
                     "status": company.status,
@@ -1316,7 +1324,11 @@ class MagicalAuth:
                 def _background_stripe_check():
                     try:
                         self._background_stripe_subscription_check(
-                            api_key, user_email, user_id, stripe_id, company_ids_for_stripe
+                            api_key,
+                            user_email,
+                            user_id,
+                            stripe_id,
+                            company_ids_for_stripe,
                         )
                     except Exception as e:
                         logging.debug(f"Background Stripe check failed: {e}")
