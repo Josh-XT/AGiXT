@@ -89,8 +89,8 @@ def _build_extension_metadata_cache():
     start = time.time()
 
     metadata = {
-        "commands": {},  # command_name -> {module_file, class_name, function_name, params}
-        "extensions": {},  # class_name -> {file, settings, commands}
+        "commands": {},  # command_name -> {module_file, class_name, function_name, params, description}
+        "extensions": {},  # class_name -> {file, settings, commands, friendly_name, description, category}
         "built_at": time.time(),
     }
 
@@ -118,6 +118,25 @@ def _build_extension_metadata_cache():
         if extension_class is None:
             continue
 
+        # Extract class docstring
+        class_docstring = ast.get_docstring(extension_class) or ""
+
+        # Extract friendly_name and CATEGORY class attributes
+        friendly_name = None
+        category = "Automation"  # Default
+        for item in extension_class.body:
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id == "friendly_name" and isinstance(
+                            item.value, ast.Constant
+                        ):
+                            friendly_name = item.value.value
+                        elif target.id == "CATEGORY" and isinstance(
+                            item.value, ast.Constant
+                        ):
+                            category = item.value.value
+
         # Extract __init__ parameters (settings)
         settings = []
         for item in extension_class.body:
@@ -135,6 +154,9 @@ def _build_extension_metadata_cache():
             "file": command_file,
             "settings": settings,
             "commands": [],
+            "friendly_name": friendly_name,
+            "description": class_docstring,
+            "category": category,
         }
 
         # Find self.commands assignments in __init__
@@ -163,11 +185,13 @@ def _build_extension_metadata_cache():
                                             func_name = val.attr
                                             commands_dict[cmd_name] = func_name
 
-        # Extract function parameters for each command
+        # Extract function parameters and docstrings for each command
         for cmd_name, func_name in commands_dict.items():
             params = {}
+            cmd_docstring = ""
             for item in extension_class.body:
                 if isinstance(item, ast.FunctionDef) and item.name == func_name:
+                    cmd_docstring = ast.get_docstring(item) or cmd_name
                     for arg in item.args.args:
                         if arg.arg != "self":
                             # Get annotation if present
@@ -185,6 +209,7 @@ def _build_extension_metadata_cache():
                 "class_name": class_name,
                 "function_name": func_name,
                 "params": params,
+                "description": cmd_docstring,
             }
             metadata["commands"][cmd_name] = cmd_info
             extension_info["commands"].append(cmd_name)
@@ -1012,125 +1037,66 @@ class Extensions:
         return value
 
     def get_extensions(self):
+        """
+        Get list of extensions with their commands using cached metadata.
+        No module imports needed - uses AST-parsed metadata cache.
+        """
         commands = []
-        # Use cached extension discovery
-        command_files = _get_cached_extension_files()
-        for command_file in command_files:
-            # Import the module using cached helper function
-            module = _get_cached_extension_module(command_file)
-            if module is None:
-                continue
+        metadata = _get_extension_metadata_cache()
 
-            # Get the expected class name from the module
-            class_name = get_extension_class_name(os.path.basename(command_file))
+        # Get category descriptions in one batch query
+        category_descriptions = {}
+        try:
+            from DB import get_db_session, ExtensionCategory
 
-            # Check if module is in disabled extensions
+            with get_db_session() as session:
+                categories = session.query(ExtensionCategory).all()
+                category_descriptions = {
+                    c.name: c.description or "" for c in categories
+                }
+        except Exception as e:
+            logging.debug(f"Could not get category descriptions: {e}")
+
+        for class_name, ext_info in metadata.get("extensions", {}).items():
             if class_name in DISABLED_EXTENSIONS:
                 continue
 
-            # Check if the class exists and is a subclass of Extensions
-            ext_class = getattr(module, class_name, None)
-            is_extensions_subclass = False
-            if ext_class is not None and inspect.isclass(ext_class):
-                # Use the module's Extensions class reference for comparison
-                # since extensions import "from Extensions import Extensions"
-                try:
-                    extensions_base = getattr(module, "Extensions", None)
-                    if extensions_base and issubclass(ext_class, extensions_base):
-                        is_extensions_subclass = True
-                    else:
-                        # Fallback: check if it's a subclass of the current Extensions class
-                        is_extensions_subclass = issubclass(ext_class, Extensions)
-                except (TypeError, AttributeError):
-                    is_extensions_subclass = False
+            # Get extension name from file path
+            extension_file = os.path.basename(ext_info["file"])
+            extension_name = extension_file.split(".")[0]
+            extension_name = extension_name.replace("_", " ").title()
+            if extension_name == "Agixt Actions":
+                extension_name = "AGiXT Actions"
 
-            if is_extensions_subclass:
-                try:
-                    command_class = ext_class()
-                except Exception as e:
-                    logging.error(
-                        f"Error instantiating extension class {class_name}: {e}"
-                    )
-                    continue
+            # Build commands list from cached metadata
+            extension_commands = []
+            for cmd_name in ext_info.get("commands", []):
+                cmd_info = metadata["commands"].get(cmd_name, {})
+                extension_commands.append(
+                    {
+                        "friendly_name": cmd_name,
+                        "description": cmd_info.get("description", cmd_name),
+                        "command_name": cmd_info.get("function_name", ""),
+                        "command_args": cmd_info.get("params", {}),
+                    }
+                )
 
-                extension_name = os.path.basename(command_file).split(".")[0]
-                extension_name = extension_name.replace("_", " ").title()
-
-                # Get friendly_name from the extension class if it has one
-                friendly_name = None
-                if hasattr(command_class, "friendly_name"):
-                    friendly_name = command_class.friendly_name
-
-                try:
-                    extension_description = inspect.getdoc(command_class)
-                except:
-                    extension_description = extension_name
-                constructor = inspect.signature(command_class.__init__)
-                params = constructor.parameters
-                extension_settings = [
-                    name for name in params if name != "self" and name != "kwargs"
-                ]
-                extension_commands = []
-                if hasattr(command_class, "commands"):
-                    try:
-                        for (
-                            command_name,
-                            command_function,
-                        ) in command_class.commands.items():
-                            params = self.get_command_params(command_function)
-                            try:
-                                command_description = inspect.getdoc(command_function)
-                            except:
-                                command_description = command_name
-                            extension_commands.append(
-                                {
-                                    "friendly_name": command_name,
-                                    "description": command_description,
-                                    "command_name": command_function.__name__,
-                                    "command_args": params,
-                                }
-                            )
-                    except Exception as e:
-                        logging.error(f"Error getting commands: {e}")
-                if extension_name == "Agixt Actions":
-                    extension_name = "AGiXT Actions"
-
-                # Get category information from database or extension class
-                category_name = "Automation"  # Default category
-                category_description = ""
-
-                # Try to get category from the extension class
-                if hasattr(command_class, "CATEGORY"):
-                    category_name = command_class.CATEGORY
-
-                # Get category description from database if available
-                try:
-                    from DB import get_db_session, ExtensionCategory
-
-                    with get_db_session() as session:
-                        category = (
-                            session.query(ExtensionCategory)
-                            .filter_by(name=category_name)
-                            .first()
-                        )
-                        if category:
-                            category_description = category.description or ""
-                except Exception as e:
-                    logging.debug(f"Could not get category description: {e}")
-
-                # Only add extensions that have commands (filters out OAuth extensions without credentials)
-                if extension_commands:
-                    commands.append(
-                        {
-                            "extension_name": extension_name,
-                            "friendly_name": friendly_name,  # Will be None if not defined
-                            "description": extension_description,
-                            "settings": extension_settings,
-                            "commands": extension_commands,
-                            "category": category_name,
-                            "category_description": category_description,
-                        }
-                    )
+            # Only add extensions that have commands
+            if extension_commands:
+                category_name = ext_info.get("category", "Automation")
+                commands.append(
+                    {
+                        "extension_name": extension_name,
+                        "friendly_name": ext_info.get("friendly_name"),
+                        "description": ext_info.get("description", extension_name),
+                        "settings": ext_info.get("settings", []),
+                        "commands": extension_commands,
+                        "category": category_name,
+                        "category_description": category_descriptions.get(
+                            category_name, ""
+                        ),
+                    }
+                )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -1149,23 +1115,7 @@ class Extensions:
                     }
                 )
 
-            # Get category information for Custom Automation
             category_name = "Core Abilities"
-            category_description = ""
-            try:
-                from DB import get_db_session, ExtensionCategory
-
-                with get_db_session() as session:
-                    category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name=category_name)
-                        .first()
-                    )
-                    if category:
-                        category_description = category.description or ""
-            except Exception as e:
-                logging.debug(f"Could not get category description: {e}")
-
             commands.append(
                 {
                     "extension_name": "Custom Automation",
@@ -1174,7 +1124,9 @@ class Extensions:
                     "settings": [],
                     "commands": chain_commands,
                     "category": category_name,
-                    "category_description": category_description,
+                    "category_description": category_descriptions.get(
+                        category_name, ""
+                    ),
                 }
             )
 

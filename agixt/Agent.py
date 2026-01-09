@@ -80,9 +80,9 @@ _SSO_PROVIDERS_CACHE_TTL = 600  # 10 minutes - extensions rarely change
 def get_sso_providers_cached():
     """
     Get list of SSO-enabled extensions with caching.
-    This scans the extensions directory for OAuth components which is expensive.
+    Uses AST parsing instead of importing modules for speed.
     """
-    import importlib.util
+    import ast
 
     global _sso_providers_cache, _sso_providers_cache_time
 
@@ -105,14 +105,28 @@ def get_sso_providers_cached():
             try:
                 extension_name = extension_file.replace(".py", "")
                 file_path = os.path.join(extensions_dir, extension_file)
-                spec = importlib.util.spec_from_file_location(extension_name, file_path)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
 
-                # Check if the extension has OAuth components
-                has_sso_class = hasattr(module, f"{extension_name.capitalize()}SSO")
-                has_sso_function = hasattr(module, "sso")
-                has_oauth_scopes = hasattr(module, "SCOPES")
+                # Use AST parsing instead of importing - much faster
+                with open(file_path, "r", encoding="utf-8") as f:
+                    source = f.read()
+                tree = ast.parse(source, filename=file_path)
+
+                # Look for SSO indicators in the AST
+                has_sso_class = False
+                has_sso_function = False
+                has_oauth_scopes = False
+
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef):
+                        if node.name == f"{extension_name.capitalize()}SSO":
+                            has_sso_class = True
+                    elif isinstance(node, ast.FunctionDef):
+                        if node.name == "sso":
+                            has_sso_function = True
+                    elif isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            if isinstance(target, ast.Name) and target.id == "SCOPES":
+                                has_oauth_scopes = True
 
                 if has_sso_class or has_sso_function or has_oauth_scopes:
                     sso_providers.add(extension_name)
