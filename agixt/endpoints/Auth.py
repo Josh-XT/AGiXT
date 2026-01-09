@@ -8,6 +8,7 @@ from Models import (
     Register,
     CompanyResponse,
     InvitationCreate,
+    InvitationCreateByRole,
     InvitationResponse,
     ToggleCommandPayload,
     ResponseMessage,
@@ -17,7 +18,7 @@ from Models import (
     UpdateCompanyInput,
     UpdateUserRole,
 )
-from DB import TokenBlacklist, get_session
+from DB import TokenBlacklist, get_session, default_roles
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from MagicalAuth import (
@@ -135,6 +136,48 @@ async def delete_invitation(
         raise HTTPException(
             status_code=500,
             detail=f"An error occurred while deleting the invitation: {str(e)}",
+        )
+
+
+# Create invitation for a specific company using role name
+@app.post(
+    "/v1/companies/{company_id}/invitations",
+    response_model=InvitationResponse,
+    summary="Create an invitation for a company",
+    tags=["Companies"],
+)
+async def create_company_invitation(
+    company_id: str,
+    invitation: InvitationCreateByRole,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+
+        # Convert role name to role_id
+        role_id = 3  # Default to "user"
+        role_name = invitation.role.lower().strip() if invitation.role else "user"
+        for role in default_roles:
+            if role["name"] == role_name:
+                role_id = role["id"]
+                break
+
+        # Create the internal invitation object
+        internal_invitation = InvitationCreate(
+            email=invitation.email,
+            company_id=company_id,
+            role_id=role_id,
+        )
+
+        return auth.create_invitation(internal_invitation)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in create_company_invitation endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while creating the invitation: {str(e)}",
         )
 
 

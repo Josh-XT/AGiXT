@@ -44,6 +44,12 @@ class InvitationCreate(BaseModel):
     role_id: int
 
 
+class InvitationCreateByRole(BaseModel):
+    email: str
+    role: str  # Role name like "user", "company_admin", etc.
+    expiration_date: Optional[str] = None
+
+
 class InvitationResponse(BaseModel):
     id: str
     invitation_link: str
