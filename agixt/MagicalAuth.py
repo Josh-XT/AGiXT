@@ -25,10 +25,12 @@ from DB import (
     PersonalAccessTokenCompanyAccess,
     CompanyExtensionCommand,
     CompanyExtensionSetting,
+    TrialDomain,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
+from sqlalchemy import text
 from sendgrid.helpers.mail import Mail
 from sendgrid import SendGridAPIClient
 from Models import (
@@ -2385,16 +2387,18 @@ class MagicalAuth:
         try:
             # Delete in order of dependencies (most dependent first)
 
-            # Delete company chain steps (depends on company chains)
+            # Import all models needed for cascade delete
             from DB import (
                 CompanyChain,
                 CompanyChainStep,
-                CompanyChainStepResponse,
+                CompanyChainStepArgument,
                 CompanyPrompt,
                 CompanyPromptCategory,
+                CompanyPromptArgument,
                 CompanyExtensionCommand,
                 CompanyExtensionSetting,
                 CustomRole,
+                UserCustomRole,
                 Invitation,
                 WebhookOutgoing,
                 CompanyTokenUsage,
@@ -2415,9 +2419,9 @@ class MagicalAuth:
                 .all()
             )
             for chain in company_chains:
-                # Delete chain step responses
-                session.query(CompanyChainStepResponse).filter(
-                    CompanyChainStepResponse.chain_step_id.in_(
+                # Delete chain step arguments
+                session.query(CompanyChainStepArgument).filter(
+                    CompanyChainStepArgument.chain_step_id.in_(
                         session.query(CompanyChainStep.id).filter(
                             CompanyChainStep.chain_id == chain.id
                         )
@@ -2432,6 +2436,14 @@ class MagicalAuth:
                 CompanyChain.company_id == company_id
             ).delete(synchronize_session=False)
 
+            # Delete company prompt arguments (depends on prompts)
+            session.query(CompanyPromptArgument).filter(
+                CompanyPromptArgument.prompt_id.in_(
+                    session.query(CompanyPrompt.id).filter(
+                        CompanyPrompt.company_id == company_id
+                    )
+                )
+            ).delete(synchronize_session=False)
             # Delete company prompts (depends on categories)
             session.query(CompanyPrompt).filter(
                 CompanyPrompt.company_id == company_id
@@ -2482,6 +2494,41 @@ class MagicalAuth:
             session.query(UserCompany).filter(
                 UserCompany.company_id == company_id
             ).delete(synchronize_session=False)
+
+            # Delete user custom role assignments for this company
+            session.query(UserCustomRole).filter(
+                UserCustomRole.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete extension tables that may have company_id FK (using raw SQL since these are dynamically loaded)
+            extension_tables = [
+                "Ticket",
+                "TicketStatus",
+                "TicketPriority",
+                "TicketType",
+                "TicketTemplate",
+                "TicketNote",
+                "ActivityLog",
+                "Contact",
+                "Asset",
+                "AssetTemplate",
+                "AssetItem",
+                "AssetFile",
+                "approved_ip_range",
+                "Secret",
+                "SecretItem",
+                "Integration",
+                "webhook_outgoing",
+            ]
+            for table in extension_tables:
+                try:
+                    session.execute(
+                        text(f"DELETE FROM {table} WHERE company_id = :company_id"),
+                        {"company_id": company_id},
+                    )
+                except Exception:
+                    # Table may not exist or may not have company_id column
+                    pass
 
             # Finally delete the company
             session.delete(company)
