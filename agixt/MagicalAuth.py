@@ -2361,7 +2361,7 @@ class MagicalAuth:
 
     def delete_company(self, company_id):
         """
-        Delete a company and remove all associated user relationships.
+        Delete a company and remove all associated records.
 
         Authorization:
         - Super admins can delete any company (via has_scope)
@@ -2382,19 +2382,116 @@ class MagicalAuth:
             session.close()
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Get users in the company and remove them from the company
-        user_companies = (
-            session.query(UserCompany)
-            .filter(UserCompany.company_id == company.id)
-            .all()
-        )
-        for user_company in user_companies:
-            session.delete(user_company)
-        session.commit()
-        # Delete the company
-        session.delete(company)
-        session.commit()
-        session.close()
+        try:
+            # Delete in order of dependencies (most dependent first)
+
+            # Delete company chain steps (depends on company chains)
+            from DB import (
+                CompanyChain,
+                CompanyChainStep,
+                CompanyChainStepResponse,
+                CompanyPrompt,
+                CompanyPromptCategory,
+                CompanyExtensionCommand,
+                CompanyExtensionSetting,
+                CustomRole,
+                Invitation,
+                WebhookOutgoing,
+                CompanyTokenUsage,
+                PaymentTransaction,
+                TrialDomain,
+            )
+
+            # Clear parent reference on child companies (set their company_id to null)
+            # This prevents orphaned child companies from pointing to a deleted parent
+            session.query(Company).filter(Company.company_id == company_id).update(
+                {"company_id": None}, synchronize_session=False
+            )
+
+            # Get all company chains first
+            company_chains = (
+                session.query(CompanyChain)
+                .filter(CompanyChain.company_id == company_id)
+                .all()
+            )
+            for chain in company_chains:
+                # Delete chain step responses
+                session.query(CompanyChainStepResponse).filter(
+                    CompanyChainStepResponse.chain_step_id.in_(
+                        session.query(CompanyChainStep.id).filter(
+                            CompanyChainStep.chain_id == chain.id
+                        )
+                    )
+                ).delete(synchronize_session=False)
+                # Delete chain steps
+                session.query(CompanyChainStep).filter(
+                    CompanyChainStep.chain_id == chain.id
+                ).delete(synchronize_session=False)
+            # Delete chains
+            session.query(CompanyChain).filter(
+                CompanyChain.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete company prompts (depends on categories)
+            session.query(CompanyPrompt).filter(
+                CompanyPrompt.company_id == company_id
+            ).delete(synchronize_session=False)
+            session.query(CompanyPromptCategory).filter(
+                CompanyPromptCategory.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete extension settings and commands
+            session.query(CompanyExtensionCommand).filter(
+                CompanyExtensionCommand.company_id == company_id
+            ).delete(synchronize_session=False)
+            session.query(CompanyExtensionSetting).filter(
+                CompanyExtensionSetting.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete custom roles
+            session.query(CustomRole).filter(
+                CustomRole.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete invitations
+            session.query(Invitation).filter(
+                Invitation.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete webhooks
+            session.query(WebhookOutgoing).filter(
+                WebhookOutgoing.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete token usage records
+            session.query(CompanyTokenUsage).filter(
+                CompanyTokenUsage.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete payment transactions
+            session.query(PaymentTransaction).filter(
+                PaymentTransaction.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete trial domains
+            session.query(TrialDomain).filter(
+                TrialDomain.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete user company relationships
+            session.query(UserCompany).filter(
+                UserCompany.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Finally delete the company
+            session.delete(company)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
         return "Company deleted successfully"
 
     def delete_user_from_company(self, company_id: str, target_user_id: str):
