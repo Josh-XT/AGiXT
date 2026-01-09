@@ -238,7 +238,7 @@ async def get_user(
         "tos_accepted_at": response_data.get("tos_accepted_at"),
     }
     etag_string = json.dumps(etag_data, sort_keys=True, default=str)
-    etag = f'"{hashlib.md5(etag_string.encode()).hexdigest()}"'
+    etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
 
     # If client sent If-None-Match and it matches, return 304 Not Modified
     if if_none_match and if_none_match == etag:
