@@ -361,6 +361,11 @@ async def logout_user(
         session.add(blacklist_entry)
         session.commit()
 
+        # Invalidate the token validation cache for this token
+        from MagicalAuth import invalidate_token_validation_cache
+
+        invalidate_token_validation_cache(token)
+
         # Cleanup expired tokens (optional - can be done periodically)
         expired_tokens = (
             session.query(TokenBlacklist)

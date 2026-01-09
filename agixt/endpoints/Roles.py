@@ -351,10 +351,14 @@ async def create_custom_role(
         db.add(new_role)
         db.flush()  # Get the ID
 
+        # Batch load all requested scopes
+        scopes = db.query(Scope).filter(Scope.id.in_(role.scope_ids)).all()
+        scopes_map = {str(s.id): s for s in scopes}
+
         # Assign scopes
         assigned_scopes = []
         for scope_id in role.scope_ids:
-            scope = db.query(Scope).filter(Scope.id == scope_id).first()
+            scope = scopes_map.get(str(scope_id))
             if scope:
                 role_scope = CustomRoleScope(
                     custom_role_id=new_role.id,
@@ -502,9 +506,15 @@ async def update_custom_role(
                 CustomRoleScope.custom_role_id == custom_role.id
             ).delete()
 
+            # Batch load all requested scopes
+            scopes_for_assignment = (
+                db.query(Scope).filter(Scope.id.in_(role_update.scope_ids)).all()
+            )
+            scopes_map = {str(s.id): s for s in scopes_for_assignment}
+
             # Add new scope assignments
             for scope_id in role_update.scope_ids:
-                scope = db.query(Scope).filter(Scope.id == scope_id).first()
+                scope = scopes_map.get(str(scope_id))
                 if scope:
                     role_scope = CustomRoleScope(
                         custom_role_id=custom_role.id,

@@ -78,7 +78,7 @@ async def initialize_database(is_restart=False):
         section_start = startup_timer.section_start()
         DB.Base.metadata.create_all(DB.engine)
         startup_timer.section_end("Create tables (metadata.create_all)", section_start)
-
+        """
         # Run all migrations - time each one
         section_start = startup_timer.section_start()
         DB.migrate_company_table()
@@ -135,7 +135,7 @@ async def initialize_database(is_restart=False):
         section_start = startup_timer.section_start()
         DB.migrate_task_item_table()
         startup_timer.section_end("migrate_task_item_table", section_start)
-
+        """
         # Clean up expired cache entries on startup
         section_start = startup_timer.section_start()
         DB.cleanup_expired_cache()

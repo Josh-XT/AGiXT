@@ -433,35 +433,82 @@ class Extensions:
             .all()
         )
 
-        steps = []
-        for step in chain_steps:
-            agent_name = session.query(Agent).get(step.agent_id).name
-            prompt = {}
-            if step.target_chain_id:
-                prompt["chain_name"] = (
-                    session.query(ChainDB).get(step.target_chain_id).name
-                )
-            elif step.target_command_id:
-                prompt["command_name"] = (
-                    session.query(Command).get(step.target_command_id).name
-                )
-            elif step.target_prompt_id:
-                prompt["prompt_name"] = (
-                    session.query(Prompt).get(step.target_prompt_id).name
-                )
+        if not chain_steps:
+            chain_data = {
+                "id": chain_db.id,
+                "chain_name": chain_db.name,
+                "steps": [],
+                "description": chain_db.description if chain_db.description else "",
+            }
+            session.close()
+            return chain_data
 
-            # Retrieve argument data for the step
-            arguments = (
+        # Batch load all related data to avoid N+1 queries
+        agent_ids = {step.agent_id for step in chain_steps if step.agent_id}
+        chain_ids = {
+            step.target_chain_id for step in chain_steps if step.target_chain_id
+        }
+        command_ids = {
+            step.target_command_id for step in chain_steps if step.target_command_id
+        }
+        prompt_ids = {
+            step.target_prompt_id for step in chain_steps if step.target_prompt_id
+        }
+        step_ids = {step.id for step in chain_steps}
+
+        # Batch queries
+        agents_map = {}
+        if agent_ids:
+            agents = session.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+            agents_map = {a.id: a.name for a in agents}
+
+        chains_map = {}
+        if chain_ids:
+            chains = session.query(ChainDB).filter(ChainDB.id.in_(chain_ids)).all()
+            chains_map = {c.id: c.name for c in chains}
+
+        commands_map = {}
+        if command_ids:
+            commands = session.query(Command).filter(Command.id.in_(command_ids)).all()
+            commands_map = {c.id: c.name for c in commands}
+
+        prompts_map = {}
+        if prompt_ids:
+            prompts = session.query(Prompt).filter(Prompt.id.in_(prompt_ids)).all()
+            prompts_map = {p.id: p.name for p in prompts}
+
+        # Batch load all arguments for all steps
+        step_arguments = {}
+        if step_ids:
+            all_args = (
                 session.query(Argument, ChainStepArgument)
                 .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
-                .filter(ChainStepArgument.chain_step_id == step.id)
+                .filter(ChainStepArgument.chain_step_id.in_(step_ids))
                 .all()
             )
+            for argument, chain_step_argument in all_args:
+                if chain_step_argument.chain_step_id not in step_arguments:
+                    step_arguments[chain_step_argument.chain_step_id] = {}
+                step_arguments[chain_step_argument.chain_step_id][
+                    argument.name
+                ] = chain_step_argument.value
 
-            prompt_args = {}
-            for argument, chain_step_argument in arguments:
-                prompt_args[argument.name] = chain_step_argument.value
+        steps = []
+        for step in chain_steps:
+            agent_name = agents_map.get(step.agent_id, "Unknown")
+            prompt = {}
+            if step.target_chain_id:
+                prompt["chain_name"] = chains_map.get(step.target_chain_id, "Unknown")
+            elif step.target_command_id:
+                prompt["command_name"] = commands_map.get(
+                    step.target_command_id, "Unknown"
+                )
+            elif step.target_prompt_id:
+                prompt["prompt_name"] = prompts_map.get(
+                    step.target_prompt_id, "Unknown"
+                )
 
+            prompt_args = step_arguments.get(step.id, {})
             prompt.update(prompt_args)
 
             step_data = {
@@ -482,6 +529,10 @@ class Extensions:
         return chain_data
 
     def get_chains_with_args(self):
+        """
+        Get all chains with their argument requirements.
+        OPTIMIZED: Batch loads all chain data in a single pass instead of N queries.
+        """
         skip_args = [
             "command_list",
             "context",
@@ -492,52 +543,175 @@ class Extensions:
             "working_directory",
             "helper_agent_name",
         ]
-        chains = []
-        for chain_name in self.chains:
-            chain_data = self.get_chain(chain_name=chain_name)
-            description = chain_data["description"]
-            steps = chain_data["steps"]
+
+        if not self.chains:
+            return []
+
+        # Batch load all chains data in one go
+        session = get_session()
+        try:
+            user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+            default_user_id = user_data.id if user_data else None
+
+            # Get all chains we need
+            chain_names = self.chains
+            all_chain_dbs = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.name.in_(chain_names),
+                    (ChainDB.user_id == self.user_id)
+                    | (ChainDB.user_id == default_user_id),
+                )
+                .all()
+            )
+
+            # Build lookup: name -> chain_db (prefer user's chains over default)
+            chain_lookup = {}
+            for cdb in all_chain_dbs:
+                if cdb.name not in chain_lookup or cdb.user_id == self.user_id:
+                    chain_lookup[cdb.name] = cdb
+
+            if not chain_lookup:
+                return []
+
+            # Batch load all chain steps
+            chain_ids = [cdb.id for cdb in chain_lookup.values()]
+            all_chain_steps = (
+                session.query(ChainStep)
+                .filter(ChainStep.chain_id.in_(chain_ids))
+                .order_by(ChainStep.chain_id, ChainStep.step_number)
+                .all()
+            )
+
+            # Group steps by chain_id
+            steps_by_chain = {}
+            for step in all_chain_steps:
+                if step.chain_id not in steps_by_chain:
+                    steps_by_chain[step.chain_id] = []
+                steps_by_chain[step.chain_id].append(step)
+
+            # Batch load all agents, chains, commands, prompts for all steps
+            agent_ids = {s.agent_id for s in all_chain_steps if s.agent_id}
+            target_chain_ids = {
+                s.target_chain_id for s in all_chain_steps if s.target_chain_id
+            }
+            command_ids = {
+                s.target_command_id for s in all_chain_steps if s.target_command_id
+            }
+            prompt_ids = {
+                s.target_prompt_id for s in all_chain_steps if s.target_prompt_id
+            }
+            step_ids = {s.id for s in all_chain_steps}
+
+            agents_map = {}
+            if agent_ids:
+                agents = session.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+                agents_map = {a.id: a.name for a in agents}
+
+            chains_map = {}
+            if target_chain_ids:
+                chains = (
+                    session.query(ChainDB)
+                    .filter(ChainDB.id.in_(target_chain_ids))
+                    .all()
+                )
+                chains_map = {c.id: c.name for c in chains}
+
+            commands_map = {}
+            if command_ids:
+                commands = (
+                    session.query(Command).filter(Command.id.in_(command_ids)).all()
+                )
+                commands_map = {c.id: c.name for c in commands}
+
+            prompts_map = {}
+            if prompt_ids:
+                prompts = session.query(Prompt).filter(Prompt.id.in_(prompt_ids)).all()
+                prompts_map = {p.id: p.name for p in prompts}
+
+            # Batch load all arguments
+            step_arguments = {}
+            if step_ids:
+                all_args = (
+                    session.query(Argument, ChainStepArgument)
+                    .join(
+                        ChainStepArgument, ChainStepArgument.argument_id == Argument.id
+                    )
+                    .filter(ChainStepArgument.chain_step_id.in_(step_ids))
+                    .all()
+                )
+                for argument, chain_step_argument in all_args:
+                    if chain_step_argument.chain_step_id not in step_arguments:
+                        step_arguments[chain_step_argument.chain_step_id] = {}
+                    step_arguments[chain_step_argument.chain_step_id][
+                        argument.name
+                    ] = chain_step_argument.value
+
+        finally:
+            session.close()
+
+        # Now build results without any additional DB queries
+        chains_result = []
+        for chain_name in chain_names:
+            chain_db = chain_lookup.get(chain_name)
+            if not chain_db:
+                continue
+
+            description = chain_db.description or ""
+            steps = steps_by_chain.get(chain_db.id, [])
             prompt_args = []
+
             for step in steps:
                 try:
-                    prompt = step["prompt"]
-                    if "chain_name" in prompt:
-                        if "command_name" not in prompt:
-                            prompt["command_name"] = prompt["chain_name"]
-                    prompt_category = (
-                        prompt["category"] if "category" in prompt else "Default"
-                    )
-                    if "prompt_name" in prompt:
+                    prompt = {}
+                    prompt_args_for_step = step_arguments.get(step.id, {})
+                    prompt.update(prompt_args_for_step)
+
+                    if step.target_chain_id:
+                        prompt["chain_name"] = chains_map.get(
+                            step.target_chain_id, "Unknown"
+                        )
+                        prompt["command_name"] = prompt["chain_name"]
+                    elif step.target_command_id:
+                        prompt["command_name"] = commands_map.get(
+                            step.target_command_id, "Unknown"
+                        )
+                    elif step.target_prompt_id:
+                        prompt_name = prompts_map.get(step.target_prompt_id, "")
+                        prompt["prompt_name"] = prompt_name
+
+                    prompt_category = prompt.get("category", "Default")
+
+                    if "prompt_name" in prompt and prompt["prompt_name"]:
                         prompt_content = self.prompts.get_prompt(
                             prompt_name=prompt["prompt_name"],
                             prompt_category=prompt_category,
                         )
-                        args = self.prompts.get_prompt_args(
-                            prompt_text=prompt_content,
-                        )
+                        args = self.prompts.get_prompt_args(prompt_text=prompt_content)
                     elif "command_name" in prompt:
                         args = self.get_command_args(
                             command_name=prompt["command_name"]
                         )
                     else:
                         args = []
+
                     for arg in args:
                         if arg not in prompt_args and arg not in skip_args:
-                            # Only expose args that don't already have values in the chain step
-                            # If the arg already has a non-empty value in the prompt, skip it
                             existing_value = prompt.get(arg)
                             if existing_value is None or existing_value == "":
                                 prompt_args.append(arg)
                 except Exception as e:
                     logging.error(f"Error getting chain args for {chain_name}: {e}")
-            chains.append(
+
+            chains_result.append(
                 {
                     "chain_name": chain_name,
                     "description": description,
                     "args": prompt_args,
                 }
             )
-        return chains
+
+        return chains_result
 
     def load_commands(self):
         """

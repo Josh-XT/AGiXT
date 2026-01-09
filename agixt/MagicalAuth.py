@@ -78,6 +78,108 @@ logging.basicConfig(
 _stripe_check_cache = {}
 _stripe_check_cache_ttl = 300  # 5 minutes
 
+# Cache for user company ID lookups to avoid DB queries per request
+# Key: user_id, Value: (timestamp, company_id)
+# Cache expires after 10 seconds - short enough for quick updates, long enough to batch queries
+_user_company_cache = {}
+_user_company_cache_ttl = 10  # 10 seconds
+
+# Cache for user ID lookups from email to avoid DB queries per request
+# Key: email, Value: (timestamp, user_id)
+# Cache expires after 60 seconds - user IDs don't change
+_user_id_cache = {}
+_user_id_cache_ttl = 60  # 60 seconds
+
+# Cache for validated JWT tokens to avoid DB queries per request
+# Key: token_hash, Value: (timestamp, user_dict)
+# Cache expires after 5 seconds - short for security, but enough to batch within a request cycle
+_token_validation_cache = {}
+_token_validation_cache_ttl = 5  # 5 seconds
+
+
+def get_token_validation_cached(token: str):
+    """Get cached token validation result if still valid."""
+    import time
+    import hashlib
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    if token_hash in _token_validation_cache:
+        timestamp, user_dict = _token_validation_cache[token_hash]
+        if time.time() - timestamp < _token_validation_cache_ttl:
+            return user_dict
+        else:
+            del _token_validation_cache[token_hash]
+    return None  # Cache miss
+
+
+def set_token_validation_cache(token: str, user_dict: dict):
+    """Cache token validation result."""
+    import time
+    import hashlib
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    _token_validation_cache[token_hash] = (time.time(), user_dict)
+
+
+def invalidate_token_validation_cache(token: str = None):
+    """Invalidate token validation cache. If token is None, clear all."""
+    import hashlib
+
+    if token is None:
+        _token_validation_cache.clear()
+    else:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        if token_hash in _token_validation_cache:
+            del _token_validation_cache[token_hash]
+
+
+def get_user_id_cached(email: str):
+    """Get cached user ID from email if still valid."""
+    import time
+
+    if email in _user_id_cache:
+        timestamp, user_id = _user_id_cache[email]
+        if time.time() - timestamp < _user_id_cache_ttl:
+            return user_id
+        else:
+            del _user_id_cache[email]
+    return None  # Cache miss
+
+
+def set_user_id_cache(email: str, user_id: str):
+    """Cache user ID from email lookup."""
+    import time
+
+    _user_id_cache[email] = (time.time(), user_id)
+
+
+def get_user_company_cached(user_id: str):
+    """Get cached user company ID if still valid."""
+    import time
+
+    if user_id in _user_company_cache:
+        timestamp, company_id = _user_company_cache[user_id]
+        if time.time() - timestamp < _user_company_cache_ttl:
+            return company_id
+        else:
+            del _user_company_cache[user_id]
+    return None  # Cache miss
+
+
+def set_user_company_cache(user_id: str, company_id: str):
+    """Cache user company ID."""
+    import time
+
+    _user_company_cache[user_id] = (time.time(), company_id)
+
+
+def invalidate_user_company_cache(user_id: str = None):
+    """Invalidate user company cache. If user_id is None, clear all."""
+    if user_id is None:
+        _user_company_cache.clear()
+    elif user_id in _user_company_cache:
+        del _user_company_cache[user_id]
+
 """
 Required environment variables:
 
@@ -589,6 +691,11 @@ def verify_api_key(authorization: str = Header(None)):
                 db.close()
                 return user_dict
 
+            # Check cache first for JWT tokens (short TTL for security)
+            cached_user = get_token_validation_cached(authorization)
+            if cached_user is not None:
+                return cached_user
+
             # Check if token is blacklisted before validating
             db = get_session()
             blacklisted_token = (
@@ -614,6 +721,8 @@ def verify_api_key(authorization: str = Header(None)):
             user_dict = user.__dict__
             user_dict.pop("_sa_instance_state")
             db.close()
+            # Cache the validation result for a short time
+            set_token_validation_cache(authorization, user_dict.copy())
             return user_dict
         except Exception as e:
             logging.info(f"Error verifying API Key: {str(e)}")
@@ -704,6 +813,11 @@ def get_user_id(user):
         else:
             raise HTTPException(status_code=404, detail="User not found in dict.")
 
+    # Check cache first for email lookups
+    cached = get_user_id_cached(user)
+    if cached is not None:
+        return cached
+
     # Handle string (email)
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
@@ -712,6 +826,8 @@ def get_user_id(user):
         raise HTTPException(status_code=404, detail=f"User {user} not found.")
     try:
         user_id = user_data.id
+        # Cache the result
+        set_user_id_cache(user, user_id)
     except Exception as e:
         session.close()
         raise HTTPException(status_code=404, detail=f"User {user} not found.")
@@ -725,6 +841,10 @@ def get_user_company_id(user):
     if isinstance(user, dict):
         user_id = user.get("id")
         if user_id:
+            # Check cache first
+            cached = get_user_company_cached(str(user_id))
+            if cached is not None:
+                return cached if cached != "__NONE__" else None
             # Look up company from UserCompany table
             session = get_session()
             try:
@@ -736,8 +856,11 @@ def get_user_company_id(user):
                 if user_company and user_company.company_id is not None:
                     company_id_str = str(user_company.company_id)
                     if company_id_str.lower() in ["none", "null", ""]:
+                        set_user_company_cache(str(user_id), "__NONE__")
                         return None
+                    set_user_company_cache(str(user_id), company_id_str)
                     return company_id_str
+                set_user_company_cache(str(user_id), "__NONE__")
                 return None
             finally:
                 session.close()
@@ -752,6 +875,10 @@ def get_user_company_id(user):
         user_data = session.query(User).filter(User.email == user).first()
         if user_data is None:
             return None
+        # Check cache for this user_id
+        cached = get_user_company_cached(str(user_data.id))
+        if cached is not None:
+            return cached if cached != "__NONE__" else None
         user_company = (
             session.query(UserCompany)
             .filter(UserCompany.user_id == user_data.id)
@@ -760,8 +887,11 @@ def get_user_company_id(user):
         if user_company and user_company.company_id is not None:
             company_id_str = str(user_company.company_id)
             if company_id_str.lower() in ["none", "null", ""]:
+                set_user_company_cache(str(user_data.id), "__NONE__")
                 return None
+            set_user_company_cache(str(user_data.id), company_id_str)
             return company_id_str
+        set_user_company_cache(str(user_data.id), "__NONE__")
         return None
     finally:
         session.close()
@@ -2553,6 +2683,8 @@ class MagicalAuth:
                 )
                 session.add(user_company)
                 session.commit()
+                # Invalidate user company cache since company membership changed
+                invalidate_user_company_cache(str(new_user_db.id))
                 # Create agent directly without login overhead
                 agixt = InternalClient(api_key=None, user=new_user.email)
                 agixt._user = new_user.email
@@ -2894,6 +3026,8 @@ class MagicalAuth:
 
         session.delete(user_company)
         session.commit()
+        # Invalidate user company cache since company membership changed
+        invalidate_user_company_cache(str(target_user_id))
 
         return "User removed from company successfully"
 
@@ -4611,6 +4745,8 @@ class MagicalAuth:
                     )
                     db.add(user_company)
                     db.commit()
+                    # Invalidate user company cache since company membership changed
+                    invalidate_user_company_cache(str(user.id))
                     # send an email letting the user know they have been added to the company
                     company = (
                         db.query(Company)
@@ -4804,12 +4940,19 @@ class MagicalAuth:
                 )
                 db.add(user_company)
                 db.commit()
+                # Invalidate user company cache since company membership changed
+                invalidate_user_company_cache(str(self.user_id))
                 return True
             except SQLAlchemyError as e:
                 db.rollback()
                 raise HTTPException(status_code=500, detail=str(e))
 
     def get_user_company_id(self):
+        # Check cache first
+        if self.user_id:
+            cached = get_user_company_cached(str(self.user_id))
+            if cached is not None:
+                return cached if cached != "__NONE__" else None
         try:
             with get_session() as db:
                 user_company = (
@@ -4821,8 +4964,14 @@ class MagicalAuth:
                     company_id_str = str(user_company.company_id)
                     # Don't return "None" string
                     if company_id_str.lower() in ["none", "null", ""]:
+                        if self.user_id:
+                            set_user_company_cache(str(self.user_id), "__NONE__")
                         return None
+                    if self.user_id:
+                        set_user_company_cache(str(self.user_id), company_id_str)
                     return company_id_str
+                if self.user_id:
+                    set_user_company_cache(str(self.user_id), "__NONE__")
                 return None
         except Exception as e:
             return None
@@ -5509,6 +5658,8 @@ class MagicalAuth:
                 )
                 db.add(user_company)
                 db.commit()
+                # Invalidate user company cache since company membership changed
+                invalidate_user_company_cache(str(self.user_id))
 
                 # Create company XT API user inline (avoid separate MagicalAuth instance)
                 company_email = f"{str(new_company.id)}@{str(new_company.id)}.xt"
