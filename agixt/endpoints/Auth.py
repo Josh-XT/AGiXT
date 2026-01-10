@@ -11,6 +11,7 @@ from Models import (
     InvitationCreateByRole,
     InvitationResponse,
     ToggleCommandPayload,
+    ToggleExtensionCommandsPayload,
     ResponseMessage,
     NewCompanyInput,
     NewCompanyResponse,
@@ -841,6 +842,63 @@ async def toggle_command(
         new_config={payload.command_name: payload.enable}, config_key="commands"
     )
     return ResponseMessage(message=update_config)
+
+
+@app.patch(
+    "/v1/companies/{company_id}/extension/commands",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Toggle all commands for a specific extension for company agent",
+    description="Enables or disables all commands for a specific extension for a company's team agent.",
+)
+async def toggle_company_extension_commands(
+    company_id: str,
+    payload: ToggleExtensionCommandsPayload,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    ApiClient = auth.get_company_agent_session(company_id=company_id)
+    if not ApiClient:
+        raise HTTPException(
+            status_code=404, detail="Company not found or access denied"
+        )
+    token = ApiClient.headers.get("Authorization")
+    company_auth = MagicalAuth(token=token)
+    agent = Agent(
+        agent_name=auth.get_company_agent_name(),
+        user=company_auth.email,
+        ApiClient=ApiClient,
+    )
+
+    # Get all extensions to find the commands for the specified extension
+    extensions = agent.get_agent_extensions()
+
+    # Find the extension and get all its commands
+    extension_commands = []
+    for extension in extensions:
+        if extension["extension_name"] == payload.extension_name:
+            for command in extension["commands"]:
+                extension_commands.append(command["friendly_name"])
+            break
+
+    if not extension_commands:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Extension '{payload.extension_name}' not found or has no commands",
+        )
+
+    # Create a config update for all commands in the extension
+    new_config = {command: payload.enable for command in extension_commands}
+
+    # Update the agent configuration
+    update_config = agent.update_agent_config(
+        new_config=new_config, config_key="commands"
+    )
+
+    return ResponseMessage(
+        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{payload.extension_name}'"
+    )
 
 
 # Rename company
