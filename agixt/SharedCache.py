@@ -180,7 +180,7 @@ class SharedCache:
         try:
             serialized = json.dumps(value)
         except (TypeError, ValueError) as e:
-            logger.error(f"SharedCache: Failed to serialize value for key {key}: {e}")
+            # logger.error(f"SharedCache: Failed to serialize value for key {key}: {e}")
             return False
 
         if self._redis is not None:

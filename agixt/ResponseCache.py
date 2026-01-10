@@ -102,11 +102,15 @@ class ResponseCacheManager:
     DEFAULT_TTLS = {
         "/v1/agent": 120,  # Agent list - 2 minutes
         "/api/provider": 300,  # Providers - 5 minutes (rarely changes)
+        "/v1/provider": 300,  # Provider list v1 - 5 minutes (rarely changes)
         "/v1/conversation": 30,  # Conversations - 30 seconds (changes often)
         "/v1/prompt": 300,  # Prompts - 5 minutes
         "/v1/chain": 300,  # Chains - 5 minutes
         "/v1/extension": 300,  # Extensions - 5 minutes
         "/v1/company": 60,  # Company data - 1 minute
+        "/v1/scopes": 600,  # Scopes list - 10 minutes (rarely changes, system-level)
+        "/v1/roles": 300,  # Custom roles - 5 minutes
+        "/v1/user/scopes": 60,  # User's effective scopes - 1 minute (per-user, changes with role changes)
     }
 
     # Invalidation rules: when a mutation happens on path pattern, invalidate these cache patterns
@@ -135,6 +139,24 @@ class ResponseCacheManager:
         "DELETE:/v1/agent/*/memory": ["memory"],
         # Extension mutations
         "PUT:/v1/agent/*/command": ["agent", "extension"],
+        # Role/Scope mutations - invalidate role-related caches
+        "POST:/v1/roles": [
+            "roles",
+            "user/scopes",
+        ],  # Creating a role affects available roles
+        "PUT:/v1/roles": [
+            "roles",
+            "user/scopes",
+        ],  # Updating a role affects user scopes
+        "DELETE:/v1/roles": [
+            "roles",
+            "user/scopes",
+        ],  # Deleting a role affects user scopes
+        "POST:/v1/user/*/roles": ["user/scopes"],  # Assigning role to user
+        "DELETE:/v1/user/*/roles": ["user/scopes"],  # Removing role from user
+        "PUT:/v1/company/*/user/*/role": [
+            "user/scopes"
+        ],  # Changing user's role in company
     }
 
     # Endpoints that should be cached (GET only) - ALLOWLIST APPROACH
@@ -150,6 +172,7 @@ class ResponseCacheManager:
     CACHEABLE_ENDPOINTS = {
         "/v1/agent",  # Agent list/config - internal AGiXT data
         "/api/provider",  # Provider list - internal, rarely changes
+        "/v1/provider",  # Provider list v1 - internal, rarely changes
         "/v1/conversation",  # Conversation list - internal (short TTL)
         "/v1/prompt",  # Prompts - internal AGiXT data
         "/v1/chain",  # Chains - internal AGiXT data
@@ -157,6 +180,9 @@ class ResponseCacheManager:
         "/v1/company",  # Company data - internal AGiXT data
         "/api/extension/categories",  # Extension categories - internal
         "/v1/extensions/settings",  # Extension settings - internal config
+        "/v1/scopes",  # All system scopes - internal, rarely changes
+        "/v1/roles",  # Custom roles list - internal AGiXT data
+        "/v1/user/scopes",  # User's effective scopes - per-user permissions
     }
 
     def __init__(self):
