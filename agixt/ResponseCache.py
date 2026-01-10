@@ -170,9 +170,7 @@ class ResponseCacheManager:
             "errors": 0,
         }
 
-    def _make_cache_key(
-        self, user_id: str, path: str, query_string: str = ""
-    ) -> str:
+    def _make_cache_key(self, user_id: str, path: str, query_string: str = "") -> str:
         """Create a cache key from user_id, path and query string"""
         full_path = f"{path}?{query_string}" if query_string else path
         path_hash = hashlib.md5(full_path.encode()).hexdigest()
@@ -251,9 +249,11 @@ class ResponseCacheManager:
                     response_body = zlib.decompress(compressed_body)
                 except (zlib.error, KeyError):
                     # Fallback for uncompressed or malformed data
-                    response_body = cached_data.get("body", b"").encode() if isinstance(
-                        cached_data.get("body"), str
-                    ) else cached_data.get("body", b"")
+                    response_body = (
+                        cached_data.get("body", b"").encode()
+                        if isinstance(cached_data.get("body"), str)
+                        else cached_data.get("body", b"")
+                    )
 
                 return CacheEntry(
                     response_body=response_body,

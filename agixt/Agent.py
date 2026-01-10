@@ -178,7 +178,7 @@ def get_agent_data_cached(
     """
     if not agent_id or not user_id:
         return None
-    
+
     return get_cached_agent_data(agent_id, user_id)
 
 
@@ -189,7 +189,7 @@ def set_agent_data_cache(agent_id: str, agent_name: str, user_id: str, data: dic
     """
     if not agent_id or not user_id:
         return
-    
+
     cache_agent_data(agent_id, user_id, data, ttl=_AGENT_DATA_CACHE_TTL)
 
 
@@ -205,7 +205,7 @@ def get_all_commands_cached(session):
     # For now, use a local cache with short TTL since commands rarely change
     # and are used frequently within a single request
     global _all_commands_cache, _all_commands_cache_time
-    
+
     if _all_commands_cache is not None:
         if (time.time() - _all_commands_cache_time) < _COMMANDS_CACHE_TTL:
             return _all_commands_cache
@@ -213,6 +213,7 @@ def get_all_commands_cached(session):
     _all_commands_cache = session.query(Command).all()
     _all_commands_cache_time = time.time()
     return _all_commands_cache
+
 
 # Local cache for commands (ORM objects can't be serialized to Redis)
 _all_commands_cache = None

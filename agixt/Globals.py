@@ -134,7 +134,9 @@ def load_server_config_cache():
                         config_dict[config.name] = config.value
 
         # Store in shared cache
-        shared_cache.set(_SERVER_CONFIG_CACHE_KEY, config_dict, ttl=_SERVER_CONFIG_CACHE_TTL)
+        shared_cache.set(
+            _SERVER_CONFIG_CACHE_KEY, config_dict, ttl=_SERVER_CONFIG_CACHE_TTL
+        )
         _server_config_cache_loaded = True
     except Exception:
         # Database not initialized yet or other error - this is expected during startup
@@ -146,6 +148,7 @@ def invalidate_server_config_cache():
     global _server_config_cache_loaded
     try:
         from SharedCache import shared_cache
+
         shared_cache.delete(_SERVER_CONFIG_CACHE_KEY)
     except Exception:
         pass
@@ -162,6 +165,7 @@ def server_config_has_key(var_name: str) -> bool:
         load_server_config_cache()
     try:
         from SharedCache import shared_cache
+
         cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
         if cached is not None:
             return var_name in cached
@@ -264,6 +268,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
     if _server_config_cache_loaded:
         try:
             from SharedCache import shared_cache
+
             cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
             if cached is not None and var_name in cached:
                 cached_value = cached.get(var_name)
