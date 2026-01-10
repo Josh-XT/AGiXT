@@ -23,6 +23,9 @@ services:
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       DATABASE_USER: ${DATABASE_USER:-postgres}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      # Redis for shared cache (cross-worker consistency)
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       # Server runtime config
       AGIXT_API_KEY: ${AGIXT_API_KEY:-}
       UVICORN_WORKERS: ${UVICORN_WORKERS:-10}
@@ -47,6 +50,7 @@ services:
     depends_on:
       - minio
       - postgres
+      - redis
   agixtinteractive:
     image: joshxt/agixt-interactive:main
     init: true
@@ -73,6 +77,20 @@ services:
       test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres}"]
       interval: 30s
       timeout: 10s
+      retries: 5
+    restart: unless-stopped
+  redis:
+    image: redis:alpine
+    container_name: agixt-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./models/redis:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
       retries: 5
     restart: unless-stopped
   minio:

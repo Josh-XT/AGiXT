@@ -274,6 +274,7 @@ class AGiXT:
             api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
         self.api_key = api_key
         self.auth = MagicalAuth(token=api_key)
+        self.user_id = self.auth.user_id  # Cache user_id for reuse
         self.conversation = None
         self.conversation_id = None
         self.conversation_name = None
@@ -311,6 +312,7 @@ class AGiXT:
             else DEFAULT_SETTINGS
         )
         self.chain = Chain(user=self.user_email)
+        self.prompts_manager = Prompts(user=self.user_email)  # Cache Prompts instance
         self.agent_workspace = self.agent.working_directory
         os.makedirs(self.agent_workspace, exist_ok=True)
         self.conversation_workspace = os.path.join(
@@ -340,9 +342,7 @@ class AGiXT:
         Returns:
             list: List of available prompts
         """
-        return Prompts(user=self.user_email).get_prompts(
-            prompt_category=prompt_category
-        )
+        return self.prompts_manager.get_prompts(prompt_category=prompt_category)
 
     async def chains(self):
         """
@@ -422,9 +422,8 @@ class AGiXT:
             return  # Only rename new conversations
 
         try:
-            c = Conversations(
-                conversation_name=self.conversation_name, user=self.user_email
-            )
+            # Use existing conversation instance instead of creating new one
+            c = self.conversation
 
             # Default fallback name
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")

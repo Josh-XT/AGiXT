@@ -3,7 +3,7 @@ from fastapi import APIRouter, Header, HTTPException, Depends, Query
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
-from MagicalAuth import MagicalAuth, verify_api_key
+from MagicalAuth import MagicalAuth, verify_api_key, invalidate_user_scopes_cache
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
@@ -1459,6 +1459,11 @@ async def set_super_admin(
         user_company.role_id = 0
         session.commit()
 
+        # Invalidate user scopes cache since their role changed
+        invalidate_user_scopes_cache(
+            user_id=str(user.id), company_id=str(user_company.company_id)
+        )
+
         return {
             "success": True,
             "user_id": str(user.id),
@@ -2211,6 +2216,9 @@ async def admin_change_user_role(
 
         user_company.role_id = role_id
         session.commit()
+
+        # Invalidate user scopes cache since their role changed
+        invalidate_user_scopes_cache(user_id=user_id, company_id=company_id)
 
         return {
             "success": True,
