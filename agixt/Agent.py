@@ -73,8 +73,11 @@ _COMPANY_CONFIG_CACHE_TTL = 0  # Disabled for multi-worker consistency
 
 # Cache for agent data (agent model + settings + commands) - short TTL for request batching
 # This dramatically reduces DB queries during chat completions where Agent is created multiple times
+# DISABLED: Multi-worker caching causes stale command state issues
 _agent_data_cache = {}
-_AGENT_DATA_CACHE_TTL = 5  # 5 seconds - just enough to batch within a request cycle
+_AGENT_DATA_CACHE_TTL = (
+    0  # DISABLED - each worker has own cache, invalidation doesn't propagate
+)
 
 # Cache for SSO-enabled extensions - requires filesystem scan so cache aggressively
 _sso_providers_cache = None
@@ -2940,10 +2943,12 @@ class Agent:
             if new_extension["commands"] == [] and not settings_with_values:
                 continue
             new_extensions.append(new_extension)
+
         for extension in new_extensions:
             for command in extension["commands"]:
-                if command["friendly_name"] in self.AGENT_CONFIG["commands"]:
-                    raw_value = self.AGENT_CONFIG["commands"][command["friendly_name"]]
+                friendly_name = command["friendly_name"]
+                if friendly_name in self.AGENT_CONFIG["commands"]:
+                    raw_value = self.AGENT_CONFIG["commands"][friendly_name]
                     computed_enabled = str(raw_value).lower() == "true"
                     command["enabled"] = computed_enabled
                 else:
@@ -3079,14 +3084,11 @@ class Agent:
                         continue
 
                 # Now handle the agent command association
-                try:
-                    agent_command = (
-                        session.query(AgentCommand)
-                        .filter_by(agent_id=self.agent_id, command_id=command.id)
-                        .first()
-                    )
-                except:
-                    agent_command = None
+                agent_command = (
+                    session.query(AgentCommand)
+                    .filter_by(agent_id=self.agent_id, command_id=command.id)
+                    .first()
+                )
 
                 if agent_command:
                     agent_command.state = enabled
@@ -3097,15 +3099,9 @@ class Agent:
                         state=enabled,
                     )
                     session.add(agent_command)
-                    logging.info(
-                        f"[update_agent_config] Created new AgentCommand with state={enabled}"
-                    )
 
                 # Force flush to ensure the change is staged
                 session.flush()
-                logging.info(
-                    f"[update_agent_config] Flushed command state change for {command_name}"
-                )
         else:
             for setting_name, setting_value in new_config.items():
                 agent_setting = (
@@ -3137,24 +3133,6 @@ class Agent:
             invalidate_agent_data_cache(
                 agent_id=str(self.agent_id)
             )  # Clear agent data cache
-            logging.info(
-                f"[update_agent_config] Caches invalidated after config update"
-            )
-
-            # Verify the commit by re-querying
-            if config_key == "commands":
-                for command_name, enabled in new_config.items():
-                    command = _resolve_command_by_name(session, command_name)
-                    if command:
-                        verify_ac = (
-                            session.query(AgentCommand)
-                            .filter_by(agent_id=self.agent_id, command_id=command.id)
-                            .first()
-                        )
-                        logging.info(
-                            f"[update_agent_config] VERIFY after commit: {command_name} -> "
-                            f"state={verify_ac.state if verify_ac else 'NOT FOUND'}"
-                        )
 
             # Emit webhook event for agent configuration update
             import asyncio
