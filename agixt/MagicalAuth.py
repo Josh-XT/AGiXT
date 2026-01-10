@@ -172,6 +172,45 @@ def invalidate_user_company_cache(user_id: str = None):
         shared_cache.delete(f"user_company:{user_id}")
 
 
+# User scopes cache TTL - 60 seconds (short enough to catch role changes quickly)
+_user_scopes_cache_ttl = 60
+
+
+def get_user_scopes_cached(user_id: str, company_id: str):
+    """Get cached user scopes if still valid (uses SharedCache)."""
+    cache_key = f"user_scopes:{user_id}:{company_id}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        # Convert list back to set
+        return set(cached) if isinstance(cached, list) else None
+    return None
+
+
+def set_user_scopes_cache(user_id: str, company_id: str, scopes: set):
+    """Cache user scopes (uses SharedCache). Converts set to list for JSON serialization."""
+    cache_key = f"user_scopes:{user_id}:{company_id}"
+    # Convert set to list for JSON serialization
+    shared_cache.set(cache_key, list(scopes), ttl=_user_scopes_cache_ttl)
+
+
+def invalidate_user_scopes_cache(user_id: str = None, company_id: str = None):
+    """
+    Invalidate user scopes cache.
+    - If both are None: clear all user scopes caches
+    - If only user_id: clear all scopes for that user across all companies
+    - If only company_id: clear all users' scopes in that company
+    - If both: clear specific user/company combo
+    """
+    if user_id is None and company_id is None:
+        shared_cache.delete_pattern("user_scopes:*")
+    elif user_id is not None and company_id is None:
+        shared_cache.delete_pattern(f"user_scopes:{user_id}:*")
+    elif user_id is None and company_id is not None:
+        shared_cache.delete_pattern(f"user_scopes:*:{company_id}")
+    else:
+        shared_cache.delete(f"user_scopes:{user_id}:{company_id}")
+
+
 """
 Required environment variables:
 
@@ -1474,6 +1513,9 @@ class MagicalAuth:
         Also includes wildcard patterns from default_role_scopes for proper
         frontend scope checking (e.g., ext:* for company admins).
 
+        Results are cached for 60 seconds to improve performance since
+        permission checks happen frequently.
+
         Args:
             company_id: The company to check scopes for. Defaults to user's current company.
 
@@ -1487,6 +1529,11 @@ class MagicalAuth:
 
         if not company_id:
             company_id = self.company_id
+
+        # Check cache first
+        cached_scopes = get_user_scopes_cached(self.user_id, company_id)
+        if cached_scopes is not None:
+            return cached_scopes
 
         scopes = set()
 
@@ -1592,6 +1639,8 @@ class MagicalAuth:
             )
             scopes.update(s.name for s in custom_role_scopes)
 
+        # Cache the computed scopes for future calls
+        set_user_scopes_cache(self.user_id, company_id, scopes)
         return scopes
 
     def has_scope(self, scope: str, company_id: str = None) -> bool:
@@ -3166,6 +3215,8 @@ class MagicalAuth:
         if user_company:
             user_company.role_id = role_id
             session.commit()
+            # Invalidate user scopes cache since their role changed
+            invalidate_user_scopes_cache(user_id=user_id, company_id=company_id)
         else:
             session.close()
             raise HTTPException(
